@@ -43,7 +43,7 @@ const AUTOMATION_LEASE_TTL_SEC = Math.max(
   Math.min(3600, Number(process.env.ADS_AUTOMATION_LEASE_TTL_SEC) || 15 * 60),
 );
 
-const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'cpc_max', 'roas_scale', 'schedule'];
+const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'cpc_max', 'roas_scale', 'scheduled_scale', 'self_heal', 'schedule'];
 const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
 const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2, rejectedAds: false, autoAppealSmartPlus: false };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -249,6 +249,13 @@ function buildRulePresets() {
       name: 'ROAS excelente → escalar agressivo',
       description: 'Aumenta o orçamento em 30% quando o ROAS atribuído passar de 3,0 com pelo menos 2 vendas. Teto absoluto de 200 €/dia por campanha.',
       metric: 'roas_scale', threshold: 3, lookbackDays: 1, minSales: 2, pct: 30, budgetCap: 200,
+    },
+    {
+      id: 'preset_self_heal', preset: true, enabled: false, mode: 'execute',
+      name: 'Autocura de orçamento',
+      description: 'Move até 20% do orçamento de uma campanha ruim para uma vencedora perto de esgotar, sem aumentar o gasto total da conta.',
+      metric: 'self_heal', threshold: 2, lookbackDays: 1, minSales: 2, minSpend: 20,
+      donorRoasMax: 0.8, budgetUtilizationPct: 85, pct: 20, budgetCap: 500,
     },
     {
       id: 'preset_schedule', preset: true, enabled: false,
@@ -549,7 +556,7 @@ function validateRules(raw) {
       // piso de cliques obrigatório: CPC de 2 cliques é ruído, não sinal
       out.minClicks = Math.max(1, Math.min(1000000, parseInt(r.minClicks, 10) || 30));
     }
-    if (metric === 'roas_scale') {
+    if (metric === 'roas_scale' || metric === 'scheduled_scale') {
       out.action = 'budget_up'; // escala é sempre budget_up
       out.minSales = Math.max(1, Math.min(1000, parseInt(r.minSales, 10) || 2));
       // teto absoluto OBRIGATÓRIO: sem teto válido a regra é DESATIVADA (não
@@ -557,6 +564,21 @@ function validateRules(raw) {
       const cap = Number(r.budgetCap) || 0;
       out.budgetCap = cap > 0 ? Math.min(1000000, cap) : 0;
       if (!(out.budgetCap > 0)) out.enabled = false;
+    }
+    if (metric === 'scheduled_scale') {
+      const days = Array.isArray(r.days) ? r.days.map((d) => parseInt(d, 10)).filter((d) => d >= 0 && d <= 6) : [];
+      out.days = [...new Set(days)].sort();
+      out.triggerTime = /^\d{2}:\d{2}$/.test(String(r.triggerTime || '')) ? r.triggerTime : '18:00';
+      out.graceMinutes = Math.max(5, Math.min(60, Math.round(Number(r.graceMinutes) || 15)));
+      if (!out.days.length) out.enabled = false;
+    }
+    if (metric === 'self_heal') {
+      out.action = 'budget_up';
+      out.minSales = Math.max(1, Math.min(1000, parseInt(r.minSales, 10) || 2));
+      out.minSpend = Math.max(1, Math.min(1000000, Number(r.minSpend) || 20));
+      out.donorRoasMax = Math.max(0, Math.min(100, Number(r.donorRoasMax) || 0.8));
+      out.budgetUtilizationPct = Math.max(50, Math.min(100, Number(r.budgetUtilizationPct) || 85));
+      out.budgetCap = Math.max(20, Math.min(1000000, Number(r.budgetCap) || 500));
     }
     if (metric === 'schedule') {
       const days = Array.isArray(r.days) ? r.days.map((d) => parseInt(d, 10)).filter((d) => d >= 0 && d <= 6) : [];
@@ -1210,7 +1232,7 @@ function evaluateRule(r, ctx) {
     && spend / clicks > r.threshold) {
     return { hit: true, detail: 'CPC ' + (spend / clicks).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques)' };
   }
-  if (r.metric === 'roas_scale' && r.threshold > 0 && roas !== null
+  if ((r.metric === 'roas_scale' || r.metric === 'scheduled_scale') && r.threshold > 0 && roas !== null
     && attr.sales >= (r.minSales || 2) && roas >= r.threshold) {
     return { hit: true, detail: 'ROAS ' + roas.toFixed(2) + ' ≥ ' + r.threshold + ' com ' + attr.sales + ' venda(s) — escalando' };
   }
@@ -1224,7 +1246,7 @@ function computeBudgetPlan(r, c, maxBudgetChangePct) {
   const pctRaw = Math.max(5, Math.min(50, Number(r.pct) || 20));
   const pct = Math.min(pctRaw, Number.isFinite(maxBudgetChangePct) ? maxBudgetChangePct : pctRaw);
   const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
-  const cap = r.metric === 'roas_scale' ? Number(r.budgetCap) || 0 : 0;
+  const cap = (r.metric === 'roas_scale' || r.metric === 'scheduled_scale') ? Number(r.budgetCap) || 0 : 0;
   const changes = []; let capped = 0; let delta = 0;
   const targets = c.budgetOwner === 'campaign'
     ? [{ targetType: 'campaign', targetId: c.platformCampaignId, budget: c.budget || {} }]
@@ -1252,12 +1274,128 @@ function computeBudgetPlan(r, c, maxBudgetChangePct) {
   return { pct, cap, capped, changes, delta };
 }
 
+function campaignBudgetTargets(campaign) {
+  if (campaign.budgetOwner === 'campaign') {
+    return [{
+      campaign,
+      campaignId: String(campaign.platformCampaignId || ''),
+      campaignKind: campaign.campaignKind || 'auction',
+      targetType: 'campaign',
+      targetId: String(campaign.platformCampaignId || ''),
+      budget: campaign.budget || {},
+    }];
+  }
+  return (campaign.adSets || []).map((set) => ({
+    campaign,
+    campaignId: String(campaign.platformCampaignId || ''),
+    campaignKind: campaign.campaignKind || 'auction',
+    targetType: 'adgroup',
+    targetId: String(set.platformAdSetId || set._id || ''),
+    budget: set.budget || {},
+  })).filter((target) => target.targetId);
+}
+
+function planSelfHealing(campaigns, attribution, rule, maxBudgetChangePct) {
+  const entries = (campaigns || []).filter((campaign) => campaign.status === 'active').map((campaign) => {
+    const ctx = metricsContext(campaign, attribution || { byCampaign: {} });
+    const targets = campaignBudgetTargets(campaign).filter((target) => target.budget.type !== 'lifetime' && Number(target.budget.amount) > 0);
+    const budget = targets.reduce((sum, target) => sum + Number(target.budget.amount || 0), 0);
+    const utilization = budget > 0 ? ctx.spend / budget * 100 : 0;
+    return { campaign, ctx, targets, budget, utilization };
+  }).filter((entry) => entry.targets.length);
+  const winners = entries.filter((entry) => entry.ctx.roas != null
+    && entry.ctx.roas >= rule.threshold
+    && entry.ctx.attr.sales >= rule.minSales
+    && entry.utilization >= rule.budgetUtilizationPct)
+    .sort((a, b) => b.ctx.roas - a.ctx.roas);
+  const donors = entries.filter((entry) => entry.ctx.spend >= rule.minSpend
+    && (entry.ctx.attr.sales === 0 || (entry.ctx.roas != null && entry.ctx.roas <= rule.donorRoasMax)))
+    .sort((a, b) => (a.ctx.roas == null ? -1 : a.ctx.roas) - (b.ctx.roas == null ? -1 : b.ctx.roas));
+  const winner = winners[0];
+  const donor = donors.find((entry) => entry.campaign.platformCampaignId !== winner?.campaign.platformCampaignId
+    && entry.campaign.campaignKind === winner?.campaign.campaignKind
+    && String(entry.campaign.currency || '') === String(winner?.campaign.currency || ''));
+  if (!winner || !donor) return null;
+
+  const pctValue = Math.min(Math.max(5, Number(rule.pct) || 20), Math.max(5, Number(maxBudgetChangePct) || 50));
+  const minimumBudget = 20;
+  const donorCapacity = donor.targets.reduce((sum, target) => sum + Math.max(0, Number(target.budget.amount) - minimumBudget), 0);
+  const requested = Math.min(donor.budget * pctValue / 100, donorCapacity);
+  const winnerCapacity = winner.targets.reduce((sum, target) => sum + Math.max(0, Number(rule.budgetCap) - Number(target.budget.amount)), 0);
+  const transfer = Math.floor(Math.min(requested, winnerCapacity) * 100) / 100;
+  if (!(transfer > 0)) return null;
+
+  function distribute(targets, total, direction) {
+    const weights = targets.reduce((sum, target) => sum + Number(target.budget.amount), 0) || targets.length;
+    let remaining = total;
+    return targets.map((target, index) => {
+      const cur = Number(target.budget.amount);
+      const share = index === targets.length - 1 ? remaining : Math.floor(total * (cur / weights) * 100) / 100;
+      remaining = Math.max(0, Math.round((remaining - share) * 100) / 100);
+      const amount = direction === 'down'
+        ? Math.max(minimumBudget, Math.round((cur - share) * 100) / 100)
+        : Math.min(Number(rule.budgetCap), Math.round((cur + share) * 100) / 100);
+      return { ...target, cur, amount, type: 'daily', role: direction === 'down' ? 'donor' : 'winner' };
+    }).filter((change) => change.amount !== change.cur);
+  }
+
+  return {
+    transfer,
+    pct: pctValue,
+    winner,
+    donor,
+    changes: distribute(donor.targets, transfer, 'down').concat(distribute(winner.targets, transfer, 'up')),
+  };
+}
+
+async function applyHealingChange(change, advertiserId, leaseGuard, amount) {
+  if (typeof leaseGuard === 'function') await leaseGuard();
+  const patch = { budget: { amount, type: change.type || 'daily' } };
+  if (change.targetType === 'campaign') {
+    return change.campaignKind === 'smart_plus'
+      ? provider.updateSmartPlusCampaign(advertiserId, change.targetId, patch)
+      : provider.updateCampaign(advertiserId, change.targetId, patch);
+  }
+  return change.campaignKind === 'smart_plus'
+    ? provider.updateSmartPlusAdGroup(advertiserId, change.targetId, patch)
+    : provider.updateAdGroup(advertiserId, change.targetId, patch);
+}
+
+async function executeSelfHealing(plan, advertiserId, leaseGuard, dryRun) {
+  if (dryRun) return { ok: true, simulated: true };
+  const applied = [];
+  try {
+    // Reduz primeiro: uma falha intermediária nunca aumenta o gasto total.
+    for (const change of plan.changes.filter((item) => item.role === 'donor')) {
+      await applyHealingChange(change, advertiserId, leaseGuard, change.amount);
+      applied.push(change);
+    }
+    for (const change of plan.changes.filter((item) => item.role === 'winner')) {
+      await applyHealingChange(change, advertiserId, leaseGuard, change.amount);
+      applied.push(change);
+    }
+    return { ok: true };
+  } catch (error) {
+    // Compensa em ordem inversa. Se a compensação falhar, a auditoria deixa o
+    // estado parcial explícito e o gasto total permanece igual ou menor.
+    const rollbackErrors = [];
+    for (const change of applied.slice().reverse()) {
+      try { await applyHealingChange(change, advertiserId, leaseGuard, change.cur); }
+      catch (rollbackError) { rollbackErrors.push(String(rollbackError && rollbackError.message || rollbackError)); }
+    }
+    error.rollbackErrors = rollbackErrors;
+    throw error;
+  }
+}
+
 // ── Regras (agem: pause / budget ±) ─────────────────────────────────────────
 async function runRulesSweep(accId, { force, advertiserId: advertiserHint, leaseGuard } = {}) {
   if (!provider.enabled) return { executed: [], skipped: true };
   const advertiserId = cleanAdvertiserId(advertiserHint) || await provider.resolveAdvertiserId(accId);
   if (!advertiserId) return { executed: [], skipped: true };
-  const rules = getRules(accId, advertiserId).filter((r) => r.enabled && r.metric !== 'schedule');
+  const timeZone = await resolveAdvertiserTimeZone(accId, advertiserId);
+  const rules = getRules(accId, advertiserId).filter((r) => r.enabled && r.metric !== 'schedule')
+    .filter((r) => r.metric !== 'scheduled_scale' || scheduleTriggerActiveNow({ ...r, timezone: timeZone }));
   if (!rules.length) return { executed: [], skipped: true };
 
   // GUARDA 1 — a PRIMEIRA de todas, antes até do dry-run: kill switch.
@@ -1375,7 +1513,7 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
       if (!dryRun && mode === 'execute' && typeof leaseGuard === 'function') {
         await leaseGuard();
       }
-      const cooldownMs = r.metric === 'roas_scale' ? SCALE_COOLDOWN_MS : RULE_COOLDOWN_MS;
+      const cooldownMs = (r.metric === 'roas_scale' || r.metric === 'scheduled_scale') ? SCALE_COOLDOWN_MS : RULE_COOLDOWN_MS;
       const key = scopedStateKey(advertiserId, 'rule:' + c.platformCampaignId + ':' + r.id);
       if (await underCooldown(accId, key, cooldownMs)) continue;
       await markFired(accId, key, 'rule', { metric: r.metric, action: r.action });
@@ -1542,6 +1680,114 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
         sendPushcut('Aprovada', { title: 'Ação automática falhou', text: entry.result + ' — "' + name + '". Verifique no painel.', sound: 'system' }, accId, { event: 'ads_failure', priority: 'critical', dedupeKey: 'ads:rule-failed:' + c.platformCampaignId + ':' + r.id }).catch(() => {});
       }
     }
+  }
+
+  // Autocura é deliberadamente uma decisão ENTRE duas campanhas, por isso
+  // não participa do resolvedor por campanha acima. Ela reduz o doador antes
+  // de aumentar a vencedora e compensa as escritas já aplicadas se a segunda
+  // metade falhar. O total diário nunca cresce por causa desta operação.
+  for (const rule of rules.filter((item) => item.metric === 'self_heal')) {
+    if (stop) break;
+    const group = groupByRule.get(rule);
+    const plan = group && planSelfHealing(group.campaigns, group.attribution, rule, policy.maxBudgetChangePct);
+    if (!plan) continue;
+    const winnerId = String(plan.winner.campaign.platformCampaignId || '');
+    const donorId = String(plan.donor.campaign.platformCampaignId || '');
+    const winnerName = plan.winner.campaign.campaignName || winnerId;
+    const donorName = plan.donor.campaign.campaignName || donorId;
+    const detail = 'transferir ' + plan.transfer.toFixed(2) + ' de "' + donorName
+      + '" (ROAS ' + (plan.donor.ctx.roas == null ? '0' : plan.donor.ctx.roas.toFixed(2))
+      + ') para "' + winnerName + '" (ROAS ' + plan.winner.ctx.roas.toFixed(2) + ')';
+    const entry = {
+      at: new Date().toISOString(), ruleId: rule.id, metric: rule.metric,
+      action: 'self_healing', campaignId: winnerId, donorCampaignId: donorId,
+      campaignName: winnerName, donorCampaignName: donorName, detail,
+      ok: false, simulated: dryRun,
+    };
+
+    if (!dryRun && breakerOpen(accId, policy, advertiserId)) {
+      stop = true;
+      break;
+    }
+    if (!dryRun && policy.maxActionsPerHour > 0 && actionsThisHour >= policy.maxActionsPerHour) {
+      stop = true;
+      break;
+    }
+    const key = scopedStateKey(advertiserId, 'self-heal:' + rule.id + ':' + donorId + ':' + winnerId);
+    if (await underCooldown(accId, key, SCALE_COOLDOWN_MS)) continue;
+
+    // No modo proposta mostramos o plano, mas não criamos uma proposta comum:
+    // aquela estrutura representa uma campanha só e aprovaria apenas metade da
+    // transferência. Para agir, o usuário ativa explicitamente o modo automático.
+    if (!dryRun && rule.mode !== 'execute') {
+      entry.ok = true;
+      entry.proposed = true;
+      entry.result = 'plano de autocura pronto — altere a regra para “Agir sozinho” para executar';
+      executed.push(entry);
+      continue;
+    }
+
+    if (!dryRun && typeof leaseGuard === 'function') await leaseGuard();
+    await markFired(accId, key, 'self_heal', { ruleId: rule.id, donorId, winnerId, transfer: plan.transfer });
+    try {
+      await executeSelfHealing(plan, advertiserId, leaseGuard, dryRun);
+      entry.ok = true;
+      entry.result = (dryRun ? 'simulação: ' : '') + detail;
+      const beforeState = {
+        donor: plan.changes.filter((item) => item.role === 'donor').map((item) => ({ targetId: item.targetId, budget: item.cur })),
+        winner: plan.changes.filter((item) => item.role === 'winner').map((item) => ({ targetId: item.targetId, budget: item.cur })),
+      };
+      const afterState = {
+        donor: plan.changes.filter((item) => item.role === 'donor').map((item) => ({ targetId: item.targetId, budget: item.amount })),
+        winner: plan.changes.filter((item) => item.role === 'winner').map((item) => ({ targetId: item.targetId, budget: item.amount })),
+      };
+      if (dryRun) {
+        await auditSimulated(accId, {
+          action: 'self_healing', targetType: 'campaign', targetId: winnerId, advertiserId,
+          title: 'Autocura: ' + detail,
+          metadata: { ruleId: rule.id, donorId, winnerId, transfer: plan.transfer, beforeState, afterState },
+        });
+      } else {
+        const audit = await auditReal(accId, {
+          action: 'self_healing.transfer', targetType: 'campaign', targetId: winnerId, advertiserId,
+          beforeState, afterState, reason: 'Autocura: ' + detail,
+          metadata: { ruleId: rule.id, donorId, winnerId, transfer: plan.transfer },
+        });
+        if (audit && audit.id) entry.auditId = audit.id;
+        actionsThisHour += 1;
+        recordOutcome(accId, true, advertiserId);
+        sendPushcut('Aprovada', {
+          title: 'Orçamento autocurado',
+          text: detail + '. O gasto total programado foi preservado.',
+          sound: 'system',
+        }, accId, {
+          event: 'ads_self_heal', priority: 'normal',
+          dedupeKey: 'ads:self-heal:' + advertiserId + ':' + donorId + ':' + winnerId,
+        }).catch(() => {});
+      }
+    } catch (error) {
+      entry.result = 'falhou: ' + String(error && error.message || 'erro').slice(0, 160);
+      if (error && error.rollbackErrors && error.rollbackErrors.length) {
+        entry.partialMutation = true;
+        entry.result += ' (rollback incompleto: ' + error.rollbackErrors.join('; ').slice(0, 160) + ')';
+        stop = true;
+      } else {
+        await clearFired(accId, key).catch(() => {});
+      }
+      if (!dryRun) {
+        recordOutcome(accId, false, advertiserId);
+        await auditReal(accId, {
+          action: 'self_healing.failed', targetType: 'campaign', targetId: winnerId, advertiserId,
+          reason: entry.result,
+          metadata: { ruleId: rule.id, donorId, winnerId, transfer: plan.transfer, rollbackErrors: error && error.rollbackErrors || [] },
+        });
+      }
+    }
+    executed.push(entry);
+    stats.logEvent(entry.ok ? 'info' : 'warn', {
+      acc: accId,
+      title: '[tiktok-ads] Autocura ' + (entry.ok ? 'concluída' : 'FALHOU') + ': ' + entry.result,
+    });
   }
   // Propostas não mudaram nada na plataforma — não disparam sync pós-escrita.
   appendRulesLog(accId, executed, advertiserId);
@@ -2138,6 +2384,16 @@ function scheduleActiveNow(rule, date = new Date()) {
   if (minutes >= start) return days.includes(dayIdx);
   if (minutes < end) return days.includes((dayIdx + 6) % 7);
   return false;
+}
+
+// Janela curta de disparo para ações condicionais (ex.: sexta 18h +30% se
+// ROAS >= 2). O worker roda a cada poucos minutos; a tolerância evita perder o
+// evento por atraso sem permitir que ele se repita pelo resto do dia.
+function scheduleTriggerActiveNow(rule, date = new Date()) {
+  const { dayIdx, minutes } = localNow(rule.timezone, date);
+  const trigger = minutesOf(rule.triggerTime || '18:00');
+  const grace = Math.max(5, Math.min(60, Number(rule.graceMinutes) || 15));
+  return (rule.days || []).includes(dayIdx) && minutes >= trigger && minutes < trigger + grace;
 }
 
 async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, leaseGuard } = {}) {
@@ -2970,5 +3226,5 @@ module.exports = {
   ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, automaticPolicyIssue, profileHasEnabledAutomation, deriveEngineStatus, sweepResultCode, engineRuns, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS, FRESHNESS_MS },
+  _internals: { scheduleActiveNow, scheduleTriggerActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, campaignBudgetTargets, planSelfHealing, executeSelfHealing, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, automaticPolicyIssue, profileHasEnabledAutomation, deriveEngineStatus, sweepResultCode, engineRuns, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS, FRESHNESS_MS },
 };

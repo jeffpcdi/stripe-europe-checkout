@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Check, Tag, Shield, ShieldAlert } from 'lucide-react'
+import { X, Check, Tag, Shield, ShieldAlert, Plus, Trash2, FlaskConical } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import type { CheckoutLink, CustomDomain } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -30,8 +30,11 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   const [dominio, setDominio] = useState(link?.dominio ?? presetDominio ?? '')
   const [urlWhitePage, setUrlWhitePage] = useState(link?.urlWhitePage ?? '')
   
-  // A magia do One-Link: reduzimos tudo a 1 oferta e 1 escudo
-  const [urlOferta, setUrlOferta] = useState(link?.variantes?.[0]?.url ?? '')
+  const [variantes, setVariantes] = useState(() => (link?.variantes?.length ? link.variantes : [{
+    id: 'v1', nome: 'Variante A', url: '', urlMobile: null, peso: 100, clicks: 0, conversions: 0, revenue: {},
+  }]).map((variant) => ({ ...variant })))
+  const [experimentEnabled, setExperimentEnabled] = useState(link?.experiment?.enabled ?? false)
+  const [autoStop, setAutoStop] = useState(link?.experiment?.autoStop ?? true)
   const [escudoMaximo, setEscudoMaximo] = useState(true)
   
   const [ativo, setAtivo] = useState(link?.ativo ?? true)
@@ -40,7 +43,11 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
 
   const isValidUrl = (u: string) => /^https:\/\/[^\s]+\.[^\s]+/i.test(u.trim())
   const urlInvalida = (u: string) => !!u.trim() && !isValidUrl(u)
-  const temUrlInvalida = urlInvalida(urlOferta) || urlInvalida(urlWhitePage)
+  const temUrlInvalida = variantes.some((variant) => urlInvalida(variant.url)) || urlInvalida(urlWhitePage)
+
+  function updateVariant(index: number, patch: Partial<(typeof variantes)[number]>) {
+    setVariantes((current) => current.map((variant, i) => i === index ? { ...variant, ...patch } : variant))
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -56,15 +63,20 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
         idiomas: [],
         pixelSlug: '', // Padrão vazio (pega global)
         ativo,
-        variantes: [
-          {
-            id: link?.variantes?.[0]?.id || 'v1',
-            nome: 'Oferta Principal',
-            url: urlOferta.trim(),
-            urlMobile: null,
-            peso: 100, // 100% do tráfego para a única oferta
-          }
-        ],
+        variantes: variantes.map((variant, index) => ({
+          id: variant.id || 'v' + (index + 1),
+          nome: variant.nome || `Variante ${String.fromCharCode(65 + index)}`,
+          url: variant.url.trim(), urlMobile: variant.urlMobile || null,
+          peso: Number(variant.peso) || Math.round(100 / variantes.length),
+        })),
+        experiment: {
+          enabled: experimentEnabled && variantes.length >= 2,
+          autoStop,
+          minVisitors: link?.experiment?.minVisitors || 80,
+          minConversions: link?.experiment?.minConversions || 6,
+          confidence: link?.experiment?.confidence || 0.95,
+          minLift: link?.experiment?.minLift || 0.1,
+        },
       })
       onSaved()
     } catch (e) {
@@ -136,16 +148,51 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 />
               </label>
               
-              <label className="group flex flex-col gap-1.5">
-                <span className={labelCls}>Página de Oferta (Para Clientes Reais)</span>
-                <input
-                  className={`${inputCls} ${urlInvalida(urlOferta) ? 'border-destructive' : ''}`}
-                  value={urlOferta}
-                  onChange={(e) => setUrlOferta(e.target.value)}
-                  placeholder="https://pay.gateway.com/123"
-                />
-              </label>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className={labelCls}>Ofertas para teste A/B</span>
+                  <button
+                    type="button" className="btn-ghost text-[11px]" disabled={variantes.length >= 5}
+                    onClick={() => setVariantes((current) => current.concat([{
+                      id: 'v' + (current.length + 1), nome: `Variante ${String.fromCharCode(65 + current.length)}`,
+                      url: '', urlMobile: null, peso: Math.round(100 / (current.length + 1)), clicks: 0, conversions: 0, revenue: {},
+                    }]))}
+                  >
+                    <Plus className="size-3" /> Adicionar variante
+                  </button>
+                </div>
+                {variantes.map((variant, index) => (
+                  <div key={variant.id || index} className="grid gap-2 rounded-lg border border-border/50 bg-secondary/20 p-3 sm:grid-cols-[1fr_88px_auto]">
+                    <label className="group flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground">{variant.nome || `Variante ${String.fromCharCode(65 + index)}`}</span>
+                      <input className={`${inputCls} ${urlInvalida(variant.url) ? 'border-destructive' : ''}`} value={variant.url} onChange={(event) => updateVariant(index, { url: event.target.value })} placeholder="https://pay.gateway.com/oferta" />
+                    </label>
+                    <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+                      Peso %
+                      <input className={inputCls} type="number" min="0" max="100" value={variant.peso} onChange={(event) => updateVariant(index, { peso: Number(event.target.value) })} />
+                    </label>
+                    <button type="button" disabled={variantes.length === 1} onClick={() => setVariantes((current) => current.filter((_, i) => i !== index))} className="btn-ghost self-end !p-2 text-error" aria-label="Remover variante"><Trash2 className="size-4" /></button>
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><FlaskConical className="size-4 text-primary" /> Teste A/B preditivo</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">O modelo Bayesiano reavalia a cada visita e pode concentrar 100% no vencedor em horas, com volume e confiança mínimos.</p>
+              </div>
+              <input type="checkbox" checked={experimentEnabled} disabled={variantes.length < 2} onChange={(event) => setExperimentEnabled(event.target.checked)} className="mt-1 size-4 accent-[color:var(--brand-cyan)]" aria-label="Ativar teste preditivo" />
+            </div>
+            {experimentEnabled && (
+              <label className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                <input type="checkbox" checked={autoStop} onChange={(event) => setAutoStop(event.target.checked)} className="size-3.5 accent-[color:var(--brand-cyan)]" />
+                Desativar automaticamente a variante perdedora ao atingir 95% de confiança
+              </label>
+            )}
+            {link?.experiment?.conclusion && <p className="mt-3 rounded-lg bg-success/10 px-3 py-2 text-[11px] text-success">{link.experiment.conclusion}</p>}
           </div>
 
           {/* Toggle Mágico do Escudo */}
@@ -176,7 +223,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !nome.trim() || !urlOferta.trim() || temUrlInvalida}
+              disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida}
               className={`relative flex items-center gap-2 overflow-hidden rounded-full bg-[color:var(--brand-cyan)] px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50`}
             >
               {saving ? 'Salvando...' : 'Criar Link Mágico'}

@@ -165,6 +165,27 @@ function pickAmountCents(b, opts) {
   return null;
 }
 
+// Custos financeiros opcionais enviados pelo gateway. Diferente do valor da
+// venda, ausência aqui é válida: o motor de lucro usa a tarifa configurada e
+// marca o resultado como estimado. Quando o webhook traz o valor, ele vence.
+function pickOptionalMoneyCents(root, centsAliases, unitAliases, opts) {
+  const cents = Array.isArray(centsAliases) ? centsAliases : [];
+  const units = Array.isArray(unitAliases) ? unitAliases : [];
+  const found = collectFields(root || {}, new Set(cents.concat(units)));
+  for (const key of cents) {
+    const value = parseAmount(found[key]);
+    if (Number.isFinite(value) && value >= 0 && value <= 100000000) return Math.round(value);
+  }
+  for (const key of units) {
+    const value = parseAmount(found[key]);
+    if (!Number.isFinite(value) || value < 0) continue;
+    const amountInCents = !!(opts && opts.amountInCents);
+    if (amountInCents && value <= 100000000) return Math.round(value);
+    if (value <= 1000000) return Math.round(value * 100);
+  }
+  return null;
+}
+
 // Só aceita string/número primitivo — objetos aninhados (ex.: customer:{…}) viram null.
 function str(v) {
   return (typeof v === 'string' || typeof v === 'number') ? String(v).slice(0, 320) : null;
@@ -278,12 +299,29 @@ function normalizeConversion(body, query) {
   if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price, charge_amount…)' };
   // moeda: Hotmart manda currency_value, outros currency/currency_code
   const curRaw = String(b.currency || b.currency_value || b.currency_code || '');
+  const moneyOpts = { amountInCents: !!(query && query.amountInCents) };
+  const feeCents = pickOptionalMoneyCents(body,
+    ['fee_cents', 'fees_cents', 'platform_fee_cents', 'gateway_fee_cents', 'transaction_fee_cents', 'processor_fee_cents'],
+    ['fee', 'fees', 'platform_fee', 'gateway_fee', 'transaction_fee', 'processor_fee'], moneyOpts);
+  const taxCents = pickOptionalMoneyCents(body,
+    ['tax_cents', 'taxes_cents', 'vat_cents', 'tax_amount_cents'],
+    ['tax', 'taxes', 'vat', 'tax_amount', 'vat_amount'], moneyOpts);
+  const netAmountCents = pickOptionalMoneyCents(body,
+    ['net_amount_cents', 'net_cents', 'net_value_cents'],
+    ['net_amount', 'net_value', 'net_price'], moneyOpts);
+  const productCostCents = pickOptionalMoneyCents(body,
+    ['product_cost_cents', 'cost_cents', 'cogs_cents'],
+    ['product_cost', 'cost', 'cogs'], moneyOpts);
   return {
     event,
     gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
     orderId: String(orderId).slice(0, 120),
     amountCents: hasAmount ? amountCents : 0,
     currency: /^[a-zA-Z]{3}$/.test(curRaw) ? curRaw.toLowerCase() : 'eur',
+    feeCents,
+    taxCents,
+    netAmountCents,
+    productCostCents,
     // vid ecoado: raiz OU containers de rastreio (src/sck/s1) já achatados acima
     leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || b.s1 || b.sck || b.src),
     ttclid: ttclidRaw, // Risco 3: 1ª tentativa de match (antes do leadId)
@@ -304,5 +342,6 @@ module.exports = {
   pickAmountCents,
   operationalWebhook,
   normalizeConversion,
+  pickOptionalMoneyCents,
   str
 };

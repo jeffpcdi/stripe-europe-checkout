@@ -3,9 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Search, CornerDownLeft } from 'lucide-react'
+import { Search, CornerDownLeft, PauseCircle, Filter, BarChart3, Loader2 } from 'lucide-react'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
+import { apiSend } from '@/lib/api'
+import { toast } from '@/lib/toast'
+
+type PaletteItem = {
+  id: string
+  label: string
+  description: string
+  href: string
+  section: string
+  icon: typeof Search
+  kind: 'navigate' | 'filter_ads' | 'pause_bad'
+}
 
 /**
  * Item 87: command palette (Cmd+K / Ctrl+K) — busca rápida de páginas
@@ -16,6 +28,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  const [running, setRunning] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
@@ -30,17 +43,38 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const items = useMemo(() => {
-    const all = NAV_SECTIONS.flatMap((s) =>
-      s.items.map((i) => ({ ...i, section: s.title })),
+  const items = useMemo<PaletteItem[]>(() => {
+    const all: PaletteItem[] = NAV_SECTIONS.flatMap((s) =>
+      s.items.map((i) => ({ ...i, section: s.title, kind: 'navigate' as const })),
     )
     const q = query.trim().toLowerCase()
     if (!q) return all
-    return all.filter(
+    const matches = all.filter(
       (i) =>
         i.label.toLowerCase().includes(q) ||
         i.description.toLowerCase().includes(q),
     )
+    if (/pausar?.*(ruins?|sem venda)|campanhas?.*(ruins?|sem venda)/i.test(q)) {
+      matches.unshift({
+        id: 'command-pause-bad', label: 'Pausar campanhas ruins agora',
+        description: 'Pausa ativas com gasto de hoje ≥ 100 e nenhuma venda atribuída.',
+        href: '/ads/tiktok', section: 'Ação', icon: PauseCircle, kind: 'pause_bad' as const,
+      })
+    } else if (/campanhas?|gast|venderam|roas|ctr/i.test(q)) {
+      matches.unshift({
+        id: 'command-filter-ads', label: 'Filtrar campanhas com esta frase',
+        description: 'Converte gasto, vendas, ROAS e status em filtros locais.',
+        href: '/ads/tiktok', section: 'Filtro inteligente', icon: Filter, kind: 'filter_ads' as const,
+      })
+    }
+    if (/receita.*hoje|vendas?.*hoje/i.test(q)) {
+      matches.unshift({
+        id: 'command-revenue-today', label: 'Ver receita de hoje',
+        description: 'Abre a Visão geral no período de hoje.', href: '/',
+        section: 'Atalho', icon: BarChart3, kind: 'navigate' as const,
+      })
+    }
+    return matches
   }, [query])
 
   // Reset ao abrir
@@ -59,6 +93,33 @@ export function CommandPalette() {
     [router],
   )
 
+  const runItem = useCallback(async (item: PaletteItem) => {
+    if (item.kind === 'filter_ads') {
+      localStorage.setItem('roi_ads_natural_filter', query.trim())
+      window.dispatchEvent(new CustomEvent('roi:ads-filter', { detail: query.trim() }))
+      go(item.href)
+      return
+    }
+    if (item.kind === 'pause_bad') {
+      setRunning(true)
+      try {
+        const result = await apiSend<{ paused: number; matched: number; dryRun?: boolean }>('/api/ads/commands', 'POST', {
+          command: 'pause_bad_campaigns', minimumSpend: 100,
+        })
+        setOpen(false)
+        toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
+          hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : 'Critério: gasto de hoje ≥ 100 e zero vendas atribuídas.',
+        })
+      } catch (error) {
+        toast.error('Não foi possível executar o comando', { hint: error instanceof Error ? error.message : undefined })
+      } finally {
+        setRunning(false)
+      }
+      return
+    }
+    go(item.href)
+  }, [go, query])
+
   function onInputKey(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -68,7 +129,7 @@ export function CommandPalette() {
       setActive((a) => Math.max(a - 1, 0))
     } else if (e.key === 'Enter' && items[active]) {
       e.preventDefault()
-      go(items[active].href)
+      void runItem(items[active])
     }
   }
 
@@ -100,7 +161,7 @@ export function CommandPalette() {
                 setActive(0)
               }}
               onKeyDown={onInputKey}
-              placeholder="Ir para página…"
+              placeholder="Digite uma ação ou pergunta…"
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               aria-label="Buscar página"
             />
@@ -120,16 +181,17 @@ export function CommandPalette() {
                     type="button"
                     data-active={i === active}
                     onMouseEnter={() => setActive(i)}
-                    onClick={() => go(item.href)}
+                    onClick={() => void runItem(item)}
+                    disabled={running}
                     className="cmdk-item flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left"
                   >
-                    <item.icon
+                    {running && i === active ? <Loader2 className="size-4 shrink-0 animate-spin text-brand-cyan" aria-hidden="true" /> : <item.icon
                       className={cn(
                         'size-4 shrink-0',
                         i === active ? 'text-brand-cyan' : 'text-muted-foreground',
                       )}
                       aria-hidden="true"
-                    />
+                    />}
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm text-foreground">{item.label}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">

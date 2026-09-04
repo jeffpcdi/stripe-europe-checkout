@@ -233,6 +233,123 @@ const MAX_SESSIONS = 100;
 const MAX_TURNS = 20;
 const sessions = new Map(); // sessionId → { messages, last }
 
+const ANOMALY_INTERVAL_MS = Math.max(60 * 60e3, Number(process.env.ADS_ANOMALY_INTERVAL_MS) || 4 * 60 * 60e3);
+
+function adSnapshot(tree) {
+  const out = {};
+  for (const campaign of (tree && tree.campaigns) || []) {
+    for (const group of campaign.adSets || []) {
+      for (const ad of group.ads || []) {
+        const id = String(ad.platformAdId || ad.id || '');
+        if (!id) continue;
+        const metric = ad.metrics || {};
+        out[id] = {
+          adId: id,
+          name: String(ad.name || ad.adName || id).slice(0, 100),
+          campaignId: String(campaign.platformCampaignId || ''),
+          campaignName: String(campaign.campaignName || campaign.name || '').slice(0, 100),
+          impressions: Number(metric.impressions) || 0,
+          clicks: Number(metric.clicks) || 0,
+          spend: Number(metric.spend) || 0,
+          conversions: Number(metric.conversions) || 0,
+        };
+      }
+    }
+  }
+  return out;
+}
+
+function compareIntradaySnapshots(previous, current) {
+  const findings = [];
+  for (const [id, now] of Object.entries(current || {})) {
+    const before = previous && previous[id];
+    if (!before) continue;
+    const deltaImpressions = Math.max(0, now.impressions - before.impressions);
+    const deltaClicks = Math.max(0, now.clicks - before.clicks);
+    const earlierImpressions = Math.max(0, before.impressions);
+    const earlierClicks = Math.max(0, before.clicks);
+    if (deltaImpressions < 500 || earlierImpressions < 500) continue;
+    const priorCtr = earlierClicks / earlierImpressions * 100;
+    const recentCtr = deltaClicks / deltaImpressions * 100;
+    const drop = priorCtr > 0 ? (priorCtr - recentCtr) / priorCtr : 0;
+    if (drop >= 0.5) {
+      findings.push({
+        type: 'ctr_drop', adId: id, adName: now.name,
+        campaignId: now.campaignId, campaignName: now.campaignName,
+        priorCtr: +priorCtr.toFixed(2), recentCtr: +recentCtr.toFixed(2),
+        dropPct: +(drop * 100).toFixed(0), deltaImpressions,
+      });
+    }
+    const deltaSpend = Math.max(0, now.spend - before.spend);
+    const deltaConversions = Math.max(0, now.conversions - before.conversions);
+    if (deltaSpend >= 20 && deltaConversions === 0) {
+      findings.push({
+        type: 'spend_without_conversion', adId: id, adName: now.name,
+        campaignId: now.campaignId, campaignName: now.campaignName,
+        spend: +deltaSpend.toFixed(2), deltaImpressions,
+      });
+    }
+  }
+  return findings.sort((a, b) => (b.dropPct || b.spend || 0) - (a.dropPct || a.spend || 0)).slice(0, 8);
+}
+
+function deterministicAnomalyText(finding, currency) {
+  if (!finding) return 'Nenhuma anomalia relevante foi detectada nas últimas 4 horas.';
+  if (finding.type === 'ctr_drop') {
+    return 'Atenção: o CTR do anúncio "' + finding.adName + '" caiu ' + finding.dropPct
+      + '% (de ' + finding.priorCtr + '% para ' + finding.recentCtr + '%) nas últimas 4 horas; revise o criativo antes de pausar.';
+  }
+  return 'Atenção: o anúncio "' + finding.adName + '" gastou ' + finding.spend.toFixed(2)
+    + ' ' + currency + ' nas últimas 4 horas sem conversão; revise ou pause se o padrão continuar.';
+}
+
+async function runIntradayAnomaly(accId, advertiserId, currency = 'BRL', opts = {}) {
+  if (!cache) throw new Error('ads-ai não inicializado');
+  const timeZone = automationWindow.normalizeTimeZone(await resolveAdvertiserTimeZone(accId, advertiserId));
+  const date = automationWindow.civilDay(new Date(), timeZone);
+  const existing = await cache.listBriefings(accId, advertiserId, 'anomaly_4h', 1);
+  const latest = existing[0] || null;
+  if (!opts.force && latest && latest.createdAt
+    && Date.now() - new Date(latest.createdAt).getTime() < ANOMALY_INTERVAL_MS) {
+    return { skipped: true, reason: 'interval', briefing: latest };
+  }
+  const tree = await cache.readTree(accId, advertiserId, { fromDate: date, toDate: date, timeZone });
+  const snapshot = adSnapshot(tree);
+  const previousSnapshot = latest && latest.date === date && latest.meta && latest.meta.snapshot || {};
+  const findings = compareIntradaySnapshots(previousSnapshot, snapshot);
+  let content = deterministicAnomalyText(findings[0], currency);
+  if (findings.length && enabled()) {
+    try {
+      const response = await generateTextDirect({
+        system: 'Você é um analista de TikTok Ads. Escreva uma única frase curta em português do Brasil, sem inventar números. Diga o problema, a mudança e uma recomendação prudente. Não afirme que uma campanha foi pausada.',
+        prompt: JSON.stringify({ janelaHoras: 4, currency, anomaly: findings[0] }),
+        maxOutputTokens: 120,
+        abortSignal: AbortSignal.timeout(20_000),
+      });
+      if (response.text.trim()) content = response.text.trim().replace(/\s+/g, ' ').slice(0, 500);
+      bumpAi(true);
+    } catch (error) {
+      bumpAi(false, error);
+    }
+  }
+  await cache.upsertBriefing(accId, advertiserId, date, 'anomaly_4h', content, {
+    snapshot, findings, timeZone, intervalHours: 4,
+  });
+  if (findings.length) {
+    sendPushcut('Aprovada', {
+      title: 'Anomalia no TikTok Ads', text: content, sound: 'system',
+    }, accId, {
+      event: 'ads_anomaly', priority: 'critical',
+      dedupeKey: 'ads:anomaly:' + advertiserId + ':' + date + ':' + findings[0].adId + ':' + findings[0].type,
+    }).catch(() => {});
+  }
+  return { ok: true, content, findings, checkedAt: new Date().toISOString(), timeZone };
+}
+
+function maybeIntradayAnomaly(accId, advertiserId, currency) {
+  return runIntradayAnomaly(accId, advertiserId, currency).catch((error) => ({ ok: false, error: error.message }));
+}
+
 function getSession(id) {
   const now = Date.now();
   // expira velhas + LRU
@@ -686,6 +803,8 @@ module.exports = {
   maybeDailyBriefing,
   creativeInsights,
   budgetProposal,
+  runIntradayAnomaly,
+  maybeIntradayAnomaly,
   // exposto p/ testes
-  _internal: { compactCampaigns, roasByCampaign, bestAds, lastNDays, advertiserWindow },
+  _internal: { compactCampaigns, roasByCampaign, bestAds, lastNDays, advertiserWindow, adSnapshot, compareIntradaySnapshots, deterministicAnomalyText },
 };

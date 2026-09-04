@@ -114,6 +114,12 @@ async function ensureSchema() {
       UNIQUE (catalog_id, sku_id)
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_products_catalog_idx ON ads_catalog_products (catalog_id, created_at DESC)`;
+    await sql`ALTER TABLE ads_catalog_products ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0`;
+    await sql`WITH ranked AS (
+      SELECT id, row_number() OVER (PARTITION BY catalog_id ORDER BY created_at, id) - 1 AS pos
+      FROM ads_catalog_products
+    ) UPDATE ads_catalog_products AS product SET sort_order = ranked.pos
+      FROM ranked WHERE product.id = ranked.id AND product.sort_order = 0`;
     // Catalog Carousel precisa de item_group_id. Para catálogos existentes de
     // produto simples, usa o SKU como SPU e marca o catálogo como alterado para
     // que a UI solicite uma nova sincronização antes de criar campanha.
@@ -251,6 +257,7 @@ function mapProduct(row) {
     data: row.data || {},
     valid: row.valid === true,
     errors: Array.isArray(row.errors) ? row.errors : [],
+    sortOrder: Number(row.sort_order) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -401,9 +408,9 @@ async function listProducts(accountId, advertiserId, catalogId, validate) {
   await ensureSchema();
   const catalog = await getCatalog(accountId, advertiserId, catalogId);
   if (!catalog) return [];
-  const rows = await sql`SELECT id, catalog_id, sku_id, data, valid, errors, created_at, updated_at
+  const rows = await sql`SELECT id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at
     FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId || '')}
-    ORDER BY created_at ASC`;
+    ORDER BY sort_order ASC, created_at ASC`;
   return revalidateProductRows(accountId, catalog, rows, validate);
 }
 
@@ -432,11 +439,12 @@ async function upsertProduct(accountId, advertiserId, catalogId, product, valida
   data.sku_id = skuId;
   if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
   const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
-  const rows = await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
-    VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})
+  const rows = await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+    VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
+      COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
     ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
       data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()
-    RETURNING id, catalog_id, sku_id, data, valid, errors, created_at, updated_at`;
+    RETURNING id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at`;
   await refreshProductCount(accountId, advertiserId, catalogId);
   return mapProduct(rows[0]);
 }
@@ -460,8 +468,9 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
     data.sku_id = skuId;
     if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
     const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
-    await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
-      VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})
+    await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+      VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
+        COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
       ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
         data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()`;
     imported += 1;
@@ -508,6 +517,30 @@ async function deleteProduct(accountId, advertiserId, catalogId, productId) {
   const rows = await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${String(productId)} RETURNING id`;
   await refreshProductCount(accountId, advertiserId, catalogId);
   return rows.length > 0;
+}
+
+async function reorderProducts(accountId, advertiserId, catalogId, productIds) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const current = await listProducts(accountId, advertiserId, catalogId);
+  const ids = Array.isArray(productIds) ? productIds.map(String) : [];
+  const expected = new Set(current.map((product) => product.id));
+  if (ids.length !== expected.size || new Set(ids).size !== ids.length || ids.some((value) => !expected.has(value))) {
+    const error = new Error('A ordem precisa conter todos os produtos do catálogo exatamente uma vez');
+    error.status = 409;
+    throw error;
+  }
+  const params = [accountId, String(catalogId)];
+  const cases = ids.map((productId, index) => {
+    params.push(productId, index);
+    return `WHEN $${params.length - 1} THEN $${params.length}`;
+  });
+  await sql.query(`UPDATE ads_catalog_products SET sort_order = CASE id ${cases.join(' ')} ELSE sort_order END, updated_at = now()
+    WHERE account_id = $1 AND catalog_id = $2`, params);
+  await sql`UPDATE ads_catalogs SET updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`;
+  return listProducts(accountId, advertiserId, catalogId);
 }
 
 async function setFeedUrl(accountId, advertiserId, catalogId, feedUrl) {
@@ -621,12 +654,12 @@ async function listProductsByFeedToken(token, validate) {
   const catalog = await getCatalogByFeedToken(t);
   if (!catalog) return [];
   const rows = await sql`SELECT product.id, product.catalog_id, product.sku_id, product.data,
-      product.valid, product.errors, product.created_at, product.updated_at
+      product.valid, product.errors, product.sort_order, product.created_at, product.updated_at
     FROM ads_catalog_products AS product
     INNER JOIN ads_catalogs AS catalog
       ON catalog.id = product.catalog_id AND catalog.account_id = product.account_id
     WHERE catalog.feed_token = ${t}
-    ORDER BY product.created_at ASC`;
+    ORDER BY product.sort_order ASC, product.created_at ASC`;
   return revalidateProductRows(catalog.accountId, catalog, rows, validate);
 }
 
@@ -1135,6 +1168,7 @@ module.exports = {
   upsertProduct,
   bulkUpsertProducts,
   deleteProduct,
+  reorderProducts,
   setFeedUrl,
   ensureFeedToken,
   saveFeedSnapshot,

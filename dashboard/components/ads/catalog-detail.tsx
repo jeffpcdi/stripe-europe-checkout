@@ -10,7 +10,7 @@ import {
   X, Loader2, Plus, Trash2, UploadCloud, Download,
   Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
-  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw,
+  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw, GripVertical,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
@@ -130,6 +130,8 @@ export function CatalogDetail({
   const [deleting, setDeleting] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [fixing, setFixing] = useState(false)
+  const [productOrder, setProductOrder] = useState<string[]>([])
+  const [dragProductId, setDragProductId] = useState<string | null>(null)
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
   // automática sem obrigar o usuário a reconstruir o catálogo no TikTok.
   const [publishFailed, setPublishFailed] = useState(false)
@@ -145,6 +147,17 @@ export function CatalogDetail({
 
   const catalog = data?.catalog
   const products = data?.products ?? []
+  useEffect(() => {
+    setProductOrder((current) => {
+      const ids = products.map((product) => product.id)
+      const kept = current.filter((id) => ids.includes(id))
+      const added = ids.filter((id) => !kept.includes(id))
+      return kept.concat(added)
+    })
+  }, [data?.products])
+  const orderedProducts = productOrder.length
+    ? productOrder.map((id) => products.find((product) => product.id === id)).filter(Boolean) as AdsCatalogProduct[]
+    : products
   const publications = publicationData?.publications ?? []
   const validCount = products.filter((p) => p.valid).length
   const remoteProductCount = Math.max(0, Number(catalog?.audit?.total) || 0)
@@ -225,6 +238,21 @@ export function CatalogDetail({
     } finally {
       setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  async function persistProductOrder(next: string[]) {
+    setProductOrder(next)
+    try {
+      await apiSend(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/reorder`, advertiserId),
+        'PUT', { productIds: next },
+      )
+      toast.success('Ordem dos produtos salva')
+      await mutate()
+    } catch (error) {
+      toast.error('Não foi possível salvar a ordem', { hint: error instanceof Error ? error.message : undefined })
+      setProductOrder(products.map((product) => product.id))
     }
   }
 
@@ -705,9 +733,24 @@ export function CatalogDetail({
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((p) => (
-                      <tr key={p.id} className="group border-b border-border/50 text-xs transition-colors hover:bg-secondary/20">
+                    {orderedProducts.map((p) => (
+                      <tr
+                        key={p.id}
+                        draggable
+                        onDragStart={() => setDragProductId(p.id)}
+                        onDragEnd={() => setDragProductId(null)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => {
+                          if (!dragProductId || dragProductId === p.id) return
+                          const next = productOrder.filter((id) => id !== dragProductId)
+                          next.splice(next.indexOf(p.id), 0, dragProductId)
+                          setDragProductId(null)
+                          void persistProductOrder(next)
+                        }}
+                        className={`group border-b border-border/50 text-xs transition-colors hover:bg-secondary/20 ${dragProductId === p.id ? 'opacity-40' : ''}`}
+                      >
                         <td className="px-3 py-2">
+                          <GripVertical className="mr-1 inline size-3.5 cursor-grab text-muted-foreground" aria-label="Arraste para reorganizar" />
                           {p.valid ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
                               <Check className="size-3" aria-hidden="true" /> ok

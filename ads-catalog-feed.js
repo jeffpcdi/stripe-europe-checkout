@@ -189,6 +189,44 @@ function buildCatalogCsv(products) {
   return lines.join('\n') + '\n';
 }
 
+function escapeXmlValue(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+// Feed XML complementar (RSS/Google Merchant compatível). A publicação
+// automática no conector continua usando o CSV canônico do TikTok; este XML
+// fica disponível para integrações e para o "Sync Mágico" solicitado.
+function buildCatalogXml(products, catalog) {
+  const title = escapeXmlValue(catalog && catalog.name || 'Catálogo ROI-NADOS');
+  const items = (products || []).map((product) => {
+    const d = withCatalogCarouselId(product && product.data || product || {});
+    const fields = {
+      id: d.sku_id,
+      title: d.title,
+      description: d.description,
+      availability: d.availability,
+      condition: d.condition,
+      price: d.price,
+      link: d.link,
+      image_link: d.image_link,
+      brand: d.brand,
+      sale_price: d.sale_price,
+      item_group_id: d.item_group_id,
+    };
+    const body = Object.entries(fields).filter(([, value]) => value != null && String(value) !== '')
+      .map(([key, value]) => '      <g:' + key + '>' + escapeXmlValue(value) + '</g:' + key + '>').join('\n');
+    return '    <item>\n' + body + '\n    </item>';
+  }).join('\n');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<rss xmlns:g="http://base.google.com/ns/1.0" version="2.0">\n'
+    + '  <channel>\n    <title>' + title + '</title>\n'
+    + '    <link>https://roi-nados.app</link>\n'
+    + '    <description>Feed de produtos sincronizado pelo ROI-NADOS</description>\n'
+    + items + '\n  </channel>\n</rss>\n';
+}
+
 module.exports = {
   COLUMNS,
   REQUIRED,
@@ -199,5 +237,6 @@ module.exports = {
   validateProduct,
   validatePriceField,
   withCatalogCarouselId,
-  buildCatalogCsv
+  buildCatalogCsv,
+  buildCatalogXml
 };

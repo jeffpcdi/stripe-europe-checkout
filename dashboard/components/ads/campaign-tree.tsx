@@ -37,6 +37,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { AdEditDialog } from './ad-edit-dialog'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import { fmtCompact, fmtPercent, cleanCampaignName } from '@/lib/format'
+import { actionFeedback } from '@/lib/action-feedback'
 
 function fmtMoney(v: number | undefined, currency: string): string {
   if (v == null) return '—'
@@ -108,6 +109,85 @@ function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string })
   )
 }
 
+function BudgetControl({
+  entityId,
+  amount,
+  type,
+  adAccountId,
+  currency,
+  label,
+  onSaved,
+}: {
+  entityId: string
+  amount: number
+  type: 'daily' | 'lifetime'
+  adAccountId: string
+  currency: string
+  label: string
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(String(amount || ''))
+  const [busy, setBusy] = useState(false)
+  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((amount || TIKTOK_MIN_BUDGET) * 3))
+  async function save(nextValue = value) {
+    const next = Number(String(nextValue).replace(',', '.'))
+    if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
+    if (Math.abs(next - amount) < 0.005) { setEditing(false); return }
+    setBusy(true)
+    try {
+      await apiSend(`/api/ads/${encodeURIComponent(entityId)}`, 'PUT', { budget: { amount: next, type }, adAccountId })
+      toast.success('Orçamento atualizado')
+      actionFeedback()
+      setEditing(false)
+      onSaved()
+    } catch (error) {
+      toast.error('Falha ao atualizar orçamento', { hint: error instanceof Error ? error.message : undefined })
+      setValue(String(amount || ''))
+    } finally { setBusy(false) }
+  }
+  return (
+    <div className="flex min-w-[210px] flex-col gap-1.5 rounded-lg border border-border/40 bg-secondary/20 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
+        {editing ? (
+          <span className="inline-flex items-center gap-1">
+            <input
+              autoFocus type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={value}
+              disabled={busy} onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void save(); if (event.key === 'Escape') setEditing(false) }}
+              className="input-neon w-24 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums"
+              aria-label={`Novo orçamento de ${label}`}
+            />
+            <button type="button" className="btn-ghost !p-1 text-success" onClick={() => void save()} disabled={busy} aria-label="Salvar">
+              {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+            </button>
+            <button type="button" className="btn-ghost !p-1" onClick={() => setEditing(false)} disabled={busy} aria-label="Cancelar"><X className="size-3" /></button>
+          </span>
+        ) : (
+          <button type="button" className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums text-foreground" onClick={() => { setValue(String(amount)); setEditing(true) }}>
+            {fmtMoney(amount, currency)}/{type === 'lifetime' ? 'total' : 'dia'} <Pencil className="size-3 text-muted-foreground" />
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] text-info">gelo</span>
+        <input
+          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || amount))}
+          onChange={(event) => setValue(event.target.value)}
+          onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
+          onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
+          disabled={busy || type === 'lifetime'}
+          aria-label={`Escala de orçamento de ${label}`}
+          className="h-1.5 flex-1 cursor-pointer accent-[color:var(--brand-pink)] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
+        />
+        <span className="text-[9px] text-error">fogo</span>
+      </div>
+    </div>
+  )
+}
+
 const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
   { value: 'approved', label: 'Validadas' },
@@ -126,6 +206,31 @@ const SORTS = [
   { value: 'spend_desc', label: 'Maior gasto' },
   { value: 'spend_asc', label: 'Menor gasto' },
 ]
+
+function normalizeSearch(value: string) {
+  return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+export function parseNaturalCampaignFilter(value: string) {
+  const q = normalizeSearch(value)
+  const numberAfter = (pattern: RegExp) => {
+    const match = q.match(pattern)
+    return match ? Number(match[1].replace(',', '.')) : null
+  }
+  const spendAbove = numberAfter(/(?:gast(?:ou|aram|o)|gasto).*?(?:mais|acima|>|maior)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/)
+  const spendBelow = numberAfter(/(?:gast(?:ou|aram|o)|gasto).*?(?:menos|abaixo|<|menor)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/)
+  const roasAbove = numberAfter(/roas.*?(?:mais|acima|>|maior)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/)
+  const roasBelow = numberAfter(/roas.*?(?:menos|abaixo|<|menor)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/)
+  const ctrBelow = numberAfter(/ctr.*?(?:menos|abaixo|<|menor)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)/)
+  const structured = [spendAbove, spendBelow, roasAbove, roasBelow, ctrBelow].some((n) => n != null)
+    || /sem (?:venda|conversao)|nao venderam|com vendas?|ativas?|pausadas?/.test(q)
+  return {
+    raw: q, structured, spendAbove, spendBelow, roasAbove, roasBelow, ctrBelow,
+    noSales: /sem (?:venda|conversao)|nao venderam|zero vendas?/.test(q),
+    withSales: /com vendas?|venderam/.test(q) && !/nao venderam/.test(q),
+    status: /pausadas?/.test(q) ? 'paused' : /ativas?/.test(q) ? 'active' : null,
+  }
+}
 
 export function CampaignTree({
   tree,
@@ -172,16 +277,28 @@ export function CampaignTree({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
-  // Edição inline de orçamento: chave do grupo em edição + valor digitado
-  const [editingBudget, setEditingBudget] = useState<string | null>(null)
-  const [budgetValue, setBudgetValue] = useState('')
-  const [budgetBusy, setBudgetBusy] = useState(false)
   // Busca por nome + "só com gasto" — filtros CLIENT-SIDE: o backend devolve a
   // lista inteira numa página só (readTree → pages:1), então filtrar aqui nunca
   // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
   const [query, setQuery] = useState('')
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
+
+  useEffect(() => {
+    const apply = (value: string) => {
+      if (!value) return
+      setQuery(value)
+      setShowFilters(true)
+      const parsed = parseNaturalCampaignFilter(value)
+      if (parsed.status && parsed.status !== statusFilter) onStatusFilter(parsed.status)
+      localStorage.removeItem('roi_ads_natural_filter')
+    }
+    apply(localStorage.getItem('roi_ads_natural_filter') || '')
+    const onFilter = (event: Event) => apply(String((event as CustomEvent).detail || ''))
+    window.addEventListener('roi:ads-filter', onFilter)
+    return () => window.removeEventListener('roi:ads-filter', onFilter)
+  }, [onStatusFilter, statusFilter])
 
   // Uma seleção de lote não pode sobreviver à troca de página/filtro/período;
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
@@ -216,6 +333,7 @@ export function CampaignTree({
         status === 'paused' ? 'Campanhas pausadas' : 'Campanhas ativadas',
         t ? { hint: `${t.updated} atualizada(s) · ${t.skipped} ignorada(s) · ${t.failed} falha(s)` } : undefined,
       )
+      actionFeedback()
       setSelected(new Set())
       onMutate()
       return true
@@ -224,27 +342,6 @@ export function CampaignTree({
       return false
     } finally {
       setBulkBusy(false)
-    }
-  }
-
-  // Salva o orçamento do grupo via 1º anúncio do grupo (o backend aplica o
-  // budget no ad group dono do anúncio — não existe PUT direto de grupo).
-  async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime', adAccountId: string) {
-    const amount = Number(budgetValue.replace(',', '.'))
-    if (!Number.isFinite(amount) || amount < TIKTOK_MIN_BUDGET) {
-      toast.error(tiktokMinimumBudgetMessage(currency))
-      return
-    }
-    setBudgetBusy(true)
-    try {
-      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'PUT', { budget: { amount, type }, adAccountId })
-      toast.success('Orçamento atualizado')
-      setEditingBudget(null)
-      onMutate()
-    } catch (e) {
-      toast.error('Falha ao atualizar orçamento', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setBudgetBusy(false)
     }
   }
 
@@ -267,6 +364,7 @@ export function CampaignTree({
         adAccountId: c.platformAdAccountId,
       })
       toast.success(status === 'paused' ? 'Campanha pausada' : 'Campanha ativada')
+      actionFeedback()
       onMutate()
       return true
     } catch (e) {
@@ -298,16 +396,29 @@ export function CampaignTree({
   const pagination = tree?.pagination
 
   // Aplica busca + "só com gasto" sobre a lista carregada
-  const q = query.trim().toLowerCase()
+  const q = normalizeSearch(query.trim())
+  const natural = parseNaturalCampaignFilter(query)
   const visible = campaigns.filter((c) => {
     // Busca bate no nome cru E no limpo — o usuário vê o limpo na tela
     if (
-      q &&
-      !String(c.campaignName || c.platformCampaignId).toLowerCase().includes(q) &&
-      !cleanCampaignName(c.campaignName).toLowerCase().includes(q)
+      q && !natural.structured &&
+      !normalizeSearch(String(c.campaignName || c.platformCampaignId)).includes(q) &&
+      !normalizeSearch(cleanCampaignName(c.campaignName)).includes(q)
     )
       return false
     if (onlyWithSpend && !(Number(c.metrics?.spend) > 0)) return false
+    const spend = Number(c.metrics?.spend) || 0
+    const attr = attribution?.[c.platformCampaignId]
+    const sales = Number(attr?.sales) || 0
+    const roas = spend > 0 ? (Number(attr?.revenueCents) || 0) / 100 / spend : 0
+    const ctr = Number(c.metrics?.ctr) || 0
+    if (natural.spendAbove != null && !(spend > natural.spendAbove)) return false
+    if (natural.spendBelow != null && !(spend < natural.spendBelow)) return false
+    if (natural.roasAbove != null && !(roas > natural.roasAbove)) return false
+    if (natural.roasBelow != null && !(roas < natural.roasBelow)) return false
+    if (natural.ctrBelow != null && !(ctr < natural.ctrBelow)) return false
+    if (natural.noSales && sales !== 0) return false
+    if (natural.withSales && sales <= 0) return false
     return true
   })
 
@@ -593,6 +704,19 @@ export function CampaignTree({
             <div className="mb-3 max-w-md">
               <SecondaryMetrics m={c.metrics} currency={c.currency || currency} />
             </div>
+            {c.budgetOwner === 'campaign' && c.budget?.amount != null && (
+              <div className="mb-3 max-w-sm">
+                <BudgetControl
+                  entityId={id}
+                  amount={Number(c.budget.amount)}
+                  type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                  adAccountId={c.platformAdAccountId || ''}
+                  currency={c.currency || currency}
+                  label="Orçamento CBO da campanha"
+                  onSaved={onMutate}
+                />
+              </div>
+            )}
             {(c.adSets ?? []).length === 0 ? (
               <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
             ) : (
@@ -604,75 +728,17 @@ export function CampaignTree({
                       {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
                     </span>
                     <StatusPill status={s.status} />
-                    {(() => {
-                      const groupKey = String(s.platformAdSetId ?? `${id}-${si}`)
-                      const firstAdId = s.ads?.[0]?.platformAdId || s.ads?.[0]?._id
-                      const budgetType: 'daily' | 'lifetime' = s.budget?.type === 'lifetime' ? 'lifetime' : 'daily'
-                      if (editingBudget === groupKey && firstAdId) {
-                        return (
-                          <span className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min={TIKTOK_MIN_BUDGET}
-                              step="0.01"
-                              value={budgetValue}
-                              onChange={(e) => setBudgetValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType, c.platformAdAccountId || '')
-                                if (e.key === 'Escape') setEditingBudget(null)
-                              }}
-                              autoFocus
-                              disabled={budgetBusy}
-                              aria-label="Novo orçamento do grupo"
-                              className="input-neon w-20 rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums text-foreground"
-                            />
-                            <button
-                              type="button"
-                              className="btn-ghost !p-1 text-success"
-                              onClick={() => saveBudget(groupKey, firstAdId, budgetType, c.platformAdAccountId || '')}
-                              disabled={budgetBusy}
-                              aria-label="Salvar orçamento"
-                            >
-                              {budgetBusy ? (
-                                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                              ) : (
-                                <Check className="size-3" aria-hidden="true" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-ghost !p-1 text-muted-foreground"
-                              onClick={() => setEditingBudget(null)}
-                              disabled={budgetBusy}
-                              aria-label="Cancelar edição"
-                            >
-                              <X className="size-3" aria-hidden="true" />
-                            </button>
-                          </span>
-                        )
-                      }
-                      return (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                          {s.budget?.amount != null &&
-                            `${fmtMoney(s.budget.amount, currency)}/${budgetType === 'lifetime' ? 'total' : 'dia'}`}
-                          {firstAdId && (
-                            <button
-                              type="button"
-                              className="btn-ghost !p-1"
-                              onClick={() => {
-                                setEditingBudget(groupKey)
-                                setBudgetValue(s.budget?.amount != null ? String(s.budget.amount) : '')
-                              }}
-                              aria-label={`Editar orçamento do grupo ${s.adSetName || s.name || groupKey}`}
-                              title="Editar orçamento"
-                            >
-                              <Pencil className="size-3" aria-hidden="true" />
-                            </button>
-                          )}
-                        </span>
-                      )
-                    })()}
+                    {c.budgetOwner !== 'campaign' && s.platformAdSetId && s.budget?.amount != null && (
+                      <BudgetControl
+                        entityId={s.platformAdSetId}
+                        amount={Number(s.budget.amount)}
+                        type={s.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                        adAccountId={c.platformAdAccountId || ''}
+                        currency={c.currency || currency}
+                        label="Orçamento ABO"
+                        onSaved={onMutate}
+                      />
+                    )}
                   </div>
                   <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {(s.ads ?? []).map((ad, ai) => {
@@ -680,8 +746,29 @@ export function CampaignTree({
                       return (
                         <li
                           key={adKey}
+                          onMouseEnter={() => setHoveredVideo(String(adKey))}
+                          onMouseLeave={() => setHoveredVideo(null)}
                           className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background"
                         >
+                          {(ad.creative?.imageUrl || /^https:\/\//i.test(ad.creative?.videoUrl || '')) && (
+                            <div className="relative aspect-video overflow-hidden rounded-lg border border-border/50 bg-black">
+                              {hoveredVideo === String(adKey) && /^https:\/\//i.test(ad.creative?.videoUrl || '') ? (
+                                <video
+                                  src={ad.creative?.videoUrl}
+                                  poster={ad.creative?.imageUrl}
+                                  autoPlay muted loop playsInline preload="metadata"
+                                  className="h-full w-full object-cover"
+                                  aria-label={`Prévia do anúncio ${ad.name || adKey}`}
+                                />
+                              ) : ad.creative?.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={ad.creative.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">Passe o mouse para reproduzir</div>
+                              )}
+                              <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/80">sem som</span>
+                            </div>
+                          )}
                           <div className="flex items-start gap-2">
                             <Clapperboard className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
                             <div className="flex flex-col min-w-0">
@@ -790,8 +877,8 @@ export function CampaignTree({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar campanha…"
-                aria-label="Buscar campanha por nome"
+                placeholder="Ex.: gastaram mais de 100 e não venderam"
+                aria-label="Buscar ou filtrar campanhas em linguagem natural"
                 className="w-full rounded-full border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
               />
             </div>

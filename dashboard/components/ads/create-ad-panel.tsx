@@ -186,7 +186,7 @@ export function CreateAdPanel({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex justify-end bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex justify-center bg-[radial-gradient(circle_at_top,rgba(37,244,238,.08),#050506_55%)] p-0 backdrop-blur-3xl sm:p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget && !submitting) onClose()
       }}
@@ -197,7 +197,7 @@ export function CreateAdPanel({
         aria-modal="true"
         aria-label="Nova campanha de conversão"
         tabIndex={-1}
-        className="anim-drawer-in flex h-full w-full max-w-xl flex-col border-l border-border bg-card outline-none"
+        className="anim-pop-in flex h-full w-full max-w-3xl flex-col border-x border-white/10 bg-card/80 shadow-2xl outline-none sm:h-[calc(100dvh-3rem)] sm:rounded-2xl sm:border"
       >
         <header className="border-b border-border px-5 py-4">
           <div className="flex items-center justify-between gap-3">

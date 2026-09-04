@@ -7,6 +7,7 @@
 //     clicks, conversions, revenue: { EUR: cents } }], ativo, criadoEm }
 const dns = require('dns').promises;
 const db = require('./db');
+const abPredictor = require('./ab-predictor');
 
 let cache = []; // lista de links em memória
 // Domínios já validados nesta sessão (host → ISO). Permite validar ANTES de
@@ -53,6 +54,7 @@ function normalize(slug, raw) {
       conversions: Math.max(0, Number(v.conversions) || 0),
       revenue: (v.revenue && typeof v.revenue === 'object') ? v.revenue : {}
     }));
+  const exp = raw.experiment && typeof raw.experiment === 'object' ? raw.experiment : {};
   return {
     slug,
     acc: raw.acc || raw.accountId || null, // conta dona (multi-tenant)
@@ -89,6 +91,18 @@ function normalize(slug, raw) {
     // Item 531: arquivado = fora da lista padrão e do /go, mas histórico
     // (cliques/conversões/receita) preservado. Independente de `ativo`.
     arquivado: raw.arquivado === true,
+    experiment: {
+      enabled: exp.enabled === true,
+      autoStop: exp.autoStop === true,
+      minVisitors: Math.max(20, Math.min(1000000, Math.round(Number(exp.minVisitors) || 200))),
+      minConversions: Math.max(2, Math.min(100000, Math.round(Number(exp.minConversions) || 10))),
+      confidence: Math.max(0.8, Math.min(0.999, Number(exp.confidence) || 0.95)),
+      minLiftPct: Math.max(0, Math.min(500, Number(exp.minLiftPct) || 5)),
+      status: exp.status === 'concluded' ? 'concluded' : 'running',
+      winnerId: String(exp.winnerId || '').slice(0, 40) || null,
+      concludedAt: exp.concludedAt || null,
+      lastEvaluation: exp.lastEvaluation && typeof exp.lastEvaluation === 'object' ? exp.lastEvaluation : null,
+    },
     criadoEm: raw.criadoEm || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -223,6 +237,7 @@ function recordClick(accountId, slug, variantId) {
   const v = link.variantes.find((x) => x.id === variantId);
   if (!v) return;
   v.clicks = (v.clicks || 0) + 1;
+  evaluateExperiment(link);
   persistSoon(link);
 }
 
@@ -234,7 +249,30 @@ function recordConversion(accountId, slug, variantId, amountCents, currency) {
   v.conversions = (v.conversions || 0) + 1;
   const cur = String(currency || 'eur').toUpperCase();
   v.revenue[cur] = (v.revenue[cur] || 0) + (amountCents || 0);
+  evaluateExperiment(link);
   persistSoon(link);
+}
+
+function evaluateExperiment(link) {
+  if (!link || !link.experiment || !link.experiment.enabled || link.experiment.status === 'concluded') return null;
+  const result = abPredictor.evaluate(link.variantes, link.experiment);
+  link.experiment.lastEvaluation = Object.assign({ at: new Date().toISOString() }, result);
+  if (result.ready && link.experiment.autoStop && result.winnerId) {
+    link.variantes.forEach((variant) => { variant.peso = variant.id === result.winnerId ? 100 : 0; });
+    link.experiment.status = 'concluded';
+    link.experiment.winnerId = result.winnerId;
+    link.experiment.concludedAt = new Date().toISOString();
+  }
+  return result;
+}
+
+function experimentResult(accountId, slug) {
+  const link = get(accountId, slug);
+  if (!link) return null;
+  const result = abPredictor.evaluate(link.variantes, link.experiment || {});
+  link.experiment.lastEvaluation = Object.assign({ at: new Date().toISOString() }, result);
+  persistSoon(link);
+  return { experiment: link.experiment, result };
 }
 
 // ── Validação de domínio: DNS resolve + resposta HTTP real ────────────────
@@ -293,5 +331,5 @@ function markDomainValidated(input, iso) {
 
 module.exports = {
   init, list, get, resolve, save, remove, pickVariant,
-  recordClick, recordConversion, validateDomain, markDomainValidated, slugify
+  recordClick, recordConversion, experimentResult, validateDomain, markDomainValidated, slugify
 };

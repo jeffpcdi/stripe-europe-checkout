@@ -37,6 +37,9 @@ const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/re
 const adsOps = require('./ads-ops-store');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
 const pixelStore = require('./pixel-store');
+const config = require('./config');
+const profitEngine = require('./profit-engine');
+const cloudVideo = require('./cloud-video-sync');
   const catalogStore = require('./ads-catalog-store');
   const catalogFeed = require('./ads-catalog-feed');
   const catalogInspect = require('./ads-catalog-inspect');
@@ -1613,6 +1616,72 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Lucro líquido: receita real dos webhooks menos estornos, tarifas,
+  // impostos, custo de produto e gasto exato do espelho TikTok.
+  app.get('/api/ads/profitability', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const q = req.query || {};
+      const advertiserId = q.adAccountId
+        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+      const [info, syncState] = await Promise.all([
+        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+        adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
+      ]);
+      const timeZone = safeAdsTimeZone(info && info.timezone);
+      const today = adsDay(new Date(), timeZone);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : today;
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : today;
+      let spend = 0;
+      let spendCurrency = String(info && info.currency || '').toUpperCase() || null;
+      let adSpendExact = false;
+      if (adsCache.enabled) {
+        await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
+        const row = await adsCache.readAdvertiserDaily(req.account.id, advertiserId, fromDate, toDate);
+        spend = Number(row.spend) || 0;
+        spendCurrency = String(row.currency || spendCurrency || 'BRL').toUpperCase();
+        adSpendExact = !!(syncState && syncState.last_synced_at);
+      }
+      const accountCurrency = String((config.get(req.account.id).settings || {}).defaultCurrency || 'BRL').toUpperCase();
+      const currency = spendCurrency || accountCurrency;
+      if (spend > 0 && accountCurrency !== currency) {
+        return res.status(409).json({
+          error: 'A moeda da receita (' + accountCurrency + ') difere da conta TikTok (' + currency + ').',
+          code: 'PROFIT_CURRENCY_MISMATCH',
+          hint: 'Selecione uma conta de anúncios na mesma moeda ou ajuste a moeda padrão da conta.',
+        });
+      }
+      const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
+      const result = profitEngine.calculate(snapshot.events || [], spend, {
+        currency,
+        fromDate,
+        toDate,
+        timeZone,
+        config: config.get(req.account.id).profitability || {},
+        adSpendExact,
+      });
+      res.json(Object.assign(result, {
+        advertiserId,
+        lastSyncedAt: syncState && syncState.last_synced_at || null,
+        scope: 'advertiser_all_campaigns',
+      }));
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/profitability/config', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ config: config.get(req.account.id).profitability || {} });
+  });
+
+  app.put('/api/ads/profitability/config', dashboardAuth, (req, res) => {
+    try {
+      const saved = config.set(req.account.id, { profitability: (req.body || {}).config || req.body || {} });
+      res.json({ ok: true, config: saved.profitability });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Biblioteca de criativos — vídeos já enviados ao disco (/uploads) ──────
   app.get('/api/ads/library', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -1655,6 +1724,71 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Google Drive / Dropbox → biblioteca TikTok (rascunho) ─────────────
+  app.get('/api/ads/cloud-video', dashboardAuth, async (req, res) => {
+    try {
+      const [providers, activity] = await Promise.all([
+        cloudVideo.status(req.account.id),
+        cloudVideo.listActivity(req.account.id, 50),
+      ]);
+      res.json({ ok: true, providers, activity });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/cloud-video/:provider/connect', dashboardAuth, async (req, res) => {
+    try {
+      const url = cloudVideo.authorizationUrl(req.account.id, String(req.params.provider || ''));
+      res.json({ ok: true, url });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/integrations/videos/:provider/callback', dashboardAuth, async (req, res) => {
+    const providerName = String(req.params.provider || '');
+    try {
+      if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
+      await cloudVideo.exchangeCode(req.account.id, providerName, req.query.code, req.query.state);
+      const source = config.get(req.account.id).cloudVideo || {};
+      config.set(req.account.id, { cloudVideo: {
+        ...source,
+        [providerName]: { ...(source[providerName] || {}), enabled: true },
+      } });
+      res.redirect('/dashboard?adsCloudVideo=connected');
+    } catch (err) {
+      res.redirect('/dashboard?adsCloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
+    }
+  });
+
+  app.put('/api/ads/cloud-video/:provider', dashboardAuth, async (req, res) => {
+    try {
+      const providerName = String(req.params.provider || '');
+      if (!cloudVideo.PROVIDERS.includes(providerName)) return res.status(400).json({ error: 'Provedor inválido' });
+      const advertiserId = await resolveAdv(req, String((req.body || {}).advertiserId || '').trim());
+      const source = config.get(req.account.id).cloudVideo || {};
+      const current = source[providerName] || {};
+      const patch = providerName === 'googleDrive'
+        ? { enabled: (req.body || {}).enabled === true, folderId: String((req.body || {}).folderId || ''), advertiserId }
+        : { enabled: (req.body || {}).enabled === true, folderPath: String((req.body || {}).folderPath || ''), advertiserId };
+      const saved = config.set(req.account.id, { cloudVideo: { ...source, [providerName]: { ...current, ...patch } } });
+      res.json({ ok: true, source: saved.cloudVideo[providerName] });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/cloud-video/:provider/sync', dashboardAuth, async (req, res) => {
+    try {
+      const providerName = String(req.params.provider || '');
+      const advertiserId = await resolveAdv(req, String((req.body || {}).advertiserId || '').trim());
+      const result = await cloudVideo.syncOne(req.account.id, providerName, advertiserId);
+      res.json(result);
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/cloud-video/:provider', dashboardAuth, async (req, res) => {
+    try {
+      await cloudVideo.disconnect(req.account.id, String(req.params.provider || ''));
+      res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Alertas + regras + dayparting — motor extraído para ads-automation.js ──
   // O motor roda 24/7 no tick do ads-sync (dashboard fechada = automações vivas)
   // E pega carona no polling das rotas (latência percebida menor). Lease e
@@ -1684,6 +1818,53 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (!id) { const e = new Error('Nenhuma conta de anúncio autorizada no token'); e.status = 409; throw e; }
     return id;
   }
+
+  // Comandos globais do Cmd+K. A linguagem natural é mapeada para uma
+  // whitelist pequena; nenhuma frase livre vira chamada arbitrária. O comando
+  // destrutivo usa a definição visível ao operador: gasto >= valor e zero
+  // vendas atribuídas hoje, com guardrails e auditoria por campanha.
+  app.post('/api/ads/commands', dashboardAuth, async (req, res) => {
+    try {
+      const command = String((req.body || {}).command || '').trim().toLowerCase();
+      if (command !== 'pause_bad_campaigns') return res.status(400).json({ error: 'Comando não reconhecido', code: 'COMMAND_NOT_ALLOWED' });
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
+      const safety = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(req.account.id));
+      if (safety.killSwitch) return res.status(423).json(KILL_SWITCH_BODY);
+      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
+      const today = adsDay(new Date(), timeZone);
+      const minimumSpend = Math.max(1, Math.min(100000, Number((req.body || {}).minimumSpend) || 100));
+      const [tree, attribution] = await Promise.all([
+        adsCache.readTree(req.account.id, advertiserId, { fromDate: today, toDate: today, status: 'active', timeZone }),
+        Promise.resolve(automation.computeAttribution(req.account.id, today, today, timeZone)),
+      ]);
+      const targets = ((tree && tree.campaigns) || []).filter((campaign) => {
+        const spend = Number(campaign.metrics && campaign.metrics.spend) || 0;
+        const sales = Number(attribution.byCampaign && attribution.byCampaign[campaign.platformCampaignId] && attribution.byCampaign[campaign.platformCampaignId].sales) || 0;
+        return spend >= minimumSpend && sales === 0;
+      }).slice(0, 50);
+      if (safety.dryRun) return res.json({ ok: true, dryRun: true, matched: targets.length, campaigns: targets.map((item) => ({ id: item.platformCampaignId, name: item.campaignName })) });
+      const results = [];
+      for (const campaign of targets) {
+        const entity = await adsCache.classifyEntity(req.account.id, advertiserId, campaign.platformCampaignId);
+        if (!entity) continue;
+        try {
+          await setEntityStatus(entity, 'paused');
+          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: true });
+          await adsOps.appendAuditEvent(req.account.id, {
+            actorType: 'user', actorId: req.account.id, action: 'command.pause_bad_campaigns',
+            targetType: 'campaign', targetId: campaign.platformCampaignId, advertiserId,
+            beforeState: { kind: 'status', id: campaign.platformCampaignId, value: 'active', campaignKind: entity.campaignKind },
+            afterState: { kind: 'status', id: campaign.platformCampaignId, value: 'paused', campaignKind: entity.campaignKind },
+            reason: 'Cmd+K: gasto de hoje acima de ' + minimumSpend + ' sem venda atribuída',
+          });
+        } catch (error) {
+          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: false, error: String(error.message || error) });
+        }
+      }
+      if (results.some((item) => item.ok)) await adsSync.syncAfterWrite(req.account.id, advertiserId);
+      res.json({ ok: true, matched: targets.length, paused: results.filter((item) => item.ok).length, failed: results.filter((item) => !item.ok).length, results });
+    } catch (err) { fail(res, err); }
+  });
 
   // Chat do copiloto — resposta em SSE (text/event-stream).
   app.post('/api/ads/copilot', dashboardAuth, async (req, res) => {
@@ -1797,6 +1978,31 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
       const out = await adsAi.generateDailyBriefing(req.account.id, advertiserId, String((req.body || {}).currency || 'USD').slice(0, 5));
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // Detector intradiário: compara o delta das últimas 4h com o acumulado
+  // anterior do mesmo dia. A frase da IA é explicativa; a detecção e os
+  // números permanecem determinísticos no servidor.
+  app.get('/api/ads/anomalies', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const briefings = await adsCache.listBriefings(req.account.id, advertiserId, 'anomaly_4h', 7);
+      res.json({ ai: adsAi.enabled(), intervalHours: 4, anomalies: briefings });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/anomalies/run', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
+      const out = await adsAi.runIntradayAnomaly(
+        req.account.id,
+        advertiserId,
+        String((req.body || {}).currency || 'BRL').slice(0, 5),
+        { force: true },
+      );
       res.json(out);
     } catch (err) { fail(res, err); }
   });
@@ -2372,7 +2578,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       done: job.done,
       failed: job.failed,
       createdAt: job.createdAt,
-      items: job.items.map((it) => ({ idx: it.idx, ref: it.ref, status: it.status, error: it.error || undefined, resultId: it.resultId || undefined }))
+      items: job.items.map((it) => ({
+        idx: it.idx, ref: it.ref, status: it.status,
+        error: it.error || undefined, resultId: it.resultId || undefined,
+        attempts: Number(it.attempts) || 0, retryAt: it.retryAt || undefined,
+      }))
     };
   }
 
@@ -2457,7 +2667,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const job = await bulk.getBulkJob(req.account.id, String(req.params.jobId || ''));
       if (!job) return res.status(404).json({ error: 'Job não encontrado (expira em 24h)' });
-      res.json(publicJob(job));
+      const queue = await bulk.bulkQueueStatus();
+      res.json(Object.assign(publicJob(job), { queue }));
     } catch (err) { fail(res, err); }
   });
 
@@ -2922,69 +3133,54 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const url = String((req.body || {}).url || '').trim();
       if (!url) return res.status(400).json({ error: 'URL do produto é obrigatória', code: 'MISSING_URL' });
 
-      // 1. Extração
-      let productDatas = [];
-      let domain = '';
-      let catalogName = '';
-      let currency = 'BRL';
-
-      try {
-        const urlObj = new URL(url);
-        if (urlObj.pathname.includes('/collections/')) {
-          const fetchUrl = `${urlObj.origin}${urlObj.pathname}/products.json?limit=20`;
-          const fetchMod = require('node-fetch'); // Ensure fetch is available or use native fetch if Node 18
-          const res = await (typeof fetch === 'function' ? fetch(fetchUrl) : fetchMod(fetchUrl));
-          if (res.ok) {
-            const data = await res.json();
-            if (data.products && data.products.length > 0) {
-              domain = urlObj.hostname.replace(/^www\./, '');
-              catalogName = `Coleção ${domain}`.substring(0, 100);
-              
-              for (const p of data.products) {
-                const variant = p.variants?.[0] || {};
-                const img = p.images?.[0]?.src;
-                if (!variant.price) continue;
-                
-                const pd = {
-                  sku_id: `SKU-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`.toUpperCase(),
-                  title: p.title,
-                  description: p.body_html ? p.body_html.replace(/<[^>]+>/g, '').substring(0, 200) : p.title,
-                  price: variant.price,
-                  condition: 'new',
-                  availability: 'in stock',
-                  link: `${urlObj.origin}/products/${p.handle}`,
-                  image_link: img
-                };
-                if (variant.compare_at_price) {
-                  pd.sale_price = variant.price;
-                  pd.price = variant.compare_at_price;
-                }
-                productDatas.push(pd);
-              }
-            }
-          }
-        }
-      } catch (e) {}
-
-      if (productDatas.length === 0) {
-        const out = await catalogInspect.previewProduct(url);
-        const productData = Object.assign({}, out.product);
-        domain = new URL(out.finalUrl || url).hostname.replace(/^www\./, '');
-        catalogName = (productData.title || domain).substring(0, 100);
-        currency = productData.currency || 'BRL';
-        if (productData.price) productData.price = productData.price + ' ' + currency;
-        delete productData.currency;
-        productDatas.push(productData);
-      } else {
-        for (const pd of productDatas) {
-           if (pd.price && !pd.price.includes(' ')) pd.price = pd.price + ' ' + currency;
-           if (pd.sale_price && !pd.sale_price.includes(' ')) pd.sale_price = pd.sale_price + ' ' + currency;
-        }
+      // 1. Extração segura. Coleções Shopify e listas JSON-LD viram vários
+      // produtos; uma página comum continua funcionando como produto único.
+      const inspected = await catalogInspect.previewCatalog(url);
+      const domain = new URL(inspected.finalUrl || url).hostname.replace(/^www\./, '');
+      const requestedCurrency = String((req.body || {}).currency || '').toUpperCase();
+      const detectedCurrency = (inspected.products || []).map((item) => String(item.currency || '').toUpperCase()).find((value) => /^[A-Z]{3}$/.test(value));
+      const currency = /^[A-Z]{3}$/.test(requestedCurrency) ? requestedCurrency : (detectedCurrency || 'BRL');
+      const brandOverride = String((req.body || {}).brand || '').trim().slice(0, 100);
+      const catalogName = String((req.body || {}).name || (inspected.source === 'shopify_collection' ? 'Coleção ' + domain : ((inspected.products[0] || {}).title || domain))).slice(0, 100);
+      const normalizePrice = (value) => {
+        const raw = String(value || '').trim().replace(',', '.');
+        if (!raw) return '';
+        return /^\d+(?:\.\d{1,2})?\s+[A-Za-z]{3}$/.test(raw) ? raw.toUpperCase() : raw + ' ' + currency;
+      };
+      const productDatas = (inspected.products || []).slice(0, 50).map((source, index) => {
+        const stable = crypto.createHash('sha256').update(String(source.sku_id || source.link || source.title || index)).digest('hex').slice(0, 16).toUpperCase();
+        const data = Object.assign({}, source, {
+          sku_id: String(source.sku_id || 'SKU-' + stable).slice(0, 100),
+          title: String(source.title || '').trim().slice(0, 500),
+          description: String(source.description || source.title || '').replace(/\s+/g, ' ').trim().slice(0, 10000),
+          price: normalizePrice(source.price),
+          condition: source.condition || 'new',
+          availability: source.availability || 'in stock',
+          brand: String(brandOverride || source.brand || '').trim().slice(0, 100),
+        });
+        if (source.sale_price) data.sale_price = normalizePrice(source.sale_price);
+        delete data.currency;
+        return data;
+      });
+      if (!productDatas.length) {
+        return res.status(422).json({ error: 'Nenhum produto com preço foi encontrado nesta página.', code: 'CATALOG_PRODUCTS_NOT_FOUND', hint: 'Use uma página de produto/coleção com JSON-LD ou uma coleção Shopify pública.' });
+      }
+      const invalid = productDatas.map((data, index) => ({ index, result: catalogFeed.validateProduct(data, { currency }) }))
+        .filter((row) => !row.result.valid);
+      if (invalid.length) {
+        const missingBrand = invalid.some((row) => row.result.errors.some((error) => error.field === 'brand'));
+        return res.status(422).json({
+          error: missingBrand ? 'A loja não publicou a marca dos produtos.' : 'Alguns produtos extraídos estão incompletos.',
+          code: missingBrand ? 'CATALOG_BRAND_REQUIRED' : 'CATALOG_SCRAPE_INVALID',
+          hint: missingBrand ? 'Informe a marca no campo opcional e tente novamente.' : 'Revise título, preço, imagem e links publicados no site.',
+          invalid: invalid.slice(0, 10),
+          preview: productDatas.slice(0, 10),
+        });
       }
 
       // 2. Cria catálogo
       const catalog = await catalogStore.createCatalog(accId, advertiserId, {
-        name: catalogName, currency, catalogType: 'ECOM', country: 'BR'
+        name: catalogName, currency, catalogType: 'ECOM', country: String((req.body || {}).country || 'BR').toUpperCase()
       });
 
       // 3. Formata e insere o produto
@@ -3258,6 +3454,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         { data: body.data || body }, catalogFeed.validateProduct
       );
       res.json({ product });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/catalogs/:catalogId/products/reorder', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const products = await catalogStore.reorderProducts(
+        req.account.id, advertiserId, req.params.catalogId, (req.body || {}).productIds,
+      );
+      res.json({ ok: true, products });
     } catch (err) { fail(res, err); }
   });
 

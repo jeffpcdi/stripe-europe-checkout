@@ -338,7 +338,12 @@ async function tick() {
       // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
       // mesmo motivo do automation acima (sem risco de ciclo no boot).
       try {
-        require('./ads-ai').maybeDailyBriefing(accId, scope.advertiserId, scope.currency || 'USD');
+        const adsAi = require('./ads-ai');
+        adsAi.maybeDailyBriefing(accId, scope.advertiserId, scope.currency || 'BRL');
+        // O detector intradiário usa snapshots cumulativos do mesmo espelho.
+        // O próprio módulo aplica o intervalo durável de 4h e só chama a
+        // Anthropic quando encontra uma anomalia estatisticamente relevante.
+        adsAi.maybeIntradayAnomaly(accId, scope.advertiserId, scope.currency || 'BRL');
       } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {

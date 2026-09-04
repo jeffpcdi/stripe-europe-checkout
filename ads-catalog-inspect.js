@@ -62,6 +62,19 @@ function findProductJson(value) {
   return null;
 }
 
+function findProductJsonAll(value, out) {
+  const rows = out || [];
+  if (!value || typeof value !== 'object') return rows;
+  if (Array.isArray(value)) {
+    value.forEach((child) => findProductJsonAll(child, rows));
+    return rows;
+  }
+  const type = value['@type'];
+  if (type === 'Product' || (Array.isArray(type) && type.includes('Product'))) rows.push(value);
+  Object.values(value).forEach((child) => findProductJsonAll(child, rows));
+  return rows;
+}
+
 function firstValue(value) {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -94,6 +107,7 @@ function extractProduct(html, sourceUrl) {
   const priceSpec = firstOffer(offer.priceSpecification);
   const image = firstValue(structured?.image);
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const brand = firstValue(structured?.brand && (structured.brand.name || structured.brand));
   return {
     title: decodeHtml(structured?.name || meta(html, 'og:title') || (titleMatch && titleMatch[1]) || ''),
     description: decodeHtml(structured?.description || meta(html, 'og:description') || meta(html, 'description') || ''),
@@ -101,8 +115,51 @@ function extractProduct(html, sourceUrl) {
     price: String(offer.price || offer.lowPrice || offer.highPrice || priceSpec.price || meta(html, 'product:price:amount') || meta(html, 'price') || '').trim(),
     currency: String(offer.priceCurrency || priceSpec.priceCurrency || meta(html, 'product:price:currency') || meta(html, 'priceCurrency') || '').trim().toUpperCase(),
     availability: /outofstock/i.test(String(offer.availability || '')) ? 'out of stock' : 'in stock',
+    brand: String(brand || meta(html, 'product:brand') || meta(html, 'og:site_name') || '').trim(),
+    sku_id: String(structured?.sku || structured?.mpn || structured?.productID || '').trim(),
     link: sourceUrl,
   };
+}
+
+function absoluteUrl(value, base) {
+  try { return new URL(String(value || ''), base).toString(); } catch (_) { return String(value || ''); }
+}
+
+function productFromJsonLd(product, sourceUrl, fallback) {
+  const offer = firstOffer(product && product.offers);
+  const spec = firstOffer(offer.priceSpecification);
+  const brand = firstValue(product && product.brand && (product.brand.name || product.brand));
+  return {
+    sku_id: String(product && (product.sku || product.mpn || product.productID) || '').trim(),
+    title: decodeHtml(product && product.name || ''),
+    description: decodeHtml(product && product.description || ''),
+    image_link: absoluteUrl(firstValue(product && product.image), sourceUrl),
+    price: String(offer.price || offer.lowPrice || offer.highPrice || spec.price || '').trim(),
+    currency: String(offer.priceCurrency || spec.priceCurrency || fallback.currency || '').trim().toUpperCase(),
+    availability: /outofstock/i.test(String(offer.availability || '')) ? 'out of stock' : 'in stock',
+    brand: String(brand || fallback.brand || '').trim(),
+    link: absoluteUrl(product && product.url || sourceUrl, sourceUrl),
+  };
+}
+
+function extractProducts(html, sourceUrl) {
+  const fallback = extractProduct(html, sourceUrl);
+  const rows = [];
+  const scripts = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  for (const match of html.matchAll(scripts)) {
+    try {
+      const products = findProductJsonAll(JSON.parse(match[1].trim()));
+      products.forEach((product) => rows.push(productFromJsonLd(product, sourceUrl, fallback)));
+    } catch (_) { /* JSON-LD inválido não invalida os demais blocos */ }
+  }
+  if (!rows.length && fallback.title) rows.push(fallback);
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = String(row.sku_id || row.link || row.title).toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 50);
 }
 
 async function fetchPublic(url, options = {}) {
@@ -136,4 +193,54 @@ async function previewProduct(url) {
   return { product: extractProduct(buffer.toString('utf8'), finalUrl), finalUrl };
 }
 
-module.exports = { isPrivateIp, assertPublicUrl, extractProduct, previewProduct };
+async function readLimited(response, maxBytes) {
+  const length = Number(response.headers.get('content-length') || 0);
+  if (length > maxBytes) throw Object.assign(new Error('A resposta é grande demais para importar'), { status: 413 });
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > maxBytes) throw Object.assign(new Error('A resposta é grande demais para importar'), { status: 413 });
+  return buffer;
+}
+
+async function previewCatalog(url) {
+  const page = await fetchPublic(url);
+  if (!page.response.ok) throw Object.assign(new Error(`A página respondeu HTTP ${page.response.status}`), { status: 422 });
+  const type = page.response.headers.get('content-type') || '';
+  if (!type.includes('text/html')) throw Object.assign(new Error('A URL não aponta para uma página HTML'), { status: 422 });
+  const html = (await readLimited(page.response, MAX_HTML_BYTES)).toString('utf8');
+  const finalUrl = page.finalUrl;
+  const base = new URL(finalUrl);
+  const fallback = extractProduct(html, finalUrl);
+
+  // Shopify expõe um endpoint JSON da coleção. Ele passa pela mesma validação
+  // de DNS/redirect do HTML; nunca fazemos fetch direto para host interno.
+  if (base.pathname.includes('/collections/')) {
+    const endpoint = base.origin + base.pathname.replace(/\/$/, '') + '/products.json?limit=50';
+    try {
+      const api = await fetchPublic(endpoint, { accept: 'application/json' });
+      if (api.response.ok && (api.response.headers.get('content-type') || '').includes('json')) {
+        const payload = JSON.parse((await readLimited(api.response, 3_000_000)).toString('utf8'));
+        const products = (Array.isArray(payload.products) ? payload.products : []).map((product) => {
+          const variant = Array.isArray(product.variants) ? product.variants[0] || {} : {};
+          const image = Array.isArray(product.images) ? product.images[0] || {} : {};
+          return {
+            sku_id: String(variant.sku || variant.id || product.id || product.handle || ''),
+            title: decodeHtml(product.title || ''),
+            description: decodeHtml(String(product.body_html || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').slice(0, 10000),
+            price: String(variant.compare_at_price || variant.price || ''),
+            sale_price: variant.compare_at_price ? String(variant.price || '') : '',
+            currency: fallback.currency || '',
+            condition: 'new',
+            availability: variant.available === false ? 'out of stock' : 'in stock',
+            link: absoluteUrl('/products/' + product.handle, base.origin),
+            image_link: absoluteUrl(image.src || product.image && product.image.src || '', base.origin),
+            brand: String(product.vendor || fallback.brand || '').trim(),
+          };
+        }).filter((product) => product.title && product.price);
+        if (products.length) return { products, finalUrl, source: 'shopify_collection' };
+      }
+    } catch (_) { /* cai para JSON-LD da página */ }
+  }
+  return { products: extractProducts(html, finalUrl), finalUrl, source: 'html_jsonld' };
+}
+
+module.exports = { isPrivateIp, assertPublicUrl, extractProduct, extractProducts, previewProduct, previewCatalog, fetchPublic };

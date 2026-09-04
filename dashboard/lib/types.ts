@@ -245,6 +245,22 @@ export interface CheckoutLink {
   idiomas: string[]
   pixelSlug: string
   ativo: boolean
+  experiment?: {
+    enabled: boolean
+    autoStop: boolean
+    minVisitors: number
+    minConversions: number
+    confidence: number
+    minLift: number
+    status?: 'collecting' | 'winner' | string
+    winner?: string | null
+    conclusion?: string | null
+    evaluation?: {
+      confidence?: number
+      probabilities?: Record<string, number>
+      reason?: string
+    } | null
+  }
   /** Item 531: arquivado = fora da lista padrão e do /go, histórico preservado */
   arquivado?: boolean
   criadoEm: string
@@ -1657,6 +1673,7 @@ export interface AdsCatalogProduct {
   data: Record<string, string>
   valid: boolean
   errors: AdsCatalogProductError[]
+  sortOrder?: number
   createdAt: string
   updatedAt: string
 }

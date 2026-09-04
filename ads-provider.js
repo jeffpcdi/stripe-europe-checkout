@@ -1514,6 +1514,15 @@ async function uploadVideoAndWait(advertiserId, videoUrl, createdIds) {
   throw stepError('upload', 'Vídeo enviado (video_id ' + videoId + ') mas não ficou processado/displayable a tempo — tente de novo em instantes (o re-upload reaproveita o mesmo vídeo)', createdIds);
 }
 
+// Fronteira pública usada pelo sincronizador Google Drive/Dropbox. Faz apenas
+// upload do asset e aguarda o processamento do TikTok; não cria campanha nem
+// anúncio, portanto o arquivo aparece como criativo reutilizável/rascunho.
+async function uploadVideoAsset(advertiserId, videoUrl) {
+  const createdIds = {};
+  const videoId = await uploadVideoAndWait(String(advertiserId || ''), String(videoUrl || ''), createdIds);
+  return { videoId, displayable: true };
+}
+
 function assetStepError(value, step, createdIds) {
   const err = value instanceof Error ? value : new Error(String(value || 'Falha no asset do TikTok'));
   if (!err.step) err.step = step;
@@ -4587,6 +4596,7 @@ module.exports = {
   updateAd,
   // criação composta (F1)
   createFullAd,
+  uploadVideoAsset,
   // duplicação composta (F3)
   captureCampaign,
   preflightCampaignDuplication,

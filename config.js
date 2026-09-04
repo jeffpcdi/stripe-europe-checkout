@@ -71,6 +71,23 @@ function defaults() {
       funMode: false,
       preferences: { sales: true, risks: true, automation: true }
     },
+    // Custos usados pelo cálculo de lucro líquido. Valores exatos recebidos
+    // no webhook sempre têm prioridade; estes defaults cobrem gateways que não
+    // informam a tarifa/imposto por transação.
+    profitability: {
+      gatewayFeePct: 0,
+      gatewayFixedFeeCents: 0,
+      taxPct: 0,
+      productCostPct: 0,
+      productCostFixedCents: 0,
+      gatewayOverrides: {}
+    },
+    // Fontes de vídeo conectadas. Tokens OAuth nunca vivem neste JSON; apenas
+    // preferências não sensíveis (pasta e comportamento de rascunho).
+    cloudVideo: {
+      googleDrive: { enabled: false, folderId: '', advertiserId: '' },
+      dropbox: { enabled: false, folderPath: '', advertiserId: '' }
+    },
     lastDailyReport: '',
     updatedAt: null
   };
@@ -86,6 +103,11 @@ function mergeDefaults(stored) {
   out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
   out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
   out.webPush = Object.assign({}, base.webPush, (stored && stored.webPush) || {});
+  out.profitability = Object.assign({}, base.profitability, (stored && stored.profitability) || {});
+  out.cloudVideo = {
+    googleDrive: Object.assign({}, base.cloudVideo.googleDrive, stored && stored.cloudVideo && stored.cloudVideo.googleDrive || {}),
+    dropbox: Object.assign({}, base.cloudVideo.dropbox, stored && stored.cloudVideo && stored.cloudVideo.dropbox || {})
+  };
   return out;
 }
 
@@ -103,6 +125,7 @@ function loadDiskMap() {
   } catch (err) {
     console.error('[config] Erro ao ler config do disco:', err.message);
   }
+
   return {};
 }
 
@@ -266,6 +289,51 @@ function set(accountId, patch) {
     next.webPush = wp;
   }
 
+  // Custos do lucro líquido. Percentuais são sempre números positivos e os
+  // overrides ficam restritos a provedores conhecidos/nomes simples.
+  {
+    const raw = Object.assign({}, defaults().profitability, next.profitability || {});
+    const clampPct = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+    const clampCents = (value) => Math.max(0, Math.min(100000000, Math.round(Number(value) || 0)));
+    const gatewayOverrides = {};
+    const source = raw.gatewayOverrides && typeof raw.gatewayOverrides === 'object' ? raw.gatewayOverrides : {};
+    Object.keys(source).slice(0, 30).forEach((gatewayKey) => {
+      const slug = String(gatewayKey).toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+      if (!slug) return;
+      gatewayOverrides[slug] = {
+        feePct: clampPct(source[gatewayKey] && source[gatewayKey].feePct),
+        fixedFeeCents: clampCents(source[gatewayKey] && source[gatewayKey].fixedFeeCents),
+      };
+    });
+    next.profitability = {
+      gatewayFeePct: clampPct(raw.gatewayFeePct),
+      gatewayFixedFeeCents: clampCents(raw.gatewayFixedFeeCents),
+      taxPct: clampPct(raw.taxPct),
+      productCostPct: clampPct(raw.productCostPct),
+      productCostFixedCents: clampCents(raw.productCostFixedCents),
+      gatewayOverrides,
+    };
+  }
+
+  // Preferências não secretas dos conectores de arquivos.
+  {
+    const source = next.cloudVideo && typeof next.cloudVideo === 'object' ? next.cloudVideo : {};
+    const gd = source.googleDrive || {};
+    const dbx = source.dropbox || {};
+    next.cloudVideo = {
+      googleDrive: {
+        enabled: gd.enabled === true,
+        folderId: String(gd.folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 160),
+        advertiserId: String(gd.advertiserId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
+      },
+      dropbox: {
+        enabled: dbx.enabled === true,
+        folderPath: String(dbx.folderPath || '').trim().replace(/\.\./g, '').slice(0, 500),
+        advertiserId: String(dbx.advertiserId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120),
+      },
+    };
+  }
+
   // Sanitização dos demais blocos (garante formatos previsíveis)
   if (!Array.isArray(next.shortlinks)) next.shortlinks = [];
   next.shortlinks = next.shortlinks.slice(0, 100).map((s) => ({
@@ -333,6 +401,9 @@ function set(accountId, patch) {
     // pode ser enviado
     const drh = Math.round(Number(s.dailyReportHour));
     if (Number.isFinite(drh) && drh >= 0 && drh <= 23) out.dailyReportHour = drh;
+    if (typeof s.dailyReportEnabled === 'boolean') out.dailyReportEnabled = s.dailyReportEnabled;
+    const whatsappTo = String(s.whatsappTo || '').replace(/\D/g, '').slice(0, 20);
+    if (whatsappTo.length >= 8) out.whatsappTo = whatsappTo;
     // Modelo da venda na notificação nativa. `pushcutTemplate` é aceito só
     // para migrar configurações já existentes sem perder a mensagem do usuário.
     const notificationTemplate = s.notificationTemplate || s.pushcutTemplate;
@@ -368,7 +439,12 @@ function set(accountId, patch) {
       // Item 254: limites de velocity com clamp seguro — nunca deixa o usuário
       // se auto-bloquear (mínimo 3) nem desligar a proteção por engano (máx 100).
       velocityLimit:      Math.max(3, Math.min(100, Math.round(Number(c.velocityLimit) || 12))),
-      velocityWindowSec:  Math.max(10, Math.min(600, Math.round(Number(c.velocityWindowSec) || 60)))
+      velocityWindowSec:  Math.max(10, Math.min(600, Math.round(Number(c.velocityWindowSec) || 60))),
+      autoBlockEnabled:  boolOr(c.autoBlockEnabled, false),
+      autoBlockThreshold: Math.max(3, Math.min(100, Math.round(Number(c.autoBlockThreshold) || 8))),
+      autoBlockWindowMin: Math.max(5, Math.min(1440, Math.round(Number(c.autoBlockWindowMin) || 30))),
+      autoBlockTtlHours: Math.max(1, Math.min(720, Math.round(Number(c.autoBlockTtlHours) || 24))),
+      capiBotSignalEnabled: boolOr(c.capiBotSignalEnabled, false)
     };
   }
 

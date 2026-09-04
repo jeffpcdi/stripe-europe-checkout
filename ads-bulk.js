@@ -32,6 +32,8 @@ const QUEUE = 'adsBulkQ' + (queueNamespace ? ':' + queueNamespace : '');
 const PROC = QUEUE + ':proc';
 const QUEUE_CAP = 2000;
 const JOB_TTL_S = 24 * 3600; // 24h — o job é efêmero por natureza
+const RATE_LIMIT_PAUSE_MS = Math.max(1000, Number(process.env.ADS_BULK_RATE_LIMIT_PAUSE_MS) || 5 * 60 * 1000);
+const PAUSE_KEY = QUEUE + ':paused';
 
 const redis = redisMod.redis;
 const redisOn = () => !!(redisMod.enabled && redis);
@@ -39,6 +41,8 @@ const redisOn = () => !!(redisMod.enabled && redis);
 // ── Fallback em memória (sem Redis) ─────────────────────────────────────────
 const memQueue = []; // envelopes serializados (string), cabeça = mais novo
 const memProc = [];  // itens reservados
+let memPausedUntil = 0;
+let memPauseReason = '';
 
 function randId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -155,6 +159,76 @@ async function bulkQueueDepth() {
     } catch (_) { /* cai para o espelho em memória */ }
   }
   return { queue: memQueue.length, processing: memProc.length };
+}
+
+function isRateLimitError(err) {
+  if (!err) return false;
+  const status = Number(err.status || err.statusCode || (err.response && err.response.status));
+  const code = String(err.code || (err.response && err.response.data && err.response.data.code) || '').toLowerCase();
+  const message = String(err.message || err.userMessage || '').toLowerCase();
+  return status === 429
+    || code === '429'
+    || code.includes('rate_limit')
+    || code.includes('ratelimit')
+    || message.includes('rate limit')
+    || /\bhttp\s*429\b/.test(message)
+    || message.includes('too many request')
+    || message.includes('muitas requisições')
+    || message.includes('limite de requisições');
+}
+
+async function pauseBulkQueue(reason, durationMs) {
+  const until = Date.now() + Math.max(1000, Number(durationMs) || RATE_LIMIT_PAUSE_MS);
+  const payload = {
+    until,
+    reason: String(reason || 'Limite temporário do TikTok').slice(0, 220),
+  };
+  memPausedUntil = until;
+  memPauseReason = payload.reason;
+  if (redisOn()) {
+    try {
+      await redis.set(PAUSE_KEY, JSON.stringify(payload), { px: Math.max(1000, until - Date.now()) });
+    } catch (err) {
+      console.error('[ads-bulk] pausa durável:', err.message);
+    }
+  }
+  return payload;
+}
+
+async function getBulkQueuePause() {
+  let payload = memPausedUntil > Date.now()
+    ? { until: memPausedUntil, reason: memPauseReason }
+    : null;
+  if (redisOn()) {
+    try {
+      const raw = await redis.get(PAUSE_KEY);
+      if (raw) {
+        const remote = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (Number(remote && remote.until) > Date.now()) payload = remote;
+      }
+    } catch (err) {
+      // A pausa em memória ainda protege esta instância quando o Redis oscila.
+      console.error('[ads-bulk] leitura da pausa:', err.message);
+    }
+  }
+  if (!payload || Number(payload.until) <= Date.now()) {
+    memPausedUntil = 0;
+    memPauseReason = '';
+    return { paused: false, pausedUntil: null, retryAfterMs: 0, reason: '' };
+  }
+  memPausedUntil = Number(payload.until);
+  memPauseReason = String(payload.reason || 'Limite temporário do TikTok');
+  return {
+    paused: true,
+    pausedUntil: new Date(memPausedUntil).toISOString(),
+    retryAfterMs: Math.max(0, memPausedUntil - Date.now()),
+    reason: memPauseReason,
+  };
+}
+
+async function bulkQueueStatus() {
+  const [depth, pause] = await Promise.all([bulkQueueDepth(), getBulkQueuePause()]);
+  return Object.assign({}, depth, pause);
 }
 
 // ── Estado do job (progresso p/ a UI) ───────────────────────────────────────
@@ -280,6 +354,11 @@ function startBulkWorker(processItem, { intervalMs, backoffMs } = {}) {
         lastReclaimAt = Date.now();
         await reclaimBulkItems();
       }
+      // Rate limit é uma condição da fila inteira, não uma falha do anúncio.
+      // Enquanto o prazo não expira, nenhum item é reservado e o timer segue
+      // leve; ao expirar, o próximo tick retoma sozinho.
+      const pause = await getBulkQueuePause();
+      if (pause.paused) return;
       // UM item por vez — rate limit da Zernio (criação sobe vídeo p/ o TikTok)
       const batch = await reserveBulkItems(1);
       for (const { raw, env } of batch) {
@@ -294,6 +373,23 @@ function startBulkWorker(processItem, { intervalMs, backoffMs } = {}) {
           await ackBulkItem(raw);
         } catch (err) {
           const msg = String((err && err.message) || 'erro inesperado').slice(0, 300);
+          if (isRateLimitError(err)) {
+            const paused = await pauseBulkQueue(msg, RATE_LIMIT_PAUSE_MS);
+            const attempts = Math.max(0, Number(env.attempts) || 0) + 1;
+            await updateBulkItem(env.accountId, env.jobId, env.idx, {
+              status: 'queued',
+              error: 'TikTok limitou as requisições. A fila retoma automaticamente em 5 minutos.',
+              attempts,
+              retryAt: new Date(paused.until).toISOString(),
+            });
+            await ackBulkItem(raw);
+            await enqueueBulkItem(Object.assign({}, env, {
+              attempts,
+              at: Date.now(),
+              reservedAt: undefined,
+            }));
+            continue;
+          }
           await updateBulkItem(env.accountId, env.jobId, env.idx, { status: 'failed', error: msg });
           await ackBulkItem(raw); // failed NÃO volta pra fila sozinho — retry é explícito na UI
           // backoff: respira antes do próximo item quando a Zernio reclamou
@@ -318,7 +414,8 @@ function stopBulkWorker() {
 
 module.exports = {
   enqueueBulkItem, reserveBulkItems, ackBulkItem, reclaimBulkItems, bulkQueueDepth,
+  bulkQueueStatus, getBulkQueuePause, pauseBulkQueue, isRateLimitError,
   createBulkJob, getBulkJob, updateBulkItem,
   startBulkWorker, stopBulkWorker,
-  _internals: { queue: QUEUE, processing: PROC, namespace: queueNamespace },
+  _internals: { queue: QUEUE, processing: PROC, pauseKey: PAUSE_KEY, namespace: queueNamespace, RATE_LIMIT_PAUSE_MS },
 };

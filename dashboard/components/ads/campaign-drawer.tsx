@@ -15,8 +15,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { X, TrendingDown, TrendingUp } from 'lucide-react'
-import { useAdsCampaignAnalytics } from '@/lib/api'
+import { X, TrendingDown, TrendingUp, History } from 'lucide-react'
+import { useAdsAudit, useAdsCampaignAnalytics } from '@/lib/api'
 import { fmtCompact } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/skeleton'
@@ -158,6 +158,7 @@ export function CampaignDrawer({
   const { data, isLoading, error } = useAdsCampaignAnalytics(id, advertiserId, cur)
   // comparação: mesmo tamanho de janela, imediatamente anterior
   const { data: prevData } = useAdsCampaignAnalytics(id, advertiserId, prev)
+  const { data: audit } = useAdsAudit(Boolean(id))
 
   useEffect(() => {
     if (!id) return
@@ -212,6 +213,11 @@ export function CampaignDrawer({
   const cpaPrev = pTot.conversions > 0 ? pTot.spend / pTot.conversions : 0
 
   const chartKey = `${metric}-${days}-${id}`
+  const timeline = (audit?.events || []).filter((event) => {
+    if (event.target_id === id) return true
+    const meta = event.metadata || {}
+    return String(meta.campaignId || meta.winnerId || meta.donorId || '') === id
+  }).slice(0, 20)
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Detalhe da campanha">
@@ -420,6 +426,30 @@ export function CampaignDrawer({
               )}
             </>
           )}
+
+          <section className="rounded-[10px] border border-border bg-secondary/15 p-4" aria-label="Linha do tempo de alterações">
+            <div className="mb-3 flex items-center gap-2">
+              <History className="size-4 text-primary" aria-hidden="true" />
+              <h3 className="text-xs font-semibold text-foreground">Time Machine</h3>
+              <span className="text-[10px] text-muted-foreground">histórico auditável</span>
+            </div>
+            {timeline.length ? (
+              <ol className="relative ml-1 border-l border-border pl-4">
+                {timeline.map((event) => (
+                  <li key={event.id} className="relative pb-4 last:pb-0">
+                    <span className="absolute -left-[1.22rem] top-1 size-2 rounded-full bg-primary shadow-[0_0_8px_rgba(37,244,238,.55)]" />
+                    <p className="text-[11px] font-medium text-foreground">{event.reason || event.action.replace(/[._]/g, ' ')}</p>
+                    <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
+                      {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(event.created_at))}
+                      {' · '}{event.action}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Ainda não há alterações registradas para esta campanha.</p>
+            )}
+          </section>
         </div>
       </div>
     </div>

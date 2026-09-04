@@ -51,6 +51,7 @@ const auth = require('./auth');
  const { buildUtm } = require('./utm-macros');
  const db = require('./db');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
+const botRiskStore = require('./bot-risk-store');
 const { loginPage, registerPage } = require('./auth-view');
 const { buildOverviewHealth } = require('./overview-health');
 
@@ -1234,6 +1235,17 @@ app.get('/c/:slug', async (req, res) => {
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
 
+  // Denylist automática por IP anonimizado. A checagem ocorre antes dos gates
+  // caros e o IP bruto nunca é salvo no histórico do bloqueio.
+  if (cloakOn && acctCloak.autoBlockEnabled) {
+    const denied = await botRiskStore.isBlocked(acc, clientIp(req)).catch(() => ({ blocked: false }));
+    if (denied.blocked) {
+      stats.logEvent('info', { acc, title: '[cloak] IP da denylist automática → white', gateway: 'cloak:' + entry.slug, ref: denied.ipHash.slice(0, 12) });
+      bumpDecision('white', 'auto-block');
+      return go(white);
+    }
+  }
+
   // Crawler conhecido → página segura (nunca à offer)
   if (uaTools.isBot(uaRaw)) {
     stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
@@ -1378,6 +1390,43 @@ app.get('/c/:slug', async (req, res) => {
       // curto-circuitam no gate sticky acima, sem re-rodar o judge.
       if (cloakVid && j.score >= (j.threshold || 40)) {
         redis.setStickyBot(cloakVid, { at: Date.now(), score: j.score, sig: (j.signals || []).slice(0, 3) }).catch(() => {});
+      }
+      // Vários julgamentos fortes do mesmo IP + anúncio viram bloqueio com
+      // TTL. Opcionalmente envia um evento CUSTOMIZADO de diagnóstico à CAPI;
+      // jamais Purchase/CompletePayment e jamais receita sintética.
+      if (acctCloak.autoBlockEnabled) {
+        const adKey = String(q.ad_id || q.adid || q.adgroup_id || q.campaign_id || q.utm_content || q.utm_campaign || entry.slug);
+        const risk = await botRiskStore.recordHighRisk({
+          accountId: acc,
+          ip: clientIp(req),
+          adKey,
+          score: j.score,
+          reason: 'score',
+          threshold: acctCloak.autoBlockThreshold,
+          windowMin: acctCloak.autoBlockWindowMin,
+          ttlHours: acctCloak.autoBlockTtlHours,
+        }).catch(() => null);
+        if (risk && risk.newlyBlocked) {
+          stats.logEvent('warn', { acc, title: '[cloak] IP bloqueado automaticamente após ' + risk.count + ' acessos suspeitos no anúncio ' + risk.adKey, gateway: 'cloak:' + entry.slug, ref: risk.ipHash.slice(0, 12) });
+          sendPushcut('Aprovada', {
+            title: 'Tráfego falso bloqueado',
+            text: 'O mesmo perfil atingiu ' + risk.count + ' sinais de alto risco no anúncio ' + risk.adKey + '. O bloqueio expira sozinho.',
+            sound: 'system',
+          }, acc, { event: 'ads_bot_block', priority: 'critical', dedupeKey: 'bot:' + risk.ipHash }).catch(() => {});
+          if (acctCloak.capiBotSignalEnabled) {
+            const payload = {
+              event: 'BotTrafficBlocked',
+              eventId: 'BotTrafficBlocked.' + risk.ipHash.slice(0, 32) + '.' + Math.floor(Date.now() / 3600000),
+              acc,
+              ip: clientIp(req),
+              userAgent: uaRaw,
+              ttclid: validTtclid ? ttclidRaw : undefined,
+              url: req.protocol + '://' + req.get('host') + req.originalUrl,
+              contents: [{ content_id: risk.adKey, content_name: 'Tráfego automatizado bloqueado', content_category: 'risk_signal', quantity: 1 }],
+            };
+            Promise.all(pixelStore.forRoute(acc, '*').map((pixel) => ttEvents.sendToPixel(pixel, payload))).catch(() => {});
+          }
+        }
       }
       return go(white);
     }
@@ -1571,12 +1620,12 @@ app.post('/api/public-token/scope', dashboardAuth, (req, res) => {
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
 let dailyCheckBusy = false;
-function checkDailyReport() {
+async function checkDailyReport() {
   if (dailyCheckBusy) return;
   dailyCheckBusy = true;
   try {
     // Uma verificação por conta: cada usuário tem seu Pushcut e seu resumo.
-    for (const accId of config.accountIds()) checkDailyReportFor(accId);
+    await Promise.all(config.accountIds().map((accId) => checkDailyReportFor(accId)));
   } finally { dailyCheckBusy = false; }
 }
 
@@ -1704,15 +1753,21 @@ function accHour(accId) {
     return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: accountTz(accId), hour: '2-digit', hour12: false }).format(new Date()), 10);
   } catch (_) { return new Date().getUTCHours(); }
 }
-function checkDailyReportFor(accId) {
+async function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
-  if (!pc.url || !(pc.events || {}).daily) return;
+  const settings = cfg.settings || {};
+  const whatsapp = require('./whatsapp');
+  const webPushNotify = require('./web-push-notify');
+  const pushcutEnabled = !!pc.url && (pc.events || {}).daily === true;
+  const whatsappEnabled = settings.dailyReportEnabled === true && !!settings.whatsappTo;
+  const webPushEnabled = settings.dailyReportEnabled === true && ((cfg.webPush || {}).subs || []).length > 0;
+  if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled) return;
   const today = accDay(accId, new Date());
   if (cfg.lastDailyReport === today) return;
-  // Item 430: hora mínima configurável — o resumo só sai depois da hora
-  // escolhida (no fuso da conta). Default 0h = comportamento antigo.
-  const minHour = Math.max(0, Math.min(23, Number((cfg.settings || {}).dailyReportHour) || 0));
+  // Default de produto: 08h no fuso da conta.
+  const configuredHour = Number(settings.dailyReportHour);
+  const minHour = Math.max(0, Math.min(23, Number.isFinite(configuredHour) ? configuredHour : 8));
   if (accHour(accId) < minHour) return;
   try {
     // Item 422: o corte de "ontem" também respeita o fuso da conta.
@@ -1726,17 +1781,57 @@ function checkDailyReportFor(accId) {
     const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
     const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
     const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
-    const cur = (sales[0] && sales[0].currency) || 'EUR';
+    const cur = (sales[0] && sales[0].currency) || accountCurrency(accId);
     const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
-    config.set(accId, { lastDailyReport: today }); // marca ANTES do envio: nunca duplica
-    sendPushcut('Aprovada', {
-      title: 'Resumo de ' + yKey.split('-').reverse().join('/'),
-      text: 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur +
-        (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '') +
-        '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%',
+    // Gasto oficial do TikTok vem do espelho de todos os advertisers desta
+    // conta e da mesma data civil. Nunca mistura moeda silenciosamente.
+    const adsCache = require('./ads-cache-store');
+    let spend = 0;
+    let adCurrency = null;
+    const syncStates = await adsCache.listSyncStates(accId).catch(() => []);
+    for (const state of syncStates) {
+      const daily = await adsCache.readAdvertiserDaily(accId, state.advertiser_id, yKey, yKey).catch(() => null);
+      if (!daily || !daily.currency) continue;
+      if (adCurrency && daily.currency !== adCurrency) continue;
+      adCurrency = daily.currency;
+      spend += Number(daily.spend) || 0;
+    }
+    const sameCurrency = !adCurrency || adCurrency === cur;
+    const roas = sameCurrency && spend > 0 ? rev / 100 / spend : 0;
+    const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
+      currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
+      config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
+    });
+    const text = 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur
+      + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '')
+      + '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%'
+      + '\nGasto TikTok: ' + (sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente')
+      + ' · ROAS: ' + (sameCurrency ? roas.toFixed(2) : '—')
+      + '\nLucro líquido: ' + (profit.netProfitCents / 100).toFixed(2) + ' ' + cur
+      + (profit.quality === 'exact' ? '' : ' (custos estimados onde o webhook não informou)');
+    const title = 'Resumo de ' + yKey.split('-').reverse().join('/');
+    const deliveries = [];
+    if (pushcutEnabled) deliveries.push(sendPushcut('Aprovada', {
+      title,
+      text,
       sound: 'system'
-    }, accId).catch(() => {});
-  } catch (_) {}
+    }, accId).catch(() => false));
+    if (webPushEnabled) deliveries.push(webPushNotify.sendWebPush(accId, {
+      title, body: text, url: '/dashboard', tag: 'daily-report-' + yKey,
+      sound: 'info', event: 'ads', priority: 'normal',
+    }).catch(() => false));
+    if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + text, [
+      yKey.split('-').reverse().join('/'), (rev / 100).toFixed(2) + ' ' + cur,
+      String(sales.length), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
+      sameCurrency ? roas.toFixed(2) : '—', (profit.netProfitCents / 100).toFixed(2) + ' ' + cur,
+    ]).then((result) => result.ok).catch(() => false));
+    const delivered = (await Promise.all(deliveries)).some(Boolean);
+    // Marca só depois de pelo menos um canal confirmar; uma indisponibilidade
+    // temporária volta a ser tentada no próximo tick, sem perder o relatório.
+    if (delivered) config.set(accId, { lastDailyReport: today });
+  } catch (error) {
+    console.warn('[relatório-diário] falhou para a conta ' + accId + ': ' + String(error && error.message || error).slice(0, 180));
+  }
 }
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
@@ -2392,6 +2487,13 @@ app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
   }
 });
 
+app.get('/api/links/:slug/experiment', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const out = linkStore.experimentResult(req.account.id, req.params.slug);
+  if (!out) return apiError(res, 404, 'Link não encontrado.', 'link_not_found');
+  res.json({ ok: true, ...out });
+});
+
 // Valida o domínio de um checkout externo: DNS resolve + resposta HTTP.
 app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
   const result = await linkStore.validateDomain(String((req.body || {}).dominio || ''));
@@ -2453,6 +2555,20 @@ app.get('/feed/:token.csv', async (req, res) => {
   }
 });
 
+app.get('/feed/:token.xml', async (req, res) => {
+  try {
+    const catalogStore = require('./ads-catalog-store');
+    const catalogFeed = require('./ads-catalog-feed');
+    const catalog = await catalogStore.getCatalogByFeedToken(req.params.token);
+    if (!catalog) return res.status(404).type('text/plain').send('feed não encontrado');
+    const products = await catalogStore.listProductsByFeedToken(req.params.token, catalogFeed.validateProduct);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('application/xml').send(catalogFeed.buildCatalogXml(products.filter((product) => product.valid), catalog));
+  } catch (_) {
+    res.status(500).type('text/plain').send('erro ao gerar o feed');
+  }
+});
+
 // ── Configurações da conta (moeda padrão etc.) ���───────────────────────────
 // A moeda escolhida aqui alimenta TODOS os disparos/testes que não trazem
 // moeda própria no payload (fallback era EUR fixo; agora é por conta, BRL).
@@ -2471,7 +2587,10 @@ app.get('/api/settings', dashboardAuth, (req, res) => {
     revenueGoal: s.revenueGoal || 0,
     outboundWebhook: s.outboundWebhook || '',
     lgpdDays: s.lgpdDays || 0,
-    dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 0,
+    dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 8,
+    dailyReportEnabled: s.dailyReportEnabled === true,
+    whatsappTo: s.whatsappTo || '',
+    whatsapp: require('./whatsapp').status(),
     notificationTemplate: s.notificationTemplate || s.pushcutTemplate || '',
     pushcutTemplate: s.notificationTemplate || s.pushcutTemplate || '', // compatibilidade com UI antiga
     // Item 419: escopo atual do token público (para a UI refletir o valor)
@@ -2484,7 +2603,7 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   const body = req.body || {};
   // Itens 422/423/424/425/429/430: campos opcionais — só sobrescreve o que
   // veio no body; a sanitização final é do config.set (fonte única de regras).
-  const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'notificationTemplate', 'pushcutTemplate'];
+  const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'dailyReportEnabled', 'whatsappTo', 'notificationTemplate', 'pushcutTemplate'];
   const hasExtra = patchable.some((k) => Object.prototype.hasOwnProperty.call(body, k));
   if (hasExtra && !body.defaultCurrency) {
     const s = Object.assign({}, config.get(req.account.id).settings || {});
@@ -3004,7 +3123,7 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   const next = Object.assign({}, cur);
   const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
     'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
-    'checkWebview', 'checkCoherence', 'checkEntropy'];
+    'checkWebview', 'checkCoherence', 'checkEntropy', 'autoBlockEnabled', 'capiBotSignalEnabled'];
   boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
@@ -3015,8 +3134,23 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   // Item 254: limites de velocity — clamp final fica no sanitizador do config.js
   if (b.velocityLimit != null && !isNaN(Number(b.velocityLimit))) next.velocityLimit = Number(b.velocityLimit);
   if (b.velocityWindowSec != null && !isNaN(Number(b.velocityWindowSec))) next.velocityWindowSec = Number(b.velocityWindowSec);
+  ['autoBlockThreshold', 'autoBlockWindowMin', 'autoBlockTtlHours'].forEach((key) => {
+    if (b[key] != null && !isNaN(Number(b[key]))) next[key] = Number(b[key]);
+  });
   config.set(req.account.id, { cloak: next });
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
+});
+
+app.get('/api/cloak/blocks', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, blocks: await botRiskStore.listBlocks(req.account.id, req.query.limit).catch(() => []) });
+});
+
+app.delete('/api/cloak/blocks/:ipHash', dashboardAuth, async (req, res) => {
+  const ok = await botRiskStore.unblock(req.account.id, req.params.ipHash);
+  if (!ok) return apiError(res, 400, 'Identificador de bloqueio inválido.', 'bad_block_id');
+  stats.logEvent('info', { acc: req.account.id, title: '[cloak] bloqueio automático liberado manualmente', ref: String(req.params.ipHash).slice(0, 12) });
+  res.json({ ok: true });
 });
 
 // ── Regras de cloaking POR LINK (offer/white/pa��ses/pixel) ��────────────────
@@ -3937,6 +4071,8 @@ async function processConversion(n) {
           acc: n.acc || (lead && lead.acc) || null,
           title: titleMap[n.event] + ' (' + n.gateway + ')',
           amount: n.amountCents, currency: n.currency,
+          feeCents: n.feeCents, taxCents: n.taxCents,
+          netAmountCents: n.netAmountCents, productCostCents: n.productCostCents,
           customer: n.customer, email: n.email,
           gateway: n.gateway, ref: n.orderId,
           raw: rawForFeed()
@@ -3979,6 +4115,8 @@ async function processConversion(n) {
             acc: saleAcc,
             title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
             amount: n.amountCents, currency: n.currency,
+            feeCents: n.feeCents, taxCents: n.taxCents,
+            netAmountCents: n.netAmountCents, productCostCents: n.productCostCents,
             customer: n.customer, email: n.email,
             gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
             matchAmbiguous: !!matched.matchAmbiguous, matchCandidates: matched.matchCandidates || 1,
@@ -5500,6 +5638,12 @@ stats.hydrate()
   }))
   // Liga o motor de sync Pipeboard→Neon (loop em background p/ contas ativas).
   .then(() => { try { require('./ads-sync').start(); } catch (e) { console.warn('[ads-sync] start falhou:', e.message); } })
+  // Observa pastas conectadas e envia novos vídeos como assets reutilizáveis
+  // do TikTok. O worker é idempotente por arquivo e advertiser.
+  .then(() => require('./cloud-video-sync').ensureSchema().catch((e) => {
+    console.warn('[cloud-video] ensureSchema falhou:', e.message);
+  }))
+  .then(() => { try { require('./cloud-video-sync').start(); } catch (e) { console.warn('[cloud-video] start falhou:', e.message); } })
   // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
   // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {
@@ -5523,6 +5667,12 @@ stats.hydrate()
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
+    // Relatório das 08h é um worker real: continua funcionando mesmo sem
+    // visitas, tracking ou dashboard aberta. O marcador por conta garante no
+    // máximo um envio confirmado por dia.
+    const dailyReportTimer = setInterval(() => { checkDailyReport().catch(() => {}); }, 5 * 60 * 1000);
+    if (dailyReportTimer.unref) dailyReportTimer.unref();
+    setTimeout(() => { checkDailyReport().catch(() => {}); }, 10 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
     //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
     setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 24 * 60 * 60 * 1000).unref();
