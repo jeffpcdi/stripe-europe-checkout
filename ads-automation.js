@@ -48,7 +48,7 @@ const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
 const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2, rejectedAds: false, autoAppealSmartPlus: false };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const AUTOMATION_AUTONOMY = ['notify', 'propose', 'auto'];
-const AUTOMATION_PROFILE_LIMIT = 10;
+const AUTOMATION_PROFILE_LIMIT = 12;
 
 // stats é injetado pelas rotas (logEvent + getStats p/ atribuição). Antes de
 // init(), tudo degrada para noop — nenhum sweep quebra por falta de stats.
@@ -251,11 +251,18 @@ function buildRulePresets() {
       metric: 'roas_scale', threshold: 3, lookbackDays: 1, minSales: 2, pct: 30, budgetCap: 200,
     },
     {
-      id: 'preset_self_heal', preset: true, enabled: false, mode: 'execute',
+      id: 'preset_self_heal', preset: true, enabled: false,
       name: 'Autocura de orçamento',
       description: 'Move até 20% do orçamento de uma campanha ruim para uma vencedora perto de esgotar, sem aumentar o gasto total da conta.',
       metric: 'self_heal', threshold: 2, lookbackDays: 1, minSales: 2, minSpend: 20,
       donorRoasMax: 0.8, budgetUtilizationPct: 85, pct: 20, budgetCap: 500,
+    },
+    {
+      id: 'preset_friday_scale', preset: true, enabled: false,
+      name: 'Sexta às 18h → escalar com ROAS',
+      description: 'Aumenta o orçamento em 30% toda sexta-feira às 18h, no fuso da conta TikTok, somente com ROAS acima de 2,0 e pelo menos 2 vendas.',
+      metric: 'scheduled_scale', threshold: 2, lookbackDays: 1, minSales: 2,
+      pct: 30, budgetCap: 500, days: [5], triggerTime: '18:00', graceMinutes: 15,
     },
     {
       id: 'preset_schedule', preset: true, enabled: false,
@@ -508,7 +515,7 @@ function setGlobalAutonomy(accId, advertiserId, autonomy, expectedRevision) {
 // não têm esses campos e precisam avaliar sem `undefined > number`.
 function validateRules(raw) {
   const list = Array.isArray(raw) ? raw : [];
-  return list.slice(0, 10).map((r, i) => {
+  return list.slice(0, AUTOMATION_PROFILE_LIMIT).map((r, i) => {
     const metric = RULE_METRICS.includes(r.metric) ? r.metric : 'cpa_max';
     const out = {
       id: String(r.id || 'r' + Date.now().toString(36) + i).slice(0, 24),

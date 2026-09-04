@@ -251,13 +251,16 @@ export interface CheckoutLink {
     minVisitors: number
     minConversions: number
     confidence: number
-    minLift: number
-    status?: 'collecting' | 'winner' | string
-    winner?: string | null
-    conclusion?: string | null
-    evaluation?: {
+    minLiftPct: number
+    status?: 'running' | 'concluded'
+    winnerId?: string | null
+    concludedAt?: string | null
+    lastEvaluation?: {
+      at?: string
+      ready?: boolean
       confidence?: number
-      probabilities?: Record<string, number>
+      confidencePct?: number
+      liftPct?: number
       reason?: string
     } | null
   }
@@ -580,6 +583,11 @@ export interface CloakConfig {
   // Itens 254/261: camada de velocity (anti device-farm) configurável por conta
   velocityLimit?: number
   velocityWindowSec?: number
+  autoBlockEnabled?: boolean
+  autoBlockThreshold?: number
+  autoBlockWindowMin?: number
+  autoBlockTtlHours?: number
+  capiBotSignalEnabled?: boolean
 }
 
 // ── /api/cloak/test — julgamento do request atual ──
@@ -710,6 +718,11 @@ export interface Account {
 // ── /api/settings — configurações da conta (moeda padrão) ──
 export interface AccountSettings {
   defaultCurrency: string // ex.: 'BRL' — fallback de moeda dos disparos/testes
+  timezone?: string
+  dailyReportHour?: number
+  dailyReportEnabled?: boolean
+  whatsappTo?: string
+  whatsapp?: { configured: boolean; templateConfigured: boolean; apiVersion: string }
 }
 
 // ── /api/pixels/test — resultado do teste de disparo ──
@@ -1204,6 +1217,8 @@ export type AdsRuleMetric =
   | 'cpm_max' // CPM acima do teto (c/ mínimo de gasto)
   | 'cpc_max' // CPC acima do teto (c/ mínimo de cliques)
   | 'roas_scale' // escala vencedoras: ROAS ≥ X → +orçamento (teto obrigatório)
+  | 'scheduled_scale' // escala condicional em dias/horário definidos
+  | 'self_heal' // transfere orçamento de doadora ruim para vencedora
   | 'schedule' // dayparting: ativa/pausa por dia da semana + janela de horário
 // 'activate' só aparece no LOG (dayparting religando campanha própria)
 export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up' | 'activate'
@@ -1233,6 +1248,10 @@ export interface AdsRule {
   days?: number[] // 0=domingo … 6=sábado
   startTime?: string // 'HH:MM'
   endTime?: string // 'HH:MM' (pode cruzar meia-noite)
+  triggerTime?: string
+  graceMinutes?: number
+  donorRoasMax?: number
+  budgetUtilizationPct?: number
   timezone?: string // legado; o motor usa o fuso da conta TikTok
   // Camada de PILOTOS (apresentação): regra pertence a uma estratégia de
   // gestor. Preservados pelo backend (whitelist em validateRules).

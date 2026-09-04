@@ -111,7 +111,7 @@ function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string })
 
 function BudgetControl({
   entityId,
-  amount,
+  amount: currentAmount,
   type,
   adAccountId,
   currency,
@@ -127,23 +127,24 @@ function BudgetControl({
   onSaved: () => void
 }) {
   const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(String(amount || ''))
+  const [value, setValue] = useState(String(currentAmount || ''))
   const [busy, setBusy] = useState(false)
-  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((amount || TIKTOK_MIN_BUDGET) * 3))
+  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((currentAmount || TIKTOK_MIN_BUDGET) * 3))
   async function save(nextValue = value) {
     const next = Number(String(nextValue).replace(',', '.'))
     if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
-    if (Math.abs(next - amount) < 0.005) { setEditing(false); return }
+    if (Math.abs(next - currentAmount) < 0.005) { setEditing(false); return }
     setBusy(true)
     try {
-      await apiSend(`/api/ads/${encodeURIComponent(entityId)}`, 'PUT', { budget: { amount: next, type }, adAccountId })
+      const amount = next
+      await apiSend(`/api/ads/${encodeURIComponent(entityId)}`, 'PUT', { budget: { amount, type }, adAccountId })
       toast.success('Orçamento atualizado')
       actionFeedback()
       setEditing(false)
       onSaved()
     } catch (error) {
       toast.error('Falha ao atualizar orçamento', { hint: error instanceof Error ? error.message : undefined })
-      setValue(String(amount || ''))
+      setValue(String(currentAmount || ''))
     } finally { setBusy(false) }
   }
   return (
@@ -165,15 +166,15 @@ function BudgetControl({
             <button type="button" className="btn-ghost !p-1" onClick={() => setEditing(false)} disabled={busy} aria-label="Cancelar"><X className="size-3" /></button>
           </span>
         ) : (
-          <button type="button" className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums text-foreground" onClick={() => { setValue(String(amount)); setEditing(true) }}>
-            {fmtMoney(amount, currency)}/{type === 'lifetime' ? 'total' : 'dia'} <Pencil className="size-3 text-muted-foreground" />
+          <button type="button" className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums text-foreground" onClick={() => { setValue(String(currentAmount)); setEditing(true) }}>
+            {fmtMoney(currentAmount, currency)}/{type === 'lifetime' ? 'total' : 'dia'} <Pencil className="size-3 text-muted-foreground" />
           </button>
         )}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-[9px] text-info">gelo</span>
         <input
-          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || amount))}
+          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
           onChange={(event) => setValue(event.target.value)}
           onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
           onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}

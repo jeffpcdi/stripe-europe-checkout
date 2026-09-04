@@ -8,7 +8,7 @@ function status() {
   return {
     configured: !!(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID),
     templateConfigured: !!process.env.WHATSAPP_DAILY_TEMPLATE,
-    apiVersion: process.env.WHATSAPP_API_VERSION || 'v23.0',
+    apiVersion: process.env.WHATSAPP_GRAPH_VERSION || process.env.WHATSAPP_API_VERSION || 'v23.0',
   };
 }
 
@@ -27,7 +27,7 @@ async function sendDailyReport(to, text, variables) {
       messaging_product: 'whatsapp', to: phone, type: 'template',
       template: {
         name: template,
-        language: { code: String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR') },
+        language: { code: String(process.env.WHATSAPP_TEMPLATE_LANG || process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR') },
         components: [{ type: 'body', parameters: params }],
       },
     };

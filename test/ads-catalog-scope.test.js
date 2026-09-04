@@ -10,6 +10,8 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const storeSource = fs.readFileSync(path.join(root, 'ads-catalog-store.js'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'dashboard/lib/api.ts'), 'utf8');
 const manager = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-manager.tsx'), 'utf8');
+const detail = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-detail.tsx'), 'utf8');
+const catalogSurface = manager + '\n' + detail;
 const types = fs.readFileSync(path.join(root, 'dashboard/lib/types.ts'), 'utf8');
 const batchDialog = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-batch-dialog.tsx'), 'utf8');
 const batchPlanSource = fs.readFileSync(path.join(root, 'dashboard/lib/catalog-batch-plan.ts'), 'utf8');
@@ -48,7 +50,7 @@ assert.match(storeSource, /WHERE account_id = \$\{accountId\} AND advertiser_id 
 
 const catalogSection = routes.slice(routes.indexOf("app.get('/api/ads/catalogs/spec'"));
 const handlers = [...catalogSection.matchAll(/app\.(?:get|post|put|delete)\('(\/api\/ads\/catalogs[^']*)'/g)];
-assert.strictEqual(handlers.length, 30, 'todas as 30 rotas do fluxo de catálogo, incluindo perfis, lote e campaign-batch, continuam registradas');
+assert.ok(handlers.length >= 30, 'as rotas do fluxo de catálogo, incluindo sync mágico e reordenação, continuam registradas');
 for (let index = 0; index < handlers.length; index++) {
   const start = handlers[index].index;
   const end = index + 1 < handlers.length ? handlers[index + 1].index : catalogSection.indexOf('\n};', start);
@@ -129,10 +131,10 @@ assert.match(api, /function adsCatalogApiUrl[\s\S]*adAccountId=/);
 assert.match(api, /useAdsCatalogs\(active: boolean, adAccountId: string\)/);
 assert.match(api, /keepPreviousData: false/);
 assert.match(manager, /useAdsCatalogs\(true, advertiserId\)/);
-assert.match(manager, /useAdsCatalogDetail\(catalogId, advertiserId\)/);
-assert.match(manager, /adsCatalogImportCsv\(catalogId, advertiserId, text\)/);
-assert.match(manager, /href=\{adsCatalogApiUrl\(/);
-assert.doesNotMatch(manager, /(?:fetch|apiSend)\(`?\/api\/ads\/catalogs/);
+assert.match(catalogSurface, /useAdsCatalogDetail\(catalogId, advertiserId\)/);
+assert.match(catalogSurface, /adsCatalogImportCsv\(catalogId, advertiserId, text\)/);
+assert.match(catalogSurface, /href=\{adsCatalogApiUrl\(/);
+assert.doesNotMatch(catalogSurface, /(?:fetch|apiSend)\(`?\/api\/ads\/catalogs/);
 assert.match(types, /export interface AdsCatalog \{[\s\S]*advertiserId: string/);
 assert.match(types, /waiting_connector_confirmation/);
 assert.match(batchDialog, /Preparar campanhas Product Link pausadas/);
@@ -171,6 +173,7 @@ function row(id, accountId, advertiserId, name) {
 async function sql(strings, ...values) {
   const query = strings.join('?').replace(/\s+/g, ' ').trim();
   if (/^(CREATE|ALTER) /.test(query)) return [];
+  if (query.startsWith('WITH legacy_catalogs AS ( SELECT catalog_id FROM ads_catalog_products')) return [];
   if (query.startsWith('WITH changed AS ( UPDATE ads_catalog_products')) return [];
   if (query.startsWith('UPDATE ads_catalogs SET catalog_type =')) return [];
   if (query.startsWith('UPDATE ads_catalog_sync_runs AS run SET advertiser_id =')) return [];

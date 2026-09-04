@@ -1626,10 +1626,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
         : await pipeboard.resolveAdvertiserId(req.account.id);
       if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
-      const [info, syncState] = await Promise.all([
+      const [info, initialSyncState] = await Promise.all([
         pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
         adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
       ]);
+      let syncState = initialSyncState;
       const timeZone = safeAdsTimeZone(info && info.timezone);
       const today = adsDay(new Date(), timeZone);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : today;
@@ -1639,7 +1640,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       let adSpendExact = false;
       if (adsCache.enabled) {
         await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
-        const row = await adsCache.readAdvertiserDaily(req.account.id, advertiserId, fromDate, toDate);
+        const [row, refreshedSyncState] = await Promise.all([
+          adsCache.readAdvertiserDaily(req.account.id, advertiserId, fromDate, toDate),
+          adsCache.getSyncState(req.account.id, advertiserId).catch(() => syncState),
+        ]);
+        syncState = refreshedSyncState || syncState;
         spend = Number(row.spend) || 0;
         spendCurrency = String(row.currency || spendCurrency || 'BRL').toUpperCase();
         adSpendExact = !!(syncState && syncState.last_synced_at);
@@ -1765,9 +1770,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const advertiserId = await resolveAdv(req, String((req.body || {}).advertiserId || '').trim());
       const source = config.get(req.account.id).cloudVideo || {};
       const current = source[providerName] || {};
-      const patch = providerName === 'googleDrive'
-        ? { enabled: (req.body || {}).enabled === true, folderId: String((req.body || {}).folderId || ''), advertiserId }
-        : { enabled: (req.body || {}).enabled === true, folderPath: String((req.body || {}).folderPath || ''), advertiserId };
+      const patch = { enabled: (req.body || {}).enabled === true, advertiserId };
+      if (providerName === 'googleDrive' && Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
+        patch.folderId = String((req.body || {}).folderId || '');
+      }
+      if (providerName === 'dropbox' && Object.prototype.hasOwnProperty.call(req.body || {}, 'folderPath')) {
+        patch.folderPath = String((req.body || {}).folderPath || '');
+      }
       const saved = config.set(req.account.id, { cloudVideo: { ...source, [providerName]: { ...current, ...patch } } });
       res.json({ ok: true, source: saved.cloudVideo[providerName] });
     } catch (err) { fail(res, err); }
@@ -2659,6 +2668,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação bulk TikTok: ' : 'Bulk TikTok iniciado: ') + tasks.length + ' anúncio(s)' });
       res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: tasks.length, dryRun: guard.dryRun });
     } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/bulk/status', dashboardAuth, async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try { res.json(await bulk.bulkQueueStatus()); }
+    catch (err) { fail(res, err); }
   });
 
   // Progresso do job (polling da UI)

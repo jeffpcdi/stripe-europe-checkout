@@ -95,6 +95,18 @@ const METRIC_META: Record<
     unit: 'x',
     verb: (r) => `escala +${r.pct}% se ROAS ≥ ${r.threshold}`,
   },
+  scheduled_scale: {
+    name: 'Escala agendada com ROAS',
+    thresholdLabel: 'ROAS a partir de',
+    unit: 'x',
+    verb: (r) => `escala +${r.pct}% às ${r.triggerTime || '18:00'} se ROAS ≥ ${r.threshold}`,
+  },
+  self_heal: {
+    name: 'Autocura de orçamento',
+    thresholdLabel: 'ROAS vencedor a partir de',
+    unit: 'x',
+    verb: (r) => `move até ${r.pct}% para vencedora com ROAS ≥ ${r.threshold}`,
+  },
   schedule: {
     name: 'Horário de funcionamento',
     thresholdLabel: '',
@@ -330,7 +342,7 @@ function RuleForm({
   const meta = METRIC_META[draft.metric]
   const set = (patch: Partial<AdsRule>) => setDraft((d) => ({ ...d, ...patch }))
   const isSchedule = draft.metric === 'schedule'
-  const isBudget = draft.action === 'budget_up' || draft.action === 'budget_down' || draft.metric === 'roas_scale'
+  const isBudget = draft.action === 'budget_up' || draft.action === 'budget_down' || ['roas_scale', 'scheduled_scale', 'self_heal'].includes(draft.metric)
 
   // ESC cancela — metade da promessa "teclado navega tudo".
   const ref = useRef<HTMLDivElement>(null)
@@ -411,7 +423,7 @@ function RuleForm({
               hint="5–50"
             />
           )}
-          {draft.metric === 'roas_scale' && (
+          {['roas_scale', 'scheduled_scale', 'self_heal'].includes(draft.metric) && (
             <NumField
               label="Teto de orçamento"
               value={draft.budgetCap}
@@ -444,7 +456,7 @@ function RuleForm({
               suffix={currency}
             />
           )}
-          {draft.metric === 'roas_scale' && (
+          {['roas_scale', 'scheduled_scale', 'self_heal'].includes(draft.metric) && (
             <NumField label="Min. vendas" value={draft.minSales} onChange={(v) => set({ minSales: v })} />
           )}
         </div>
@@ -496,6 +508,29 @@ function RuleForm({
               />
             </label>
           </div>
+        </div>
+      )}
+
+      {draft.metric === 'scheduled_scale' && (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-[var(--hover)] p-3">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Dias da escala agendada">
+            {DAY_LABELS.map((day, index) => {
+              const selected = (draft.days || []).includes(index)
+              return <button key={day} type="button" aria-pressed={selected} onClick={() => set({ days: selected ? (draft.days || []).filter((value) => value !== index) : [...(draft.days || []), index].sort() })} className={cn('rounded-full border px-2.5 py-1 text-[11px]', selected ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border text-muted-foreground')}>{day}</button>
+            })}
+          </div>
+          <label className="flex max-w-[180px] flex-col gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Horário no fuso do TikTok
+            <input type="time" value={draft.triggerTime || '18:00'} onChange={(event) => set({ triggerTime: event.target.value })} className="input-neon rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-xs text-foreground" />
+          </label>
+        </div>
+      )}
+
+      {draft.metric === 'self_heal' && (
+        <div className="grid grid-cols-2 gap-2.5 rounded-xl border border-border bg-[var(--hover)] p-3 sm:grid-cols-3">
+          <NumField label="ROAS máx. doadora" value={draft.donorRoasMax} onChange={(value) => set({ donorRoasMax: value })} suffix="x" />
+          <NumField label="Uso do orçamento" value={draft.budgetUtilizationPct} onChange={(value) => set({ budgetUtilizationPct: value })} suffix="%" hint="vencedora perto de esgotar" />
+          <NumField label="Min. gasto doadora" value={draft.minSpend} onChange={(value) => set({ minSpend: value })} suffix={currency} />
         </div>
       )}
 
@@ -666,8 +701,8 @@ export function AutomationPanel({
   }
 
   function addRule() {
-    if (rules.length >= 10) {
-      toast.error('Limite de 10 regras atingido', { hint: 'Remova uma regra que não usa antes de criar outra.' })
+    if (rules.length >= 12) {
+      toast.error('Limite de 12 regras atingido', { hint: 'Remova uma regra que não usa antes de criar outra.' })
       return
     }
     const draft: AdsRule = {
@@ -871,7 +906,7 @@ export function AutomationPanel({
               )}
               Avaliar agora
             </button>
-            <button type="button" className="btn-primary justify-center gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 10} title={rules.length >= 10 ? 'Limite de 10 regras por conta' : undefined}>
+            <button type="button" className="btn-primary justify-center gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 12} title={rules.length >= 12 ? 'Limite de 12 regras por conta' : undefined}>
               <Plus className="size-3.5" aria-hidden="true" />
               Nova regra
             </button>

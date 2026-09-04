@@ -41,6 +41,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PixelBindingCard } from './pixel-binding-card'
 import { KpiRow } from './kpi-row'
 import { adsDateRange } from '@/lib/ads-time'
+import { MagicOpsPanel } from './magic-ops-panel'
 
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -535,12 +536,15 @@ export function TikTokAdsView() {
           {/* ── Aba: Automações — Pilotos + Modo avançado + Copiloto (IA). O
               inbox de decisões vive na aba Hoje (superfície única de decisão). ── */}
           {tab === 'automation' && (
-            <AutomationPanel
-              active={treeActive}
-              currency={currency}
-              adAccountId={concreteAdvertiser}
-              onOpenLimits={() => openOps('safety')}
-            />
+            <div className="flex flex-col gap-4">
+              <MagicOpsPanel active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} />
+              <AutomationPanel
+                active={treeActive}
+                currency={currency}
+                adAccountId={concreteAdvertiser}
+                onOpenLimits={() => openOps('safety')}
+              />
+            </div>
           )}
         </>
       )}

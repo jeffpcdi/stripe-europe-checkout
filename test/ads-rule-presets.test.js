@@ -21,7 +21,7 @@ const provider = require('../ads-provider.js');
 // ── 1. presets são estáveis sob validateRules (sem mutação) ─────────────────
 {
   const presets = automation.buildRulePresets();
-  assert.strictEqual(presets.length, 9, 'pacote tem 9 regras');
+  assert.strictEqual(presets.length, 11, 'pacote tem 11 regras, incluindo autocura e escala agendada');
   const revalidated = automation.validateRules(presets);
   assert.deepStrictEqual(revalidated, presets, 'validateRules(presets) é identidade — preset já nasce válido');
 
@@ -44,6 +44,10 @@ const provider = require('../ads-provider.js');
   assert.ok(agro && agro.budgetCap === 200 && agro.pct === 30 && agro.action === 'budget_up', 'escala agressiva com teto 200');
   const sched = presets.find((p) => p.metric === 'schedule');
   assert.ok(sched && sched.days.length === 5 && sched.startTime === '09:00' && sched.endTime === '23:00', 'dayparting seg–sex 09–23');
+  const friday = presets.find((p) => p.id === 'preset_friday_scale');
+  assert.ok(friday && friday.days[0] === 5 && friday.triggerTime === '18:00' && friday.pct === 30, 'escala condicional de sexta às 18h vem pronta');
+  const selfHeal = presets.find((p) => p.metric === 'self_heal');
+  assert.ok(selfHeal && selfHeal.mode === 'proposal' && selfHeal.enabled === false, 'autocura nasce explícita, pausada e em proposta segura');
   console.log('ok: presets válidos, pausados e estáveis sob validateRules');
 }
 
@@ -52,7 +56,7 @@ const provider = require('../ads-provider.js');
   const acc = 'acc_fresh_' + Date.now().toString(36);
   const advertiserId = 'adv_fresh';
   const rules = automation.getRules(acc, advertiserId);
-  assert.strictEqual(rules.length, 9, 'conta nova é semeada com o pacote');
+  assert.strictEqual(rules.length, 11, 'conta nova é semeada com o pacote');
   assert.ok(rules.every((r) => r.enabled === false), 'tudo semeado pausado');
   assert.ok(provider.getState(acc).automationProfiles[advertiserId], 'perfil do advertiser persistido');
 

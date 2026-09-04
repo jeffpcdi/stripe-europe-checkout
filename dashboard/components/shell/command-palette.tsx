@@ -8,6 +8,7 @@ import { NAV_SECTIONS } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type PaletteItem = {
   id: string
@@ -29,6 +30,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [running, setRunning] = useState(false)
+  const [confirmPauseBad, setConfirmPauseBad] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
@@ -101,24 +103,29 @@ export function CommandPalette() {
       return
     }
     if (item.kind === 'pause_bad') {
-      setRunning(true)
-      try {
-        const result = await apiSend<{ paused: number; matched: number; dryRun?: boolean }>('/api/ads/commands', 'POST', {
-          command: 'pause_bad_campaigns', minimumSpend: 100,
-        })
-        setOpen(false)
-        toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
-          hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : 'Critério: gasto de hoje ≥ 100 e zero vendas atribuídas.',
-        })
-      } catch (error) {
-        toast.error('Não foi possível executar o comando', { hint: error instanceof Error ? error.message : undefined })
-      } finally {
-        setRunning(false)
-      }
+      setOpen(false)
+      setConfirmPauseBad(true)
       return
     }
     go(item.href)
   }, [go, query])
+
+  async function executePauseBad() {
+    setRunning(true)
+    try {
+      const result = await apiSend<{ paused: number; matched: number; dryRun?: boolean }>('/api/ads/commands', 'POST', {
+        command: 'pause_bad_campaigns', minimumSpend: 100,
+      })
+      setConfirmPauseBad(false)
+      toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
+        hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : 'Critério: gasto de hoje ≥ 100 e zero vendas atribuídas.',
+      })
+    } catch (error) {
+      toast.error('Não foi possível executar o comando', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setRunning(false)
+    }
+  }
 
   function onInputKey(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown') {
@@ -134,6 +141,7 @@ export function CommandPalette() {
   }
 
   return (
+    <>
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay
@@ -212,5 +220,15 @@ export function CommandPalette() {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+    <ConfirmDialog
+      open={confirmPauseBad}
+      title="Pausar campanhas sem venda?"
+      description="Serão pausadas as campanhas ativas que gastaram pelo menos 100 hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria."
+      confirmLabel="Pausar campanhas"
+      busy={running}
+      onConfirm={executePauseBad}
+      onClose={() => setConfirmPauseBad(false)}
+    />
+    </>
   )
 }

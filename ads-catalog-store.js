@@ -115,11 +115,16 @@ async function ensureSchema() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_products_catalog_idx ON ads_catalog_products (catalog_id, created_at DESC)`;
     await sql`ALTER TABLE ads_catalog_products ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0`;
-    await sql`WITH ranked AS (
-      SELECT id, row_number() OVER (PARTITION BY catalog_id ORDER BY created_at, id) - 1 AS pos
-      FROM ads_catalog_products
+    await sql`WITH legacy_catalogs AS (
+      SELECT catalog_id FROM ads_catalog_products
+      GROUP BY catalog_id
+      HAVING count(*) > 1 AND count(DISTINCT sort_order) = 1
+    ), ranked AS (
+      SELECT product.id, row_number() OVER (PARTITION BY product.catalog_id ORDER BY product.created_at, product.id) - 1 AS pos
+      FROM ads_catalog_products AS product
+      JOIN legacy_catalogs ON legacy_catalogs.catalog_id = product.catalog_id
     ) UPDATE ads_catalog_products AS product SET sort_order = ranked.pos
-      FROM ranked WHERE product.id = ranked.id AND product.sort_order = 0`;
+      FROM ranked WHERE product.id = ranked.id`;
     // Catalog Carousel precisa de item_group_id. Para catálogos existentes de
     // produto simples, usa o SKU como SPU e marca o catálogo como alterado para
     // que a UI solicite uma nova sincronização antes de criar campanha.

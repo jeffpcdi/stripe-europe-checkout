@@ -1759,9 +1759,10 @@ async function checkDailyReportFor(accId) {
   const settings = cfg.settings || {};
   const whatsapp = require('./whatsapp');
   const webPushNotify = require('./web-push-notify');
-  const pushcutEnabled = !!pc.url && (pc.events || {}).daily === true;
-  const whatsappEnabled = settings.dailyReportEnabled === true && !!settings.whatsappTo;
-  const webPushEnabled = settings.dailyReportEnabled === true && ((cfg.webPush || {}).subs || []).length > 0;
+  const reportEnabled = settings.dailyReportEnabled === true || (pc.events || {}).daily === true;
+  const pushcutEnabled = reportEnabled && !!pc.url;
+  const whatsappEnabled = reportEnabled && !!settings.whatsappTo;
+  const webPushEnabled = reportEnabled && ((cfg.webPush || {}).subs || []).length > 0;
   if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled) return;
   const today = accDay(accId, new Date());
   if (cfg.lastDailyReport === today) return;
@@ -2610,7 +2611,7 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
     patchable.forEach((k) => {
       if (!Object.prototype.hasOwnProperty.call(body, k)) return;
       // string vazia / 0 = "limpar o campo" (o sanitizador descarta)
-      if (body[k] === '' || body[k] === 0 || body[k] === null) delete s[k];
+      if (body[k] === '' || body[k] === null || (body[k] === 0 && k !== 'dailyReportHour')) delete s[k];
       else s[k] = body[k];
     });
     const saved = (config.set(req.account.id, { settings: s }).settings || {});

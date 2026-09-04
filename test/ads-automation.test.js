@@ -173,10 +173,10 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     ]);
     assert.strictEqual(untagged.pilot, undefined, 'pilot fora do vocabulário é descartado');
     assert.strictEqual(untagged.intensity, undefined, 'intensity fora do vocabulário é descartada');
-    // limite duro de 10 regras: o slice é silencioso — a camada de pilotos
+    // limite duro de 12 regras: o slice é silencioso — a camada de pilotos
     // PRECISA consumir presets ao ativar pilotos para nunca perder regra aqui
-    const eleven = automation.validateRules(Array.from({ length: 11 }, (_, i) => ({ metric: 'cpa_max', threshold: i + 1 })));
-    assert.strictEqual(eleven.length, 10, 'máximo de 10 regras (11ª é cortada)');
+    const thirteen = automation.validateRules(Array.from({ length: 13 }, (_, i) => ({ metric: 'cpa_max', threshold: i + 1 })));
+    assert.strictEqual(thirteen.length, 12, 'máximo de 12 regras (13ª é cortada)');
   }
 
   // ── dayparting: janela normal / cruzando meia-noite / dias ────────────────

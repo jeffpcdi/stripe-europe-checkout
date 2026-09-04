@@ -7,7 +7,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { Readable } = require('stream');
+const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const { neon } = require('@neondatabase/serverless');
 const config = require('./config');
@@ -209,7 +209,20 @@ async function downloadFile(accountId, providerName, file, accessToken) {
   if (!response.ok || !response.body) throw new Error('Download de ' + file.name + ' falhou (HTTP ' + response.status + ')');
   const length = Number(response.headers.get('content-length')) || 0;
   if (length > MAX_VIDEO_BYTES) throw new Error('Arquivo excede o limite configurado');
-  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(target));
+  let received = 0;
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      received += chunk.length;
+      if (received > MAX_VIDEO_BYTES) return callback(new Error('Arquivo excede o limite configurado'));
+      callback(null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(response.body), limiter, fs.createWriteStream(target));
+  } catch (error) {
+    await fs.promises.unlink(target).catch(() => {});
+    throw error;
+  }
   const size = (await fs.promises.stat(target)).size;
   if (size > MAX_VIDEO_BYTES) { await fs.promises.unlink(target).catch(() => {}); throw new Error('Arquivo excede o limite configurado'); }
   return { target, filename };

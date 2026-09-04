@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  Code, Loader2, Sparkles, Wand2, Terminal, Fingerprint, Lock, ShieldCheck, Download, Trash2, Coins, SlidersHorizontal
+  Code, Loader2, Sparkles, Wand2, Terminal, Fingerprint, Lock, ShieldCheck, Download, Trash2, Coins, SlidersHorizontal, MessageCircle
 } from 'lucide-react'
 import useSWR from 'swr'
 import { fetcher } from '@/lib/api'
@@ -16,6 +16,8 @@ import { usePrefs } from '@/lib/prefs'
 import { apiSend } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
+import type { AccountSettings } from '@/lib/types'
+import { toast } from '@/lib/toast'
 
 export function ConfigView() {
   const [developerMode, setDeveloperMode] = useState(false)
@@ -92,6 +94,8 @@ export function ConfigView() {
               </label>
             </div>
           </GlassCard>
+
+          <DailyReportCard />
 
           <GlassCard className="p-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -204,6 +208,44 @@ function AuditCard() {
         )}
       </Modal>
     </>
+  )
+}
+
+function DailyReportCard() {
+  const { data, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
+  const [phone, setPhone] = useState('')
+  const [hour, setHour] = useState(8)
+  const [enabled, setEnabled] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState(true)
+  useEffect(() => { setFeedback(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
+  useEffect(() => {
+    if (!data) return
+    setPhone(data.whatsappTo || '')
+    setHour(data.dailyReportHour ?? 8)
+    setEnabled(data.dailyReportEnabled === true)
+  }, [data])
+  async function save() {
+    setSaving(true)
+    try {
+      await apiSend('/api/settings', 'POST', { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone })
+      toast.success('Relatório diário configurado')
+      await mutate()
+    } catch (error) { toast.error('Falha ao salvar', { hint: error instanceof Error ? error.message : undefined }) }
+    finally { setSaving(false) }
+  }
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-4 flex items-start justify-between gap-3"><div className="flex gap-3"><div className="flex size-10 items-center justify-center rounded-full bg-success/15 text-success"><MessageCircle className="size-5" /></div><div><h2 className="text-sm font-bold text-foreground">Resumo das 8h no celular</h2><p className="text-xs text-muted-foreground">Gasto, vendas, ROAS e lucro por Pushcut, Web Push e WhatsApp.</p></div></div><Switch checked={enabled} onChange={setEnabled} label="Ativar relatório diário" /></div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]">
+        <label className="text-[11px] text-muted-foreground">WhatsApp com DDI<input className="input mt-1 w-full" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} placeholder="5511999999999" /></label>
+        <label className="text-[11px] text-muted-foreground">Hora<input className="input mt-1 w-full" type="number" min="0" max="23" value={hour} onChange={(event) => setHour(Number(event.target.value))} /></label>
+        <button type="button" className="btn-primary self-end text-xs" onClick={save} disabled={saving}>{saving ? <Loader2 className="size-3 animate-spin" /> : null} Salvar</button>
+      </div>
+      <label className="mt-4 flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs"><span><b className="block text-foreground">Som e vibração nas ações</b><small className="text-muted-foreground">Feedback sutil ao salvar orçamentos e campanhas.</small></span><Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" /></label>
+      {data?.whatsapp && !data.whatsapp.configured && <p className="mt-3 text-[10px] text-warning">WhatsApp ainda requer as credenciais Cloud API no servidor. Pushcut e Web Push continuam disponíveis.</p>}
+      {data?.whatsapp?.configured && !data.whatsapp.templateConfigured && <p className="mt-3 text-[10px] text-warning">Configure WHATSAPP_DAILY_TEMPLATE aprovado pela Meta para envios proativos fora da janela de atendimento.</p>}
+    </GlassCard>
   )
 }
 

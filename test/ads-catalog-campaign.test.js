@@ -388,7 +388,7 @@ function completeSchemas() {
     ok(/adsUpload\(file, 'video'\)/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
     ok(/O mesmo vídeo com áudio será usado/.test(dialog), 'interface explica que o áudio vem do criativo');
     ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
-    ok(/Criar campanhas/.test(wizard) && !/Criar lote/.test(wizard) && !/Nova campanha/.test(wizard), 'wizard expõe uma única entrada de criação');
+    ok(/CatalogPresetCampaignButton/.test(wizard) && /Criar personalizado/.test(wizard) && !/Criar lote/.test(wizard) && !/Nova campanha/.test(wizard), 'wizard expõe preset rápido e criação personalizada sem fluxos legados');
     ok(!/Catalog Video Template ID/.test(wizard), 'remove template de vídeo legado');
   }
 

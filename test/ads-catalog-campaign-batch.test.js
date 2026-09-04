@@ -89,7 +89,7 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/disabled:cursor-not-allowed disabled:opacity-40/.test(dialog), 'ação bloqueada parece bloqueada e explica o próximo passo');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
-  ok(/open=\{connectorReady && dialogOpen\}/.test(wizard), 'modal único só abre quando o conector confirma Product Link');
+  ok(/disabled=\{!connectorReady \|\| !ready \|\| Boolean\(activeRun\)\}/.test(wizard) && /open=\{dialogOpen\}/.test(wizard), 'botão do modal só abre quando o conector confirma Product Link e o catálogo está pronto');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/resolveCatalogPurchaseEvent\(advertiserId, pixel\.pixelId\)[\s\S]*pixelId: pixel\.pixelId[\s\S]*pixelEvent/.test(routes), 'backend injeta o Pixel central e o evento de Compra real antes de normalizar');
 }

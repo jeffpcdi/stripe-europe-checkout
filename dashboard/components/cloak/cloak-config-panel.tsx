@@ -289,6 +289,27 @@ export function CloakConfigPanel() {
         )}
       </div>
 
+      <div className="mb-4 rounded-xl border border-border bg-secondary/25 p-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-xs font-medium text-foreground">Bloqueio automático por anúncio</span>
+            <span className="block text-[11px] text-muted-foreground">Agrupa riscos altos por IP e anúncio sem armazenar o IP bruto.</span>
+          </span>
+          <Switch checked={cfg.autoBlockEnabled === true} onChange={(value) => patch({ autoBlockEnabled: value })} label="Bloqueio automático" />
+        </div>
+        {cfg.autoBlockEnabled === true && (
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="text-[10px] text-muted-foreground">Sinais para bloquear<input type="number" min={3} max={100} value={cfg.autoBlockThreshold ?? 8} onChange={(event) => patch({ autoBlockThreshold: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
+            <label className="text-[10px] text-muted-foreground">Janela (min)<input type="number" min={5} max={1440} value={cfg.autoBlockWindowMin ?? 30} onChange={(event) => patch({ autoBlockWindowMin: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
+            <label className="text-[10px] text-muted-foreground">Bloqueio (horas)<input type="number" min={1} max={720} value={cfg.autoBlockTtlHours ?? 24} onChange={(event) => patch({ autoBlockTtlHours: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
+          </div>
+        )}
+        <label className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span>Enviar evento diagnóstico customizado ao TikTok CAPI, sem simular compra nem conversão.</span>
+          <Switch checked={cfg.capiBotSignalEnabled === true} onChange={(value) => patch({ capiBotSignalEnabled: value })} label="Sinal CAPI de bot" />
+        </label>
+      </div>
+
       {/* Camadas de detecção */}
       <span className="mb-2 block text-xs font-medium text-muted-foreground">Camadas de detecção</span>
       <div className="grid gap-2 sm:grid-cols-2">

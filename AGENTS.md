@@ -23,7 +23,7 @@
 10. CAPI do TikTok · 11. Comandos · 12. Variáveis de ambiente · 13. Convenções · 14. Armadilhas ·
 15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking ·
 18. Ciclo de vida do domínio personalizado · **19. Nova dashboard Next.js (`dashboard/`)** —
-arquitetura, arquivos, identidade visual e plano de refinamento.
+arquitetura, arquivos, identidade visual e plano de refinamento · **20. Central mágica e automações avançadas**.
 
 ## 1. Visão geral
 Painel de rastreamento de funil e vendas para infoprodutos vendidos com tráfego do TikTok.
@@ -1081,3 +1081,42 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - Depois de mudar código do Next em produção: `npm run build` + redeploy (o Railway roda o build).
 - `next.config.mjs` fixa `turbopack.root` no diretório `dashboard/` — sem isso o Turbopack pode
   inferir a raiz do monorepo (onde vive o Express) e o build falha por não resolver o pacote `next`.
+
+## 20. Central mágica e automações avançadas (2026-09-04)
+
+- **Autocura e agenda condicional:** `ads-automation.js` aceita `self_heal` e `scheduled_scale`.
+  Autocura trabalha somente entre campanhas ativas de mesma moeda/tipo, reduz a doadora antes de
+  aumentar a vencedora, mantém o total, respeita teto/cap/lease/circuit breaker/cooldown e tenta
+  rollback. O preset `preset_friday_scale` representa sexta às 18h com ROAS >= 2. Regras ficam
+  inscritas no worker 24/7 já existente de `ads-sync.js`.
+- **Lucro real:** `profit-engine.js` calcula em centavos receita menos estornos/disputas, taxa do
+  gateway, impostos, custo de produto e gasto TikTok da mesma janela/moeda. Valores exatos do webhook
+  vencem os percentuais configurados; `quality`/`coverage` deixam a estimativa explícita. Rotas:
+  `GET /api/ads/profitability` e `GET|PUT /api/ads/profitability/config`.
+- **Anomalias a cada 4h:** `ads-ai.js` persiste snapshots cumulativos no briefing `anomaly_4h`, calcula
+  deltas determinísticos e usa Anthropic apenas para redigir a frase. Rotas:
+  `GET /api/ads/anomalies` e `POST /api/ads/anomalies/run`.
+- **Anti-bot automático:** `bot-risk-store.js` usa HMAC do IP, contagem por anúncio, TTL e Redis com
+  fallback local. `/c/:slug` bloqueia recorrências de score alto e pode emitir o custom event
+  diagnóstico `BotTrafficBlocked`; nunca cria compra/conversão falsa. Rotas de operação:
+  `GET /api/cloak/blocks` e `DELETE /api/cloak/blocks/:ipHash`.
+- **Catálogo mágico:** `ads-catalog-inspect.js` raspa JSON-LD e coleções Shopify com DNS anti-SSRF,
+  redirects revalidados, limite de corpo e timeout. `POST /api/ads/catalogs/magic-import` cria produtos
+  e tenta iniciar o sync; `GET /feed/:token.xml` expõe XML complementar, mas o upload TikTok continua
+  usando o CSV canônico. Produtos têm `sort_order` e `PUT /api/ads/catalogs/:id/products/reorder`.
+- **Drive/Dropbox:** `cloud-video-sync.js` usa OAuth, cifra tokens AES-256-GCM no Neon, observa pastas,
+  limita downloads e envia somente assets de vídeo ao TikTok (rascunho reutilizável, nunca ativa
+  campanha). Exige `INTEGRATION_TOKEN_KEY`, origem HTTPS pública e credenciais do provedor; rotas em
+  `/api/ads/cloud-video/*` e callback `/api/integrations/videos/:provider/callback`.
+- **Relatório diário:** o worker do `server.js` verifica a cada 5 minutos e envia às 08h no fuso da
+  conta por Pushcut, Web Push e/ou template aprovado do WhatsApp Cloud API. Inclui gasto, vendas,
+  ROAS e lucro; só marca entrega após confirmação de algum canal.
+- **Fila e testes A/B:** `ads-bulk.js` pausa toda a fila por 5 minutos ao reconhecer rate limit,
+  persiste o prazo e reencaminha o item. `ab-predictor.js` usa posterior Beta-Binomial aproximada;
+  `link-store.js` encerra somente com volume, confiança e vantagem mínimos, zerando o peso da perdedora.
+- **Dashboard Next:** Cmd+K executa somente comandos em whitelist; tabela tem orçamento inline,
+  slider, preview de vídeo em hover e filtros naturais; drawer mostra timeline; criação usa Zen Mode;
+  catálogo aceita drag-and-drop; `MagicOpsPanel` é uma central Lego persistida. Som/vibração respeitam
+  `roi_action_feedback`. As configurações mostram relatório e bloqueio automático.
+- **Teste transversal:** `test/magic-features.test.js` cobre lucro, A/B, autocura sem aumento do total,
+  anomalia, XML, bloqueio sem IP bruto e cifragem OAuth. Ele roda no `pretest` antes da suíte completa.

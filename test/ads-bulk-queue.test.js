@@ -113,18 +113,29 @@ async function main() {
   depth = await bulk.bulkQueueDepth();
   assert.strictEqual(depth.queue + depth.processing, 0, 'fila vazia após o worker');
 
-  // ── 7. Worker marca falha (erro do processador) sem derrubar a fila ────────
+  // ── 7. Rate limit pausa a fila e reagenda o item sem marcá-lo como falha ──
   const job2 = await bulk.createBulkJob(ACC, { kind: 'duplicate', adAccountId: 'adv-2', items: [{ ref: 'Cópia 1' }] });
   await bulk.enqueueBulkItem({ accountId: ACC, jobId: job2.id, idx: 0, task: { kind: 'duplicate_same', sourceId: 'x' } });
   const tick2 = bulk.startBulkWorker(async () => { throw new Error('Zernio HTTP 429'); }, { intervalMs: 999999, backoffMs: 1 });
   await tick2();
   bulk.stopBulkWorker();
   const j2 = await bulk.getBulkJob(ACC, job2.id);
-  assert.strictEqual(j2.items[0].status, 'failed');
-  assert.strictEqual(j2.items[0].error, 'Zernio HTTP 429');
-  assert.strictEqual(j2.status, 'done');
+  assert.strictEqual(j2.items[0].status, 'queued');
+  assert.match(j2.items[0].error, /retoma automaticamente em 5 minutos/i);
+  assert.strictEqual(j2.items[0].attempts, 1);
+  assert.ok(j2.items[0].retryAt, 'item registra quando poderá ser retomado');
+  assert.strictEqual(j2.status, 'queued');
+  const queueStatus = await bulk.bulkQueueStatus();
+  assert.strictEqual(queueStatus.paused, true, 'fila inteira entra em pausa');
+  assert.match(queueStatus.reason, /429/);
+  assert.ok(new Date(queueStatus.pausedUntil).getTime() > Date.now() + 4 * 60_000, 'pausa dura aproximadamente 5 minutos');
 
-  console.log('ads-bulk-queue.test.js OK — fila durável do bulk validada (enqueue/reserve/ack/reclaim, progresso e retry)');
+  // Limpa o item reagendado sem esperar o relógio real do teste.
+  const queuedAgain = await bulk.reserveBulkItems(1);
+  assert.strictEqual(queuedAgain.length, 1);
+  await bulk.ackBulkItem(queuedAgain[0].raw);
+
+  console.log('ads-bulk-queue.test.js OK — fila durável validada, inclusive pausa automática de 5 minutos em rate limit');
 }
 
 main().catch((err) => {

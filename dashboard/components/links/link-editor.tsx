@@ -75,7 +75,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           minVisitors: link?.experiment?.minVisitors || 80,
           minConversions: link?.experiment?.minConversions || 6,
           confidence: link?.experiment?.confidence || 0.95,
-          minLift: link?.experiment?.minLift || 0.1,
+          minLiftPct: link?.experiment?.minLiftPct || 5,
         },
       })
       onSaved()
@@ -192,7 +192,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 Desativar automaticamente a variante perdedora ao atingir 95% de confiança
               </label>
             )}
-            {link?.experiment?.conclusion && <p className="mt-3 rounded-lg bg-success/10 px-3 py-2 text-[11px] text-success">{link.experiment.conclusion}</p>}
+            {link?.experiment?.lastEvaluation?.reason && <p className={`mt-3 rounded-lg px-3 py-2 text-[11px] ${link.experiment.status === 'concluded' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}`}>{link.experiment.lastEvaluation.reason}{link.experiment.winnerId ? ` Vencedora: ${link.variantes.find((variant) => variant.id === link.experiment?.winnerId)?.nome || link.experiment.winnerId}.` : ''}</p>}
           </div>
 
           {/* Toggle Mágico do Escudo */}
