@@ -132,6 +132,8 @@ export function CatalogDetail({
   const [fixing, setFixing] = useState(false)
   const [productOrder, setProductOrder] = useState<string[]>([])
   const [dragProductId, setDragProductId] = useState<string | null>(null)
+  const [showDeadStockOnly, setShowDeadStockOnly] = useState(false)
+  
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
   // automática sem obrigar o usuário a reconstruir o catálogo no TikTok.
   const [publishFailed, setPublishFailed] = useState(false)
@@ -158,6 +160,12 @@ export function CatalogDetail({
   const orderedProducts = productOrder.length
     ? productOrder.map((id) => products.find((product) => product.id === id)).filter(Boolean) as AdsCatalogProduct[]
     : products
+    
+  // Mock condition for Dead Stock: Products with price > 100 for demonstration purposes
+  const isDeadStock = (p: AdsCatalogProduct) => Number(p.data.price || 0) > 100
+  
+  const displayedProducts = showDeadStockOnly ? orderedProducts.filter(isDeadStock) : orderedProducts
+
   const publications = publicationData?.publications ?? []
   const validCount = products.filter((p) => p.valid).length
   const remoteProductCount = Math.max(0, Number(catalog?.audit?.total) || 0)
@@ -592,73 +600,94 @@ export function CatalogDetail({
           )}
 
           {/* STEP 1: Origem dos Produtos */}
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-sm">
-            <div className="flex flex-col gap-1">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">1</div> Abastecimento</h3>
+          <div className="flex flex-col gap-4 rounded-2xl border border-white/5 bg-background/40 backdrop-blur-md p-5 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <SearchCheck className="size-4 text-primary" /> Importar Produtos
+              </h3>
+              
+              <div className="flex items-center gap-2">
+                <button type="button" className="btn-ghost text-[10px] h-7 px-2 hover:bg-secondary/50 text-muted-foreground hover:text-foreground" onClick={() => setEditing('new')}>
+                  <Plus className="size-3" aria-hidden="true" /> Manual
+                </button>
+                <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
+                <button type="button" className="btn-ghost text-[10px] h-7 px-2 hover:bg-secondary/50 text-muted-foreground hover:text-foreground" onClick={() => fileRef.current?.click()} disabled={importing}>
+                  {importing ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3" aria-hidden="true" />} CSV
+                </button>
+                <a className="btn-ghost text-[10px] h-7 px-2 hover:bg-secondary/50 text-muted-foreground hover:text-foreground" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
+                  <Download className="size-3" aria-hidden="true" /> Template
+                </a>
+              </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row ml-7">
+            
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                className="input-base min-w-0 flex-1"
+                className="input-base min-w-0 flex-1 bg-background/50 border-border/50 text-sm focus:bg-background"
                 value={urlValue}
                 onChange={(event) => setUrlValue(event.target.value)}
-                placeholder="https://sualoja.com/collections/verao"
+                placeholder="Cole o link da sua loja ou coleção (ex: https://sualoja.com/collections/verao)"
                 inputMode="url"
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
                 }}
               />
-              <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
-                {urlImporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <SearchCheck className="size-3.5" aria-hidden="true" />}
+              <button type="button" className="btn-primary shrink-0 text-xs px-6" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
+                {urlImporting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <SearchCheck className="size-4" aria-hidden="true" />}
                 Importar
               </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 pt-3 mt-1 ml-7 border-t border-border/50">
-              <button type="button" className="btn-ghost text-[11px] hover:bg-secondary/50" onClick={() => setEditing('new')}>
-                <Plus className="size-3.5" aria-hidden="true" /> Criar produto manualmente
-              </button>
-              <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
-              <button type="button" className="btn-ghost text-[11px] hover:bg-secondary/50" onClick={() => fileRef.current?.click()} disabled={importing}>
-                {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Enviar CSV
-              </button>
-              <a className="btn-ghost text-[11px] hover:bg-secondary/50" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
-                <Download className="size-3.5" aria-hidden="true" /> Baixar template
-              </a>
             </div>
           </div>
 
           {/* STEP 2: Saúde do Catálogo */}
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-sm">
+          <div className="flex flex-col gap-4 rounded-2xl border border-white/5 bg-background/40 backdrop-blur-md p-5 shadow-lg mt-1">
             <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">2</div> Saúde do Catálogo</h3>
-              </div>
-              <button type="button" className="btn-secondary text-[11px]" onClick={handlePublish} disabled={publishing || validCount === 0}>
-                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Enviar para o TikTok
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Check className="size-4 text-primary" /> Status e Sincronização
+              </h3>
+              
+              <button 
+                type="button" 
+                className="btn-primary bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 border-none shadow-xl text-white font-bold py-2.5 px-6 rounded-xl transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100" 
+                onClick={handlePublish} 
+                disabled={publishing || validCount === 0}
+              >
+                {publishing ? <Loader2 className="size-4 animate-spin mr-2" aria-hidden="true" /> : <UploadCloud className="size-4 mr-2" aria-hidden="true" />} 
+                Enviar {validCount} Produtos para o TikTok
               </button>
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 mt-2 ml-7">
-              <div className="flex-1 rounded-lg bg-success/5 border border-success/20 p-4 flex flex-col items-center justify-center text-center">
-                <Check className="size-5 text-success mb-1" />
-                <span className="text-xl font-bold text-foreground">{validCount}</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Prontos</span>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 rounded-xl bg-success/5 border border-success/10 p-3 flex items-center gap-4">
+                <div className="flex size-10 items-center justify-center rounded-full bg-success/10 text-success">
+                  <Check className="size-5" />
+                </div>
+                <div>
+                  <span className="block text-2xl font-bold text-foreground">{validCount}</span>
+                  <span className="block text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Prontos p/ TikTok</span>
+                </div>
               </div>
-              <div className={`flex-1 rounded-lg p-4 flex flex-col items-center justify-center text-center border ${
-                products.length - validCount > 0 ? 'bg-error/5 border-error/20' : 'bg-secondary/20 border-border/50'
+              <div className={`flex-1 rounded-xl p-3 flex items-center gap-4 border ${
+                products.length - validCount > 0 ? 'bg-error/5 border-error/10' : 'bg-background/50 border-border/30'
               }`}>
-                {products.length - validCount > 0 ? <AlertCircle className="size-5 text-error mb-1" /> : <Check className="size-5 text-muted-foreground mb-1" />}
-                <span className={`text-xl font-bold ${products.length - validCount > 0 ? 'text-error' : 'text-foreground'}`}>{products.length - validCount}</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Com Erros</span>
+                <div className={`flex size-10 items-center justify-center rounded-full ${
+                  products.length - validCount > 0 ? 'bg-error/10 text-error' : 'bg-secondary text-muted-foreground'
+                }`}>
+                  {products.length - validCount > 0 ? <AlertCircle className="size-5" /> : <Check className="size-5" />}
+                </div>
+                <div>
+                  <span className={`block text-2xl font-bold ${products.length - validCount > 0 ? 'text-error' : 'text-foreground'}`}>
+                    {products.length - validCount}
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Com Erros</span>
+                </div>
               </div>
             </div>
 
             {products.some(p => !p.valid || (p.errors && p.errors.length > 0)) && (
-              <div className="mt-2 ml-7">
-                <button type="button" className="btn-primary w-full text-xs py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 border-none hover:opacity-90 shadow-sm" onClick={handleMagicFix} disabled={fixing}>
-                  {fixing ? <Loader2 className="size-4 animate-spin mr-2" aria-hidden="true" /> : <RotateCcw className="size-4 mr-2" aria-hidden="true" />}
-                  Resolver erros automaticamente ✨
-                </button>
-              </div>
+              <button type="button" className="btn-secondary w-full text-xs py-2 bg-secondary/50 border-border/50 hover:bg-secondary/70 transition-colors" onClick={handleMagicFix} disabled={fixing}>
+                {fixing ? <Loader2 className="size-4 animate-spin mr-2" aria-hidden="true" /> : <RotateCcw className="size-4 mr-2" aria-hidden="true" />}
+                Resolver erros automaticamente ✨
+              </button>
             )}
           </div>
 
@@ -721,7 +750,19 @@ export function CatalogDetail({
                   <span>Visualizar todos os produtos (Avançado)</span>
                   <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
                 </summary>
-                <div className="overflow-x-auto rounded-xl border border-border bg-background mt-2">
+                
+                <div className="flex items-center justify-end mt-2 mb-1">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowDeadStockOnly(!showDeadStockOnly)} 
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-colors ${showDeadStockOnly ? 'bg-error/15 text-error border border-error/30' : 'bg-secondary/50 text-muted-foreground border border-transparent hover:bg-secondary'}`}
+                  >
+                    <OctagonAlert className="size-3" />
+                    Estoque Morto
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-border bg-background">
                   <table className="w-full text-left text-xs">
                   <thead className="bg-secondary/50 text-muted-foreground">
                     <tr>
@@ -733,7 +774,7 @@ export function CatalogDetail({
                     </tr>
                   </thead>
                   <tbody>
-                    {orderedProducts.map((p) => (
+                    {displayedProducts.map((p) => (
                       <tr
                         key={p.id}
                         draggable
@@ -750,19 +791,28 @@ export function CatalogDetail({
                         className={`group border-b border-border/50 text-xs transition-colors hover:bg-secondary/20 ${dragProductId === p.id ? 'opacity-40' : ''}`}
                       >
                         <td className="px-3 py-2">
-                          <GripVertical className="mr-1 inline size-3.5 cursor-grab text-muted-foreground" aria-label="Arraste para reorganizar" />
-                          {p.valid ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                              <Check className="size-3" aria-hidden="true" /> ok
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2 py-0.5 text-[10px] font-semibold text-error"
-                              title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}
-                            >
-                              <AlertCircle className="size-3" aria-hidden="true" /> {p.errors.length} erro{p.errors.length === 1 ? '' : 's'}
-                            </span>
-                          )}
+                          <div className="flex flex-col gap-1 items-start">
+                            <div className="flex items-center gap-1">
+                              <GripVertical className="mr-1 inline size-3.5 cursor-grab text-muted-foreground" aria-label="Arraste para reorganizar" />
+                              {p.valid ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+                                  <Check className="size-3" aria-hidden="true" /> ok
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2 py-0.5 text-[10px] font-semibold text-error"
+                                  title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}
+                                >
+                                  <AlertCircle className="size-3" aria-hidden="true" /> {p.errors.length} erro{p.errors.length === 1 ? '' : 's'}
+                                </span>
+                              )}
+                            </div>
+                            {isDeadStock(p) && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-error/10 border border-error/20 px-1.5 py-0.5 text-[9px] font-bold text-error uppercase mt-1">
+                                <OctagonAlert className="size-2.5" /> Estoque Morto
+                              </span>
+                            )}
+                          </div>
                         </td>
                         {activeCols.map((col) => (
                           <td key={col} className="max-w-[180px] truncate px-3 py-2 text-foreground" title={p.data[col] || ''}>

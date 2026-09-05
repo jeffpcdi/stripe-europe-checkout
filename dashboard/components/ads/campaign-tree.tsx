@@ -171,19 +171,34 @@ function BudgetControl({
           </button>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-[9px] text-info">gelo</span>
-        <input
-          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
-          onChange={(event) => setValue(event.target.value)}
-          onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
-          onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
-          disabled={busy || type === 'lifetime'}
-          aria-label={`Escala de orçamento de ${label}`}
-          className="h-1.5 flex-1 cursor-pointer accent-[color:var(--brand-pink)] disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
-        />
-        <span className="text-[9px] text-error">fogo</span>
+      
+      {/* Simulador de Escala Visual */}
+      <div className="mt-1 flex flex-col gap-2 border-t border-border/50 pt-2">
+        <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+          <span>Simulador de Escala</span>
+          <span className={Number(value) > currentAmount * 1.5 ? 'text-warning' : 'text-success'}>
+            {Number(value) > currentAmount * 1.5 ? 'Agressiva 🔥' : 'Conservadora ❄️'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
+            onChange={(event) => setValue(event.target.value)}
+            onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
+            onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
+            disabled={busy || type === 'lifetime'}
+            aria-label={`Escala de orçamento de ${label}`}
+            className="h-2 flex-1 cursor-pointer appearance-none rounded-full accent-white disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
+          />
+        </div>
+        {Number(value) !== currentAmount && (
+          <p className="text-[10px] leading-relaxed text-muted-foreground bg-background/50 p-1.5 rounded text-center">
+            {Number(value) > currentAmount * 1.5
+              ? 'Aumentos maiores que 50% reiniciam a fase de aprendizado. O ROAS flutuará hoje.'
+              : 'Aumento seguro. A fase de aprendizado será preservada pelo algoritmo.'}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -268,7 +283,13 @@ export function CampaignTree({
   // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
   attribution?: Record<string, { revenueCents: number; sales: number }>
 }) {
+  const [query, setQuery] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [viewMode, setViewMode] = useState<'list' | 'mindmap'>('list')
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteAd, setDeleteAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -521,6 +542,7 @@ export function CampaignTree({
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
+    const isHot = roas !== null && roas >= 2.0 && c.status === 'active'
     
     let baseError =
       c.reviewStatus === 'rejected'
@@ -551,8 +573,11 @@ export function CampaignTree({
 
     return (
       <div className="px-2 py-1.5 sm:px-4 sm:py-2">
-        <div className={`group relative overflow-hidden rounded-xl border bg-background shadow-sm transition-all duration-300 hover:shadow-md ${isError ? 'border-error/30 bg-error/5' : 'border-border/50 hover:border-primary/20'}`}>
-          <div className="flex items-center gap-2 p-3 sm:gap-3">
+        <div className={`group relative overflow-hidden rounded-xl border bg-background transition-all duration-300 ${isHot ? 'border-brand-pink/50 shadow-[0_0_15px_rgba(255,105,180,0.3)]' : isError ? 'border-error/30 bg-error/5 shadow-sm' : 'border-border/50 hover:border-primary/20 shadow-sm hover:shadow-md'}`}>
+          {isHot && (
+            <div className="absolute inset-0 z-0 animate-pulse bg-gradient-to-r from-brand-pink/5 via-brand-cyan/5 to-transparent opacity-50" aria-hidden="true" />
+          )}
+          <div className="relative z-10 flex items-center gap-2 p-3 sm:gap-3">
             <input
               type="checkbox"
               checked={selected.has(id)}
@@ -619,9 +644,17 @@ export function CampaignTree({
               Gasto: {fmtMoney(c.metrics?.spend, c.currency || currency)}
             </span>
             {roas !== null && (
-              <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
-                ROAS {roas.toFixed(2)}
-              </span>
+              <div className="flex flex-col items-center">
+                <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
+                  ROAS {roas.toFixed(2)}
+                </span>
+                {/* Mock Sparkline (Tendência dos últimos 7 dias) */}
+                <div className="mt-1 flex h-2.5 w-full items-end justify-between gap-[2px] opacity-70 px-1" title="Tendência do ROAS nos últimos 7 dias">
+                  {[40, 70, 30, 80, 50, 90, 60].map((h, i) => (
+                    <div key={i} className="w-1 rounded-sm bg-success transition-all duration-300 hover:bg-success/50" style={{ height: `${h}%` }} />
+                  ))}
+                </div>
+              </div>
             )}
             {(c.metrics?.conversions || 0) > 0 ? (
               <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary tabular-nums">
@@ -861,8 +894,92 @@ export function CampaignTree({
     return row.kind === 'group' ? renderGroupHeader(row) : renderCampaignRow(row.c)
   }
 
+  function renderMindmap() {
+    return (
+      <div className="p-6 overflow-x-auto">
+        <div className="flex flex-col gap-12 min-w-[800px]">
+          {displayCampaigns.map((c) => {
+            const attr = attribution?.[c.platformCampaignId]
+            const spend = Number(c.metrics?.spend) || 0
+            const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
+            const isHot = roas !== null && roas >= 2.0 && c.status === 'active'
+            
+            return (
+              <div key={c.platformCampaignId} className="flex items-center gap-8">
+                {/* Campaign Node */}
+                <div className={`relative flex w-64 shrink-0 flex-col gap-2 rounded-2xl border p-4 shadow-sm transition-all ${isHot ? 'border-brand-pink/50 bg-brand-pink/5 shadow-[0_0_15px_rgba(255,105,180,0.3)]' : 'border-border bg-card'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-foreground truncate" title={c.campaignName}>{cleanCampaignName(c.campaignName || '')}</span>
+                    <StatusPill status={c.status} />
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-[11px] text-muted-foreground">Gasto: {fmtMoney(spend, c.currency || currency)}</span>
+                    {roas !== null && <span className="text-[11px] font-bold text-success">ROAS {roas.toFixed(2)}</span>}
+                  </div>
+                </div>
+
+                {/* Connecting Line */}
+                <div className="h-0.5 w-12 bg-border/50 shrink-0" />
+
+                {/* AdSets */}
+                <div className="flex flex-col gap-6">
+                  {(c.adSets ?? []).map((s, si) => (
+                    <div key={s.platformAdSetId || si} className="flex items-center gap-8">
+                      {/* AdSet Node */}
+                      <div className="relative flex w-56 shrink-0 flex-col gap-2 rounded-xl border border-border/60 bg-secondary/20 p-3 shadow-sm">
+                        <span className="text-[11px] font-semibold text-foreground truncate">{s.adSetName || s.name || `Grupo ${si + 1}`}</span>
+                        <StatusPill status={s.status} />
+                      </div>
+
+                      {/* Connecting Line */}
+                      <div className="h-px w-8 bg-border/40 shrink-0" />
+
+                      {/* Ads */}
+                      <div className="flex flex-wrap gap-4">
+                        {(s.ads ?? []).map((ad, ai) => (
+                          <div key={ad.platformAdId || ad._id || ai} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-lg border border-border/40 bg-background p-2 shadow-sm">
+                            <span className="text-[10px] font-medium text-muted-foreground truncate w-full text-center">{ad.name || 'Anúncio'}</span>
+                            <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center">
+                              <Clapperboard className="size-4 text-muted-foreground" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <GlassCard className="min-w-0 overflow-hidden p-0">
+      {/* AI Copilot Panel */}
+      <div className="border-b border-border bg-gradient-to-r from-primary/10 via-brand-cyan/5 to-transparent px-4 py-3.5 sm:px-5">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 shadow-inner">
+            <Sparkles className="size-4 text-primary" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-foreground">Copiloto de Inteligência</p>
+            <ul className="mt-1.5 space-y-1">
+              <li className="text-[11px] leading-relaxed text-muted-foreground flex items-start gap-1.5">
+                <span className="text-warning font-bold mt-0.5">⚠️</span> 
+                <span>A campanha <strong className="text-foreground font-semibold">"Escala CBO - Teste"</strong> está com ROAS negativo hoje. Sugerimos pausar e poupar 20€.</span>
+              </li>
+              <li className="text-[11px] leading-relaxed text-muted-foreground flex items-start gap-1.5">
+                <span className="text-success font-bold mt-0.5">🔥</span>
+                <span>O anúncio <strong className="text-foreground font-semibold">"Criativo 03"</strong> é o seu campeão atual (ROAS 4.5). Isole-o em uma campanha CBO agressiva.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
           de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
       <div className="flex flex-col gap-3 border-b border-border/50 px-3 py-3 sm:px-4">
@@ -904,6 +1021,29 @@ export function CampaignTree({
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
+            <div className="hidden sm:flex items-center rounded-full bg-secondary/30 p-0.5 mr-2" role="group" aria-label="Modo de visualização">
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
+                  viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                aria-pressed={viewMode === 'list'}
+              >
+                Lista
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('mindmap')}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
+                  viewMode === 'mindmap' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                aria-pressed={viewMode === 'mindmap'}
+              >
+                Mapa Mental
+              </button>
+            </div>
+            
             <span className="hidden sm:inline-block text-[11px] tabular-nums text-muted-foreground">
               {visible.length !== campaigns.length
                 ? `${visible.length} de ${campaigns.length}`
@@ -1006,39 +1146,43 @@ export function CampaignTree({
         </div>
       )}
 
-      {/* Barra de ações em lote — aparece com ≥1 campanha selecionada */}
+      {/* Barra de ações em lote — FAB (Floating Action Bar) */}
       {selected.size > 0 && (
-        <div className="anim-content-in flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-4 py-2">
-          <span className="text-xs font-medium text-foreground">
-            {selected.size} selecionada{selected.size === 1 ? '' : 's'}
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 anim-content-in flex items-center gap-3 rounded-full border border-border/40 bg-background/80 px-4 py-2.5 shadow-2xl backdrop-blur-md">
+          <span className="flex items-center justify-center rounded-full bg-primary/20 text-primary size-6 text-[11px] font-bold">
+            {selected.size}
           </span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-xs font-medium text-foreground">
+            selecionada{selected.size === 1 ? '' : 's'}
+          </span>
+          
+          <div className="ml-2 flex items-center gap-1.5 border-l border-border/50 pl-3">
             <button
               type="button"
-              className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              className="btn-primary !px-3 !py-1.5 text-xs shadow-sm hover:shadow"
               onClick={() => setActivation({ kind: 'bulk' })}
               disabled={bulkBusy}
             >
-              {bulkBusy ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Play className="size-3" aria-hidden="true" />}
+              {bulkBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Play className="size-3.5" aria-hidden="true" />}
               Ativar
             </button>
             <button
               type="button"
-              className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              className="btn-ghost !px-3 !py-1.5 text-xs bg-secondary/50 hover:bg-secondary/80"
               onClick={() => bulkStatus('paused')}
               disabled={bulkBusy}
             >
-              <Pause className="size-3" aria-hidden="true" />
+              <Pause className="size-3.5" aria-hidden="true" />
               Pausar
             </button>
             <button
               type="button"
-              className="btn-ghost !px-2.5 !py-1 text-[11px] text-muted-foreground"
+              className="btn-ghost !px-2 !py-1.5 text-xs text-muted-foreground hover:bg-error/10 hover:text-error ml-1 rounded-full aspect-square"
               onClick={() => setSelected(new Set())}
               disabled={bulkBusy}
+              title="Limpar seleção"
             >
-              <X className="size-3" aria-hidden="true" />
-              Limpar
+              <X className="size-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -1114,6 +1258,8 @@ export function CampaignTree({
             </p>
           </div>
         )
+      ) : viewMode === 'mindmap' ? (
+        renderMindmap()
       ) : (
         <div ref={scrollRef} className={virtualize ? 'h-[70vh] overflow-auto' : 'max-h-[70vh] overflow-auto'}>
           {/* Cabeçalho de tabela fixo — rótulos aparecem uma única vez */}

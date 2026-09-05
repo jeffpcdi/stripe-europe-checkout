@@ -722,6 +722,26 @@ export function AutomationPanel({
     setExpandedId(draft.id)
   }
 
+  function addTemplateRule(template: 'surfista' | 'estancador' | 'madrugada') {
+    if (rules.length >= 12) {
+      toast.error('Limite de 12 regras atingido', { hint: 'Remova uma regra que não usa antes de criar outra.' })
+      return
+    }
+    let draft: AdsRule
+    
+    if (template === 'surfista') {
+      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Surfista de Vendas 🏄', enabled: false, metric: 'roas_scale', threshold: 3, lookbackDays: 3, action: 'budget_up', pct: 20, budgetCap: 500, minSales: 3, mode: 'proposal' }
+    } else if (template === 'estancador') {
+      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Estancador de Sangria 🩸', enabled: false, metric: 'spend_no_conv', threshold: 50, lookbackDays: 1, action: 'pause', minClicks: 10, mode: 'proposal' }
+    } else {
+      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Pausar Madrugada 🌙', enabled: false, metric: 'schedule', startTime: '06:00', endTime: '23:59', days: [0,1,2,3,4,5,6], action: 'activate', mode: 'proposal' }
+    }
+
+    mutate(data ? { ...data, rules: [...rules, draft] } : undefined, { revalidate: false })
+    setExpandedId(draft.id)
+    toast.success(`Template carregado: revise e clique em Salvar.`)
+  }
+
   // “Avaliar agora” roda o ciclo REAL conforme a autonomia atual: em Propor,
   // cria propostas; em Agir sozinho, pode executar. O nome evita a falsa
   // promessa de simulação que o antigo “Testar agora” transmitia.
@@ -919,9 +939,27 @@ export function AutomationPanel({
           </p>
         ) : null}
 
+        <div className="mb-4">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-2">Templates Plug & Play</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button type="button" onClick={() => addTemplateRule('surfista')} className="flex flex-col items-start p-3 rounded-xl border border-border bg-background hover:border-brand-cyan/50 hover:bg-brand-cyan/5 transition-colors text-left">
+              <span className="text-xs font-bold text-foreground">Surfista de Vendas 🏄</span>
+              <span className="text-[10px] text-muted-foreground mt-1">Aumenta o orçamento em 20% se o ROAS for maior que 3.</span>
+            </button>
+            <button type="button" onClick={() => addTemplateRule('estancador')} className="flex flex-col items-start p-3 rounded-xl border border-border bg-background hover:border-error/50 hover:bg-error/5 transition-colors text-left">
+              <span className="text-xs font-bold text-foreground">Estancador de Sangria 🩸</span>
+              <span className="text-[10px] text-muted-foreground mt-1">Pausa se gastar mais de 50€ sem nenhuma venda.</span>
+            </button>
+            <button type="button" onClick={() => addTemplateRule('madrugada')} className="flex flex-col items-start p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-colors text-left">
+              <span className="text-xs font-bold text-foreground">Pausar Madrugada 🌙</span>
+              <span className="text-[10px] text-muted-foreground mt-1">Roda a campanha apenas entre as 06:00 e 23:59.</span>
+            </button>
+          </div>
+        </div>
+
         {rules.length === 0 ? (
           <p className="py-6 text-center text-xs text-muted-foreground">
-            Nenhuma regra. Crie a primeira com &quot;Nova regra&quot; — ela nasce em modo
+            Nenhuma regra. Crie a primeira com &quot;Nova regra&quot; ou use um template — ela nasce em modo
             &quot;Propõe&quot;: nada é executado sem a sua aprovação.
           </p>
         ) : (

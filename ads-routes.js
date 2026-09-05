@@ -4160,7 +4160,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/campaign-batch', dashboardAuth, async (req, res) => {
     try {
       const body = req.body || {};
-      const count = Number(body.count);
+      const videoUrls = Array.isArray(body.videoUrls) && body.videoUrls.length > 0 ? body.videoUrls : [body.videoUrl].filter(Boolean);
+      const count = videoUrls.length > 0 ? videoUrls.length : Number(body.count);
       const requestedPrefix = String(body.namePrefix || '').trim().slice(0, 100);
 
       // Valida a spec base uma única vez com o MESMO caminho da criação
@@ -4169,7 +4170,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const prepared = await prepareCatalogCampaign(req);
       const namePrefix = requestedPrefix || `${prepared.catalog.name || 'Catálogo'} — VSA`;
       const names = catalogDomain.buildCampaignBatchNames(namePrefix, count);
-      const specAt = (index) => ({ ...prepared.spec, name: names[index] });
+      const specAt = (index) => ({ ...prepared.spec, name: names[index], videoUrl: videoUrls[index] || prepared.spec.videoUrl });
 
       if (await killSwitchActive(prepared.accId)) return res.status(423).json(KILL_SWITCH_BODY);
       if (await isDryRun(prepared.accId)) {
@@ -4186,7 +4187,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         'catalog-campaign-batch', prepared.accId, prepared.catalog.id, count,
         prepared.spec.budgetAmount, prepared.spec.pixelId,
         prepared.spec.bidStrategy, prepared.spec.bidAmount || '', prepared.spec.deliveryMode,
-        prepared.spec.identityId || '', prepared.spec.videoUrl, namePrefix,
+        prepared.spec.identityId || '', videoUrls.join(','), namePrefix,
       ].join(':');
       const runs = [];
       for (let i = 0; i < names.length; i += 1) {
