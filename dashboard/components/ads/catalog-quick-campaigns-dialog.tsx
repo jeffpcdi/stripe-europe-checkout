@@ -4,7 +4,7 @@
 // catálogo, público, capa e Product Link vêm do backend.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X, Sparkles, LayoutGrid, Network } from 'lucide-react'
 import { ApiError, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'

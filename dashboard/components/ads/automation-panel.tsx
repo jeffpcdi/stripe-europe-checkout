@@ -732,9 +732,9 @@ export function AutomationPanel({
     if (template === 'surfista') {
       draft = { id: `rule_${Date.now().toString(36)}`, name: 'Surfista de Vendas 🏄', enabled: false, metric: 'roas_scale', threshold: 3, lookbackDays: 3, action: 'budget_up', pct: 20, budgetCap: 500, minSales: 3, mode: 'proposal' }
     } else if (template === 'estancador') {
-      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Estancador de Sangria 🩸', enabled: false, metric: 'spend_no_conv', threshold: 50, lookbackDays: 1, action: 'pause', minClicks: 10, mode: 'proposal' }
+      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Estancador de Sangria 🩸', enabled: false, metric: 'spend_no_conv', threshold: 50, lookbackDays: 1, action: 'pause', pct: 0, minClicks: 10, mode: 'proposal' }
     } else {
-      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Pausar Madrugada 🌙', enabled: false, metric: 'schedule', startTime: '06:00', endTime: '23:59', days: [0,1,2,3,4,5,6], action: 'activate', mode: 'proposal' }
+      draft = { id: `rule_${Date.now().toString(36)}`, name: 'Pausar Madrugada 🌙', enabled: false, metric: 'schedule', threshold: 0, lookbackDays: 0, pct: 0, startTime: '06:00', endTime: '23:59', days: [0,1,2,3,4,5,6], action: 'activate', mode: 'proposal' }
     }
 
     mutate(data ? { ...data, rules: [...rules, draft] } : undefined, { revalidate: false })

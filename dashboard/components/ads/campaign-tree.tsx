@@ -23,6 +23,7 @@ import {
   BarChart3,
   Pencil,
   Check,
+  Sparkles,
   X,
   Search,
   SlidersHorizontal,
@@ -296,15 +297,10 @@ export function CampaignTree({
   // Edição de anúncio (texto/CTA/link) sem recriar
   const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
   // Busca por nome + "só com gasto" — filtros CLIENT-SIDE: o backend devolve a
   // lista inteira numa página só (readTree → pages:1), então filtrar aqui nunca
   // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
-  const [query, setQuery] = useState('')
-  const [onlyWithSpend, setOnlyWithSpend] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
 
   useEffect(() => {
