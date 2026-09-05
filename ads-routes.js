@@ -4161,7 +4161,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const body = req.body || {};
       const videoUrls = Array.isArray(body.videoUrls) && body.videoUrls.length > 0 ? body.videoUrls : [body.videoUrl].filter(Boolean);
-      const count = videoUrls.length > 0 ? videoUrls.length : Number(body.count);
+      // Quantidade e criativos são independentes: um único vídeo pode ser
+      // reutilizado em várias campanhas, ou vários vídeos podem ser
+      // distribuídos pelo lote. Sem count explícito, preserva o comportamento
+      // anterior de criar uma campanha por vídeo.
+      const hasExplicitCount = body.count !== undefined && body.count !== null && body.count !== '';
+      const count = hasExplicitCount ? Number(body.count) : videoUrls.length;
       const requestedPrefix = String(body.namePrefix || '').trim().slice(0, 100);
 
       // Valida a spec base uma única vez com o MESMO caminho da criação
@@ -4170,7 +4175,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const prepared = await prepareCatalogCampaign(req);
       const namePrefix = requestedPrefix || `${prepared.catalog.name || 'Catálogo'} — VSA`;
       const names = catalogDomain.buildCampaignBatchNames(namePrefix, count);
-      const specAt = (index) => ({ ...prepared.spec, name: names[index], videoUrl: videoUrls[index] || prepared.spec.videoUrl });
+      const specAt = (index) => ({
+        ...prepared.spec,
+        name: names[index],
+        videoUrl: videoUrls.length ? videoUrls[index % videoUrls.length] : prepared.spec.videoUrl,
+      });
 
       if (await killSwitchActive(prepared.accId)) return res.status(423).json(KILL_SWITCH_BODY);
       if (await isDryRun(prepared.accId)) {

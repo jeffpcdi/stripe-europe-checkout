@@ -568,13 +568,25 @@ export function CatalogDetail({
             </div>
           )}
 
-          <CatalogReadinessCard
-            readiness={readinessData?.readiness}
-            loading={readinessLoading}
-            onAction={readinessData?.readiness.nextAction === 'create_campaign'
-              ? undefined
-              : handleReadinessAction}
-          />
+          {catalog && (
+            <CatalogCampaignWizard
+              catalog={catalog}
+              advertiserId={advertiserId}
+              advertiserCurrency={advertiserCurrency}
+              ready={Boolean(readinessData?.readiness.readyForCampaign)}
+              capabilities={catalogCapabilities}
+            />
+          )}
+
+          {!readinessData?.readiness.readyForCampaign && (
+            <CatalogReadinessCard
+              readiness={readinessData?.readiness}
+              loading={readinessLoading}
+              onAction={readinessData?.readiness.nextAction === 'create_campaign'
+                ? undefined
+                : handleReadinessAction}
+            />
+          )}
 
 
           <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
@@ -598,6 +610,19 @@ export function CatalogDetail({
               </div>
             </details>
           )}
+
+          <details
+            className="group rounded-xl border border-border bg-background/40"
+            open={products.length === 0 || products.length - validCount > 0 || hasUnpublishedChanges ? true : undefined}
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold text-foreground">
+              <span className="flex items-center gap-2">
+                <SearchCheck className="size-4 text-muted-foreground" /> Produtos e sincronização
+                <span className="font-normal text-muted-foreground">· {remoteProductCount || validCount} {remoteProductCount > 0 ? 'no TikTok' : 'prontos'}</span>
+              </span>
+              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="flex flex-col gap-3 border-t border-border p-3">
 
           {/* STEP 1: Origem dos Produtos */}
           <div className="flex flex-col gap-4 rounded-2xl border border-white/5 bg-background/40 backdrop-blur-md p-5 shadow-lg">
@@ -691,6 +716,9 @@ export function CatalogDetail({
             )}
           </div>
 
+            </div>
+          </details>
+
           {/* A ausência de BC bloqueia a publicação, mas nunca perde produtos. */}
           {!bcConfigured && (
             <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
@@ -729,16 +757,6 @@ export function CatalogDetail({
               </details>
             )
           })()}
-
-          {catalog && (
-            <CatalogCampaignWizard
-              catalog={catalog}
-              advertiserId={advertiserId}
-              advertiserCurrency={advertiserCurrency}
-              ready={Boolean(readinessData?.readiness.readyForCampaign)}
-              capabilities={catalogCapabilities}
-            />
-          )}
 
           {/* Tabela de produtos (Avançado) */}
           {products.length > 0 && (() => {

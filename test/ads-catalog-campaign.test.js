@@ -386,11 +386,11 @@ function completeSchemas() {
     ok(/killSwitchActive/.test(routes) && /isDryRun/.test(routes), 'mantém kill switch e modo teste');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
     const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
-    ok(/Todos os produtos aprovados usam o próprio Link/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
+    ok(/Product Link/.test(wizard), 'wizard mantém o fluxo Product Link no lançamento');
     ok(/adsUpload\(file, 'video'\)/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
-    ok(/o áudio vem do vídeo/.test(wizard), 'interface explica que o áudio vem do criativo');
+    ok(/estrutura nasce pausada, é conferida e depois ativada/.test(dialog), 'interface explica a ativação segura após o readback');
     ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
-    ok(/CatalogPresetCampaignButton/.test(wizard) && /Criar personalizado/.test(wizard) && !/Criar lote/.test(wizard) && !/Nova campanha/.test(wizard), 'wizard expõe preset rápido e criação personalizada sem fluxos legados');
+    ok(/Criar campanhas em massa/.test(wizard) && !/CatalogPresetCampaignButton|Criar personalizado|Lançar Smart\+/.test(wizard), 'wizard oferece somente a ação principal de criação em massa');
     ok(!/Catalog Video Template ID/.test(wizard), 'remove template de vídeo legado');
   }
 

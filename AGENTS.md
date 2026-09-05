@@ -133,6 +133,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Campanhas com escopo `ALL` podem então usar somente os produtos que o próprio TikTok confirmou;
   não reconstroem a seleção com IDs locais. Sucesso da campanha exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
+  O launcher do catálogo prioriza uma única ação de alto contraste e recolhe produtos/sincronização
+  quando o catálogo já está saudável. A criação em massa aceita de 1 a 50 campanhas independentemente
+  da quantidade de vídeos: um vídeo pode ser reutilizado no lote e vários são distribuídos em rodízio;
+  cada item continua sendo um run durável com idempotência própria.
   No fluxo rápido, essa pausa é uma barreira interna: somente depois desse readback o worker habilita
   anúncio → conjunto → campanha (pai por último) e exige novo readback `ENABLE` nos três níveis antes de
   marcar `ready_active`. Falha ou confirmação parcial pausa novamente toda a hierarquia; updates de status
