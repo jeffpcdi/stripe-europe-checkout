@@ -113,6 +113,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `paises[]` (ISO-3166-1 alpha-2) e `idiomas[]` (ISO-639-1). Listas vazias = "todos permitidos".
 - **gateway-store.js** — gateways de pagamento **multi-tenant**: cada gateway ganha um `webhook_token`
   único → webhook em `POST /hook/:token`. O token identifica CONTA + PROVIDER, dispensando segredo manual.
+  A dashboard mantém o fluxo manual: o usuário cadastra o gateway, copia a URL exclusiva exibida no
+  card e a cola no painel do provedor; a UI nunca simula conexão automática/OAuth inexistente.
 - **ads-catalog-store.js + `catalog/`** — catálogo TikTok multi-tenant, feed, sincronização e criação
   durável de campanhas. `catalog-batch-domain.js` valida/normaliza lotes sem efeitos e rejeita toda URL
   de anúncio; `catalog-batch-executor.js` cria catálogos/produtos com concorrência limitada e
