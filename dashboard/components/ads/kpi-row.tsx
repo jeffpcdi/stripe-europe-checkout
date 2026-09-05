@@ -13,13 +13,13 @@ import { Skeleton } from '@/components/skeleton'
 import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
 
 // Seta + % de variação. `goodWhenUp=false` inverte a cor (CPM subir é ruim).
-function Delta({ value, goodWhenUp = true }: { value: number | null | undefined; goodWhenUp?: boolean }) {
+function Delta({ value, goodWhenUp = true, neutral = false }: { value: number | null | undefined; goodWhenUp?: boolean; neutral?: boolean }) {
   if (value === null || value === undefined || !Number.isFinite(value)) return null
   const up = value >= 0
   const good = goodWhenUp ? up : !up
   return (
     <span
-      className={`flex items-center gap-0.5 text-[11px] font-bold tabular-nums ${good ? 'text-success drop-shadow-[0_0_6px_rgba(34,197,94,0.6)]' : 'text-error drop-shadow-[0_0_6px_rgba(239,68,68,0.6)]'}`}
+      className={`flex items-center gap-0.5 text-[11px] font-bold tabular-nums ${neutral ? 'text-muted-foreground' : good ? 'text-success' : 'text-error'}`}
       title="vs. período anterior de mesma duração"
     >
       {up ? (
@@ -37,6 +37,7 @@ export interface KpiRowData {
   spend: number
   impressions: number
   clicks: number
+  conversions: number
   ctr: number
   cpm: number
   activeCount: number
@@ -71,6 +72,7 @@ export function KpiRow({
   const spend = cur?.spend ?? kpi.spend
   const impressions = cur?.impressions ?? kpi.impressions
   const clicks = cur?.clicks ?? kpi.clicks
+  const conversions = cur?.conversions ?? kpi.conversions
   const ctr = cur?.ctr ?? kpi.ctr
   const cpm = cur?.cpm ?? kpi.cpm
 
@@ -91,20 +93,36 @@ export function KpiRow({
   // Um card único com 4 colunas divididas por hairline — antes eram 4 cards
   // soltos (4 bordas, 4 sombras) que poluíam o topo. Menos elementos, leitura
   // em linha. `sub` é a 2ª linha opcional (ex.: cliques do CTR).
-  const cells: { label: string; value: ReactNode; delta?: number | null; goodWhenUp?: boolean; sub?: string }[] = [
+  const cells: { label: string; value: ReactNode; delta?: number | null; goodWhenUp?: boolean; neutral?: boolean; sub?: string; title: string }[] = [
     {
       label: isAdvertiserTotal ? 'Investimento' : 'Investido (carregado)',
       value: <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />,
       delta: deltas?.spend,
+      neutral: true,
+      title: 'Valor gasto no período selecionado.',
     },
-    { label: 'Impressões', value: <CountUp value={impressions} format={fmtCompact} />, delta: deltas?.impressions },
+    {
+      label: 'Conversões',
+      value: <CountUp value={conversions} format={fmtCompact} />,
+      delta: deltas?.conversions,
+      sub: 'reportadas pelo TikTok',
+      title: 'Conversões atribuídas pelo TikTok no período.',
+    },
     {
       label: 'CTR',
       value: <CountUp value={ctr} format={(v) => fmtPercent(v)} />,
       delta: deltas?.ctr,
       sub: `${fmtCompact(clicks)} clique${clicks === 1 ? '' : 's'}`,
+      title: 'Percentual de impressões que geraram clique.',
     },
-    { label: 'CPM', value: <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />, delta: deltas?.cpm, goodWhenUp: false },
+    {
+      label: 'CPM',
+      value: <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />,
+      delta: deltas?.cpm,
+      goodWhenUp: false,
+      sub: `${fmtCompact(impressions)} impressões`,
+      title: 'Custo médio para cada mil impressões.',
+    },
   ]
 
   return (
@@ -115,10 +133,10 @@ export function KpiRow({
       <GlassCard className="overflow-hidden p-0">
         <div className="grid grid-cols-2 divide-x divide-y divide-border/70 sm:grid-cols-4 sm:divide-y-0">
           {cells.map((cell) => (
-            <div key={cell.label} className="p-3.5">
+            <div key={cell.label} className="p-3.5" title={cell.title}>
               <div className="flex items-center gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{cell.label}</p>
-                <Delta value={cell.delta} goodWhenUp={cell.goodWhenUp} />
+                <Delta value={cell.delta} goodWhenUp={cell.goodWhenUp} neutral={cell.neutral} />
               </div>
               <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">{cell.value}</p>
               {cell.sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{cell.sub}</p>}

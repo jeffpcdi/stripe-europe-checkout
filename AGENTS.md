@@ -965,8 +965,11 @@ só no Railway (§5.2.2).
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
 Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
 `/ads/tiktok` tem somente três áreas de trabalho: **Campanhas, Catálogo e Automações**. Há um único
-launcher “Nova campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spark); os antigos painéis
-Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
+launcher “Criar campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spark). A área Campanhas
+mostra apenas contexto, quatro KPIs acionáveis, busca/status e lista; exemplos fictícios de copiloto,
+Mapa Mental, resumo duplicado e simulador de orçamento foram removidos. Gasto, ROAS e conversões usam
+colunas fixas e cada linha mantém status e ações visíveis; detalhes só aparecem ao expandir. Os antigos
+painéis Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
 Pixel e evento não aparecem nos formulários: o banner `PixelBindingCard` só é exibido enquanto o
 vínculo central do advertiser estiver pendente. Em Catálogo, conexão verificada, feed e históricos
 técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável. Em Automações,

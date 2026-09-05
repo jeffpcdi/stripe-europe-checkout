@@ -23,7 +23,6 @@ import {
   BarChart3,
   Pencil,
   Check,
-  Sparkles,
   X,
   Search,
   SlidersHorizontal,
@@ -130,7 +129,6 @@ function BudgetControl({
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(currentAmount || ''))
   const [busy, setBusy] = useState(false)
-  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((currentAmount || TIKTOK_MIN_BUDGET) * 3))
   async function save(nextValue = value) {
     const next = Number(String(nextValue).replace(',', '.'))
     if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
@@ -172,42 +170,12 @@ function BudgetControl({
           </button>
         )}
       </div>
-      
-      {/* Simulador de Escala Visual */}
-      <div className="mt-1 flex flex-col gap-2 border-t border-border/50 pt-2">
-        <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
-          <span>Simulador de Escala</span>
-          <span className={Number(value) > currentAmount * 1.5 ? 'text-warning' : 'text-success'}>
-            {Number(value) > currentAmount * 1.5 ? 'Agressiva 🔥' : 'Conservadora ❄️'}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
-            onChange={(event) => setValue(event.target.value)}
-            onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
-            onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
-            disabled={busy || type === 'lifetime'}
-            aria-label={`Escala de orçamento de ${label}`}
-            className="h-2 flex-1 cursor-pointer appearance-none rounded-full accent-white disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
-          />
-        </div>
-        {Number(value) !== currentAmount && (
-          <p className="text-[10px] leading-relaxed text-muted-foreground bg-background/50 p-1.5 rounded text-center">
-            {Number(value) > currentAmount * 1.5
-              ? 'Aumentos maiores que 50% reiniciam a fase de aprendizado. O ROAS flutuará hoje.'
-              : 'Aumento seguro. A fase de aprendizado será preservada pelo algoritmo.'}
-          </p>
-        )}
-      </div>
     </div>
   )
 }
 
 const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
-  { value: 'approved', label: 'Validadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
   { value: 'paused', label: 'Pausadas' },
@@ -289,7 +257,6 @@ export function CampaignTree({
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [viewMode, setViewMode] = useState<'list' | 'mindmap'>('list')
   const [bulkBusy, setBulkBusy] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteAd, setDeleteAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
@@ -440,23 +407,11 @@ export function CampaignTree({
     return true
   })
 
-  // Resumo do que está visível: contagem por status + gasto total — dá o
-  // panorama sem precisar rolar 100 linhas.
-  const summary = useMemo(() => {
-    let active = 0
-    let paused = 0
-    let review = 0
-    let problem = 0
-    let spend = 0
-    for (const c of visible) {
-      if (c.status === 'active') active++
-      else if (c.status === 'paused') paused++
-      else if (c.status === 'pending_review') review++
-      else if (c.status === 'rejected' || c.status === 'error') problem++
-      spend += Number(c.metrics?.spend) || 0
-    }
-    return { active, paused, review, problem, spend }
-  }, [visible])
+  // Gasto do recorte visível, exibido junto ao título sem criar outra faixa.
+  const visibleSpend = useMemo(
+    () => visible.reduce((total, campaign) => total + (Number(campaign.metrics?.spend) || 0), 0),
+    [visible],
+  )
 
   // Organização: sem filtro de status, agrupa em seções com ativas primeiro —
   // era fácil perder uma campanha ativa no meio de dezenas de pausadas.
@@ -514,12 +469,12 @@ export function CampaignTree({
 
   // Colunas numéricas alinhadas — mesmas larguras no cabeçalho e nas linhas
   // (tabular-nums + largura fixa evitam o truncamento "US..." do layout antigo).
-  const colGasto = 'w-20 shrink-0 text-right tabular-nums sm:w-24'
-  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
-  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
-  const colActions = 'flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-[4.75rem]'
+  const colGasto = 'hidden w-24 shrink-0 text-right tabular-nums md:block'
+  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums md:block'
+  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums md:block'
+  const colActions = 'flex w-[4.75rem] shrink-0 items-center justify-end gap-0.5'
 
-  // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
+  // Cabeçalho de grupo (Ativas/Pausadas/…) usado na lista.
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
     return (
       <p className="flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
@@ -533,7 +488,7 @@ export function CampaignTree({
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
-    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', pulse: false, label: c.status || '—' }
+    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', cls: 'text-muted-foreground', label: c.status || '—' }
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
@@ -569,11 +524,8 @@ export function CampaignTree({
 
     return (
       <div className="px-2 py-1.5 sm:px-4 sm:py-2">
-        <div className={`group relative overflow-hidden rounded-xl border bg-background transition-all duration-300 ${isHot ? 'border-brand-pink/50 shadow-[0_0_15px_rgba(255,105,180,0.3)]' : isError ? 'border-error/30 bg-error/5 shadow-sm' : 'border-border/50 hover:border-primary/20 shadow-sm hover:shadow-md'}`}>
-          {isHot && (
-            <div className="absolute inset-0 z-0 animate-pulse bg-gradient-to-r from-brand-pink/5 via-brand-cyan/5 to-transparent opacity-50" aria-hidden="true" />
-          )}
-          <div className="relative z-10 flex items-center gap-2 p-3 sm:gap-3">
+        <div className={`group overflow-hidden rounded-xl border bg-background transition-colors ${isHot ? 'border-success/35' : isError ? 'border-error/30 bg-error/5' : 'border-border/60 hover:border-primary/30'}`}>
+          <div className="flex items-center gap-2 p-3 sm:gap-3">
             <input
               type="checkbox"
               checked={selected.has(id)}
@@ -607,6 +559,7 @@ export function CampaignTree({
                   >
                     {cleanCampaignName(c.campaignName || id)}
                   </span>
+                  <span className={`hidden shrink-0 text-[10px] font-medium sm:inline ${meta.cls}`}>{meta.label}</span>
                   {c.childStatus && c.childStatus !== c.status && (
                     <AlertTriangle
                       className="size-3.5 shrink-0 text-warning"
@@ -623,6 +576,9 @@ export function CampaignTree({
                     </span>
                   )}
                 </div>
+                <p className="mt-1 truncate text-[10px] tabular-nums text-muted-foreground md:hidden">
+                  {fmtMoney(c.metrics?.spend, c.currency || currency)} investidos · {roas === null ? 'ROAS —' : `ROAS ${roas.toFixed(2)}`} · {fmtCompact(c.metrics?.conversions)} conv.
+                </p>
                 {detailedError && (
                   <div className="mt-2 w-fit max-w-[280px] sm:max-w-md rounded-md bg-error/10 px-2 py-1.5 border border-error/20">
                     <span className="line-clamp-2 text-[11px] font-medium leading-snug text-error">
@@ -632,34 +588,17 @@ export function CampaignTree({
                 )}
               </div>
             </button>
-
-
-          {/* Métricas principais condensadas em badges */}
-          <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold tabular-nums ${spend > 0 ? 'bg-secondary/50 text-foreground' : 'text-muted-foreground'}`}>
-              Gasto: {fmtMoney(c.metrics?.spend, c.currency || currency)}
+            <span className={`${colGasto} text-xs font-semibold text-foreground`}>
+              {fmtMoney(c.metrics?.spend, c.currency || currency)}
             </span>
-            {roas !== null && (
-              <div className="flex flex-col items-center">
-                <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
-                  ROAS {roas.toFixed(2)}
-                </span>
-                {/* Mock Sparkline (Tendência dos últimos 7 dias) */}
-                <div className="mt-1 flex h-2.5 w-full items-end justify-between gap-[2px] opacity-70 px-1" title="Tendência do ROAS nos últimos 7 dias">
-                  {[40, 70, 30, 80, 50, 90, 60].map((h, i) => (
-                    <div key={i} className="w-1 rounded-sm bg-success transition-all duration-300 hover:bg-success/50" style={{ height: `${h}%` }} />
-                  ))}
-                </div>
-              </div>
-            )}
-            {(c.metrics?.conversions || 0) > 0 ? (
-              <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary tabular-nums">
-                {fmtCompact(c.metrics?.conversions)} conv.
-              </span>
-            ) : null}
-          </div>
+            <span className={`${colRoas} text-xs font-semibold ${roas !== null && roas >= 1 ? 'text-success' : roas !== null ? 'text-warning' : 'text-muted-foreground'}`}>
+              {roas === null ? '—' : roas.toFixed(2)}
+            </span>
+            <span className={`${colConv} text-xs font-semibold text-foreground`}>
+              {fmtCompact(c.metrics?.conversions)}
+            </span>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition-all sm:duration-300 sm:focus-within:opacity-100 sm:group-hover:opacity-100 sm:-translate-x-2 sm:group-hover:translate-x-0 bg-background/80 backdrop-blur-sm sm:absolute sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:p-1.5 sm:rounded-lg sm:border sm:border-border/50 sm:shadow-sm">
+          <div className={colActions} aria-label="Ações da campanha">
             {busy ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
             ) : (
@@ -667,7 +606,7 @@ export function CampaignTree({
                 {c.status === 'active' ? (
                   <button
                     type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
                     onClick={() => setCampaignStatus(c, 'paused')}
                     aria-label={`Pausar campanha ${c.campaignName || id}`}
                     title="Pausar"
@@ -677,7 +616,7 @@ export function CampaignTree({
                 ) : c.status === 'paused' ? (
                   <button
                     type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
                     onClick={() => setActivation({ kind: 'single', campaign: c })}
                     aria-label={`Ativar campanha ${c.campaignName || id}`}
                     title="Ativar"
@@ -692,7 +631,7 @@ export function CampaignTree({
                 {onDuplicate && (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
                     onClick={() => onDuplicate(c)}
                     aria-label={`Duplicar campanha ${c.campaignName || id}`}
                     title="Duplicar"
@@ -890,90 +829,17 @@ export function CampaignTree({
     return row.kind === 'group' ? renderGroupHeader(row) : renderCampaignRow(row.c)
   }
 
-  function renderMindmap() {
-    return (
-      <div className="p-6 overflow-x-auto">
-        <div className="flex flex-col gap-12 min-w-[800px]">
-          {displayCampaigns.map((c) => {
-            const attr = attribution?.[c.platformCampaignId]
-            const spend = Number(c.metrics?.spend) || 0
-            const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
-            const isHot = roas !== null && roas >= 2.0 && c.status === 'active'
-            
-            return (
-              <div key={c.platformCampaignId} className="flex items-center gap-8">
-                {/* Campaign Node */}
-                <div className={`relative flex w-64 shrink-0 flex-col gap-2 rounded-2xl border p-4 shadow-sm transition-all ${isHot ? 'border-brand-pink/50 bg-brand-pink/5 shadow-[0_0_15px_rgba(255,105,180,0.3)]' : 'border-border bg-card'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-foreground truncate" title={c.campaignName}>{cleanCampaignName(c.campaignName || '')}</span>
-                    <StatusPill status={c.status} />
-                  </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-[11px] text-muted-foreground">Gasto: {fmtMoney(spend, c.currency || currency)}</span>
-                    {roas !== null && <span className="text-[11px] font-bold text-success">ROAS {roas.toFixed(2)}</span>}
-                  </div>
-                </div>
-
-                {/* Connecting Line */}
-                <div className="h-0.5 w-12 bg-border/50 shrink-0" />
-
-                {/* AdSets */}
-                <div className="flex flex-col gap-6">
-                  {(c.adSets ?? []).map((s, si) => (
-                    <div key={s.platformAdSetId || si} className="flex items-center gap-8">
-                      {/* AdSet Node */}
-                      <div className="relative flex w-56 shrink-0 flex-col gap-2 rounded-xl border border-border/60 bg-secondary/20 p-3 shadow-sm">
-                        <span className="text-[11px] font-semibold text-foreground truncate">{s.adSetName || s.name || `Grupo ${si + 1}`}</span>
-                        <StatusPill status={s.status} />
-                      </div>
-
-                      {/* Connecting Line */}
-                      <div className="h-px w-8 bg-border/40 shrink-0" />
-
-                      {/* Ads */}
-                      <div className="flex flex-wrap gap-4">
-                        {(s.ads ?? []).map((ad, ai) => (
-                          <div key={ad.platformAdId || ad._id || ai} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-lg border border-border/40 bg-background p-2 shadow-sm">
-                            <span className="text-[10px] font-medium text-muted-foreground truncate w-full text-center">{ad.name || 'Anúncio'}</span>
-                            <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center">
-                              <Clapperboard className="size-4 text-muted-foreground" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <GlassCard className="min-w-0 overflow-hidden p-0">
-      {/* AI Copilot Panel */}
-      <div className="border-b border-border bg-gradient-to-r from-primary/10 via-brand-cyan/5 to-transparent px-4 py-3.5 sm:px-5">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 shadow-inner">
-            <Sparkles className="size-4 text-primary" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-foreground">Copiloto de Inteligência</p>
-            <ul className="mt-1.5 space-y-1">
-              <li className="text-[11px] leading-relaxed text-muted-foreground flex items-start gap-1.5">
-                <span className="text-warning font-bold mt-0.5">⚠️</span> 
-                <span>A campanha <strong className="text-foreground font-semibold">"Escala CBO - Teste"</strong> está com ROAS negativo hoje. Sugerimos pausar e poupar 20€.</span>
-              </li>
-              <li className="text-[11px] leading-relaxed text-muted-foreground flex items-start gap-1.5">
-                <span className="text-success font-bold mt-0.5">🔥</span>
-                <span>O anúncio <strong className="text-foreground font-semibold">"Criativo 03"</strong> é o seu campeão atual (ROAS 4.5). Isole-o em uma campanha CBO agressiva.</span>
-              </li>
-            </ul>
-          </div>
+      <div className="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Suas campanhas</h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Abra uma campanha para ver conjuntos, anúncios e editar o orçamento.</p>
         </div>
+        <p className="text-[11px] tabular-nums text-muted-foreground">
+          <strong className="font-semibold text-foreground">{visible.length}</strong>{visible.length !== campaigns.length ? ` de ${campaigns.length}` : ''} campanha{visible.length === 1 ? '' : 's'}
+          {visible.length > 0 ? ` · ${fmtMoney(visibleSpend, currency)} investidos` : ''}
+        </p>
       </div>
 
       {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
@@ -982,7 +848,7 @@ export function CampaignTree({
         {/* Top bar: Busca, Status e Botão de Filtros */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <div className="relative min-w-0 flex-1 sm:max-w-sm">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                 aria-hidden="true"
@@ -991,8 +857,8 @@ export function CampaignTree({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ex.: gastaram mais de 100 e não venderam"
-                aria-label="Buscar ou filtrar campanhas em linguagem natural"
+                placeholder="Buscar campanha pelo nome"
+                aria-label="Buscar campanhas pelo nome"
                 className="w-full rounded-full border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
               />
             </div>
@@ -1006,7 +872,7 @@ export function CampaignTree({
                   aria-pressed={statusFilter === f.value}
                   className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all duration-200 ${
                     statusFilter === f.value
-                      ? 'bg-background text-foreground shadow-sm'
+                      ? 'bg-primary text-black shadow-[var(--glow-cyan-soft)]'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -1017,34 +883,6 @@ export function CampaignTree({
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden sm:flex items-center rounded-full bg-secondary/30 p-0.5 mr-2" role="group" aria-label="Modo de visualização">
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
-                  viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-                aria-pressed={viewMode === 'list'}
-              >
-                Lista
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('mindmap')}
-                className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-all duration-200 ${
-                  viewMode === 'mindmap' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-                aria-pressed={viewMode === 'mindmap'}
-              >
-                Mapa Mental
-              </button>
-            </div>
-            
-            <span className="hidden sm:inline-block text-[11px] tabular-nums text-muted-foreground">
-              {visible.length !== campaigns.length
-                ? `${visible.length} de ${campaigns.length}`
-                : `${campaigns.length} total`}
-            </span>
             <button 
               type="button"
               onClick={() => setShowFilters(!showFilters)}
@@ -1055,7 +893,7 @@ export function CampaignTree({
               }`}
             >
               <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">Filtros</span>
+              <span>Filtros</span>
             </button>
           </div>
         </div>
@@ -1108,39 +946,6 @@ export function CampaignTree({
           </div>
         </div>
       </div>
-
-      {/* Resumo do que está visível — panorama sem rolar a lista */}
-      {visible.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-secondary/30 px-4 py-2 text-[11px] tabular-nums text-muted-foreground">
-          {summary.active > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--success)]" aria-hidden="true" />
-              {summary.active} ativa{summary.active === 1 ? '' : 's'}
-            </span>
-          )}
-          {summary.review > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
-              {summary.review} em revisão
-            </span>
-          )}
-          {summary.problem > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--error)]" aria-hidden="true" />
-              {summary.problem} com problema{summary.problem === 1 ? '' : 's'}
-            </span>
-          )}
-          {summary.paused > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />
-              {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
-            </span>
-          )}
-          <span className="ml-auto font-medium text-foreground">
-            Gasto neste filtro: {fmtMoney(summary.spend, currency)}
-          </span>
-        </div>
-      )}
 
       {/* Barra de ações em lote — FAB (Floating Action Bar) */}
       {selected.size > 0 && (
@@ -1254,15 +1059,12 @@ export function CampaignTree({
             </p>
           </div>
         )
-      ) : viewMode === 'mindmap' ? (
-        renderMindmap()
       ) : (
         <div ref={scrollRef} className={virtualize ? 'h-[70vh] overflow-auto' : 'max-h-[70vh] overflow-auto'}>
           {/* Cabeçalho de tabela fixo — rótulos aparecem uma única vez */}
           <div className="label-mono sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-[var(--surface,var(--card))] px-3 py-2 text-[10px] text-muted-foreground">
             <span className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="w-3.5 shrink-0" aria-hidden="true" />
-            <span className="size-1.5 shrink-0" aria-hidden="true" />
+            <span className="w-7 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">Campanha</span>
             <span className={colGasto}>Gasto</span>
             <span className={colRoas}>ROAS</span>

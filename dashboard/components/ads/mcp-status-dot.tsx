@@ -14,7 +14,7 @@ export function McpStatusDot({ active }: { active: boolean }) {
   const ok = data.connected
   const errors = data.calls?.errorsLastHour ?? 0
   const tone = !ok ? 'error' : errors > 0 ? 'warning' : 'success'
-  const label = !ok ? 'TikTok offline' : errors > 0 ? 'TikTok instável' : 'TikTok ok'
+  const label = !ok ? 'TikTok desconectado' : errors > 0 ? 'Conexão com alertas' : 'TikTok conectado'
   const title = !ok
     ? `Sem conexão com o TikTok${data.error ? `: ${data.error}` : ''}. Veja detalhes no Modo avançado (Automações).`
     : errors > 0
@@ -23,6 +23,10 @@ export function McpStatusDot({ active }: { active: boolean }) {
 
   const dot = tone === 'error' ? 'bg-error' : tone === 'warning' ? 'bg-warning' : 'bg-success'
   const text = tone === 'error' ? 'text-error' : tone === 'warning' ? 'text-warning' : 'text-muted-foreground'
+
+  // Quando está tudo saudável, a sincronização da barra já comunica o estado.
+  // O indicador só ocupa espaço quando existe algo que pede atenção.
+  if (ok && errors === 0) return null
 
   return (
     <span className={`hidden items-center gap-1.5 sm:inline-flex ${text}`} title={title}>
