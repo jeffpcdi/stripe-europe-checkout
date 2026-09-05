@@ -144,7 +144,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Antes da primeira escrita, o Pixel precisa ter qualquer atividade real em 7 dias e um enum real de
   Compra (`SHOPPING`/`ON_WEB_ORDER`) no histórico de até 30 dias. Ausência ou indisponibilidade transitória
   não falha o formulário: o run fica em `waiting_pixel_purchase`, é reconsultado pelo worker e avança
-  automaticamente. Nunca é enviado evento de Compra sintético para liberar campanha.
+  automaticamente. Nunca é enviado evento de Compra sintético para liberar campanha. O schema vivo do
+  Pipeboard exige `schedule_start_time` no conjunto e ainda não expõe `schedule_type`; a agenda usa o
+  `timezone` efetivo da conta (não `display_timezone`, que pode divergir por horário de verão).
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes

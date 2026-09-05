@@ -130,6 +130,10 @@ async function getAdvertiserInfo(advertiserId) {
     currency: String(a.currency || 'USD'),
     country: String(a.country || ''),
     timezone: String(a.display_timezone || a.timezone || ''),
+    // A API de criação interpreta horários no fuso efetivo da conta
+    // (`timezone`). `display_timezone` é apenas o nome amigável mostrado no
+    // Ads Manager e pode ter uma regra de horário de verão diferente.
+    deliveryTimezone: String(a.timezone || a.display_timezone || ''),
     role: String(a.role || ''),
     rawStatus: raw,
     healthStatus: normalizeAdvertiserStatus(raw),
@@ -3152,7 +3156,7 @@ const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
     'shopping_ads_type', 'shopping_ads_retargeting_type', 'product_source',
     'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal',
     'billing_event', 'placement_type', 'placements',
-    'schedule_type', 'schedule_end_time', 'targeting',
+    'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget',
     'bid_type', 'delivery_mode',
   ],
@@ -3170,7 +3174,7 @@ const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
     'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type', 'shopping_ads_type',
     'shopping_ads_retargeting_type', 'product_source',
     'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal', 'billing_event',
-    'placement_type', 'placements', 'schedule_type', 'targeting', 'operation_status', 'pixel_id',
+    'placement_type', 'placements', 'schedule_start_time', 'targeting', 'operation_status', 'pixel_id',
     'optimization_event', 'budget_mode', 'budget', 'bid_type', 'delivery_mode',
   ],
   ad: [
@@ -4408,7 +4412,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       billing_event: 'OCPM',
       placement_type: 'PLACEMENT_TYPE_NORMAL',
       placements: ['PLACEMENT_TIKTOK'],
-      schedule_type: 'SCHEDULE_FROM_NOW',
+      schedule_start_time: advertiserLocalTime(info && (info.deliveryTimezone || info.timezone)),
       targeting: { location_ids: regions.locationIds },
       operation_status: 'DISABLE',
     };

@@ -60,7 +60,7 @@ console.log('Rota — guardrails do campaign-batch');
     'cada campanha tem chave de idempotência derivada por índice (retry não duplica)');
   ok(/createCampaignRun/.test(body), 'enfileira runs duráveis processados pelo worker existente');
   ok(/Idempotency-Key/.test(body), 'aceita Idempotency-Key do cliente');
-  ok(/prepared\.spec\.pixelId,[\s\S]*prepared\.spec\.bidStrategy[\s\S]*prepared\.spec\.deliveryMode[\s\S]*prepared\.spec\.identityId[\s\S]*prepared\.spec\.videoUrl, namePrefix/.test(body), 'fallback idempotente muda com vídeo, lance, entrega, perfil ou nome');
+  ok(/prepared\.spec\.pixelId,[\s\S]*prepared\.spec\.bidStrategy[\s\S]*prepared\.spec\.deliveryMode[\s\S]*prepared\.spec\.identityId[\s\S]*videoUrls\.join\(','\), namePrefix/.test(body), 'fallback idempotente muda com vídeos, lance, entrega, perfil ou nome');
   ok(!/setCampaignStatus|createCatalogCampaign\(/.test(body), 'rota não toca o TikTok direto — só enfileira (worker cria pausado)');
 }
 
@@ -78,14 +78,14 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');
   ok(/autoActivate: true/.test(dialog), 'fluxo rápido solicita ativação automática após a validação');
   ok(/Máxima entrega/.test(dialog) && /Custo-alvo/.test(dialog) && /bidStrategy/.test(dialog), 'opções avançadas expõem estratégia de lance sem poluir o fluxo principal');
-  ok(/Entrega acelerada/.test(dialog) && /deliveryMode/.test(dialog), 'entrega acelerada só é enviada pelo contrato explícito');
+  ok(/deliveryMode: acceleratedDelivery && finalBidStrategy === 'cost_cap'/.test(dialog), 'entrega acelerada só é enviada pelo contrato explícito');
   ok(/Perfil mostrado no anúncio/.test(dialog) && /useAdsCatalogIdentities/.test(dialog), 'perfil autorizado pode ser escolhido sem abrir o Ads Manager');
   ok(/catalogCostCap/.test(dialog) && /catalogAcceleratedDelivery/.test(dialog), 'interface só mostra recursos confirmados pelo schema vivo');
   ok(/if \(!open\) return[\s\S]*setAdvancedOpen\(false\)[\s\S]*\[open, advertiserId, catalog\.id, initialVideoUrl\]/.test(dialog), 'reabrir o modal sempre volta ao fluxo automático limpo');
-  ok(/Entrega e perfil/.test(dialog) && /advancedSummary/.test(dialog), 'resumo fechado mostra onde ajustar entrega e perfil');
+  ok(/Configurações Avançadas/.test(dialog) && /Perfil e Entrega/.test(dialog), 'resumo fechado mostra onde ajustar entrega e perfil');
   ok(/aria-expanded=\{advancedOpen\}/.test(dialog) && /advancedOpen && \(/.test(dialog), 'expansão controlada não reabre sozinha ao reutilizar o modal');
   ok(/overflow-hidden/.test(dialog) && /overflow-y-auto/.test(dialog) && /footer className="flex shrink-0/.test(dialog), 'corpo rola sem esconder a ação final');
-  ok(!/>Cancelar<\/button>/.test(dialog) && /aria-label="Fechar"/.test(dialog), 'remove fechamento duplicado e mantém saída acessível');
+  ok(!/>Cancelar<\/button>/.test(dialog) && /aria-label=\{strategy \? 'Voltar' : 'Fechar'\}/.test(dialog), 'remove fechamento duplicado e mantém saída acessível');
   ok(/disabled:cursor-not-allowed disabled:opacity-40/.test(dialog), 'ação bloqueada parece bloqueada e explica o próximo passo');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
