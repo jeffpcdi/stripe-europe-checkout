@@ -371,7 +371,7 @@ export function TikTokAdsView() {
           <p className="max-w-md text-pretty text-xs text-muted-foreground">Escolha uma conta acima para ver e operar as campanhas.</p>
         </GlassCard>
       ) : (
-        <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="flex min-w-0 flex-col gap-4">
+        <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -385,7 +385,7 @@ export function TikTokAdsView() {
                     <Tabs.Trigger
                       key={item.value}
                       value={item.value}
-                      className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-1 text-[11px] font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_0_0_1px_rgba(37,244,238,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm"
+                      className="tiktok-section-tab"
                     >
                       <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
                       <span className="truncate sm:hidden">{item.compactLabel}</span>
@@ -480,6 +480,7 @@ export function TikTokAdsView() {
                 timeZone={advertiserTimeZone}
               />
               <CampaignTree
+              key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
               tree={tree}
               loading={treeLoading && !tree}
               error={treeError ? String((treeError as Error).message || 'erro') : null}

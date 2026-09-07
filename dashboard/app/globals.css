@@ -2940,3 +2940,84 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 @media (prefers-reduced-motion: reduce) {
   .presence-stage *, .recent-visit-row, .journey-step-track > span { animation: none !important; transition: none !important; }
 }
+
+/* TikTok Ads: ações persistentes e indicadores comparáveis por campanha. */
+.ads-account-context { background: var(--lg-tint-thick); border-color: var(--border-strong); padding-top: 14px; padding-bottom: 14px; }
+.ads-account-context select { min-height: 40px; font-size: 13px; }
+.tiktok-section-tab { min-height: 44px; padding: 8px 17px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9px; font-size: 13px; font-weight: 500; color: var(--text-muted); transition: color 180ms, background 180ms; }
+.tiktok-section-tab:hover { color: var(--text); background: var(--hover); }
+.tiktok-section-tab[data-state='active'] { color: var(--accent); background: var(--accent-light); box-shadow: inset 0 0 0 1px rgba(37,244,238,.2); }
+.ads-account-result { background: linear-gradient(135deg, var(--lg-tint-thick), var(--card)); }
+.ads-account-result > p:first-child { color: var(--text-sub); }
+.campaign-workspace { background: var(--bg) !important; border-color: var(--border-strong); }
+.campaign-toolbar { display: flex; flex-direction: column; gap: 18px; padding: 22px; border-bottom: 1px solid var(--border-strong); background: var(--card); }
+.campaign-toolbar-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.campaign-toolbar-title h2 { font-size: 16px; font-weight: 600; color: var(--text); }
+.campaign-toolbar-title p, .campaign-toolbar-title > span { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.campaign-status-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.campaign-status-filters button { min-height: 44px; padding: 10px 22px; border: 1px solid var(--border-strong); border-radius: 11px; font-size: 13px; font-weight: 500; color: var(--text-sub); background: var(--bg); transition: color 180ms, border-color 180ms, background 180ms, box-shadow 180ms; }
+.campaign-status-filters button:hover { color: var(--text); border-color: var(--text-faint); }
+.campaign-status-filters button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--bg); box-shadow: 0 3px 14px var(--accent-light); font-weight: 600; }
+.campaign-search-row { display: flex; gap: 10px; align-items: center; }
+.campaign-search { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; min-height: 44px; padding: 0 13px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--bg); color: var(--text-muted); }
+.campaign-search input { width: 100%; min-width: 0; height: 42px; outline: none; font-size: 13px; color: var(--text); }
+.campaign-search input:focus-visible { outline: none; }
+.campaign-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.campaign-search > svg { flex-shrink: 0; }
+.campaign-row-wrap { padding: 8px 16px; }
+.campaign-operation-card { border: 1px solid var(--border-strong); border-radius: 15px; background: var(--card); box-shadow: inset 0 1px 0 var(--lg-rim-side); overflow: hidden; transition: border-color 220ms, box-shadow 220ms; animation: campaign-card-enter 350ms var(--ease) both; }
+.campaign-operation-card:hover { border-color: var(--text-faint); box-shadow: var(--shadow); }
+.campaign-operation-card[data-selected='true'] { border-color: var(--accent-dark); }
+.campaign-operation-card[data-error='true'] { border-color: var(--error); }
+.campaign-operation-heading { display: flex; align-items: center; gap: 14px; padding: 18px; background: var(--lg-tint-thick); }
+.campaign-operation-heading > input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--accent); }
+.campaign-operation-identity { flex: 1; min-width: 0; }
+.campaign-operation-identity h3 { font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.campaign-operation-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--text-muted); font-size: 11px; }
+.campaign-approved { display: inline-flex; align-items: center; gap: 4px; }
+.campaign-operation-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.campaign-status-action, .campaign-secondary-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--border-strong); color: var(--text-sub); background: var(--bg); font-size: 12px; font-weight: 500; transition: background 180ms, border-color 180ms; }
+.campaign-status-action { color: var(--text); border-color: var(--text-faint); }
+.campaign-status-action[data-activate='true'] { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.campaign-status-action:hover:not(:disabled), .campaign-secondary-action:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+.campaign-status-action:disabled { opacity: .5; cursor: wait; }
+.campaign-metric-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); border-top: 1px solid var(--border); }
+.campaign-metric-cell { min-width: 0; padding: 14px 12px; border-right: 1px solid var(--border); }
+.campaign-metric-cell:last-child { border-right: 0; }
+.campaign-metric-cell[data-primary='true'] { background: var(--hover); }
+.campaign-metric-cell dt { font-size: 11px; color: var(--text-sub); font-weight: 500; }
+.campaign-metric-cell dd { margin-top: 8px; font-size: clamp(13px, 1.05vw, 17px); font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.campaign-metric-cell > span { display: block; margin-top: 5px; font-size: 11px; line-height: 1.5; color: var(--text-faint); }
+.campaign-expand-action { width: 100%; display: flex; align-items: center; gap: 7px; min-height: 44px; padding: 10px 18px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; text-align: left; transition: background 180ms; }
+.campaign-expand-action span { margin-left: auto; color: var(--accent); }
+.campaign-expand-action:hover { background: var(--hover); }
+.campaign-expand-action svg { flex-shrink: 0; transition: transform 200ms; }
+.campaign-operation-error { display: flex; align-items: flex-start; gap: 8px; padding: 12px 18px; color: var(--error); background: var(--error-light); font-size: 12px; line-height: 1.5; }
+.campaign-operation-error svg { flex-shrink: 0; margin-top: 2px; }
+@keyframes campaign-card-enter { from { opacity: 0; translate: 0 5px; } to { opacity: 1; translate: 0 0; } }
+@media (max-width: 1399px) { .campaign-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } .campaign-metric-cell:nth-child(-n+3) { grid-column: span 2; } .campaign-metric-cell { border-bottom: 1px solid var(--border); } }
+@media (max-width: 767px) {
+  .tiktok-section-tab { padding: 8px; font-size: 12px; }
+  .campaign-toolbar { padding: 16px; gap: 14px; }
+  .campaign-status-filters { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
+  .campaign-status-filters button { padding: 9px 7px; font-size: 12px; }
+  .campaign-search-row { flex-wrap: wrap; }
+  .campaign-search { flex-basis: 100%; }
+  .campaign-row-wrap { padding: 7px 10px; }
+  .campaign-operation-heading { padding: 14px; gap: 10px; flex-wrap: wrap; }
+  .campaign-operation-identity { flex-basis: calc(100% - 30px); }
+  .campaign-operation-actions { padding-left: 27px; }
+  .campaign-metric-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .campaign-metric-cell:nth-child(-n+3) { grid-column: span 1; }
+  .campaign-metric-cell { padding: 12px 9px; }
+  .campaign-metric-cell dd { font-size: 14px; }
+  .campaign-metric-cell > span { font-size: 11px; }
+  .campaign-expand-action { flex-wrap: wrap; padding: 12px 14px; font-size: 11px; }
+  .campaign-expand-action span { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .campaign-operation-card, .campaign-status-filters button, .campaign-expand-action svg { animation: none; transition: none; } }
+.campaign-budget-editor { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--card); }
+.campaign-budget-editor input { min-height: 38px; }
+.campaign-budget-editor button { min-height: 36px; }
+.campaign-toolbar-title > span { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 639px) { .campaign-bulk-actions { max-width: calc(100vw - 20px); flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px; } .campaign-toolbar-title { align-items: flex-start; } }

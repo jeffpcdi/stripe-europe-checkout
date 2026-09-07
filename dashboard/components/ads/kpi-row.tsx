@@ -29,7 +29,7 @@ export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZo
     { label: 'Custo por venda', value: salesData?.currencyMismatch ? null : salesData?.cpa ?? null, money, detail: 'Investimento ÷ vendas' },
   ]
   return (
-    <section className="space-y-3" aria-label="Resultados da conta de anúncios">
+    <section className="ads-account-results space-y-3" aria-label="Resultados da conta de anúncios">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <p title={timeZone ? `Fuso da conta: ${timeZone}` : undefined}>Total da conta · {period}</p>
         {unavailable && <button type="button" className="text-warning underline underline-offset-4" onClick={() => void Promise.all([refreshKpis(), refreshSales()])}>Dados não atualizados · tentar novamente</button>}
@@ -37,7 +37,7 @@ export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZo
       {isLoading && !kpis ? <Skeleton className="h-28 rounded-2xl" /> : (
         <GlassCard className="p-0">
           <div className="grid grid-cols-2 gap-px bg-border lg:grid-cols-4">
-            {cards.map((card, index) => <div key={card.label} className="min-w-0 bg-background p-4 sm:p-5">
+            {cards.map((card, index) => <div key={card.label} className="ads-account-result min-w-0 p-4 sm:p-5">
               <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
               <p className={`mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${index === 1 ? 'text-success' : 'text-foreground'}`} data-sensitive>
                 {card.value === null || !Number.isFinite(card.value) ? '—' : <CountUp value={card.value} format={value => card.money ? fmtSpend(value, card.money) : `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`} />}

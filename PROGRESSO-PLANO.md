@@ -533,3 +533,9 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 - Barra de controles unificada, enquadramento responsivo e tela cheia com contexto preservado.
 - Funil em linhas e histórico com país, ação e horário; taxas ausentes não viram zero.
 - Validação local com dados de teste, sem alteração de campanhas reais.
+
+### 2026-09-07 — TikTok Ads e Campanhas
+- Filtros maiores, mais contraste e ações por campanha sempre visíveis.
+- Grade com orçamento, gasto, compras, CPA, CPM, CPC, CTR, cliques e exibições.
+- Edição explícita de orçamento; distinção CBO/ABO e simulação/solicitação/erro.
+- Validação local de desktop/celular, testes e build; sem operação em campanhas reais.

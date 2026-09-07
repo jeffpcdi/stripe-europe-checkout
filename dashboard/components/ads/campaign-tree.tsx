@@ -6,6 +6,7 @@
 // tabelas do dashboard (linhas com stagger, status dots, ações no hover).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronRight,
@@ -30,14 +31,17 @@ import {
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsMetrics, AdsNodeStatus } from '@/lib/types'
+import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { AdEditDialog } from './ad-edit-dialog'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
-import { fmtCompact, fmtPercent, cleanCampaignName } from '@/lib/format'
+import { fmtCompact, cleanCampaignName } from '@/lib/format'
+import { Modal } from '@/components/ui/modal'
+import { CampaignMetricGrid } from './campaign-metric-grid'
+import { campaignBudget, campaignStatusOutcome, type CampaignStatusResult } from '@/lib/campaign-metrics'
 import { actionFeedback } from '@/lib/action-feedback'
 
 function fmtMoney(v: number | undefined, currency: string): string {
@@ -81,32 +85,10 @@ export function StatusPill({ status }: { status?: AdsNodeStatus }) {
   )
 }
 
-// Célula de métrica compacta (rótulo mono + valor)
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="label-mono text-[10px]">{label}</p>
-      <p className="truncate text-xs font-semibold tabular-nums text-foreground">{value}</p>
-    </div>
-  )
-}
-
 function isProductLinkAd(ad: AdsTreeAd): boolean {
   return Boolean(ad.catalogId) && (
     String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
     || String(ad.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
-  )
-}
-
-// Métricas que saíram da linha compacta e vivem agora no expand.
-function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string }) {
-  return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-      <Metric label="Impr." value={fmtCompact(m?.impressions)} />
-      <Metric label="Cliques" value={fmtCompact(m?.clicks)} />
-      <Metric label="Taxa de cliques" value={m?.ctr != null ? fmtPercent(m.ctr) : '—'} />
-      <Metric label="Custo por mil exibições" value={fmtMoney(m?.cpm, currency)} />
-    </div>
   )
 }
 
@@ -130,7 +112,6 @@ function BudgetControl({
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(currentAmount || ''))
   const [busy, setBusy] = useState(false)
-  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((currentAmount || TIKTOK_MIN_BUDGET) * 3))
   async function save(nextValue = value) {
     const next = Number(String(nextValue).replace(',', '.'))
     if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
@@ -138,8 +119,9 @@ function BudgetControl({
     setBusy(true)
     try {
       const amount = next
-      await apiSend(`/api/ads/${encodeURIComponent(entityId)}`, 'PUT', { budget: { amount, type }, adAccountId })
-      toast.success('Orçamento atualizado')
+      const result = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(entityId)}`, 'PUT', { budget: { amount, type }, adAccountId })
+      if (result.dryRun) { toast.info('Simulação concluída', { hint: 'O orçamento não foi alterado.' }); setEditing(false); return }
+      toast.info('Orçamento enviado', { hint: 'Aguardando atualização dos dados do TikTok.' })
       actionFeedback()
       setEditing(false)
       onSaved()
@@ -149,9 +131,9 @@ function BudgetControl({
     } finally { setBusy(false) }
   }
   return (
-    <div className="flex min-w-[210px] flex-col gap-1.5 rounded-lg border border-border/40 bg-secondary/20 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
+    <div className="campaign-budget-editor">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {editing ? (
           <span className="inline-flex items-center gap-1">
             <input
@@ -161,8 +143,8 @@ function BudgetControl({
               className="input-neon w-24 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums"
               aria-label={`Novo orçamento de ${label}`}
             />
-            <button type="button" className="btn-ghost !p-1 text-success" onClick={() => void save()} disabled={busy} aria-label="Salvar">
-              {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+            <button type="button" className="btn-secondary text-xs" onClick={() => void save()} disabled={busy} aria-label="Salvar">
+              {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />} Salvar
             </button>
             <button type="button" className="btn-ghost !p-1" onClick={() => setEditing(false)} disabled={busy} aria-label="Cancelar"><X className="size-3" /></button>
           </span>
@@ -172,20 +154,7 @@ function BudgetControl({
           </button>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-[9px] text-info">gelo</span>
-        <input
-          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
-          onChange={(event) => setValue(event.target.value)}
-          onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
-          onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
-          disabled={busy || type === 'lifetime'}
-          aria-label={`Escala de orçamento de ${label}`}
-          className="h-1.5 flex-1 cursor-pointer accent-[color:var(--brand-pink)] disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
-        />
-        <span className="text-[9px] text-error">fogo</span>
-      </div>
+
     </div>
   )
 }
@@ -194,6 +163,8 @@ const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
+  { value: 'pending_review', label: 'Em revisão' },
+  { value: 'rejected', label: 'Rejeitadas' },
 ]
 
 const ALL_STATUS_OPTIONS = [
@@ -315,11 +286,13 @@ export function CampaignTree({
     return () => window.removeEventListener('roi:ads-filter', onFilter)
   }, [onStatusFilter, statusFilter])
 
+  const selectionScope = (tree?.campaigns || []).map(campaign => `${campaign.platformCampaignId}:${campaign.status}`).sort().join('|')
+
   // Uma seleção de lote não pode sobreviver à troca de página/filtro/período;
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
   useEffect(() => {
     setSelected(new Set())
-  }, [page, statusFilter, sort, tree, query, onlyWithSpend])
+  }, [page, statusFilter, sort, selectionScope, query, onlyWithSpend])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -331,10 +304,11 @@ export function CampaignTree({
   }
 
   async function bulkStatus(status: 'active' | 'paused') {
-    if (selected.size === 0 || bulkBusy) return
+    if (selected.size === 0 || bulkBusy || busyId) return
+    if (selected.size > 50) { toast.error('Selecione até 50 campanhas por vez'); return false }
     setBulkBusy(true)
     try {
-      const r = await apiSend<{ totals?: { updated: number; skipped: number; failed: number } }>(
+      const r = await apiSend<CampaignStatusResult>(
         '/api/ads/campaigns/bulk-status',
         'POST',
         {
@@ -343,11 +317,11 @@ export function CampaignTree({
           adAccountId: campaigns.find((campaign) => selected.has(campaign.platformCampaignId))?.platformAdAccountId,
         },
       )
-      const t = r.totals
-      toast.success(
-        status === 'paused' ? 'Campanhas pausadas' : 'Campanhas ativadas',
-        t ? { hint: `${t.updated} atualizada(s) · ${t.skipped} ignorada(s) · ${t.failed} falha(s)` } : undefined,
-      )
+      const outcome = campaignStatusOutcome(r, selected.size)
+      if (outcome === 'simulated') { toast.info('Simulação concluída', { hint: 'Modo teste: nenhuma campanha foi alterada.' }); return true }
+      if (outcome === 'failed') throw new Error('Nenhuma alteração foi aceita. Atualize a lista e tente novamente.')
+      if (outcome === 'partial') toast.error('Parte das campanhas não foi alterada', { hint: `${r.totals?.updated} enviada(s), ${r.totals?.skipped} ignorada(s), ${r.totals?.failed} falha(s).` })
+      else toast.info('Solicitação enviada', { hint: 'A lista mostrará o status após a sincronização com o TikTok.' })
       actionFeedback()
       setSelected(new Set())
       onMutate()
@@ -368,15 +342,21 @@ export function CampaignTree({
       return
     }
 
+    const budgetTargets = campaigns.filter(c => selected.has(c.platformCampaignId))
+    if (budgetTargets.some(c => c.budgetOwner !== 'campaign' || !Number.isFinite(c.budget?.amount) || !['daily', 'lifetime'].includes(c.budget?.type || ''))) {
+      toast.error('Ajuste o orçamento nos conjuntos', { hint: 'O ajuste em lote exige orçamento definido na campanha. Abra os conjuntos para editar os demais.' })
+      return
+    }
     setBulkBudgetBusy(true)
     let updated = 0
+    let simulated = 0
     let failed = 0
 
     const selectedCampaigns = campaigns.filter((c) => selected.has(c.platformCampaignId))
 
     for (const c of selectedCampaigns) {
       try {
-        const curAmount = Number(c.budget?.amount) || TIKTOK_MIN_BUDGET
+        const curAmount = Number(c.budget?.amount)
         let newAmount = curAmount
         if (bulkBudgetMode === 'percent_up') {
           newAmount = Math.round(curAmount * (1 + val / 100))
@@ -386,11 +366,12 @@ export function CampaignTree({
           newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
         }
 
-        await apiSend(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
+        const result = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
           budget: { amount: newAmount, type: c.budget?.type || 'daily' },
           adAccountId: c.platformAdAccountId,
         })
-        updated++
+        if (result.dryRun) simulated++
+        else updated++
       } catch {
         failed++
       }
@@ -399,10 +380,11 @@ export function CampaignTree({
     setBulkBudgetBusy(false)
     setBulkBudgetOpen(false)
     if (updated > 0) {
-      toast.success(`${updated} campanha(s) com orçamento atualizado!`)
+      toast.info(`${updated} orçamento(s) enviado(s)`, { hint: 'Aguardando atualização do TikTok.' })
       actionFeedback()
       onMutate()
     }
+    if (simulated > 0) toast.info(`${simulated} orçamento(s) simulado(s)`, { hint: 'Modo teste: nenhuma alteração publicada para essas campanhas.' })
     if (failed > 0) {
       toast.error(`${failed} falha(s) ao atualizar orçamento`)
     }
@@ -419,14 +401,18 @@ export function CampaignTree({
 
   async function setCampaignStatus(c: AdsTreeCampaign, status: 'active' | 'paused') {
     const id = c.platformCampaignId
+    if (busyId || bulkBusy) return false
     setBusyId(id)
     try {
-      await apiSend('/api/ads/campaigns/bulk-status', 'POST', {
+      const result = await apiSend<CampaignStatusResult>('/api/ads/campaigns/bulk-status', 'POST', {
         campaigns: [{ platformCampaignId: id }],
         status,
         adAccountId: c.platformAdAccountId,
       })
-      toast.success(status === 'paused' ? 'Campanha pausada' : 'Campanha ativada')
+      const outcome = campaignStatusOutcome(result, 1)
+      if (outcome === 'simulated') { toast.info('Simulação concluída', { hint: 'Modo teste: a campanha não foi alterada.' }); return true }
+      if (outcome !== 'accepted') throw new Error('A alteração não foi confirmada. Atualize a lista e tente novamente.')
+      toast.info(status === 'paused' ? 'Pausa solicitada' : 'Ativação solicitada', { hint: 'Aguardando atualização do status na lista.' })
       actionFeedback()
       onMutate()
       return true
@@ -562,17 +548,10 @@ export function CampaignTree({
   const rowVirtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 44,
+    estimateSize: index => flatRows[index]?.kind === 'group' ? 36 : 285,
     overscan: 10,
     getItemKey: (i) => flatRows[i].key,
   })
-
-  // Colunas numéricas alinhadas — mesmas larguras no cabeçalho e nas linhas
-  // (tabular-nums + largura fixa evitam o truncamento "US..." do layout antigo).
-  const colGasto = 'w-20 shrink-0 text-right tabular-nums sm:w-24'
-  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
-  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
-  const colActions = 'flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-[4.75rem]'
 
   // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
@@ -588,7 +567,6 @@ export function CampaignTree({
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
-    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', pulse: false, label: c.status || '—' }
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
@@ -622,140 +600,37 @@ export function CampaignTree({
     }
 
     return (
-      <div className="px-2 py-1.5 sm:px-4 sm:py-2">
-        <div className={`group relative overflow-hidden rounded-xl border bg-background shadow-sm transition-all duration-300 hover:shadow-md ${isError ? 'border-error/30 bg-error/5' : 'border-border/50 hover:border-primary/20'}`}>
-          <div className="flex items-center gap-2 p-3 sm:gap-3">
-            <input
-              type="checkbox"
-              checked={selected.has(id)}
-              onChange={() => toggleSelect(id)}
-              aria-label={`Selecionar campanha ${c.campaignName || id}`}
-              className="size-3.5 shrink-0 accent-[color:var(--primary)]"
-            />
-            <button
-              type="button"
-              onClick={() => toggle(id)}
-              aria-expanded={isOpen}
-              aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            >
-              <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary/50 transition-colors group-hover:bg-primary/10">
-                <ChevronRight
-                  className={`size-4 text-muted-foreground transition-transform duration-300 group-hover:text-primary ${isOpen ? 'rotate-90' : ''}`}
-                  aria-hidden="true"
-                />
+      <div className="campaign-row-wrap">
+        <article className="campaign-operation-card" data-error={isError} data-selected={selected.has(id)} aria-label={c.campaignName || id}>
+          <div className="campaign-operation-heading">
+            <input type="checkbox" checked={selected.has(id)} onChange={() => toggleSelect(id)} disabled={Boolean(busyId) || bulkBusy} aria-label={`Selecionar campanha ${c.campaignName || id}`} />
+            <div className="campaign-operation-identity">
+              <h3 title={c.campaignName || id}>{cleanCampaignName(c.campaignName || id)}</h3>
+              <div className="campaign-operation-meta"><StatusPill status={c.status} />
+                <span>{c.campaignKind === 'smart_plus' ? 'Smart+' : 'Campanha padrão'}</span>
+                {c.reviewStatus === 'approved' && <span className="campaign-approved" title="Anúncios aprovados pelo TikTok"><BadgeCheck size={13} aria-hidden="true" />Aprovada</span>}
+                {c.childStatus && c.childStatus !== c.status && <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>}
               </div>
-              <div className="min-w-0 flex-1 flex flex-col justify-center">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`size-2 shrink-0 rounded-full ${meta.dot} shadow-[0_0_8px_rgba(0,0,0,0.1)] ${meta.dot.replace('bg-', 'shadow-')}`}
-                    aria-hidden="true"
-                    title={meta.label}
-                  />
-                  <span
-                    className="truncate text-sm font-semibold text-foreground tracking-tight"
-                    title={`${c.campaignName || 'Sem nome'} · ${id}`}
-                  >
-                    {cleanCampaignName(c.campaignName || id)}
-                  </span>
-                  {c.childStatus && c.childStatus !== c.status && (
-                    <AlertTriangle
-                      className="size-3.5 shrink-0 text-warning"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {c.reviewStatus === 'approved' && (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success"
-                      title="Anúncios validados pelo TikTok"
-                    >
-                      <BadgeCheck className="size-3" aria-hidden="true" />
-                      <span className="hidden sm:inline">Validada</span>
-                    </span>
-                  )}
-                </div>
-                {detailedError && (
-                  <div className="mt-2 w-fit max-w-[280px] sm:max-w-md rounded-md bg-error/10 px-2 py-1.5 border border-error/20">
-                    <span className="line-clamp-2 text-[11px] font-medium leading-snug text-error">
-                      {detailedError}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </button>
-
-
-          {/* Métricas principais condensadas em badges */}
-          <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            {c.budget?.amount != null && Number(c.budget.amount) > 0 && (
-              <span className="inline-flex items-center rounded-md bg-secondary/30 px-2 py-1 text-[11px] font-medium text-muted-foreground tabular-nums">
-                Orç: {fmtMoney(Number(c.budget.amount), c.currency || currency)}/dia
-              </span>
-            )}
-            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold tabular-nums ${spend > 0 ? 'bg-secondary/50 text-foreground' : 'text-muted-foreground'}`}>
-              Gasto: {fmtMoney(c.metrics?.spend, c.currency || currency)}
-            </span>
-            {roas !== null && (
-              <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
-                ROAS {roas.toFixed(2)}
-              </span>
-            )}
-            {(c.metrics?.conversions || 0) > 0 ? (
-              <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary tabular-nums">
-                {fmtCompact(c.metrics?.conversions)} conv.
-              </span>
-            ) : null}
+            </div>
+            <div className="campaign-operation-actions">
+              {(c.status === 'active' || c.status === 'paused') && <button type="button" className="campaign-status-action" data-activate={c.status === 'paused'} disabled={Boolean(busyId) || bulkBusy}
+                onClick={() => c.status === 'active' ? void setCampaignStatus(c, 'paused') : setActivation({ kind: 'single', campaign: c })}
+                aria-label={`${c.status === 'active' ? 'Pausar' : 'Ativar'} campanha ${c.campaignName || id}`}>
+                {busy ? <Loader2 className="size-4 animate-spin" /> : c.status === 'active' ? <Pause size={15} /> : <Play size={15} />}{busy ? 'Enviando…' : c.status === 'active' ? 'Pausar' : 'Ativar'}
+              </button>}
+              {onDuplicate && <button type="button" className="campaign-secondary-action" onClick={() => onDuplicate(c)} aria-label={`Duplicar campanha ${c.campaignName || id}`} title="Duplicar campanha"><Copy size={15} /><span>Duplicar</span></button>}
+            </div>
           </div>
-
-          <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition-all sm:duration-300 sm:focus-within:opacity-100 sm:group-hover:opacity-100 sm:-translate-x-2 sm:group-hover:translate-x-0 bg-background/80 backdrop-blur-sm sm:absolute sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:p-1.5 sm:rounded-lg sm:border sm:border-border/50 sm:shadow-sm">
-            {busy ? (
-              <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
-            ) : (
-              <>
-                {c.status === 'active' ? (
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
-                    onClick={() => setCampaignStatus(c, 'paused')}
-                    aria-label={`Pausar campanha ${c.campaignName || id}`}
-                    title="Pausar"
-                  >
-                    <Pause className="size-3.5" aria-hidden="true" />
-                  </button>
-                ) : c.status === 'paused' ? (
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
-                    onClick={() => setActivation({ kind: 'single', campaign: c })}
-                    aria-label={`Ativar campanha ${c.campaignName || id}`}
-                    title="Ativar"
-                  >
-                    <Play className="size-3.5" aria-hidden="true" />
-                  </button>
-                ) : (
-                  <span className="size-6" aria-hidden="true" />
-                )}
-                {/* Duplicação (mesma conta) está disponível via Pipeboard —
-                    o estado desabilitado era da era Zernio/501. */}
-                {onDuplicate && (
-                  <button
-                    type="button"
-                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
-                    onClick={() => onDuplicate(c)}
-                    aria-label={`Duplicar campanha ${c.campaignName || id}`}
-                    title="Duplicar"
-                  >
-                    <Copy className="size-3.5" aria-hidden="true" />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+          {detailedError && <p className="campaign-operation-error"><AlertTriangle size={14} aria-hidden="true" />{detailedError}</p>}
+          <CampaignMetricGrid campaign={c} currency={currency} />
+          <button type="button" className="campaign-expand-action" onClick={() => toggle(id)} aria-expanded={isOpen} aria-controls={`campaign-details-${id}`}>
+            <Layers size={14} aria-hidden="true" />{c.adSetCount ?? c.adSets?.length ?? 0} {(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? 'conjunto' : 'conjuntos'} · {c.adCount ?? 0} {c.adCount === 1 ? 'anúncio' : 'anúncios'}
+            <span>{isOpen ? 'Recolher' : 'Ver conjuntos e anúncios'}</span><ChevronRight size={15} className={isOpen ? 'rotate-90' : ''} aria-hidden="true" />
+          </button>
 
         {/* Bloco expandido: métricas secundárias + grupos/anúncios */}
         {isOpen && (
-          <div className="anim-content-in border-t border-border/50 bg-secondary/10 px-4 py-4 sm:px-5">
+          <div id={`campaign-details-${id}`} className="anim-content-in border-t border-border/50 bg-secondary/10 px-4 py-4 sm:px-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               {onOpenDetail && (
                 <button
@@ -779,9 +654,6 @@ export function CampaignTree({
                 </span>
               )}
             </div>
-            <div className="mb-3 max-w-md">
-              <SecondaryMetrics m={c.metrics} currency={c.currency || currency} />
-            </div>
             {c.budgetOwner === 'campaign' && c.budget?.amount != null && (
               <div className="mb-3 max-w-sm">
                 <BudgetControl
@@ -790,7 +662,7 @@ export function CampaignTree({
                   type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
                   adAccountId={c.platformAdAccountId || ''}
                   currency={c.currency || currency}
-                  label="Orçamento CBO da campanha"
+                  label="Orçamento da campanha"
                   onSaved={onMutate}
                 />
               </div>
@@ -813,7 +685,7 @@ export function CampaignTree({
                         type={s.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
                         adAccountId={c.platformAdAccountId || ''}
                         currency={c.currency || currency}
-                        label="Orçamento ABO"
+                        label="Orçamento do conjunto"
                         onSaved={onMutate}
                       />
                     )}
@@ -929,7 +801,7 @@ export function CampaignTree({
             )}
           </div>
         )}
-        </div>
+        </article>
       </div>
     )
   }
@@ -939,115 +811,15 @@ export function CampaignTree({
   }
 
   return (
-    <GlassCard className="min-w-0 overflow-hidden p-0">
-      {/* Toolbar simplificada e limpa */}
-      <div className="flex flex-col gap-2.5 border-b border-border/50 px-3 py-3 sm:px-4">
-        {/* Linha principal: Busca direta, Status essenciais e Filtros */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="relative min-w-[180px] max-w-xs flex-1">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar campanha..."
-                aria-label="Buscar campanha"
-                className="w-full rounded-xl border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
-                  aria-label="Limpar busca"
-                >
-                  <X className="size-3" />
-                </button>
-              )}
-            </div>
-            
-            {/* Apenas as 3 opções essenciais: Ativas, Pausadas, Todas */}
-            <div className="hidden items-center gap-0.5 sm:flex rounded-xl bg-secondary/30 p-1 border border-border/30" role="group" aria-label="Filtrar por status">
-              {STATUS_FILTERS.map((f) => {
-                const isSelected = statusFilter === f.value
-                return (
-                  <button
-                    key={f.value}
-                    type="button"
-                    onClick={() => onStatusFilter(f.value)}
-                    aria-pressed={isSelected}
-                    className={`rounded-lg px-3 py-1 text-xs font-medium transition-all duration-150 ${
-                      isSelected
-                        ? 'bg-background text-foreground shadow-sm font-semibold'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                )
-              })}
-              {/* Se o status selecionado for avançado (ex: em revisão ou rejeitada), mostra o badge destacado */}
-              {statusFilter && !STATUS_FILTERS.some((f) => f.value === statusFilter) && (
-                <span className="flex items-center gap-1 rounded-lg bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold">
-                  {statusFilter === 'pending_review' ? 'Em revisão' : statusFilter === 'rejected' ? 'Rejeitadas' : statusFilter}
-                  <button
-                    type="button"
-                    onClick={() => onStatusFilter('active')}
-                    className="hover:text-foreground ml-0.5"
-                    aria-label="Limpar filtro de status"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 shrink-0 ml-auto">
-            <span className="hidden sm:inline-block text-xs tabular-nums text-muted-foreground">
-              {visible.length !== campaigns.length
-                ? `${visible.length} de ${campaigns.length}`
-                : `${campaigns.length} total`}
-            </span>
-            <button 
-              type="button"
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                showFilters || onlyWithSpend || sort !== 'newest' || (statusFilter !== 'active' && statusFilter !== 'paused' && statusFilter !== '')
-                  ? 'border-primary/40 bg-primary/10 text-primary font-semibold'
-                  : 'border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground'
-              }`}
-            >
-              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-              <span>Filtros</span>
-              {(onlyWithSpend || sort !== 'newest') && (
-                <span className="size-1.5 rounded-full bg-primary" />
-              )}
-            </button>
-          </div>
+    <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
+      <div className="campaign-toolbar">
+        <div className="campaign-toolbar-title"><div><h2>Suas campanhas</h2><p>Métricas do TikTok no período selecionado</p></div><span>{visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}</span></div>
+        <div className="campaign-status-filters" role="group" aria-label="Filtrar por status">
+          {STATUS_FILTERS.map(filter => <button key={filter.value} type="button" onClick={() => onStatusFilter(filter.value)} aria-pressed={statusFilter === filter.value}>{filter.label}</button>)}
         </div>
-        
-        {/* Mobile status select (hidden on desktop) */}
-        <div className="sm:hidden flex items-center gap-2">
-          <label className="flex-1">
-            <span className="sr-only">Filtrar campanhas por status</span>
-            <select
-              className="w-full rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-              value={statusFilter}
-              onChange={(event) => onStatusFilter(event.target.value)}
-              aria-label="Filtrar campanhas por status"
-            >
-              {ALL_STATUS_OPTIONS.map((filter) => (
-                <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
-              ))}
-            </select>
-          </label>
+        <div className="campaign-search-row"><label className="campaign-search"><Search size={17} aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar pelo nome da campanha" aria-label="Buscar campanha" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca"><X size={15} /></button>}</label>
+          <button type="button" className="campaign-secondary-action" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters}><SlidersHorizontal size={16} />Mais filtros</button>
         </div>
-
         {/* Menu de Filtros Adicionais (simples e direto) */}
         {showFilters && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-secondary/10 p-3 mt-1">
@@ -1226,25 +998,13 @@ export function CampaignTree({
             </p>
             <p className="max-w-sm text-pretty text-xs text-muted-foreground">
               {statusFilter
-                ? 'Ajuste o filtro acima para ver as demais campanhas do advertiser.'
+                ? 'Escolha Todas para ver as demais campanhas da conta.'
                 : 'Esta conta de anúncio não tem campanhas neste período. Aumente o Período acima ou crie a primeira campanha no botão "Nova campanha".'}
             </p>
           </div>
         )
       ) : (
         <div ref={scrollRef} className={virtualize ? 'h-[70vh] overflow-auto' : 'max-h-[70vh] overflow-auto'}>
-          {/* Cabeçalho de tabela fixo — rótulos aparecem uma única vez */}
-          <div className="label-mono sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-[var(--surface,var(--card))] px-3 py-2 text-[10px] text-muted-foreground">
-            <span className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="w-3.5 shrink-0" aria-hidden="true" />
-            <span className="size-1.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1">Campanha</span>
-            <span className={colGasto}>Gasto</span>
-            <span className={colRoas} title="Receita dividida pelo investimento">Retorno</span>
-            <span className={colConv} title="Compras informadas pelo TikTok">Vendas</span>
-            <span className={colActions} aria-hidden="true" />
-          </div>
-
           {virtualize ? (
             <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1297,7 +1057,7 @@ export function CampaignTree({
       <ConfirmDialog
         open={Boolean(activation)}
         title={activation?.kind === 'bulk' ? `Ativar ${selected.size} campanhas?` : 'Ativar esta campanha?'}
-        description="Campanhas aprovadas poderão começar a gastar imediatamente. Confirme somente após revisar orçamento, público e criativo."
+        description={activation?.kind === 'single' ? <><strong>{activation.campaign.campaignName || activation.campaign.platformCampaignId}</strong><br />Conta: {activation.campaign.platformAdAccountName || activation.campaign.platformAdAccountId}<br />Orçamento: {campaignBudget(activation.campaign).amount !== null ? fmtMoney(campaignBudget(activation.campaign).amount!, activation.campaign.currency || currency) : 'Definido nos conjuntos'} · {campaignBudget(activation.campaign).detail}<br />Ao ativar, a campanha poderá começar a gastar.</> : 'As campanhas selecionadas poderão começar a gastar. Confira os orçamentos antes de ativar.'}
         confirmLabel="Ativar"
         busy={activation?.kind === 'bulk' ? bulkBusy : Boolean(activation?.kind === 'single' && busyId === activation.campaign.platformCampaignId)}
         onConfirm={async () => {
@@ -1336,7 +1096,7 @@ export function CampaignTree({
 
       {/* Barra Flutuante de Ações em Lote */}
       {selected.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:gap-3 rounded-2xl border border-white/20 bg-[#09090b]/95 px-4 py-2.5 sm:px-5 sm:py-3 shadow-[0_10px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl anim-pop-in">
+        <div className="campaign-bulk-actions fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 sm:gap-3 rounded-2xl border border-white/20 bg-[#09090b]/95 px-4 py-2.5 sm:px-5 sm:py-3 shadow-[0_10px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl anim-pop-in">
           <div className="flex items-center gap-2 border-r border-border/50 pr-3">
             <span className="flex size-5 items-center justify-center rounded-full bg-primary/20 text-[11px] font-bold text-primary">
               {selected.size}
@@ -1388,32 +1148,7 @@ export function CampaignTree({
       )}
 
       {/* Modal de Ajuste de Orçamento em Lote */}
-      {bulkBudgetOpen && (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !bulkBudgetBusy) setBulkBudgetOpen(false)
-          }}
-        >
-          <div className="anim-pop-in w-full max-w-sm rounded-2xl border border-white/15 bg-[#09090b]/95 p-5 shadow-2xl">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                <DollarSign className="size-4 text-success" />
-                Ajustar Orçamento em Lote
-              </h3>
-              <button
-                type="button"
-                className="btn-ghost size-7 p-0"
-                onClick={() => setBulkBudgetOpen(false)}
-                disabled={bulkBudgetBusy}
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              Aplicar novo orçamento para as <strong>{selected.size}</strong> campanhas selecionadas.
-            </p>
-
+      {bulkBudgetOpen && createPortal(<Modal isOpen={bulkBudgetOpen} onClose={() => { if (!bulkBudgetBusy) setBulkBudgetOpen(false) }} title="Ajustar orçamentos" description={`${selected.size} ${selected.size === 1 ? 'campanha selecionada' : 'campanhas selecionadas'}. O período de cada orçamento será mantido.`}>
             <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-secondary/30 p-1 mb-4 border border-border/40">
               <button
                 type="button"
@@ -1422,7 +1157,7 @@ export function CampaignTree({
                 }`}
                 onClick={() => { setBulkBudgetMode('percent_up'); setBulkBudgetValue('20') }}
               >
-                +20% Escala
+                Aumentar
               </button>
               <button
                 type="button"
@@ -1431,7 +1166,7 @@ export function CampaignTree({
                 }`}
                 onClick={() => { setBulkBudgetMode('percent_down'); setBulkBudgetValue('20') }}
               >
-                -20% Reduzir
+                Reduzir
               </button>
               <button
                 type="button"
@@ -1440,18 +1175,19 @@ export function CampaignTree({
                 }`}
                 onClick={() => { setBulkBudgetMode('fixed'); setBulkBudgetValue('100') }}
               >
-                Valor Fixo
+                Definir valor
               </button>
             </div>
 
             <div className="mb-4">
-              <label className="block text-xs font-medium text-muted-foreground mb-1">
-                {bulkBudgetMode === 'fixed' ? `Novo valor diário (${currency})` : 'Porcentagem de ajuste (%)'}
+              <label htmlFor="campaign-bulk-budget" className="block text-xs font-medium text-muted-foreground mb-1">
+                {bulkBudgetMode === 'fixed' ? `Novo orçamento (${currency})` : 'Porcentagem de ajuste (%)'}
               </label>
               <input
                 type="number"
                 min="1"
                 step="1"
+                id="campaign-bulk-budget"
                 value={bulkBudgetValue}
                 onChange={(e) => setBulkBudgetValue(e.target.value)}
                 className="input-neon w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono font-semibold text-foreground"
@@ -1479,13 +1215,11 @@ export function CampaignTree({
                     Aplicando...
                   </>
                 ) : (
-                  'Aplicar Ajuste'
+                  'Salvar orçamentos'
                 )}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>, document.body)}
     </GlassCard>
   )
 }

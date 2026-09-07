@@ -1025,6 +1025,15 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   não vira zero e moedas divergentes não geram retorno. Valores têm transição pontual, ícones
   de traço uniforme e entrada em sequência, respeitando movimento reduzido. A qualidade dos dados é uma estimativa de completude; sem medição mostra `—`.
   Nenhuma nota fixa substitui EMQ ausente. A tela Atividade lista eventos reais, sem radar simulado.
+- A lista de Campanhas mostra ações Pausar/Ativar/Duplicar sempre visíveis, filtros com 44px
+  e grade de orçamento, gasto, compras TikTok, CPA, CPM, CPC, cliques, CTR e exibições. Custos
+  são calculados com os numeradores/denominadores da própria campanha e janela; sem base, `—`.
+  `campaign-metrics.ts` mantém CBO na campanha e soma ABO somente com conjuntos completos e
+  período uniforme; orçamento total nunca é rotulado como diário. Edição usa campo + Salvar;
+  o slider que salvava ao arrastar foi removido. Lote de orçamento rejeita ABO antes da escrita.
+  A UI distingue simulação, falha, resposta parcial e solicitação aceita; só o snapshot retornado
+  na sincronização muda o status exibido. A confirmação de ativação mostra campanha, conta e
+  orçamento. A troca de advertiser remonta a árvore para descartar diálogos e seleções antigos.
 - Automações apresentam estado operacional antes das regras. “Como agir” oferece Só avisar,
   Pedir aprovação e Aplicar sozinho. A aprovação pendente tem uma caixa única; custos/nuvem/análise
   ficam em Mais ferramentas. Os resumos vêm das regras salvas (inclusive personalizadas); desligar

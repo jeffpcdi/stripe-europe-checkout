@@ -67,3 +67,23 @@ erro de atualização e ROAS indefinido. Nenhuma campanha real foi alterada nest
 - Validação local com fixtures, build e suíte de testes. Nenhuma escrita em campanhas ou
   serviço de produção durante a prévia. Novas regressões cobrem primeira leitura, contagem
   estável, saídas, aumentos de presença, funil vazio e nomes de países.
+
+### TikTok Ads e operação de campanhas
+
+- Filtros Ativas, Pausadas, Todas, Em revisão e Rejeitadas com alvos de 44px, contraste alto e
+  seleção evidente também no celular. Contexto da conta, navegação e totais receberam o mesmo acabamento.
+- Cada campanha exibe orçamento, gasto, compras informadas pelo TikTok, CPA, CPM, CPC, cliques,
+  CTR e exibições. Valores ausentes e divisões sem base mostram `—`; compras não se misturam
+  com a atribuição do gateway. Total da conta continua independente do subtotal filtrado.
+- Ações Pausar/Ativar e Duplicar sempre visíveis, com nomes. Conjuntos e anúncios têm abertura
+  explícita. Ativação confirma nome da campanha, conta e orçamento antes do envio.
+- Orçamento CBO permanece na campanha. ABO soma apenas conjuntos completos com a mesma duração;
+  não soma o orçamento legado da campanha nem trata total como diário. O ajuste em lote rejeita
+  conjuntos ABO e pede edição no nível correto. O antigo slider “gelo/fogo”, com gravação ao
+  arrastar, foi removido. Edição agora usa valor numérico e Salvar.
+- A interface não informa sucesso operacional para dry-run, zero atualizado ou resposta parcial.
+  Solicitações aceitas aguardam a sincronização para mudar o status mostrado. Não houve alteração
+  do endpoint de status nem teste com campanhas reais.
+- Prévia local conferida em desktop e celular, incluindo confirmação de ativação, expansão e
+  rejeição de escrita pela API de teste. Build e testes verificam métricas, CBO/ABO, moeda,
+  ausência de base e classificação das respostas de status. Modal de lote usa foco/ESC compartilhados.

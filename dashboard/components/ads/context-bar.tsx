@@ -110,7 +110,7 @@ export function AdsContextBar({
       role="toolbar"
       aria-label="Contexto do TikTok Ads"
       data-tour="ads-context"
-      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-border bg-card p-3 text-xs sm:flex sm:gap-x-4 sm:px-4 sm:py-2.5"
+      className="ads-account-context grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-border bg-card p-3 text-xs sm:flex sm:gap-x-4 sm:px-4 sm:py-2.5"
     >
       {/* Um único indicador substitui os três estados redundantes antigos. */}
       <McpStatusDot active />
