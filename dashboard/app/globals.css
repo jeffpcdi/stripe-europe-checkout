@@ -2458,26 +2458,38 @@ input:focus, textarea:focus {
   100% { transform: rotate(360deg); }
 }
 
-/* Dupla camada de Glow */
+/* Glow de superfície suave e etéreo para o Globo 3D */
 .hero-globe-glow-core {
   position: absolute;
-  inset: -10%;
+  inset: -8%;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.15) 0%, transparent 70%);
-  animation: heroGlobeGlow 12s var(--ease) infinite alternate;
+  background: radial-gradient(circle at 50% 48%, rgba(56, 189, 248, 0.1) 0%, rgba(14, 165, 233, 0.03) 45%, transparent 68%);
+  animation: heroGlobeGlow 14s ease-in-out infinite alternate;
+}
+.hero-globe-glow-soft {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(340px, 80%);
+  height: min(340px, 80%);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.08) 0%, rgba(37, 244, 238, 0.02) 55%, transparent 72%);
+  pointer-events: none;
+  z-index: 0;
 }
 .hero-globe-glow-outer {
   position: absolute;
-  inset: -25%;
+  inset: -20%;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.12) 0%, transparent 75%);
-  animation: heroGlobeGlow 16s var(--ease) infinite alternate-reverse;
+  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.06) 0%, transparent 72%);
+  animation: heroGlobeGlow 18s ease-in-out infinite alternate-reverse;
 }
 @keyframes heroGlobeGlow {
-  from { opacity: 0.42; }
-  to { opacity: 0.72; }
+  from { opacity: 0.35; }
+  to { opacity: 0.6; }
 }
 
 /* 2. Scrollbar Invisível / Fina (Padrão macOS escuro) */

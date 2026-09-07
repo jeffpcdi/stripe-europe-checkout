@@ -68,10 +68,14 @@ require.cache[rdbPath] = {
 };
 
 // ── Stub de fetch: sucesso (code 0), registrando as chamadas ────────────────
+const originalFetch = global.fetch;
 let fetchCalls = [];
 global.fetch = async (url, opts) => {
-  fetchCalls.push({ url, headers: opts && opts.headers, body: opts && opts.body });
-  return { status: 200, json: async () => ({ code: 0, message: 'OK' }) };
+  if (typeof url === 'string' && url.includes('tiktok.com')) {
+    fetchCalls.push({ url, headers: opts && opts.headers, body: opts && opts.body });
+    return { status: 200, json: async () => ({ code: 0, message: 'OK' }), text: async () => '{"code":0,"message":"OK"}' };
+  }
+  return originalFetch(url, opts);
 };
 
 // item na fila: conta escopada, nextAt no passado (vencido), firstAt recente

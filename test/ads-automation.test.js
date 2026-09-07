@@ -10,8 +10,14 @@ const provider = require('../ads-provider');
 const cache = require('../ads-cache-store');
 const adsOps = require('../ads-ops-store');
 const automation = require('../ads-automation');
+const redis = require('../redis');
 
 // ── Stubs: nenhum teste toca rede/Neon ──────────────────────────────────────
+redis.loadBreakerSamples = async () => null;
+redis.saveBreakerSamples = async () => true;
+automation._internals.actionOutcomes.clear();
+automation._internals.breakerHydrated.clear();
+automation._internals.breakerLastAt.clear();
 const calls = { status: [], budget: [], upserts: [], deletes: [] };
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
@@ -24,6 +30,7 @@ provider.setState = (accId, patch) => { stateByAcc[accId] = Object.assign({}, st
 cache.upsertAutomationState = async (acc, key, kind, meta) => { calls.upserts.push({ acc, key, kind, meta }); };
 cache.deleteAutomationState = async (acc, key) => { calls.deletes.push({ acc, key }); };
 cache.listAutomationState = async () => [];
+cache.getSyncState = async () => null;
 // Política base: usa a normalização REAL para carregar todos os campos com
 // defaults (maxBudgetChangePct, maxActionsPerHour, circuitBreakerErrorPct...).
 // Os testes sobrescrevem `policyOverride` para exercitar cada guarda.

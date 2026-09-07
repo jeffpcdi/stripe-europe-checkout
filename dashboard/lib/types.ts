@@ -908,6 +908,8 @@ export interface AdsMetrics {
   conversions?: number
   videoViews?: number
   reach?: number
+  roas?: number
+  cpa?: number
 }
 
 export type AdsNodeStatus =
@@ -1878,6 +1880,16 @@ export interface AdsPixelBinding {
   pixelName: string
   remoteStatus: string
   lastVerifiedAt: string | null
+}
+
+export interface AdsCustomAudience {
+  id: string
+  name: string
+  type: string
+  size: number
+  status: string
+  isValid: boolean
+  createTime: string | null
 }
 
 export interface AdsCatalogSyncRun {

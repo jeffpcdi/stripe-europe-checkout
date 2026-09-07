@@ -104,12 +104,7 @@ export function CatalogSyncStatus({
       toast.error('Não foi possível retomar', { hint: error instanceof Error ? error.message : undefined })
     }
   }
-  const completedWithoutAction = run.status === 'completed'
-    && !awaitingTikTok
-    && !run.error
-    && uploadErrors === 0
-    && affectedWarnings.length === 0
-  if (completedWithoutAction || (remoteReadyWithDifference && uploadErrors === 0 && affectedWarnings.length === 0)) return null
+  if (remoteReadyWithDifference && uploadErrors === 0 && affectedWarnings.length === 0) return null
   return (
     <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : remoteReadyWithDifference ? 'border-success/25 bg-success/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
       <div className="flex items-start gap-2">

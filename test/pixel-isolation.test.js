@@ -45,6 +45,15 @@ require.cache[redisPath] = {
   }
 };
 
+const dbPath = require.resolve('../db');
+require.cache[dbPath] = {
+  id: dbPath, filename: dbPath, loaded: true,
+  exports: {
+    insertPixelEvent: async () => true,
+    claimLegacyData: async () => true
+  }
+};
+
 const calls = [];
 global.fetch = async (_url, opts) => {
   calls.push(JSON.parse(opts.body));

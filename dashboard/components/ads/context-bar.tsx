@@ -59,14 +59,14 @@ export function AdsContextBar({
 
   const syncMeta = (() => {
     if (!selectedAdvertiser) return { label: 'Selecione uma conta', tone: 'text-muted-foreground' }
-    if (refreshing || syncState?.status === 'syncing') return { label: 'Atualizando dados…', tone: 'text-primary' }
+    if (refreshing || syncState?.status === 'syncing') return { label: 'Sincronizando…', tone: 'text-primary' }
     if (syncState?.status === 'blocked') return { label: 'Acesso bloqueado', tone: 'text-warning' }
     if (syncState?.status === 'unauthorized') return { label: 'Sem acesso', tone: 'text-error' }
     if (syncState?.status === 'error') return { label: 'Sincronização falhou', tone: 'text-error' }
-    if (!syncState?.lastSyncedAt) return { label: 'Aguardando primeiros dados', tone: 'text-muted-foreground' }
+    if (!syncState?.lastSyncedAt) return { label: 'Aguardando 1ª sincronização', tone: 'text-muted-foreground' }
     const elapsed = Math.max(0, Date.now() - new Date(syncState.lastSyncedAt).getTime())
     const minutes = Math.floor(elapsed / 60_000)
-    const label = minutes < 1 ? 'Dados atualizados agora' : minutes < 60 ? `Dados atualizados há ${minutes} min` : `Dados atualizados há ${Math.floor(minutes / 60)} h`
+    const label = minutes < 1 ? 'Sincronizado agora' : minutes < 60 ? `Sincronizado há ${minutes} min` : `Sincronizado há ${Math.floor(minutes / 60)} h`
     return { label, tone: minutes >= 10 ? 'text-warning' : 'text-muted-foreground' }
   })()
 
@@ -110,13 +110,13 @@ export function AdsContextBar({
       role="toolbar"
       aria-label="Contexto do TikTok Ads"
       data-tour="ads-context"
-      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-border bg-card p-3 text-xs sm:flex sm:gap-x-3 sm:px-4 sm:py-3"
+      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-border bg-card p-3 text-xs sm:flex sm:gap-x-4 sm:px-4 sm:py-2.5"
     >
       {/* Um único indicador substitui os três estados redundantes antigos. */}
       <McpStatusDot active />
 
       <span
-        className={`hidden shrink-0 xl:inline ${syncMeta.tone}`}
+        className={`hidden shrink-0 lg:inline ${syncMeta.tone}`}
         title={syncState?.lastError || syncMeta.label}
         aria-live="polite"
       >
@@ -126,9 +126,9 @@ export function AdsContextBar({
       {/* Seletor de conta de anúncio (advertiser) */}
       <label className="col-span-2 flex min-w-0 items-center gap-2 text-muted-foreground sm:col-span-1 sm:flex-1">
         <span className="shrink-0 sm:hidden">Conta</span>
-        <span className="hidden shrink-0 sm:inline">Conta</span>
+        <span className="hidden shrink-0 sm:inline">Conta de anúncio</span>
         <select
-          className="input-neon h-9 w-0 min-w-0 max-w-full flex-1 truncate rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground sm:max-w-xl"
+          className="input-neon w-0 min-w-0 max-w-full flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground sm:max-w-xl"
           value={selectedAdvertiser}
           disabled={switchingAdvertiser || advertisers.length === 0}
           onChange={(e) => handleSelectAdvertiser(e.target.value)}
@@ -162,7 +162,7 @@ export function AdsContextBar({
       <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
         <span className="shrink-0">Período</span>
         <select
-          className="input-neon h-9 min-w-0 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground"
+          className="input-neon min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground sm:text-sm"
           value={rangeDays}
           onChange={(event) => onRangeDays(Number(event.target.value))}
           aria-label="Período global das métricas"

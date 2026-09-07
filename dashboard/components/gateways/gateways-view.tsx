@@ -373,25 +373,17 @@ export function GatewaysView() {
                 const prov = providers.find((p) => p.id === g.provider)
                 const brand = providerColor(g.provider)
                 return (
-                  /* Item 73: cápsula e borda na cor da marca do provedor */
                   <li
                     key={g.id}
-                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-all duration-300 animate-in-up hover-float border-l-[3px] border-l-transparent"
-                    style={{ ['--gw-brand' as string]: brand, animationDelay: `${Math.min(index * 75, 1500)}ms` }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = `color-mix(in oklab, ${brand} 45%, transparent)`
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
-                    }}
+                    className="group rounded-xl border border-border/70 bg-secondary/30 p-4.5 transition-all duration-200 hover:border-border hover:bg-secondary/40"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <span
-                          className="flex size-8 items-center justify-center rounded-[10px]"
+                          className="flex size-8 items-center justify-center rounded-lg"
                           style={{
                             color: brand,
-                            background: `color-mix(in oklab, ${brand} 14%, transparent)`,
+                            background: `color-mix(in oklab, ${brand} 12%, transparent)`,
                           }}
                           aria-hidden="true"
                         >
@@ -404,44 +396,39 @@ export function GatewaysView() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         {g.hasSecret && <StatusBadge status="info">assinado</StatusBadge>}
-                        {/* A7.2: status com .status-dot — conectado (verde,
-                            pulso lento), erro (vermelho + tooltip com a causa),
-                            aguardando eventos (âmbar) */}
                         {g.lastEventAt ? (
                           gatewayEventSucceeded(g.lastEventStatus) ? (
-                            <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--success)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--success)]">
-                              <span className="status-dot status-dot--ok status-dot--pulse" aria-hidden="true" />
+                            <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--success)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--success)]">
+                              <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
                               recebeu {timeAgo(g.lastEventAt)}
                             </span>
                           ) : (
                             <span
-                              className="flex items-center gap-1.5 rounded-md bg-[color:var(--error)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--error)]"
+                              className="flex items-center gap-1.5 rounded-md bg-[color:var(--error)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--error)]"
                               title={`Última notificação falhou: ${g.lastEventStatus}`}
                             >
-                              <span className="status-dot status-dot--err" aria-hidden="true" />
+                              <span className="size-1.5 rounded-full bg-error" aria-hidden="true" />
                               erro {timeAgo(g.lastEventAt)}
                             </span>
                           )
                         ) : (
-                          <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--warning)]/12 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--warning)]">
-                            <span className="status-dot status-dot--warn" aria-hidden="true" />
+                          <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--warning)]/12 px-2 py-0.5 text-[11px] font-medium text-[color:var(--warning)]">
+                            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
                             aguardando eventos
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Motivo do erro fica no tooltip do badge "erro" acima —
-                        sem caixa amarela extra poluindo cada card */}
-                    {/* Webhook URL para colar no gateway */}
-                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground blur-[4px] hover:blur-none transition-all duration-300 cursor-crosshair">
+                    {/* Webhook URL para colar no gateway — sem blur ou poluição */}
+                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/80 bg-input/60 px-3 py-2">
+                      <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90 select-all">
                         {g.webhookUrl}
                       </code>
                       <button
                         type="button"
                         onClick={() => handleCopy(g.id, g.webhookUrl)}
-                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                        className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary/80 hover:text-brand-cyan"
                       >
                         {copied === g.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                         {copied === g.id ? 'Copiado' : 'Copiar'}
@@ -453,27 +440,27 @@ export function GatewaysView() {
                     {pixelsData && (() => {
                       const names = pixelsForGateway(g.id)
                       return names.length > 0 ? (
-                        <p className="mt-2 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                          <Zap className="size-3 text-[color:var(--success)]" aria-hidden="true" />
-                          Vendas disparam em:{' '}
+                        <p className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          <Zap className="size-3.5 text-success" aria-hidden="true" />
+                          Vendas enviadas para:{' '}
                           <span className="font-medium text-foreground">{names.join(', ')}</span>
                         </p>
                       ) : (
-                        <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/40 bg-[color:var(--warning)]/[.06] px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                          <Info className="mt-0.5 size-3 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-                          <span>
-                            <strong className="text-foreground">Nenhum pixel</strong> recebe as vendas deste gateway
-                            (precisa de um pixel ativo com <strong>Compra</strong> ligada, sem vínculo a outro gateway).{' '}
-                            <Link href="/conversions?tab=pixels" className="font-semibold text-[color:var(--brand-cyan)] hover:underline">
-                              Configurar pixel
-                            </Link>
-                          </span>
+                        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            <Info className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+                            <span>
+                              Nenhum pixel ativo recebe as vendas deste gateway.
+                            </span>
+                          </div>
+                          <Link href="/conversions?tab=pixels" className="font-medium text-brand-cyan hover:underline shrink-0 text-[11px]">
+                            Configurar pixel →
+                          </Link>
                         </div>
                       )
                     })()}
 
-                    {/* A7.3: saúde dos webhooks deste gateway — mini-barra
-                        empilhada processados/outros/falhos a partir do log */}
+                    {/* Saúde dos webhooks deste gateway — visual limpo e minimalista */}
                     {(() => {
                       const rows = (convLog?.log ?? []).filter((r) => r.gateway === g.name)
                       if (rows.length === 0) return null
@@ -481,33 +468,17 @@ export function GatewaysView() {
                       const failed = rows.filter(
                         (r) => typeof r.status === 'string' && /erro|invalid|fail|recusad/i.test(r.status),
                       ).length
-                      const other = rows.length - ok - failed
                       return (
-                        <div className="mt-2 flex items-center gap-2">
-                          <div
-                            className="flex h-1.5 w-36 overflow-hidden rounded-full bg-secondary/60"
-                            role="img"
-                            aria-label={`Webhooks: ${ok} processados, ${other} outros, ${failed} falhos`}
-                          >
-                            {ok > 0 && (
-                              <div className="h-full bg-[color:var(--success)] shadow-[0_0_8px_var(--success)]" style={{ width: `${(ok / rows.length) * 100}%` }} />
-                            )}
-                            {other > 0 && (
-                              <div className="h-full bg-[color:var(--warning)]/70 shadow-[0_0_8px_var(--warning)]" style={{ width: `${(other / rows.length) * 100}%` }} />
-                            )}
-                            {failed > 0 && (
-                              <div className="h-full bg-[color:var(--error)] shadow-[0_0_8px_var(--error)]" style={{ width: `${(failed / rows.length) * 100}%` }} />
-                            )}
-                          </div>
-                          <span className="font-mono text-[10px] tabular-nums text-faint">
-                            {ok}/{rows.length} ok{failed > 0 ? ` · ${failed} falho${failed === 1 ? '' : 's'}` : ''}
+                        <div className="mt-2.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <span className="inline-block size-1.5 rounded-full bg-success" aria-hidden="true" />
+                          <span>
+                            {ok} de {rows.length} webhooks entregues com sucesso
+                            {failed > 0 ? ` (${failed} recusado${failed === 1 ? '' : 's'})` : ''}
                           </span>
                         </div>
                       )
                     })()}
 
-                    {/* Instruções do provedor (prov.docs) só no editor —
-                        menos texto repetido em cada card */}
                     {/* Resultado do teste/rotação POR card */}
                     {cardTest?.id === g.id && (
                       <div
@@ -526,17 +497,12 @@ export function GatewaysView() {
                       </div>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-3">
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/50 pt-2.5">
                       <button
                         type="button"
                         onClick={() => handleCardTest(g)}
                         disabled={cardTesting === g.id}
-                        className={cn(
-                          "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all duration-300",
-                          cardTesting === g.id
-                            ? "bg-brand-cyan/20 text-brand-cyan ring-2 ring-brand-cyan/50 shadow-[0_0_15px_rgba(37,244,238,0.5)] animate-pulse"
-                            : "bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                        )}
+                        className="flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50"
                       >
                         <Zap className="size-3.5" /> {cardTesting === g.id ? 'Testando…' : 'Testar'}
                       </button>
@@ -570,8 +536,8 @@ export function GatewaysView() {
           )}
         </GlassCard>
 
-        {/* V2-88: painel do log com scanline ciano — sinaliza "ao vivo" */}
-        <GlassCard className="scan-live min-w-0 p-5" data-tour="gateways-webhooks">
+        {/* Painel do log limpo e sem scanline */}
+        <GlassCard className="min-w-0 p-5" data-tour="gateways-webhooks">
           <SectionTitle>Atividade recente</SectionTitle>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões recebidas</p>
           {!convLog || convLog.log.length === 0 ? (

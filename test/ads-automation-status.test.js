@@ -190,18 +190,22 @@ function status(overrides = {}) {
     states[accountId] = Object.assign({}, states[accountId], patch);
   };
   try {
-    const accountId = 'acc_engine_runtime';
-    const advertiserId = 'adv_engine_runtime';
+    const accountId = 'acc_engine_runtime_' + Date.now();
+    const advertiserId = 'adv_engine_runtime_' + Date.now();
     const initial = automation.getAutomationProfile(accountId, advertiserId);
     automation.saveRules(accountId, advertiserId, [
       { id: 'runtime_rule', enabled: true, metric: 'cpa_max', threshold: 10, mode: 'proposal' },
     ], initial.revision);
 
     let release;
+    let runnerStarted = false;
     const pending = automation.runTrackedSweep('rules', accountId, advertiserId, () => new Promise((resolve) => {
+      runnerStarted = true;
       release = resolve;
     }));
-    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 200 && !runnerStarted; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     let info = automation.getSweepInfo(accountId, advertiserId);
     assert.ok(info.lastDispatchAt, 'dispatch é visível enquanto a promise está em voo');
     assert.strictEqual(info.lastCompletedAt, null, 'não inventa conclusão antes do resolve');

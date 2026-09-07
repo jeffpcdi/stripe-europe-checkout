@@ -58,6 +58,7 @@ import type {
   AdsCreativeInsights,
   AdsBudgetProposal,
   AdsCatalogCapabilitiesResponse,
+  AdsCustomAudience,
   CopilotEvent,
 } from './types'
 import { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } from './catalog-run-polling'
@@ -840,6 +841,15 @@ export function useAdsInterests(active: boolean, adAccountId: string) {
     active && adAccountId ? `/api/ads/targeting/interests${qs}` : null,
     fetcher,
     { revalidateOnFocus: false, revalidateIfStale: false, shouldRetryOnError: false, keepPreviousData: false },
+  )
+}
+
+// Públicos personalizados e lookalike (Pipeboard)
+export function useAdsCustomAudiences(active: boolean, adAccountId?: string | null) {
+  return useSWR<{ audiences: AdsCustomAudience[] }>(
+    active && adAccountId ? `/api/ads/audiences?adAccountId=${encodeURIComponent(adAccountId)}` : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 30_000 }
   )
 }
 

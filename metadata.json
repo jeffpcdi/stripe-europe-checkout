@@ -1,0 +1,8 @@
+{
+  "name": "ROI-NADOS",
+  "description": "Painel de rastreamento de funil, conversões e automação para TikTok Ads",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

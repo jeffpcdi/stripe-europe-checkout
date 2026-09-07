@@ -59,8 +59,15 @@ process.on('uncaughtException', (error) => {
   shutdown(1);
 });
 
-start('Next.js', process.execPath, [nextBin, 'dev', '-p', '3001'], {
+const fs = require('fs');
+const isBuilt = fs.existsSync(path.join(dashboardDir, '.next', 'BUILD_ID'));
+const useStart = isBuilt && process.env.FORCE_NEXT_DEV !== '1';
+const nextArgs = useStart ? ['start', '-p', '3001'] : ['dev', '-p', '3001'];
+const nextEnv = useStart ? { PORT: '3001', NODE_ENV: 'production' } : { PORT: '3001' };
+
+console.log(`[dev] Next.js iniciando em modo ${useStart ? 'produção otimizada (start)' : 'desenvolvimento (dev)'}`);
+start('Next.js', process.execPath, [nextBin, ...nextArgs], {
   cwd: dashboardDir,
-  env: { PORT: '3001' },
+  env: nextEnv,
 });
 start('Express', process.execPath, ['server.js']);

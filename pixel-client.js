@@ -180,36 +180,60 @@ function buildPixelClient(pixel, token) {
     try{window.dispatchEvent(new CustomEvent('roinados:consent',{detail:{granted:granted}}))}catch(_){}return granted
   };
 
-  // Alternativa sem código: marque um elemento com data-tiktok-event e os
-  // parâmetros data-content-id/data-content-name/data-value/data-currency.
+  // Alternativa sem código: marque um elemento com data-tiktok-event (ou data-event,
+  // data-tt-event, data-checkout) e os parâmetros data-value/data-currency.
+  // Links diretos para plataformas de checkout (Kiwify, Hotmart, PerfectPay, etc.)
+  // disparam InitiateCheckout automaticamente quando há 1 pixel na página.
   document.addEventListener('click',function(e){
-    try{var el=e.target&&e.target.closest?e.target.closest('[data-tiktok-event]'):null;if(!el)return;
-      var name=el.getAttribute('data-tiktok-event')||'';
-      var target=el.getAttribute('data-pixel-token');
-      // Em uma página com dois loaders, um botão sem destino é ambíguo: não
-      // dispara em ambos. Com um loader apenas, o atalho sem token permanece.
-      if(target&&target!==TOKEN)return;
-      if(!target&&Object.keys(window.__roiNadosPixels||{}).length>1)return;
-      track(name,{content_id:el.getAttribute('data-content-id'),content_name:el.getAttribute('data-content-name'),value:el.getAttribute('data-value'),currency:el.getAttribute('data-currency')})
+    try{
+      var el=e.target&&e.target.closest?e.target.closest('[data-tiktok-event],[data-event],[data-tt-event],[data-checkout]'):null;
+      if(el){
+        var name=el.getAttribute('data-tiktok-event')||el.getAttribute('data-event')||el.getAttribute('data-tt-event')||(el.hasAttribute('data-checkout')?'InitiateCheckout':'');
+        if(!name)return;
+        var target=el.getAttribute('data-pixel-token');
+        // Em uma página com dois loaders, um botão sem destino é ambíguo: não
+        // dispara em ambos. Com um loader apenas, o atalho sem token permanece.
+        if(target&&target!==TOKEN)return;
+        if(!target&&Object.keys(window.__roiNadosPixels||{}).length>1)return;
+        track(name,{
+          content_id:el.getAttribute('data-content-id')||el.getAttribute('data-id'),
+          content_name:el.getAttribute('data-content-name')||el.getAttribute('data-name'),
+          value:el.getAttribute('data-value')||el.getAttribute('data-price'),
+          currency:el.getAttribute('data-currency')||el.getAttribute('data-cur')
+        });
+        return;
+      }
+      var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
+      if(a&&!a.hasAttribute('data-no-track')&&!a.hasAttribute('data-ignore-pixel')){
+        var href=(a.getAttribute('href')||'').toLowerCase();
+        var isPayLink=href.indexOf('kiwify')!==-1||href.indexOf('hotmart')!==-1||href.indexOf('eduzz')!==-1||href.indexOf('perfectpay')!==-1||href.indexOf('cakto')!==-1||href.indexOf('ticto')!==-1||href.indexOf('kirvano')!==-1||href.indexOf('monetizze')!==-1||href.indexOf('braip')!==-1||href.indexOf('yampi')!==-1||href.indexOf('cartx')!==-1||href.indexOf('doppus')!==-1||href.indexOf('pepper')!==-1||href.indexOf('/checkout')!==-1||href.indexOf('/pay')!==-1;
+        if(isPayLink&&Object.keys(window.__roiNadosPixels||{}).length===1){
+          track('InitiateCheckout',{content_name:(a.textContent||'').trim().slice(0,60)||'Checkout',currency:'BRL'});
+        }
+      }
     }catch(_){}
   },true);
 
-  // Página de confirmação sem código adicional: um marcador com pedido, valor
-  // e moeda dispara Purchase apenas no Pixel nativo. A venda/receita e a CAPI
-  // continuam vindo exclusivamente do webhook confiável do gateway.
+  // Página de confirmação sem código adicional: um marcador [data-roinados-purchase],
+  // [data-purchase] ou [data-order] com pedido, valor e moeda dispara Purchase no
+  // Pixel nativo. A venda/receita e a CAPI continuam vindo com 100% de segurança
+  // via webhook do gateway para evitar perdas de Pix/Boleto e fraudes.
   function scanPurchases(root){
     try{var rows=[];
-      if(root&&root.matches&&root.matches('[data-roinados-purchase]'))rows.push(root);
-      if(root&&root.querySelectorAll)rows=rows.concat(Array.prototype.slice.call(root.querySelectorAll('[data-roinados-purchase]')));
+      if(root&&root.matches&&root.matches('[data-roinados-purchase],[data-purchase],[data-order]'))rows.push(root);
+      if(root&&root.querySelectorAll)rows=rows.concat(Array.prototype.slice.call(root.querySelectorAll('[data-roinados-purchase],[data-purchase],[data-order]')));
       rows.forEach(function(el){
         var target=el.getAttribute('data-pixel-token');
         if(target&&target!==TOKEN)return;
         var loaderCount=0;try{loaderCount=document.querySelectorAll('script[src*="/px/"]').length}catch(_){}
         if(!target&&(loaderCount>1||Object.keys(window.__roiNadosPixels||{}).length>1))return;
         track('Purchase',{
-          order_id:el.getAttribute('data-order-id'),event_id:el.getAttribute('data-event-id'),
-          value:el.getAttribute('data-value'),currency:el.getAttribute('data-currency'),
-          content_id:el.getAttribute('data-content-id'),content_name:el.getAttribute('data-content-name'),
+          order_id:el.getAttribute('data-order-id')||el.getAttribute('data-order')||el.getAttribute('data-id'),
+          event_id:el.getAttribute('data-event-id'),
+          value:el.getAttribute('data-value')||el.getAttribute('data-price')||el.getAttribute('data-amount'),
+          currency:el.getAttribute('data-currency')||el.getAttribute('data-cur')||'BRL',
+          content_id:el.getAttribute('data-content-id')||el.getAttribute('data-id'),
+          content_name:el.getAttribute('data-content-name')||el.getAttribute('data-name'),
           email:el.getAttribute('data-email'),phone:el.getAttribute('data-phone')
         })
       })

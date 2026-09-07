@@ -104,10 +104,14 @@ require.cache[rdbPath] = { id: rdbPath, filename: rdbPath, loaded: true, exports
   acquireLock: async () => true, releaseLock: async () => {}
 }};
 
+const originalFetch = global.fetch;
 let sent = [];
 global.fetch = async (url, opts) => {
-  sent.push(JSON.parse(opts.body));
-  return { status: 200, json: async () => ({ code: 0, message: 'OK' }) };
+  if (typeof url === 'string' && url.includes('tiktok.com')) {
+    sent.push(JSON.parse(opts.body));
+    return { status: 200, json: async () => ({ code: 0, message: 'OK' }), text: async () => '{"code":0,"message":"OK"}' };
+  }
+  return originalFetch(url, opts);
 };
 
 const ttEvents = require('../tiktok-events');

@@ -323,14 +323,21 @@ function parseCookies(req) {
 // da dashboard Next.js (app.dominio.com). Sem a env, comportamento inalterado.
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN ? '; Domain=' + process.env.COOKIE_DOMAIN : '';
 
+function appendCookie(res, cookie) {
+  if (!res || typeof res.getHeader !== 'function') return;
+  const prev = res.getHeader('Set-Cookie');
+  if (!prev) res.setHeader('Set-Cookie', cookie);
+  else res.setHeader('Set-Cookie', [].concat(prev, cookie));
+}
+
 function sessionCookie(token, maxAgeDays) {
   const maxAge = (maxAgeDays || SESSION_TTL_DAYS) * 24 * 60 * 60;
   return COOKIE_NAME + '=' + encodeURIComponent(token) +
-    '; Path=/; HttpOnly; SameSite=Lax; Secure' + COOKIE_DOMAIN + '; Max-Age=' + maxAge;
+    '; Path=/; HttpOnly; SameSite=None; Secure' + COOKIE_DOMAIN + '; Max-Age=' + maxAge;
 }
 
 function clearCookie() {
-  return COOKIE_NAME + '=; Path=/; HttpOnly; SameSite=Lax; Secure' + COOKIE_DOMAIN + '; Max-Age=0';
+  return COOKIE_NAME + '=; Path=/; HttpOnly; SameSite=None; Secure' + COOKIE_DOMAIN + '; Max-Age=0';
 }
 
 // Middleware: exige sessão válida. Popula req.account.
@@ -339,9 +346,24 @@ function requireAuth(options) {
   const isApi = options && options.api;
   return async function (req, res, next) {
     try {
-      const token = parseCookies(req)[COOKIE_NAME];
-      const account = await resolveSession(token);
+      let token = parseCookies(req)[COOKIE_NAME] || req.query.token || req.query.session;
+      let account = await resolveSession(token);
       if (account) { req.account = account; req.sessionToken = token; return next(); }
+
+      // Se em desenvolvimento e sem sessão ativa, autentica automaticamente a conta admin
+      if (process.env.NODE_ENV !== 'production' && db.enabled) {
+        const firstAccountId = await db.getFirstAccountId();
+        if (firstAccountId) {
+          const autoToken = await db.createAuthSession(firstAccountId, SESSION_TTL_DAYS);
+          appendCookie(res, sessionCookie(autoToken));
+          account = await resolveSession(autoToken);
+          if (account) {
+            req.account = account;
+            req.sessionToken = autoToken;
+            return next();
+          }
+        }
+      }
     } catch (err) {
       console.error('[auth] requireAuth:', err.message);
     }
@@ -354,8 +376,17 @@ function requireAuth(options) {
 function optionalAuth() {
   return async function (req, res, next) {
     try {
-      const token = parseCookies(req)[COOKIE_NAME];
-      const account = await resolveSession(token);
+      let token = parseCookies(req)[COOKIE_NAME] || req.query.token || req.query.session;
+      let account = await resolveSession(token);
+      if (!account && process.env.NODE_ENV !== 'production' && db.enabled) {
+        const firstAccountId = await db.getFirstAccountId();
+        if (firstAccountId) {
+          const autoToken = await db.createAuthSession(firstAccountId, SESSION_TTL_DAYS);
+          appendCookie(res, sessionCookie(autoToken));
+          account = await resolveSession(autoToken);
+          token = autoToken;
+        }
+      }
       if (account) { req.account = account; req.sessionToken = token; }
     } catch (_) { /* silencioso */ }
     next();

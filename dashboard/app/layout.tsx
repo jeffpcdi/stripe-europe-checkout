@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import type { Metadata, Viewport } from 'next'
 import { SectionAttr } from '@/components/shell/section-attr'
 import './globals.css'
@@ -39,7 +40,9 @@ export default function RootLayout({
       className="bg-background"
     >
       <body className="font-sans antialiased">
-        <SectionAttr />
+        <Suspense fallback={null}>
+          <SectionAttr />
+        </Suspense>
         <div className="app-bg" aria-hidden="true">
           <div className="app-bg__dots" />
           <div className="app-bg__aurora" />

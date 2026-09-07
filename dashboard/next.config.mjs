@@ -19,10 +19,7 @@ const nextConfig = {
   // sem isso o runtime dev do Next bloqueia a origem e a hidratação
   // falha silenciosamente (página fica presa nos skeletons).
   // Só afeta desenvolvimento; produção usa `next start` e ignora isso.
-  allowedDevOrigins: ['localhost:3000', '127.0.0.1:3000'],
-  experimental: {
-    viewTransition: true,
-  },
+  allowedDevOrigins: ['localhost:3000', '127.0.0.1:3000', '*.run.app'],
   async rewrites() {
     // Em dev, o front acessa o Next direto (localhost:3001/dashboard) e as
     // chamadas fetch('/api/...') caem aqui — proxiamos pro Express local.

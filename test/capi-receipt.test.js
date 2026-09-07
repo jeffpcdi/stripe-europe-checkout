@@ -44,10 +44,14 @@ require.cache[rdbPath] = {
   },
 };
 
+const originalFetch = global.fetch;
 // fetch: o pixel com accessToken TOKBAD recebe code 40105 (token inválido).
-global.fetch = async (_url, opts) => {
-  const bad = String((opts && opts.headers && opts.headers['Access-Token']) || '') === 'TOKBAD';
-  return { status: 200, json: async () => (bad ? { code: 40105, message: 'Access token is invalid' } : { code: 0, message: 'OK' }) };
+global.fetch = async (url, opts) => {
+  if (typeof url === 'string' && url.includes('tiktok.com')) {
+    const bad = String((opts && opts.headers && opts.headers['Access-Token']) || '') === 'TOKBAD';
+    return { status: 200, json: async () => (bad ? { code: 40105, message: 'Access token is invalid' } : { code: 0, message: 'OK' }), text: async () => JSON.stringify(bad ? { code: 40105, message: 'Access token is invalid' } : { code: 0, message: 'OK' }) };
+  }
+  return originalFetch(url, opts);
 };
 
 const tt = require('../tiktok-events');

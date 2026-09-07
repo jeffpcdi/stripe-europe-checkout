@@ -324,8 +324,10 @@ app.use((req, res, next) => {
     p.startsWith('/go/') || p.startsWith('/c/') || p.startsWith('/l/') ||
     p === '/px.gif' || p === '/px.js' || p === '/t.js' || /^\/px\//.test(p);
   if (!isPublicFunnel && !p.startsWith('/api')) {
-    // Painel/landing: nunca embutível (clickjacking) e sem preview de DNS.
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // Painel/landing: sem preview de DNS. Permite iframe no preview do AI Studio.
+    if (process.env.NODE_ENV === 'production' && !process.env.APP_URL && !(req.headers.host && req.headers.host.includes('run.app'))) {
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    }
     res.setHeader('X-DNS-Prefetch-Control', 'off');
   }
   next();
@@ -4860,11 +4862,11 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     scriptTagEnrich: p.token
       ? '<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
       : null,
-    // Instalação recomendada: uma tag escopada pelo token. Ela carrega o Pixel
-    // TikTok, espelha os eventos via CAPI e inicializa o rastreador completo da
-    // jornada. Instalações antigas com /t.js separado continuam compatíveis.
+    // Instalação recomendada: uma única tag escopada pelo token. Ela carrega o Pixel
+    // TikTok oficial, espelha os eventos via CAPI com deduplicação e inicializa o
+    // rastreador completo da jornada de forma 100% autônoma.
     scriptTag: p.token && p.pixelCode
-      ? '<!-- ' + p.name.replace(/--/g, '') + ': não reutilize este bloco em outro produto/pixel -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + p.token + '" width="1" height="1" alt="" style="display:none"></noscript>'
+      ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
       : null
   }));
   // O loader genérico fica apenas como URL legada; novas instalações sempre
@@ -4947,7 +4949,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         ...saved,
         accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
         scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
-        scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/t.js?px=' + saved.token + '" defer></script>\n<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + saved.token + '" width="1" height="1" alt="" style="display:none"></noscript>' : null
+        scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
       }
     });
   } catch (err) {
@@ -5568,6 +5570,9 @@ app.use((req, res, next) => {
   res.set('Cache-Control', 'public, max-age=86400');
   res.sendFile(ROOT_ICON_FILE, (err) => { if (err && !res.headersSent) next(); });
 });
+
+// Assets estáticos do Next (_next/static/..., chunks, fontes, css) são imutáveis e não precisam de pageAuth
+app.use('/dashboard/_next', proxyToNextDashboard);
 
 app.get('/dashboard', pageAuth, (req, res) => {
   if (req.query.legacy === '1') {

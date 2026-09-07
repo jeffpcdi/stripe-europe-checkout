@@ -26,6 +26,7 @@ import {
   X,
   Search,
   SlidersHorizontal,
+  DollarSign,
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -129,6 +130,7 @@ function BudgetControl({
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(currentAmount || ''))
   const [busy, setBusy] = useState(false)
+  const max = Math.max(TIKTOK_MIN_BUDGET * 3, Math.ceil((currentAmount || TIKTOK_MIN_BUDGET) * 3))
   async function save(nextValue = value) {
     const next = Number(String(nextValue).replace(',', '.'))
     if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
@@ -170,16 +172,36 @@ function BudgetControl({
           </button>
         )}
       </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] text-info">gelo</span>
+        <input
+          type="range" min={TIKTOK_MIN_BUDGET} max={max} step="1" value={Math.max(TIKTOK_MIN_BUDGET, Math.min(max, Number(value) || currentAmount))}
+          onChange={(event) => setValue(event.target.value)}
+          onPointerUp={(event) => void save((event.currentTarget as HTMLInputElement).value)}
+          onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') void save((event.currentTarget as HTMLInputElement).value) }}
+          disabled={busy || type === 'lifetime'}
+          aria-label={`Escala de orçamento de ${label}`}
+          className="h-1.5 flex-1 cursor-pointer accent-[color:var(--brand-pink)] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: 'linear-gradient(90deg,var(--blue),var(--brand-cyan),var(--brand-pink))' }}
+        />
+        <span className="text-[9px] text-error">fogo</span>
+      </div>
     </div>
   )
 }
 
 const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
-  { value: 'pending_review', label: 'Em revisão' },
-  { value: 'rejected', label: 'Rejeitadas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
+]
+
+const ALL_STATUS_OPTIONS = [
+  { value: 'active', label: 'Ativas' },
+  { value: 'paused', label: 'Pausadas' },
+  { value: '', label: 'Todas' },
+  { value: 'pending_review', label: 'Em revisão' },
+  { value: 'rejected', label: 'Rejeitadas' },
 ]
 
 // Valores alinhados com o backend (['newest','oldest','spend_desc','spend_asc']).
@@ -252,22 +274,29 @@ export function CampaignTree({
   // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
   attribution?: Record<string, { revenueCents: number; sales: number }>
 }) {
-  const [query, setQuery] = useState('')
-  const [showFilters, setShowFilters] = useState(false)
-  const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [bulkBusy, setBulkBusy] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteAd, setDeleteAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   // Edição de anúncio (texto/CTA/link) sem recriar
   const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
+  
+  // Ajuste de orçamento em lote
+  const [bulkBudgetOpen, setBulkBudgetOpen] = useState(false)
+  const [bulkBudgetMode, setBulkBudgetMode] = useState<'percent_up' | 'percent_down' | 'fixed'>('percent_up')
+  const [bulkBudgetValue, setBulkBudgetValue] = useState('20')
+  const [bulkBudgetBusy, setBulkBudgetBusy] = useState(false)
+
   // Busca por nome + "só com gasto" — filtros CLIENT-SIDE: o backend devolve a
   // lista inteira numa página só (readTree → pages:1), então filtrar aqui nunca
   // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
+  const [query, setQuery] = useState('')
+  const [onlyWithSpend, setOnlyWithSpend] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
 
   useEffect(() => {
@@ -327,6 +356,54 @@ export function CampaignTree({
       return false
     } finally {
       setBulkBusy(false)
+    }
+  }
+
+  async function applyBulkBudget() {
+    if (selected.size === 0 || bulkBudgetBusy) return
+    const val = Number(bulkBudgetValue.replace(',', '.'))
+    if (!Number.isFinite(val) || val <= 0) {
+      toast.error('Informe um valor numérico válido')
+      return
+    }
+
+    setBulkBudgetBusy(true)
+    let updated = 0
+    let failed = 0
+
+    const selectedCampaigns = campaigns.filter((c) => selected.has(c.platformCampaignId))
+
+    for (const c of selectedCampaigns) {
+      try {
+        const curAmount = Number(c.budget?.amount) || TIKTOK_MIN_BUDGET
+        let newAmount = curAmount
+        if (bulkBudgetMode === 'percent_up') {
+          newAmount = Math.round(curAmount * (1 + val / 100))
+        } else if (bulkBudgetMode === 'percent_down') {
+          newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
+        } else {
+          newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
+        }
+
+        await apiSend(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
+          budget: { amount: newAmount, type: c.budget?.type || 'daily' },
+          adAccountId: c.platformAdAccountId,
+        })
+        updated++
+      } catch {
+        failed++
+      }
+    }
+
+    setBulkBudgetBusy(false)
+    setBulkBudgetOpen(false)
+    if (updated > 0) {
+      toast.success(`${updated} campanha(s) com orçamento atualizado!`)
+      actionFeedback()
+      onMutate()
+    }
+    if (failed > 0) {
+      toast.error(`${failed} falha(s) ao atualizar orçamento`)
     }
   }
 
@@ -407,11 +484,33 @@ export function CampaignTree({
     return true
   })
 
-  // Gasto do recorte visível, exibido junto ao título sem criar outra faixa.
-  const visibleSpend = useMemo(
-    () => visible.reduce((total, campaign) => total + (Number(campaign.metrics?.spend) || 0), 0),
-    [visible],
-  )
+  // Resumo do que está visível: contagem por status + gasto total — dá o
+  // panorama sem precisar rolar 100 linhas.
+  const summary = useMemo(() => {
+    let active = 0
+    let paused = 0
+    let review = 0
+    let problem = 0
+    let spend = 0
+    for (const c of visible) {
+      if (c.status === 'active') active++
+      else if (c.status === 'paused') paused++
+      else if (c.status === 'pending_review') review++
+      else if (c.status === 'rejected' || c.status === 'error') problem++
+      spend += Number(c.metrics?.spend) || 0
+    }
+    return { active, paused, review, problem, spend }
+  }, [visible])
+
+  const allVisibleSelected = visible.length > 0 && visible.every((c) => selected.has(c.platformCampaignId))
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(visible.map((c) => c.platformCampaignId)))
+    }
+  }
 
   // Organização: sem filtro de status, agrupa em seções com ativas primeiro —
   // era fácil perder uma campanha ativa no meio de dezenas de pausadas.
@@ -469,12 +568,12 @@ export function CampaignTree({
 
   // Colunas numéricas alinhadas — mesmas larguras no cabeçalho e nas linhas
   // (tabular-nums + largura fixa evitam o truncamento "US..." do layout antigo).
-  const colGasto = 'hidden w-24 shrink-0 text-right tabular-nums md:block'
-  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums md:block'
-  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums md:block'
-  const colActions = 'flex w-[4.75rem] shrink-0 items-center justify-end gap-0.5'
+  const colGasto = 'w-20 shrink-0 text-right tabular-nums sm:w-24'
+  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
+  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
+  const colActions = 'flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-[4.75rem]'
 
-  // Cabeçalho de grupo (Ativas/Pausadas/…) usado na lista.
+  // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
     return (
       <p className="flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
@@ -488,12 +587,11 @@ export function CampaignTree({
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
-    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', cls: 'text-muted-foreground', label: c.status || '—' }
+    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', pulse: false, label: c.status || '—' }
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
-    const isHot = roas !== null && roas >= 2.0 && c.status === 'active'
     
     let baseError =
       c.reviewStatus === 'rejected'
@@ -524,7 +622,7 @@ export function CampaignTree({
 
     return (
       <div className="px-2 py-1.5 sm:px-4 sm:py-2">
-        <div className={`group overflow-hidden rounded-xl border bg-background transition-colors ${isHot ? 'border-success/35' : isError ? 'border-error/30 bg-error/5' : 'border-border/60 hover:border-primary/30'}`}>
+        <div className={`group relative overflow-hidden rounded-xl border bg-background shadow-sm transition-all duration-300 hover:shadow-md ${isError ? 'border-error/30 bg-error/5' : 'border-border/50 hover:border-primary/20'}`}>
           <div className="flex items-center gap-2 p-3 sm:gap-3">
             <input
               type="checkbox"
@@ -559,7 +657,6 @@ export function CampaignTree({
                   >
                     {cleanCampaignName(c.campaignName || id)}
                   </span>
-                  <span className={`hidden shrink-0 text-[10px] font-medium sm:inline ${meta.cls}`}>{meta.label}</span>
                   {c.childStatus && c.childStatus !== c.status && (
                     <AlertTriangle
                       className="size-3.5 shrink-0 text-warning"
@@ -576,9 +673,6 @@ export function CampaignTree({
                     </span>
                   )}
                 </div>
-                <p className="mt-1 truncate text-[10px] tabular-nums text-muted-foreground md:hidden">
-                  {fmtMoney(c.metrics?.spend, c.currency || currency)} investidos · {roas === null ? 'ROAS —' : `ROAS ${roas.toFixed(2)}`} · {fmtCompact(c.metrics?.conversions)} conv.
-                </p>
                 {detailedError && (
                   <div className="mt-2 w-fit max-w-[280px] sm:max-w-md rounded-md bg-error/10 px-2 py-1.5 border border-error/20">
                     <span className="line-clamp-2 text-[11px] font-medium leading-snug text-error">
@@ -588,17 +682,31 @@ export function CampaignTree({
                 )}
               </div>
             </button>
-            <span className={`${colGasto} text-xs font-semibold text-foreground`}>
-              {fmtMoney(c.metrics?.spend, c.currency || currency)}
-            </span>
-            <span className={`${colRoas} text-xs font-semibold ${roas !== null && roas >= 1 ? 'text-success' : roas !== null ? 'text-warning' : 'text-muted-foreground'}`}>
-              {roas === null ? '—' : roas.toFixed(2)}
-            </span>
-            <span className={`${colConv} text-xs font-semibold text-foreground`}>
-              {fmtCompact(c.metrics?.conversions)}
-            </span>
 
-          <div className={colActions} aria-label="Ações da campanha">
+
+          {/* Métricas principais condensadas em badges */}
+          <div className="hidden shrink-0 items-center gap-2 lg:flex">
+            {c.budget?.amount != null && Number(c.budget.amount) > 0 && (
+              <span className="inline-flex items-center rounded-md bg-secondary/30 px-2 py-1 text-[11px] font-medium text-muted-foreground tabular-nums">
+                Orç: {fmtMoney(Number(c.budget.amount), c.currency || currency)}/dia
+              </span>
+            )}
+            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold tabular-nums ${spend > 0 ? 'bg-secondary/50 text-foreground' : 'text-muted-foreground'}`}>
+              Gasto: {fmtMoney(c.metrics?.spend, c.currency || currency)}
+            </span>
+            {roas !== null && (
+              <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
+                ROAS {roas.toFixed(2)}
+              </span>
+            )}
+            {(c.metrics?.conversions || 0) > 0 ? (
+              <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary tabular-nums">
+                {fmtCompact(c.metrics?.conversions)} conv.
+              </span>
+            ) : null}
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition-all sm:duration-300 sm:focus-within:opacity-100 sm:group-hover:opacity-100 sm:-translate-x-2 sm:group-hover:translate-x-0 bg-background/80 backdrop-blur-sm sm:absolute sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:p-1.5 sm:rounded-lg sm:border sm:border-border/50 sm:shadow-sm">
             {busy ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
             ) : (
@@ -606,7 +714,7 @@ export function CampaignTree({
                 {c.status === 'active' ? (
                   <button
                     type="button"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => setCampaignStatus(c, 'paused')}
                     aria-label={`Pausar campanha ${c.campaignName || id}`}
                     title="Pausar"
@@ -616,7 +724,7 @@ export function CampaignTree({
                 ) : c.status === 'paused' ? (
                   <button
                     type="button"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => setActivation({ kind: 'single', campaign: c })}
                     aria-label={`Ativar campanha ${c.campaignName || id}`}
                     title="Ativar"
@@ -631,7 +739,7 @@ export function CampaignTree({
                 {onDuplicate && (
                   <button
                     type="button"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => onDuplicate(c)}
                     aria-label={`Duplicar campanha ${c.campaignName || id}`}
                     title="Duplicar"
@@ -831,24 +939,12 @@ export function CampaignTree({
 
   return (
     <GlassCard className="min-w-0 overflow-hidden p-0">
-      <div className="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-sm font-bold text-foreground">Suas campanhas</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Abra uma campanha para ver conjuntos, anúncios e editar o orçamento.</p>
-        </div>
-        <p className="text-[11px] tabular-nums text-muted-foreground">
-          <strong className="font-semibold text-foreground">{visible.length}</strong>{visible.length !== campaigns.length ? ` de ${campaigns.length}` : ''} campanha{visible.length === 1 ? '' : 's'}
-          {visible.length > 0 ? ` · ${fmtMoney(visibleSpend, currency)} investidos` : ''}
-        </p>
-      </div>
-
-      {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
-          de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
-      <div className="flex flex-col gap-3 border-b border-border/50 px-3 py-3 sm:px-4">
-        {/* Top bar: Busca, Status e Botão de Filtros */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="relative min-w-0 flex-1 sm:max-w-sm">
+      {/* Toolbar simplificada e limpa */}
+      <div className="flex flex-col gap-2.5 border-b border-border/50 px-3 py-3 sm:px-4">
+        {/* Linha principal: Busca direta, Status essenciais e Filtros */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="relative min-w-[180px] max-w-xs flex-1">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
                 aria-hidden="true"
@@ -857,135 +953,210 @@ export function CampaignTree({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar campanha pelo nome"
-                aria-label="Buscar campanhas pelo nome"
-                className="w-full rounded-full border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
+                placeholder="Buscar campanha..."
+                aria-label="Buscar campanha"
+                className="w-full rounded-xl border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
               />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                  aria-label="Limpar busca"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
             </div>
             
-            <div className="hidden items-center gap-1 sm:flex rounded-full bg-secondary/30 p-0.5" role="group" aria-label="Filtrar por status">
-              {STATUS_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  onClick={() => onStatusFilter(f.value)}
-                  aria-pressed={statusFilter === f.value}
-                  className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all duration-200 ${
-                    statusFilter === f.value
-                      ? 'bg-primary text-black shadow-[var(--glow-cyan-soft)]'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
+            {/* Apenas as 3 opções essenciais: Ativas, Pausadas, Todas */}
+            <div className="hidden items-center gap-0.5 sm:flex rounded-xl bg-secondary/30 p-1 border border-border/30" role="group" aria-label="Filtrar por status">
+              {STATUS_FILTERS.map((f) => {
+                const isSelected = statusFilter === f.value
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => onStatusFilter(f.value)}
+                    aria-pressed={isSelected}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium transition-all duration-150 ${
+                      isSelected
+                        ? 'bg-background text-foreground shadow-sm font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                )
+              })}
+              {/* Se o status selecionado for avançado (ex: em revisão ou rejeitada), mostra o badge destacado */}
+              {statusFilter && !STATUS_FILTERS.some((f) => f.value === statusFilter) && (
+                <span className="flex items-center gap-1 rounded-lg bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold">
+                  {statusFilter === 'pending_review' ? 'Em revisão' : statusFilter === 'rejected' ? 'Rejeitadas' : statusFilter}
+                  <button
+                    type="button"
+                    onClick={() => onStatusFilter('active')}
+                    className="hover:text-foreground ml-0.5"
+                    aria-label="Limpar filtro de status"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              )}
             </div>
           </div>
           
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <span className="hidden sm:inline-block text-xs tabular-nums text-muted-foreground">
+              {visible.length !== campaigns.length
+                ? `${visible.length} de ${campaigns.length}`
+                : `${campaigns.length} total`}
+            </span>
             <button 
               type="button"
               onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center justify-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-                showFilters || onlyWithSpend || sort !== 'newest'
-                  ? 'border-primary/30 bg-primary/10 text-primary'
-                  : 'border-border/50 bg-background text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+              className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
+                showFilters || onlyWithSpend || sort !== 'newest' || (statusFilter !== 'active' && statusFilter !== 'paused' && statusFilter !== '')
+                  ? 'border-primary/40 bg-primary/10 text-primary font-semibold'
+                  : 'border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground'
               }`}
             >
               <SlidersHorizontal className="size-3.5" aria-hidden="true" />
               <span>Filtros</span>
+              {(onlyWithSpend || sort !== 'newest') && (
+                <span className="size-1.5 rounded-full bg-primary" />
+              )}
             </button>
           </div>
         </div>
         
         {/* Mobile status select (hidden on desktop) */}
-        <label className="sm:hidden">
-          <span className="sr-only">Filtrar campanhas por status</span>
-          <select
-            className="w-full rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-            value={statusFilter}
-            onChange={(event) => onStatusFilter(event.target.value)}
-            aria-label="Filtrar campanhas por status"
-          >
-            {STATUS_FILTERS.map((filter) => (
-              <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
-            ))}
-          </select>
-        </label>
-
-        {/* Collapsed Filters Menu */}
-        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-24 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/40 bg-secondary/10 p-2.5 sm:p-3">
-            <button
-              type="button"
-              onClick={() => setOnlyWithSpend((v) => !v)}
-              aria-pressed={onlyWithSpend}
-              className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                onlyWithSpend
-                  ? 'border-primary/30 bg-primary/15 text-primary shadow-sm'
-                  : 'border-border/50 bg-background text-muted-foreground hover:border-border hover:text-foreground'
-              }`}
+        <div className="sm:hidden flex items-center gap-2">
+          <label className="flex-1">
+            <span className="sr-only">Filtrar campanhas por status</span>
+            <select
+              className="w-full rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+              value={statusFilter}
+              onChange={(event) => onStatusFilter(event.target.value)}
+              aria-label="Filtrar campanhas por status"
             >
-              Exibir apenas com gasto
-            </button>
-            <label className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="font-medium">Ordenar por:</span>
-              <select
-                className="w-32 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                value={sort}
-                onChange={(e) => onSort(e.target.value)}
-                aria-label="Ordenar campanhas"
-              >
-                {SORTS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+              {ALL_STATUS_OPTIONS.map((filter) => (
+                <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+          </label>
         </div>
+
+        {/* Menu de Filtros Adicionais (simples e direto) */}
+        {showFilters && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-secondary/10 p-3 mt-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setOnlyWithSpend((v) => !v)}
+                aria-pressed={onlyWithSpend}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  onlyWithSpend
+                    ? 'border-primary/40 bg-primary/15 text-primary shadow-sm font-semibold'
+                    : 'border-border/50 bg-background text-muted-foreground hover:border-border hover:text-foreground'
+                }`}
+              >
+                Apenas com gasto
+              </button>
+
+              <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-medium">Ordenar:</span>
+                <select
+                  className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  value={sort}
+                  onChange={(e) => onSort(e.target.value)}
+                  aria-label="Ordenar campanhas"
+                >
+                  {SORTS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Status avançado para casos especiais */}
+              <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-medium">Status:</span>
+                <select
+                  className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  value={statusFilter}
+                  onChange={(e) => onStatusFilter(e.target.value)}
+                  aria-label="Filtrar por status"
+                >
+                  {ALL_STATUS_OPTIONS.map((s) => (
+                    <option key={s.value || 'all'} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {(onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOnlyWithSpend(false)
+                  onSort('newest')
+                  onStatusFilter('active')
+                  setQuery('')
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Barra de ações em lote — FAB (Floating Action Bar) */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 anim-content-in flex items-center gap-3 rounded-full border border-border/40 bg-background/80 px-4 py-2.5 shadow-2xl backdrop-blur-md">
-          <span className="flex items-center justify-center rounded-full bg-primary/20 text-primary size-6 text-[11px] font-bold">
-            {selected.size}
+      {/* Resumo do que está visível + Selecionar todas */}
+      {visible.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-secondary/30 px-3 sm:px-4 py-2 text-[11px] tabular-nums text-muted-foreground">
+          <label className="flex items-center gap-1.5 cursor-pointer font-medium text-foreground mr-1">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAll}
+              aria-label="Selecionar todas as campanhas visíveis"
+              className="size-3.5 rounded accent-[color:var(--primary)]"
+            />
+            <span className="text-[11px]">Selecionar tudo</span>
+          </label>
+          <span className="text-border">|</span>
+          {summary.active > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--success)]" aria-hidden="true" />
+              {summary.active} ativa{summary.active === 1 ? '' : 's'}
+            </span>
+          )}
+          {summary.review > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+              {summary.review} em revisão
+            </span>
+          )}
+          {summary.problem > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--error)]" aria-hidden="true" />
+              {summary.problem} com problema{summary.problem === 1 ? '' : 's'}
+            </span>
+          )}
+          {summary.paused > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />
+              {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className="ml-auto font-medium text-foreground">
+            Gasto neste filtro: {fmtMoney(summary.spend, currency)}
           </span>
-          <span className="text-xs font-medium text-foreground">
-            selecionada{selected.size === 1 ? '' : 's'}
-          </span>
-          
-          <div className="ml-2 flex items-center gap-1.5 border-l border-border/50 pl-3">
-            <button
-              type="button"
-              className="btn-primary !px-3 !py-1.5 text-xs shadow-sm hover:shadow"
-              onClick={() => setActivation({ kind: 'bulk' })}
-              disabled={bulkBusy}
-            >
-              {bulkBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Play className="size-3.5" aria-hidden="true" />}
-              Ativar
-            </button>
-            <button
-              type="button"
-              className="btn-ghost !px-3 !py-1.5 text-xs bg-secondary/50 hover:bg-secondary/80"
-              onClick={() => bulkStatus('paused')}
-              disabled={bulkBusy}
-            >
-              <Pause className="size-3.5" aria-hidden="true" />
-              Pausar
-            </button>
-            <button
-              type="button"
-              className="btn-ghost !px-2 !py-1.5 text-xs text-muted-foreground hover:bg-error/10 hover:text-error ml-1 rounded-full aspect-square"
-              onClick={() => setSelected(new Set())}
-              disabled={bulkBusy}
-              title="Limpar seleção"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </button>
-          </div>
         </div>
       )}
 
@@ -1064,7 +1235,8 @@ export function CampaignTree({
           {/* Cabeçalho de tabela fixo — rótulos aparecem uma única vez */}
           <div className="label-mono sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-[var(--surface,var(--card))] px-3 py-2 text-[10px] text-muted-foreground">
             <span className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="w-7 shrink-0" aria-hidden="true" />
+            <span className="w-3.5 shrink-0" aria-hidden="true" />
+            <span className="size-1.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">Campanha</span>
             <span className={colGasto}>Gasto</span>
             <span className={colRoas}>ROAS</span>
@@ -1160,6 +1332,159 @@ export function CampaignTree({
         onClose={() => setEditAd(null)}
         onSaved={() => onMutate?.()}
       />
+
+      {/* Barra Flutuante de Ações em Lote */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:gap-3 rounded-2xl border border-white/20 bg-[#09090b]/95 px-4 py-2.5 sm:px-5 sm:py-3 shadow-[0_10px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl anim-pop-in">
+          <div className="flex items-center gap-2 border-r border-border/50 pr-3">
+            <span className="flex size-5 items-center justify-center rounded-full bg-primary/20 text-[11px] font-bold text-primary">
+              {selected.size}
+            </span>
+            <span className="text-xs font-semibold text-foreground hidden sm:inline">
+              selecionada{selected.size === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              className="btn-secondary !py-1.5 !px-3 text-xs gap-1.5"
+              onClick={() => bulkStatus('paused')}
+              disabled={bulkBusy}
+            >
+              <Pause className="size-3.5" />
+              Pausar
+            </button>
+            <button
+              type="button"
+              className="btn-primary !py-1.5 !px-3 text-xs gap-1.5 font-semibold"
+              onClick={() => setActivation({ kind: 'bulk' })}
+              disabled={bulkBusy}
+            >
+              <Play className="size-3.5" />
+              Ativar
+            </button>
+            <button
+              type="button"
+              className="btn-secondary !py-1.5 !px-3 text-xs gap-1.5"
+              onClick={() => setBulkBudgetOpen(true)}
+              disabled={bulkBusy}
+            >
+              <DollarSign className="size-3.5 text-success" />
+              Orçamento
+            </button>
+            <button
+              type="button"
+              className="btn-ghost !p-1.5 text-muted-foreground hover:text-foreground ml-1"
+              onClick={() => setSelected(new Set())}
+              disabled={bulkBusy}
+              title="Limpar seleção"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Ajuste de Orçamento em Lote */}
+      {bulkBudgetOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !bulkBudgetBusy) setBulkBudgetOpen(false)
+          }}
+        >
+          <div className="anim-pop-in w-full max-w-sm rounded-2xl border border-white/15 bg-[#09090b]/95 p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <DollarSign className="size-4 text-success" />
+                Ajustar Orçamento em Lote
+              </h3>
+              <button
+                type="button"
+                className="btn-ghost size-7 p-0"
+                onClick={() => setBulkBudgetOpen(false)}
+                disabled={bulkBudgetBusy}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Aplicar novo orçamento para as <strong>{selected.size}</strong> campanhas selecionadas.
+            </p>
+
+            <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-secondary/30 p-1 mb-4 border border-border/40">
+              <button
+                type="button"
+                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  bulkBudgetMode === 'percent_up' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+                }`}
+                onClick={() => { setBulkBudgetMode('percent_up'); setBulkBudgetValue('20') }}
+              >
+                +20% Escala
+              </button>
+              <button
+                type="button"
+                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  bulkBudgetMode === 'percent_down' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+                }`}
+                onClick={() => { setBulkBudgetMode('percent_down'); setBulkBudgetValue('20') }}
+              >
+                -20% Reduzir
+              </button>
+              <button
+                type="button"
+                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  bulkBudgetMode === 'fixed' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+                }`}
+                onClick={() => { setBulkBudgetMode('fixed'); setBulkBudgetValue('100') }}
+              >
+                Valor Fixo
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                {bulkBudgetMode === 'fixed' ? `Novo valor diário (${currency})` : 'Porcentagem de ajuste (%)'}
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={bulkBudgetValue}
+                onChange={(e) => setBulkBudgetValue(e.target.value)}
+                className="input-neon w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono font-semibold text-foreground"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={() => setBulkBudgetOpen(false)}
+                disabled={bulkBudgetBusy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn-primary text-xs font-semibold px-4 py-2"
+                onClick={applyBulkBudget}
+                disabled={bulkBudgetBusy}
+              >
+                {bulkBudgetBusy ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Aplicando...
+                  </>
+                ) : (
+                  'Aplicar Ajuste'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </GlassCard>
   )
 }

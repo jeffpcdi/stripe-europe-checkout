@@ -42,6 +42,7 @@ import { PixelBindingCard } from './pixel-binding-card'
 import { KpiRow } from './kpi-row'
 import { adsDateRange } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
+import { UniversalLauncherDialog } from './universal-launcher-dialog'
 
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -131,6 +132,7 @@ export function TikTokAdsView() {
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
   }
 
+  const [launcherOpen, setLauncherOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
@@ -186,20 +188,17 @@ export function TikTokAdsView() {
     let spend = 0
     let impressions = 0
     let clicks = 0
-    let conversions = 0
     let activeCount = 0
     for (const campaign of campaigns) {
       spend += Number(campaign.metrics?.spend) || 0
       impressions += Number(campaign.metrics?.impressions) || 0
       clicks += Number(campaign.metrics?.clicks) || 0
-      conversions += Number(campaign.metrics?.conversions) || 0
       if (campaign.status === 'active') activeCount++
     }
     return {
       spend,
       impressions,
       clicks,
-      conversions,
       ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
       activeCount,
@@ -388,49 +387,15 @@ export function TikTokAdsView() {
             </Tabs.Root>
 
             {tab === 'campaigns' && (
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button type="button" className="btn-primary min-h-10 shrink-0 justify-center px-4 text-xs font-bold shadow-[var(--glow-cyan-soft)]" aria-label="Criar campanha">
-                    <Plus className="size-3.5" aria-hidden="true" /> Criar campanha
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    align="end"
-                    sideOffset={8}
-                    className="glass glass-thick anim-pop-in z-50 min-w-72 rounded-[12px] p-1.5"
-                  >
-                    <DropdownMenu.Item
-                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                      onSelect={() => openWriteFlow(setCreateOpen)}
-                    >
-                      <Megaphone className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                      <span><strong className="block font-semibold text-foreground">Conversão ABO/CBO</strong><span className="mt-0.5 block text-[10px] text-muted-foreground">Uma campanha com controle de orçamento.</span></span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                      onSelect={() => openWriteFlow(setSmartPlusOpen)}
-                    >
-                      <Sparkles className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                      <span><strong className="block font-semibold text-foreground">Smart+</strong><span className="mt-0.5 block text-[10px] text-muted-foreground">O TikTok automatiza público e entrega.</span></span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                      onSelect={() => openWriteFlow(setBulkOpen)}
-                    >
-                      <Layers className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                      <span><strong className="block font-semibold text-foreground">Vídeos em massa</strong><span className="mt-0.5 block text-[10px] text-muted-foreground">Crie várias estruturas de conversão de uma vez.</span></span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                      onSelect={() => openWriteFlow(setSparkOpen)}
-                    >
-                      <Zap className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                      <span><strong className="block font-semibold text-foreground">Spark Ads</strong><span className="mt-0.5 block text-[10px] text-muted-foreground">Promova um vídeo já publicado no TikTok.</span></span>
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+              <button
+                type="button"
+                className="btn-primary shrink-0 justify-center text-xs font-semibold px-4 py-2 gap-1.5 shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                onClick={() => openWriteFlow(() => setLauncherOpen(true))}
+                aria-label="Criar Campanha"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                Criar Campanha
+              </button>
             )}
           </div>
 
@@ -553,6 +518,13 @@ export function TikTokAdsView() {
       )}
 
       {/* Fluxos de escrita */}
+      <UniversalLauncherDialog
+        open={launcherOpen}
+        onClose={() => setLauncherOpen(false)}
+        advertiserId={concreteAdvertiser}
+        currency={currency}
+        onSuccess={() => mutateTree()}
+      />
       <CreateAdPanel
         open={createOpen}
         onClose={() => setCreateOpen(false)}

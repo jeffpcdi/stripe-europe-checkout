@@ -13,7 +13,12 @@ const redisUrl = process.env.UPSTASH_REDIS_REST_URL
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN
   || process.env.KV_REST_API_TOKEN
   || process.env.UPSTASH_FOR_REDIS_KV_REST_API_TOKEN;
-const redisConfigured = Boolean(redisUrl && redisToken);
+const redisConfigured = Boolean(
+  redisUrl &&
+  redisToken &&
+  !redisUrl.includes('YOUR-INSTANCE') &&
+  !redisUrl.includes('example.com')
+);
 
 try {
   const { Redis } = require('@upstash/redis');

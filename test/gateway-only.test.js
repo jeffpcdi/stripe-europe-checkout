@@ -48,10 +48,14 @@ require.cache[rdbPath] = {
   }
 };
 
+const originalFetch = global.fetch;
 let fetchCalls = [];
 global.fetch = async (url, opts) => {
-  fetchCalls.push({ url, body: opts && opts.body });
-  return { status: 200, json: async () => ({ code: 0, message: 'OK' }) };
+  if (typeof url === 'string' && url.includes('tiktok.com')) {
+    fetchCalls.push({ url, body: opts && opts.body });
+    return { status: 200, json: async () => ({ code: 0, message: 'OK' }), text: async () => '{"code":0,"message":"OK"}' };
+  }
+  return originalFetch(url, opts);
 };
 
 const tk = require('../tiktok-events');

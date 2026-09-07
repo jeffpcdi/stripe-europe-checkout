@@ -4569,6 +4569,114 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Públicos Personalizados & Lookalike (Remarketing & Escala)
+// ════════════════════════════════════════════════════════════════════════════
+
+async function listCustomAudiences(advertiserId, opts = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) return [];
+  const ck = 'audiences:' + adv + ':' + (opts.page || 1);
+  if (!opts.fresh) {
+    const hit = cacheGet(ck);
+    if (hit) return hit;
+  }
+  const out = await pipeboard.callTool('list_tiktok_custom_audiences', {
+    advertiser_id: adv,
+    page: Number(opts.page || 1),
+    page_size: Number(opts.pageSize || 50),
+  });
+  const list = firstArray(out, ['custom_audiences', 'list', 'audiences', 'data']) || [];
+  const mapped = list.map((item) => ({
+    id: String(item.custom_audience_id || item.id || ''),
+    name: String(item.name || item.custom_audience_name || 'Público'),
+    type: String(item.audience_type || item.type || 'PIXEL'),
+    size: Number(item.cover_num || item.audience_size || item.size || 0),
+    status: String(item.status || (item.is_valid ? 'ready' : 'processing')),
+    isValid: Boolean(item.is_valid ?? true),
+    createTime: item.create_time || item.created_at || null,
+  }));
+  return cacheSet(ck, mapped, 60 * 1000);
+}
+
+async function createCustomAudience(advertiserId, data = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(data.name || '').trim().slice(0, 128);
+  if (!name) throw badRequest('Nome do público é obrigatório');
+  
+  const audienceType = String(data.audienceType || 'PIXEL').toUpperCase();
+  const retention = Math.min(Math.max(Number(data.retentionDays || 30), 1), 365);
+  
+  let ruleSpec = data.ruleSpec;
+  if (!ruleSpec) {
+    const eventName = data.event || 'Purchase';
+    ruleSpec = {
+      inclusion_rule_set: {
+        operator: 'OR',
+        rules: [
+          {
+            event: eventName,
+            retention_in_days: retention,
+            ...(data.pixelId ? {
+              filter: {
+                field: 'pixel_id',
+                operator: 'EQUALS',
+                value: String(data.pixelId),
+              }
+            } : {})
+          },
+        ],
+      },
+    };
+  }
+
+  const args = {
+    advertiser_id: adv,
+    custom_audience_name: name,
+    audience_type: audienceType,
+    retention_in_days: retention,
+    is_auto_refresh: true,
+  };
+  if (ruleSpec) args.rule_spec = ruleSpec;
+
+  const out = await pipeboard.callTool('create_tiktok_custom_audience', args);
+  cacheBust('audiences:' + adv);
+  return out;
+}
+
+async function createLookalikeAudience(advertiserId, data = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(data.name || '').trim().slice(0, 128);
+  const sourceId = String(data.sourceAudienceId || '').trim();
+  if (!name || !sourceId) throw badRequest('Nome e público semente são obrigatórios');
+
+  const out = await pipeboard.callTool('create_tiktok_lookalike_audience', {
+    advertiser_id: adv,
+    custom_audience_name: name,
+    source_audience_id: sourceId,
+    lookalike_spec: {
+      location_ids: Array.isArray(data.locationIds) && data.locationIds.length ? data.locationIds : ['BR'],
+      lookalike_type: String(data.lookalikeType || 'BALANCE'),
+    },
+  });
+  cacheBust('audiences:' + adv);
+  return out;
+}
+
+async function deleteCustomAudiences(advertiserId, audienceIds) {
+  const adv = String(advertiserId || '').trim();
+  const ids = Array.isArray(audienceIds) ? audienceIds.map(String) : [String(audienceIds)];
+  if (!adv || !ids.length) throw badRequest('advertiserId e IDs são obrigatórios');
+  const out = await pipeboard.callTool('delete_tiktok_custom_audiences', {
+    advertiser_id: adv,
+    custom_audience_ids: ids,
+  });
+  cacheBust('audiences:' + adv);
+  return out;
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -4582,6 +4690,11 @@ module.exports = {
   selectAdvertiser,
   // status
   getStatus,
+  // públicos (Remarketing / Lookalike)
+  listCustomAudiences,
+  createCustomAudience,
+  createLookalikeAudience,
+  deleteCustomAudiences,
   // árvore
   getCampaigns,
   getAdGroups,

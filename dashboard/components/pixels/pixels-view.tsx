@@ -29,6 +29,7 @@ import {
   Globe2,
   Activity,
   Waypoints,
+  CreditCard,
 } from 'lucide-react'
 import {
   usePixels,
@@ -264,9 +265,7 @@ export function PixelsView() {
           a config sobrevive a um restart, independente de já ter havido gravação. */}
       {/* Config durável removida do painel do usuário final */}
 
-      {/* Diagnóstico: por que a config pode não estar chegando ao pixel.
-          Item 87: além dos warnings gerais, lista pixel a pixel o que falta
-          (credencial ausente) — antes só a string agregada aparecia. */}
+      {/* Diagnóstico: por que a config pode não estar chegando ao pixel */}
       {(warnings.length > 0 || (durability?.incomplete?.length ?? 0) > 0) && (
         <div
           className="flex flex-col gap-1.5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3"
@@ -290,25 +289,9 @@ export function PixelsView() {
         </div>
       )}
 
-      {pixels.length > 1 && (
-        <div className="flex items-start gap-3 rounded-xl border border-brand-cyan/25 bg-brand-cyan/8 px-4 py-3">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand-cyan" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-foreground">Isolamento entre pixels ativado</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground text-pretty">
-              Cada tag envia eventos somente ao seu próprio pixel. Eventos de gateway usam o vínculo configurado ou o pixel gravado na jornada do lead; envios ambíguos para todos são bloqueados.
-            </p>
-          </div>
-        </div>
-      )}
-
       <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
-        {/* Pixels cadastrados — min-w-0 para o script longo truncar em vez de
-            alargar a coluna além da viewport no mobile */}
+        {/* Pixels cadastrados */}
         <GlassCard className="min-w-0 p-5">
-          {/* Cabeçalho em duas linhas: título+ações lado a lado, descrição CURTA
-              embaixo em largura total — no mobile o texto longo espremia numa
-              coluna de uma palavra por linha. */}
           <div className="mb-4">
             <div className="flex items-center justify-between gap-2">
               <SectionTitle>Pixels TikTok</SectionTitle>
@@ -317,18 +300,12 @@ export function PixelsView() {
                   type="button"
                   data-tour="pixels-new"
                   onClick={() => setCreating(true)}
-                  className="btn-shine flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-all hover:opacity-90 active:scale-[0.98]"
                 >
                   <Plus className="size-3.5" /> Novo pixel
                 </button>
               </div>
             </div>
-          </div>
-
-          {/* Mini-alerta do Gateway */}
-          <div className="mb-4 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <TriangleAlert className="size-3 text-warning" />
-            <span>O evento de Compra requer um <Link href="/conversions?tab=gateways" className="font-semibold text-brand-cyan hover:underline">gateway conectado</Link>.</span>
           </div>
 
           {error && !data ? (
@@ -376,7 +353,7 @@ export function PixelsView() {
                   && /access token|unauthori[sz]ed|revoked/.test(latestApiMessage)
                 const tokenValidated = latestApiRow?.status === 'ok'
                 return (
-                <li key={p.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn("hover-float animate-in-up rounded-xl border bg-secondary/40 p-4 transition-all duration-300 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]", p.active ? "border-[color:var(--brand-cyan)]/50 shadow-[0_0_15px_rgba(37,244,238,0.15)] bg-gradient-to-br from-[rgba(37,244,238,0.05)] to-transparent" : "border-border opacity-70")}>
+                <li key={p.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn("rounded-xl border bg-secondary/30 p-4.5 transition-all duration-200 hover:border-border hover:bg-secondary/40", p.active ? "border-border/80" : "border-border/50 opacity-75")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       {/* A6.1: anel SVG de saúde (verde/âmbar/vermelho) em volta
@@ -525,7 +502,7 @@ export function PixelsView() {
                       className={`mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
                         testResult.ok
                           ? 'bg-[var(--success-light)] text-success'
-                          : 'bg-destructive/10 text-destructive border border-destructive/30 shadow-[0_0_8px_rgba(254,44,85,0.2)] animate-pulse'
+                          : 'bg-destructive/10 text-destructive border border-destructive/20'
                       }`}
                       role="status"
                     >
@@ -1105,117 +1082,89 @@ function PixelInstallModal({
   onCopy: (code: string) => void
   copied: boolean
 }) {
-  const [mode, setMode] = useState<'html' | 'gtm' | 'next' | 'domains'>('html')
-  const pixelUrl = pixel.scriptUrl ?? ''
-  const htmlCode = cleanInstallCode(pixel.scriptTag)
-  const gtmCode = `<script src="${pixelUrl}" defer></script>`
-  const nextCode = `import Script from 'next/script'\n\n<Script src="${pixelUrl}" strategy="afterInteractive" />`
-  const domainsCode = `<script src="${pixelUrl}"\n  data-link-domains="checkout.seudominio.com,upsell.seudominio.com"\n  defer></script>`
-  const modes = {
-    html: {
-      label: 'HTML',
-      title: 'Bloco completo',
-      hint: 'Cole uma vez no layout de cada arquivo ou página do produto.',
-      code: htmlCode,
-    },
-    gtm: {
-      label: 'Google Tag Manager',
-      title: 'Tag HTML personalizada',
-      hint: 'Crie uma tag HTML personalizada, use o acionador “All Pages” e publique o container.',
-      code: gtmCode,
-    },
-    next: {
-      label: 'Next / React',
-      title: 'Layout raiz',
-      hint: 'Adicione uma vez no layout compartilhado; trocas de rota de SPA são rastreadas automaticamente.',
-      code: nextCode,
-    },
-    domains: {
-      label: 'Vários domínios',
-      title: 'Identidade entre hospedagens',
-      hint: 'Liste os outros hosts do funil em todas as tags. Links recebem vid, ttclid e UTMs sem expor dados pessoais.',
-      code: domainsCode,
-    },
-  } as const
-  const selected = modes[mode]
+  const pixelUrl = pixel.scriptUrl || (pixel.token ? `/px/${pixel.token}.js` : '')
+  const singleTagCode = pixelUrl ? `<script src="${pixelUrl}" defer></script>` : cleanInstallCode(pixel.scriptTag)
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(true, dialogRef, onClose)
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
-      aria-label={`Instalar ${pixel.name}`}
+      aria-label={`Instalar script de ${pixel.name}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="my-8 w-full max-w-2xl p-0 outline-none">
-        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wider text-brand-cyan">Instalação isolada</p>
-            <h2 className="mt-0.5 text-base font-semibold text-foreground">{pixel.name}</h2>
-            <p className="mt-1 text-xs text-muted-foreground text-pretty">
-              Este bloco pertence somente ao Pixel Code <code className="font-mono text-foreground">{pixel.pixelCode}</code>.
-            </p>
+      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="w-full max-w-lg p-0 outline-none overflow-hidden border-border/80 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/60 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-cyan/15 text-brand-cyan">
+              <Code2 className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">{pixel.name}</h2>
+              <p className="font-mono text-xs text-muted-foreground">
+                Pixel Code: <span className="text-foreground">{pixel.pixelCode}</span>
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar instalação"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="Fechar"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
-            <CircleX className="size-4" aria-hidden="true" />
+            <CircleX className="size-5" />
           </button>
         </div>
 
-        <div className="flex flex-col gap-5 px-5 py-5">
-          <div className="flex flex-wrap gap-1 rounded-xl bg-secondary/45 p-1" role="tablist" aria-label="Tipo de instalação">
-            {(Object.keys(modes) as Array<keyof typeof modes>).map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={mode === key}
-                onClick={() => setMode(key)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  mode === key ? 'bg-brand-cyan text-black' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                }`}
-              >
-                {modes[key].label}
-              </button>
-            ))}
+        <div className="flex flex-col gap-4 p-6">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Script de Rastreamento (Tag &lt;head&gt;)
+            </span>
+            <span className="rounded-full bg-brand-cyan/10 px-2.5 py-0.5 text-[11px] font-medium text-brand-cyan">
+              Apenas 1 linha
+            </span>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-border bg-input">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-              <span className="text-xs font-medium text-foreground">{selected.title}</span>
-              <button
-                type="button"
-                onClick={() => onCopy(selected.code)}
-                className="flex items-center gap-1.5 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black hover:bg-brand-cyan/80 transition-colors"
-              >
-                {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
-                {copied ? 'Copiado' : 'Copiar bloco'}
-              </button>
-            </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{selected.code}</pre>
+          <div className="relative rounded-xl border border-border/80 bg-black/60 p-4 font-mono text-xs leading-relaxed text-foreground break-all select-all">
+            {singleTagCode}
           </div>
 
+          <button
+            type="button"
+            onClick={() => onCopy(singleTagCode)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-cyan py-3 px-4 text-sm font-bold text-black shadow-[0_0_20px_rgba(37,244,238,0.3)] transition-all hover:brightness-110 active:scale-[0.99]"
+          >
+            {copied ? (
+              <>
+                <Check className="size-4" />
+                Script Copiado!
+              </>
+            ) : (
+              <>
+                <Copy className="size-4" />
+                Copiar Script
+              </>
+            )}
+          </button>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-            <a
-              href="https://ads.tiktok.com/help/article/get-started-pixel"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs font-medium text-brand-cyan hover:underline"
-            >
-              Guia oficial do TikTok <ExternalLink className="size-3" aria-hidden="true" />
-            </a>
-            <button type="button" onClick={onClose} className="rounded-lg bg-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary/70">
-              Concluir
-            </button>
-          </div>
+          <p className="text-center text-xs text-muted-foreground text-pretty">
+            Cole esta linha dentro da tag <code className="rounded bg-secondary/80 px-1 py-0.5 text-foreground font-mono">&lt;head&gt;</code> da sua página ou landing page. O rastreamento de visitas, cliques e conexão com a CAPI é feito automaticamente.
+          </p>
+        </div>
+
+        <div className="border-t border-border/50 bg-secondary/20 px-6 py-3.5 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            Fechar
+          </button>
         </div>
       </GlassCard>
     </div>
@@ -1388,15 +1337,15 @@ function PixelEditor({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(true, dialogRef, onClose)
-  
+
   const [saving, setSaving] = useState(false)
-  const [syncStep, setSyncStep] = useState(0) // 0: idle, 1: fetching, 2: binding, 3: done
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState(pixel?.name ?? '')
-
-  // Para modo de edição
+  const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
+  const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
+  const [showToken, setShowToken] = useState(false)
   const [active, setActive] = useState(pixel?.active ?? true)
-  const [events, setEvents] = useState<PixelEvents>(
+  const [events] = useState<PixelEvents>(
     pixel?.events ?? {
       ViewContent: true,
       AddToCart: true,
@@ -1405,146 +1354,330 @@ function PixelEditor({
       CompletePayment: true,
     },
   )
-  const { data: gwData } = useGateways()
+
+  const { data: gwData, mutate: mutateGateways } = useGateways()
   const gateways = gwData?.gateways ?? []
   const [gatewayIds, setGatewayIds] = useState<string[]>(pixel?.gatewayIds ?? [])
+
+  // Criação rápida de gateway inline caso o usuário ainda não tenha
+  const [showAddGateway, setShowAddGateway] = useState(false)
+  const [newGwProvider, setNewGwProvider] = useState('kiwify')
+  const [newGwName, setNewGwName] = useState('')
+  const [creatingGw, setCreatingGw] = useState(false)
 
   function toggleGateway(id: string) {
     setGatewayIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]))
   }
 
-  async function handleAutoBind() {
+  async function handleCreateInlineGateway() {
+    if (creatingGw) return
+    setCreatingGw(true)
+    setError(null)
+    try {
+      const providerLabel = gwData?.providers?.find((p) => p.id === newGwProvider)?.label || newGwProvider
+      const gwNameToUse = newGwName.trim() || providerLabel
+      const res = await apiSend<{ ok: boolean; gateway: { id: string; name: string } }>('/api/gateways', 'POST', {
+        name: gwNameToUse,
+        provider: newGwProvider,
+      })
+      if (res.gateway?.id) {
+        setGatewayIds((prev) => [...prev, res.gateway.id])
+        await mutateGateways()
+        setShowAddGateway(false)
+        setNewGwName('')
+        toast.success(`Gateway ${res.gateway.name} criado e vinculado`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao criar gateway')
+    } finally {
+      setCreatingGw(false)
+    }
+  }
+
+  async function handleSave() {
+    const cleanName = name.trim()
+    const cleanCode = pixelCode.trim()
+    if (!cleanName) {
+      setError('Informe um nome para o pixel')
+      return
+    }
+    if (!cleanCode) {
+      setError('Informe o Pixel Code do TikTok Ads (20 dígitos)')
+      return
+    }
+
     setSaving(true)
     setError(null)
-    
-    // Simulação da Magia de Auto-Bind
-    setSyncStep(1)
-    await new Promise(r => setTimeout(r, 1200)) // "Comunicando com OAuth do TikTok..."
-    
-    setSyncStep(2)
-    await new Promise(r => setTimeout(r, 1000)) // "Vinculando Token CAPI silenciosamente..."
 
     try {
       const r = await apiSend<{ ok: boolean; durable?: boolean; warning?: string | null }>('/api/pixels', 'POST', {
         slug: pixel?.slug,
-        name: pixel ? name : 'Pixel TikTok Principal',
-        pixelCode: pixel?.pixelCode || `AUTO-${Math.random().toString(36).substr(2, 8).toUpperCase()}`,
-        accessToken: pixel?.accessToken || 'auto_bound_token_hidden',
-        testEventCode: undefined,
+        name: cleanName,
+        pixelCode: cleanCode,
+        accessToken: accessToken.trim() || undefined,
         active,
         events,
         gatewayIds,
       })
-      setSyncStep(3)
-      await new Promise(r => setTimeout(r, 500))
       onSaved(r.warning)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao vincular')
+      setError(e instanceof Error ? e.message : 'Erro ao salvar o pixel')
       setSaving(false)
-      setSyncStep(0)
     }
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[color:var(--brand-cyan)]/50 focus:shadow-[0_0_15px_rgba(37,244,238,0.25)]'
+    'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/40 transition-all'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md"
       role="dialog"
+      aria-modal="true"
+      aria-label={pixel ? `Editar pixel ${pixel.name}` : 'Criar novo pixel TikTok'}
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="my-8 w-full max-w-lg p-6 outline-none">
-        <h2 className="mb-5 text-base font-semibold text-foreground">
-          {pixel ? `Editar pixel: ${pixel.name}` : 'Integração TikTok Auto-Bind'}
-        </h2>
-        
-        <div className="flex flex-col gap-5">
-          {!pixel ? (
-            <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="relative mb-6 flex size-20 items-center justify-center rounded-full bg-brand-cyan/10">
-                <Target className="size-10 text-brand-cyan drop-shadow-[0_0_15px_rgba(37,244,238,0.8)]" />
-                <Zap className="absolute -bottom-2 -right-2 size-8 text-[#fe2c55] drop-shadow-[0_0_10px_rgba(254,44,85,0.8)]" />
-              </div>
-              <h3 className="mb-2 text-lg font-bold text-foreground">Conexão Oficial 1-Click</h3>
-              <p className="mb-6 text-sm text-muted-foreground text-balance">
-                O sistema já está autenticado no seu TikTok Ads. Vamos puxar seu Pixel principal e configurar a API de Conversões (CAPI) silenciosamente.
-                Sem copia e cola, sem tokens gigantes.
-              </p>
-            </div>
-          ) : (
-            // Modo Edição
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Nome</span>
-                <input
-                  className={inputCls}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
-
-              <fieldset className="flex flex-col gap-2">
-                <legend className="mb-1 text-xs font-medium text-muted-foreground">Gateways vinculados</legend>
-                {gateways.length === 0 ? (
-                  <span className="text-[11px] text-muted-foreground">Nenhum gateway cadastrado.</span>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {gateways.map((g) => (
-                      <label key={g.id} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${gatewayIds.includes(g.id) ? 'border-brand-cyan/50 bg-brand-cyan/10 text-brand-cyan' : 'border-border text-muted-foreground'}`}>
-                        <input type="checkbox" className="sr-only" checked={gatewayIds.includes(g.id)} onChange={() => toggleGateway(g.id)} />
-                        {gatewayIds.includes(g.id) && <Check className="size-3" />}
-                        {g.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </fieldset>
-
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input type="checkbox" checked={active} onChange={() => setActive((v) => !v)} className="accent-brand-cyan" />
-                Pixel ativo
-              </label>
-            </>
-          )}
-
-          {error && (
-            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-              {error}
+      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="w-full max-w-lg p-0 outline-none overflow-hidden border-border/80 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/60 px-6 py-5">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              {pixel ? `Editar Pixel: ${pixel.name}` : 'Novo Pixel TikTok & Gateway'}
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Configure seu pixel e sincronize com seu gateway de checkout.
             </p>
-          )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <CircleX className="size-5" />
+          </button>
+        </div>
 
-          <div className="flex flex-col gap-3 border-t border-border/50 pt-5 mt-2">
-            {!pixel && saving ? (
-              <div className="flex w-full items-center justify-center gap-3 rounded-full bg-secondary/30 px-6 py-3 text-sm font-semibold text-brand-cyan animate-pulse border border-brand-cyan/30">
-                <Loader2 className="size-5 animate-spin" />
-                {syncStep === 1 && 'Autenticando via OAuth...'}
-                {syncStep === 2 && 'Vinculando CAPI Oficialmente...'}
-                {syncStep === 3 && 'Pixel Vinculado!'}
+        <div className="flex flex-col gap-4.5 p-6 max-h-[80vh] overflow-y-auto">
+          {/* Nome do Pixel */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-foreground">Nome do Pixel</span>
+            <input
+              className={inputCls}
+              placeholder="ex: Produto Principal, Oferta iPhone"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={saving}
+            />
+          </label>
+
+          {/* Pixel Code */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-foreground">Pixel Code (TikTok Ads)</span>
+            <input
+              className={`${inputCls} font-mono`}
+              placeholder="ex: D3VA453C77U53GC01N70"
+              value={pixelCode}
+              onChange={(e) => setPixelCode(e.target.value)}
+              disabled={saving}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              Código de identificação do pixel gerado no Gerenciador de Eventos do TikTok.
+            </span>
+          </label>
+
+          {/* Access Token CAPI */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-foreground">Access Token da CAPI (Opcional se usar só navegador)</span>
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                className={`${inputCls} font-mono pr-20`}
+                placeholder="Cole o Access Token gerado no TikTok Events Manager"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                disabled={saving}
+              />
+              <div className="absolute inset-y-0 right-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowToken((v) => !v)}
+                  className="p-1 text-muted-foreground hover:text-foreground"
+                  title={showToken ? 'Ocultar' : 'Mostrar'}
+                >
+                  {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+                <PasteButton label="Access Token" onPaste={(val) => setAccessToken(val)} />
+              </div>
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              Necessário para que as compras confirmadas no checkout disparem via servidor (CAPI).
+            </span>
+          </label>
+
+          {/* Sincronização de Gateway */}
+          <div className="rounded-xl border border-border/80 bg-secondary/20 p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <CreditCard className="size-3.5 text-brand-cyan" />
+                  Sincronizar Gateway de Pagamento
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Selecione o checkout que processa as vendas deste produto:
+                </p>
+              </div>
+              {!showAddGateway && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddGateway(true)}
+                  className="text-[11px] font-semibold text-brand-cyan hover:underline"
+                >
+                  + Conectar outro
+                </button>
+              )}
+            </div>
+
+            {gateways.length === 0 && !showAddGateway ? (
+              <div className="flex flex-col items-center justify-center p-3 rounded-lg border border-dashed border-border text-center">
+                <p className="text-xs text-muted-foreground">Nenhum checkout cadastrado ainda.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddGateway(true)}
+                  className="mt-2 rounded-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary/70"
+                >
+                  + Conectar Checkout (Kiwify, Hotmart, etc.)
+                </button>
               </div>
             ) : (
-              <div className="flex justify-end gap-3">
+              <div className="flex flex-wrap gap-2">
+                {gateways.map((g) => {
+                  const isChecked = gatewayIds.includes(g.id)
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => toggleGateway(g.id)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                        isChecked
+                          ? 'border-brand-cyan/60 bg-brand-cyan/15 text-foreground shadow-xs'
+                          : 'border-border/80 bg-secondary/40 text-muted-foreground hover:border-border hover:text-foreground'
+                      }`}
+                    >
+                      <span
+                        className={`flex size-4 items-center justify-center rounded border ${
+                          isChecked ? 'border-brand-cyan bg-brand-cyan text-black' : 'border-border'
+                        }`}
+                      >
+                        {isChecked && <Check className="size-3 stroke-[3]" />}
+                      </span>
+                      <span>{g.name}</span>
+                      <span className="text-[10px] text-muted-foreground uppercase">({g.provider})</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Inline Add Gateway */}
+            {showAddGateway && (
+              <div className="mt-2 rounded-lg border border-border/80 bg-input/80 p-3 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Novo Gateway</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddGateway(false)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-muted-foreground">Plataforma</span>
+                    <select
+                      value={newGwProvider}
+                      onChange={(e) => setNewGwProvider(e.target.value)}
+                      className="rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs text-foreground"
+                    >
+                      <option value="kiwify">Kiwify</option>
+                      <option value="hotmart">Hotmart</option>
+                      <option value="perfectpay">PerfectPay</option>
+                      <option value="cakto">Cakto</option>
+                      <option value="stripe">Stripe</option>
+                      <option value="vega">Vega Checkout</option>
+                      <option value="adoorei">Adoorei</option>
+                      <option value="payt">PayT</option>
+                      <option value="generic">Outro / Genérico</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-muted-foreground">Identificação (opcional)</span>
+                    <input
+                      type="text"
+                      placeholder="ex: Kiwify Principal"
+                      value={newGwName}
+                      onChange={(e) => setNewGwName(e.target.value)}
+                      className="rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs text-foreground"
+                    />
+                  </label>
+                </div>
                 <button
                   type="button"
-                  onClick={onClose}
-                  disabled={saving}
-                  className="rounded-full px-5 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  onClick={handleCreateInlineGateway}
+                  disabled={creatingGw}
+                  className="self-end rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background hover:opacity-90 disabled:opacity-50"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAutoBind}
-                  disabled={saving}
-                  className="relative flex items-center gap-2 overflow-hidden rounded-full bg-brand-cyan px-6 py-2.5 text-sm font-bold text-black shadow-[0_0_15px_rgba(37,244,238,0.4)] transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  {pixel ? 'Salvar Configurações' : 'Puxar Meus Pixels'}
+                  {creatingGw ? 'Criando…' : 'Criar e Vincular ao Pixel'}
                 </button>
               </div>
             )}
           </div>
+
+          {/* Ativo switch */}
+          <label className="flex items-center justify-between rounded-xl border border-border/60 bg-secondary/20 p-3">
+            <span className="text-xs font-medium text-foreground">Pixel ativo para disparos</span>
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+              className="size-4 accent-brand-cyan rounded cursor-pointer"
+            />
+          </label>
+
+          {error && (
+            <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+        </div>
+
+        {/* Rodapé */}
+        <div className="flex items-center justify-end gap-2.5 border-t border-border/60 bg-secondary/20 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl px-4 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-xl bg-brand-cyan px-5 py-2.5 text-xs font-bold text-black shadow-[0_0_15px_rgba(37,244,238,0.25)] transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Salvando…
+              </>
+            ) : (
+              'Salvar Pixel & Sincronizar'
+            )}
+          </button>
         </div>
       </GlassCard>
     </div>

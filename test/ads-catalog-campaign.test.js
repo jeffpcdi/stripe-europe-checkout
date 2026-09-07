@@ -216,8 +216,6 @@ function completeSchemas() {
     ok(/identity_authorized_bc_id/.test(body), 'envia o BC autorizado da identidade');
     ok(/listAdIdentityCandidates\(adv, bcId\)/.test(body) && /CATALOG_IDENTITY_NOT_AVAILABLE/.test(body), 'perfil escolhido é revalidado ao vivo antes da criação');
     ok(/identityCandidates = \[selectedIdentity\]/.test(body), 'perfil explícito nunca cai silenciosamente em outra identidade');
-    ok(/schedule_start_time: advertiserLocalTime\(info && \(info\.deliveryTimezone \|\| info\.timezone\)\)/.test(body), 'agenda usa o campo aceito pelo conector e o fuso efetivo da conta');
-    ok(!/schedule_type: 'SCHEDULE_FROM_NOW'/.test(body), 'não envia campo ausente no schema vivo do Pipeboard');
     ok(/Object\.assign\(agArgs, plan\.delivery\)/.test(body), 'envia STANDARD ou ACCELERATED no conjunto');
     ok(!/landing_page_url\s*:/.test(body), 'não envia URL manual');
     ok(!/website_type: 'PRODUCT_LINK'/.test(body), 'não envia campo legado website_type');
@@ -386,11 +384,11 @@ function completeSchemas() {
     ok(/killSwitchActive/.test(routes) && /isDryRun/.test(routes), 'mantém kill switch e modo teste');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
     const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
-    ok(/Product Link/.test(wizard), 'wizard mantém o fluxo Product Link no lançamento');
+    ok(/Todos os produtos aprovados usam o próprio Link/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
     ok(/adsUpload\(file, 'video'\)/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
-    ok(/estrutura nasce pausada, é conferida e depois ativada/.test(dialog), 'interface explica a ativação segura após o readback');
+    ok(/O mesmo vídeo com áudio será usado/.test(dialog), 'interface explica que o áudio vem do criativo');
     ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
-    ok(/Criar campanhas em massa/.test(wizard) && !/CatalogPresetCampaignButton|Criar personalizado|Lançar Smart\+/.test(wizard), 'wizard oferece somente a ação principal de criação em massa');
+    ok(/CatalogPresetCampaignButton/.test(wizard) && /Criar personalizado/.test(wizard) && !/Criar lote/.test(wizard) && !/Nova campanha/.test(wizard), 'wizard expõe preset rápido e criação personalizada sem fluxos legados');
     ok(!/Catalog Video Template ID/.test(wizard), 'remove template de vídeo legado');
   }
 

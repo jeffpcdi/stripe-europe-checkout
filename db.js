@@ -15,14 +15,16 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
-// Aceita DATABASE_URL (padrão), POSTGRES_URL ou NEON_DATABASE_URL (prefixo usado
-// pela integração Neon do v0/Vercel) como fonte da connection string.
-const enabled = !!URL;
-const sql = enabled ? neon(URL) : null;
+const mockDb = require('./mock-db');
 
-if (!enabled) {
-  console.warn('[db] DATABASE_URL não definido — persistência desativada (modo só-arquivo).');
+const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
+const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
+let useFallback = isPlaceholder;
+const enabled = !isPlaceholder && !!URL;
+const sql = (!isPlaceholder && URL) ? neon(URL) : null;
+
+if (isPlaceholder) {
+  console.log('[db] DATABASE_URL não configurada ou placeholder — persistência local (mock-db) ativada.');
 }
 
 let ready = false;
@@ -38,7 +40,14 @@ function nsKey(accountId, name) {
 
 // Cria as tabelas se ainda não existirem. Idempotente.
 async function init() {
-  if (!enabled) return false;
+  if (useFallback || !sql) {
+    ready = true;
+    migrations.customDomains = true;
+    migrations.accountCurrency = true;
+    migrations.quarantine = true;
+    migrations.notifications = true;
+    return true;
+  }
   try {
     // ── Contas / sessões de login / gateways (multi-tenant) ──────────────
     await sql`CREATE TABLE IF NOT EXISTS accounts (
@@ -324,8 +333,14 @@ async function init() {
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
   } catch (err) {
-    console.error('[db] Erro ao inicializar:', err.message);
-    return false;
+    console.warn('[db] Conexão com Neon falhou (' + err.message + ') — usando mock-db local.');
+    useFallback = true;
+    ready = true;
+    migrations.customDomains = true;
+    migrations.accountCurrency = true;
+    migrations.quarantine = true;
+    migrations.notifications = true;
+    return true;
   }
 }
 
@@ -1424,29 +1439,98 @@ async function pruneSessions(olderThanDays) {
   }
 }
 
+function wrapFallback(fnName, realFn) {
+  return async function(...args) {
+    if (useFallback || !realFn) {
+      if (typeof mockDb[fnName] === 'function') return mockDb[fnName](...args);
+      return null;
+    }
+    try {
+      return await realFn(...args);
+    } catch (err) {
+      console.warn(`[db] ${fnName} falhou no Neon (${err.message}) — chaveando para mock-db.`);
+      useFallback = true;
+      if (typeof mockDb[fnName] === 'function') return mockDb[fnName](...args);
+      return null;
+    }
+  };
+}
+
 module.exports = {
   enabled,
   isReady: () => ready,
   init, initWithRetry,
   // contas / auth / migração
-  createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData, ping,
-  createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
-  listAuthSessions, deleteAuthSessionBySid, updateAccountName, setAccountTotp,
-  anonymizeOldLeads, accountDataCounts, deleteAccountCascade,
+  createAccount: wrapFallback('createAccount', createAccount),
+  getAccountByEmail: wrapFallback('getAccountByEmail', getAccountByEmail),
+  getAccountById: wrapFallback('getAccountById', getAccountById),
+  countAccounts: wrapFallback('countAccounts', countAccounts),
+  getFirstAccountId: wrapFallback('getFirstAccountId', getFirstAccountId),
+  claimLegacyData: wrapFallback('claimLegacyData', claimLegacyData),
+  ping: wrapFallback('ping', ping),
+  createAuthSession: wrapFallback('createAuthSession', createAuthSession),
+  getAuthSession: wrapFallback('getAuthSession', getAuthSession),
+  deleteAuthSession: wrapFallback('deleteAuthSession', deleteAuthSession),
+  pruneAuthSessions: wrapFallback('pruneAuthSessions', pruneAuthSessions),
+  listAuthSessions: wrapFallback('listAuthSessions', listAuthSessions),
+  deleteAuthSessionBySid: wrapFallback('deleteAuthSessionBySid', deleteAuthSessionBySid),
+  updateAccountName: wrapFallback('updateAccountName', updateAccountName),
+  setAccountTotp: wrapFallback('setAccountTotp', setAccountTotp),
+  anonymizeOldLeads: wrapFallback('anonymizeOldLeads', anonymizeOldLeads),
+  accountDataCounts: wrapFallback('accountDataCounts', accountDataCounts),
+  deleteAccountCascade: wrapFallback('deleteAccountCascade', deleteAccountCascade),
   // gateways
-  upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
+  upsertGateway: wrapFallback('upsertGateway', upsertGateway),
+  deleteGateway: wrapFallback('deleteGateway', deleteGateway),
+  loadGateways: wrapFallback('loadGateways', loadGateways),
+  getGatewayByToken: wrapFallback('getGatewayByToken', getGatewayByToken),
+  touchGateway: wrapFallback('touchGateway', touchGateway),
   // dados por conta
-  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, aggregateDaily, readDaily, insertAudit, listAudit, insertNotification, listNotifications, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
+  upsertLead: wrapFallback('upsertLead', upsertLead),
+  findLeadsByContact: wrapFallback('findLeadsByContact', findLeadsByContact),
+  insertEvent: wrapFallback('insertEvent', insertEvent),
+  archiveOldEvents: wrapFallback('archiveOldEvents', archiveOldEvents),
+  aggregateDaily: wrapFallback('aggregateDaily', aggregateDaily),
+  readDaily: wrapFallback('readDaily', readDaily),
+  insertAudit: wrapFallback('insertAudit', insertAudit),
+  listAudit: wrapFallback('listAudit', listAudit),
+  insertNotification: wrapFallback('insertNotification', insertNotification),
+  listNotifications: wrapFallback('listNotifications', listNotifications),
+  touchAuthSession: wrapFallback('touchAuthSession', touchAuthSession),
+  updateAccountPassword: wrapFallback('updateAccountPassword', updateAccountPassword),
+  deleteOtherAuthSessions: wrapFallback('deleteOtherAuthSessions', deleteOtherAuthSessions),
+  upsertVariant: wrapFallback('upsertVariant', upsertVariant),
+  loadState: wrapFallback('loadState', loadState),
+  reset: wrapFallback('reset', reset),
+  upsertSession: wrapFallback('upsertSession', upsertSession),
   // quarentena de webhooks rejeitados
-  insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
+  insertQuarantine: wrapFallback('insertQuarantine', insertQuarantine),
+  listQuarantine: wrapFallback('listQuarantine', listQuarantine),
+  countQuarantine: wrapFallback('countQuarantine', countQuarantine),
+  resolveQuarantine: wrapFallback('resolveQuarantine', resolveQuarantine),
+  pruneQuarantine: wrapFallback('pruneQuarantine', pruneQuarantine),
   // dedup durável de receita por pedido (Risco 5)
-  markOrderProcessed, pruneProcessedOrders,
-  saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
-  upsertPixel, deletePixel, loadPixels, getPixelByToken,
-  upsertLink, deleteLink, loadLinks,
-  insertPixelEvent, loadPixelEvents, prunePixelEvents,
+  markOrderProcessed: wrapFallback('markOrderProcessed', markOrderProcessed),
+  pruneProcessedOrders: wrapFallback('pruneProcessedOrders', pruneProcessedOrders),
+  saveConfig: wrapFallback('saveConfig', saveConfig),
+  loadConfig: wrapFallback('loadConfig', loadConfig),
+  loadAllConfigs: wrapFallback('loadAllConfigs', loadAllConfigs),
+  pruneSessions: wrapFallback('pruneSessions', pruneSessions),
+  upsertPixel: wrapFallback('upsertPixel', upsertPixel),
+  deletePixel: wrapFallback('deletePixel', deletePixel),
+  loadPixels: wrapFallback('loadPixels', loadPixels),
+  getPixelByToken: wrapFallback('getPixelByToken', getPixelByToken),
+  upsertLink: wrapFallback('upsertLink', upsertLink),
+  deleteLink: wrapFallback('deleteLink', deleteLink),
+  loadLinks: wrapFallback('loadLinks', loadLinks),
+  insertPixelEvent: wrapFallback('insertPixelEvent', insertPixelEvent),
+  loadPixelEvents: wrapFallback('loadPixelEvents', loadPixelEvents),
+  prunePixelEvents: wrapFallback('prunePixelEvents', prunePixelEvents),
   // domínios personalizados duráveis + moeda por conta (itens 241–252)
-  upsertCustomDomain, deleteCustomDomain, loadCustomDomains,
-  setAccountCurrency, loadAccountCurrencies,
+  upsertCustomDomain: wrapFallback('upsertCustomDomain', upsertCustomDomain),
+  deleteCustomDomain: wrapFallback('deleteCustomDomain', deleteCustomDomain),
+  loadCustomDomains: wrapFallback('loadCustomDomains', loadCustomDomains),
+  setAccountCurrency: wrapFallback('setAccountCurrency', setAccountCurrency),
+  loadAccountCurrencies: wrapFallback('loadAccountCurrencies', loadAccountCurrencies),
   migrationStatus: () => Object.assign({}, migrations)
 };

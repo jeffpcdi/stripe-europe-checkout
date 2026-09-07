@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
+import * as THREE from 'three'
 import { Crosshair, Maximize2, Minimize2, Minus, Plus } from 'lucide-react'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 
@@ -11,6 +12,19 @@ interface GeoPoint {
   size: number
   color: string
   label: string
+}
+
+interface GeoTotem {
+  lat: number
+  lng: number
+  height: number
+  radius: number
+  color: string
+  label: string
+  code: string
+  name: string
+  count: number
+  purchased: number
 }
 
 interface GeoArc {
@@ -103,6 +117,51 @@ function useReducedMotion(): boolean {
   return reduced
 }
 
+function createTotemMesh(d: GeoTotem): any {
+  const group = new THREE.Group()
+
+  // 1. Cilindro principal 3D (haste de acesso vertical idêntica ao mapa ao vivo da Shopify)
+  const geom = new THREE.CylinderGeometry(d.radius, d.radius * 1.05, d.height, 24)
+  geom.rotateX(Math.PI / 2)
+  geom.translate(0, 0, d.height / 2)
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: d.color,
+    emissive: d.color,
+    emissiveIntensity: 0.85,
+    roughness: 0.2,
+    metalness: 0.15,
+  })
+  const cylinder = new THREE.Mesh(geom, mat)
+  group.add(cylinder)
+
+  // 2. Farol / Beacon luminoso no topo da haste cilíndrica
+  const capGeom = new THREE.SphereGeometry(d.radius * 1.25, 16, 12)
+  capGeom.translate(0, 0, d.height)
+  const capMat = new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    emissive: d.color,
+    emissiveIntensity: 1.2,
+    roughness: 0.1,
+  })
+  const cap = new THREE.Mesh(capGeom, capMat)
+  group.add(cap)
+
+  // 3. Disco de ancoragem na crosta da Terra (Z = 0.05 para evitar z-fighting)
+  const baseGeom = new THREE.RingGeometry(d.radius * 0.8, d.radius * 2.4, 24)
+  baseGeom.translate(0, 0, 0.05)
+  const baseMat = new THREE.MeshBasicMaterial({
+    color: d.color,
+    transparent: true,
+    opacity: 0.6,
+    side: THREE.DoubleSide,
+  })
+  const baseRing = new THREE.Mesh(baseGeom, baseMat)
+  group.add(baseRing)
+
+  return group
+}
+
 function buildPoints(
   countries: GlobePanelProps['countries'],
   metric: 'visits' | 'sales' = 'visits',
@@ -118,18 +177,39 @@ function buildPoints(
       return bv - av
     })
   const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
-  const points: GeoPoint[] = base.flatMap((c) => {
+
+  // Totens 3D verticais (estilo mapa ao vivo da Shopify): colunas cilíndricas que sobem da Terra
+  const totems: GeoTotem[] = base.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
     const value = metric === 'sales' ? c.purchased : c.count
+    // Altura proporcional: 12 unidades (mínimo visível) até 34 unidades no globo
+    const norm = Math.log1p(value) / Math.log1p(max)
+    const height = 12 + norm * 24
+    const radius = 0.85 + norm * 0.45
+    const color = metric === 'sales' ? '#10b981' : c.purchased > 0 ? '#22d3ee' : '#25f4ee'
+
     return [
       {
         lat: coords[0],
         lng: coords[1],
-        // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1)
-        size: 0.22 + (Math.log1p(value) / Math.log1p(max)) * 1.1,
-        color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
-        label: `<div style="background: rgba(0, 0, 0, 0.68); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(37,244,238,0.4); font-family: monospace; font-size: 11px; color: #fff;">${escapeHtml(c.name)}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e">· ${c.purchased} vendas</span>` : ''}</div>`,
+        height,
+        radius,
+        color,
+        code: c.code,
+        name: c.name,
+        count: c.count,
+        purchased: c.purchased,
+        label: `<div style="background: rgba(8, 10, 16, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); padding: 9px 13px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 36px rgba(0,0,0,0.7); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; color: #fff;">
+          <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; font-size: 12px;">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${color}; box-shadow: 0 0 8px ${color};"></span>
+            <span>${escapeHtml(c.name)}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: rgba(255,255,255,0.75);">
+            <span style="font-weight: 500;">${c.count} ${c.count === 1 ? 'visita' : 'visitas'}</span>
+            ${c.purchased ? `<span style="color: #34d399; font-weight: 600;">· ${c.purchased} ${c.purchased === 1 ? 'venda' : 'vendas'}</span>` : ''}
+          </div>
+        </div>`,
       },
     ]
   })
@@ -186,7 +266,7 @@ function buildPoints(
         ]
       })
     : []
-  return { points, rings, arcs, labels }
+  return { totems, rings, arcs, labels }
 }
 
 /** True apenas na primeira montagem do globo nesta sessão do navegador. */
@@ -303,29 +383,30 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    // V2-45: material aprimorado — emissive ciano mais presente + shininess
-    // para o oceano refletir a luz como água (specular sutil da marca).
+    // Material refinado: brilho (glow) de superfície suave, elegante e sem estourar
     try {
       const mat = g.globeMaterial?.()
       if (mat) {
-        mat.emissive?.set?.('#0b3a40')
-        mat.emissiveIntensity = 0.28
-        mat.shininess = 12
-        mat.specular?.set?.('#1a6b70')
+        mat.emissive?.set?.('#041117')
+        mat.emissiveIntensity = 0.15
+        mat.shininess = 28
+        mat.specular?.set?.('#38bdf8')
       }
     } catch {
       /* material indisponível nesta versão */
     }
 
-    // V2-46: luzes com temperatura da marca — a direcional puxa levemente
-    // para ciano-frio, dando ao globo o tom "neon noite" do dashboard.
+    // Iluminação simplificada e suave: reduz a complexidade das luzes
+    // para um acabamento sedoso, homogêneo e sem sombras duras
     try {
       for (const light of g.lights()) {
         if (light.type === 'DirectionalLight') {
-          light.intensity = 2.5
-          light.color?.set?.('#eafffe')
+          light.intensity = 1.3
+          light.color?.set?.('#f0f9ff')
         }
-        if (light.type === 'AmbientLight') light.intensity = 1.55
+        if (light.type === 'AmbientLight') {
+          light.intensity = 1.15
+        }
       }
     } catch {
       /* API de luzes indisponível nesta versão */
@@ -341,7 +422,7 @@ function GlobeCanvas({
   // /api/live a cada 5s), forçando o three-globe a reconstruir tudo.
   // Fase 5: `pulses` entra na dependência — muda só quando um ping é
   // adicionado/expira (cadência do poll de 5s), nunca por frame.
-  const { points, rings, arcs, labels } = useMemo(
+  const { totems, rings, arcs, labels } = useMemo(
     () => buildPoints(countries, metric, pulses),
     [countries, metric, pulses],
   )
@@ -366,53 +447,47 @@ function GlobeCanvas({
       globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
       showAtmosphere
-      atmosphereColor={CYAN}
-      /* Halo presente, mas sem "névoa" sobre os dados. */
-      atmosphereAltitude={0.22}
-      pointsData={points}
-      pointLat="lat"
-      pointLng="lng"
-      pointColor="color"
-      /* Item 12: pontos mais altos e maiores — presença vibrante */
-      pointAltitude={(d: object) => (d as GeoPoint).size * 0.35}
-      pointRadius={(d: object) => (d as GeoPoint).size * 1.15}
-      pointLabel="label"
-      pointsMerge={false}
-      /* V2-49: transição suave quando os dados do poll mudam */
-      pointsTransitionDuration={600}
-      /* Ondas suaves nos três hotspots; pulsos recentes entram acima delas. */
+      atmosphereColor="#38bdf8"
+      atmosphereAltitude={0.13}
+      /* Totens 3D verticais de pontos de acesso (Shopify Live View) */
+      objectsData={totems}
+      objectLat="lat"
+      objectLng="lng"
+      objectAltitude={0}
+      objectFacesSurfaces={true}
+      objectThreeObject={(d: object) => createTotemMesh(d as GeoTotem)}
+      objectLabel="label"
       ringsData={rings}
-      ringColor={() => (t: number) => metric === 'sales' ? `rgba(34,197,94,${(1 - t) * 0.68})` : `rgba(37,244,238,${(1 - t) * 0.68})`}
-      ringMaxRadius={(d: object) => 1.6 + (d as GeoRing).intensity * 2.5}
-      ringPropagationSpeed={0.85}
-      ringRepeatPeriod={2600}
-      /* Etiquetas enxutas para os dois pontos dominantes. */
+      ringColor={() => (t: number) => metric === 'sales' ? `rgba(16,185,129,${(1 - t) * 0.42})` : `rgba(56,189,248,${(1 - t) * 0.42})`}
+      ringMaxRadius={(d: object) => 1.4 + (d as GeoRing).intensity * 1.8}
+      ringPropagationSpeed={0.75}
+      ringRepeatPeriod={2800}
       labelsData={labels}
       labelLat="lat"
       labelLng="lng"
       labelText="text"
       labelSize="size"
       labelColor={() => 'rgba(255,255,255,0.92)'}
-      labelDotRadius={0.34}
-      labelAltitude={0.014}
+      labelDotRadius={0.28}
+      labelAltitude={0.012}
       labelResolution={2}
       arcsData={visibleArcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
       arcEndLat="endLat"
       arcEndLng="endLng"
-      arcColor={() => [CYAN, PINK]}
-      arcAltitudeAutoScale={0.4}
-      arcStroke={0.48}
+      arcColor={() => ['rgba(56, 189, 248, 0.7)', 'rgba(52, 211, 153, 0.7)']}
+      arcAltitudeAutoScale={0.32}
+      arcStroke={0.36}
       arcDashLength={0.35}
       arcDashGap={0.65}
-      arcDashAnimateTime={2200}
+      arcDashAnimateTime={2400}
       arcsTransitionDuration={600}
     />
   )
 }
 
-/** Controles flutuantes: zoom + / − / recentrar / tela cheia */
+/** Controles flutuantes refinados: zoom + / − / recentrar / tela cheia */
 function GlobeControls({
   onZoomIn,
   onZoomOut,
@@ -428,59 +503,64 @@ function GlobeControls({
 }) {
   return (
     <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
-      <button type="button" onClick={onZoomIn} className="globe-ctl" aria-label="Aproximar">
-        <Plus className="size-4" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onZoomIn}
+        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        aria-label="Aproximar"
+      >
+        <Plus className="size-3.5" aria-hidden="true" />
       </button>
-      <button type="button" onClick={onZoomOut} className="globe-ctl" aria-label="Afastar">
-        <Minus className="size-4" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onZoomOut}
+        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        aria-label="Afastar"
+      >
+        <Minus className="size-3.5" aria-hidden="true" />
       </button>
-      <button type="button" onClick={onRecenter} className="globe-ctl" aria-label="Recentrar globo">
-        <Crosshair className="size-4" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onRecenter}
+        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        aria-label="Recentrar globo"
+      >
+        <Crosshair className="size-3.5" aria-hidden="true" />
       </button>
       <button
         type="button"
         onClick={onFullscreen}
-        className="globe-ctl border-brand-cyan/50 shadow-[0_0_10px_rgba(37,244,238,0.16)]"
+        className="flex size-7 items-center justify-center rounded-lg border border-cyan-400/40 bg-black/40 text-white/80 shadow-[0_0_10px_rgba(37,244,238,0.15)] backdrop-blur-md transition-all hover:border-cyan-400 hover:bg-white/10 hover:text-white"
         aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
         aria-pressed={isFullscreen}
       >
         {isFullscreen ? (
-          <Minimize2 className="size-4" aria-hidden="true" />
+          <Minimize2 className="size-3.5" aria-hidden="true" />
         ) : (
-          <Maximize2 className="size-4" aria-hidden="true" />
+          <Maximize2 className="size-3.5" aria-hidden="true" />
         )}
       </button>
     </div>
   )
 }
 
-/* Refino 10 + V2-51/52/53: HUD orbital completo — cantos de mira, legenda,
-   vinheta interna que foca o globo no centro e anel de latitude decorativo */
+/* Vinheta limpa e suave sem poluição visual */
 function GlobeHud({ empty, note }: { empty?: boolean; note?: React.ReactNode }) {
   return (
     <>
-      {/* V2-51: vinheta radial interna — bordas escurecem, globo salta */}
       <span
         className="pointer-events-none absolute inset-0 z-[2]"
         aria-hidden="true"
         style={{
           background:
-            'radial-gradient(ellipse 75% 70% at 50% 48%, transparent 62%, rgba(0,0,0,0.42) 100%)',
+            'radial-gradient(ellipse 80% 75% at 50% 50%, transparent 60%, rgba(3, 4, 8, 0.55) 100%)',
         }}
       />
-      {/* Estado vazio: o chamador pode passar uma nota contextual (HeroGlobe
-          distingue "sem tracking" / "sem visitantes agora" / "erro de fetch").
-          Sem nota, mantém o texto genérico (página /geo). */}
-      {empty ? (
-        <span className="globe-empty-note">
-          {note ?? (
-            <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
-              Aguardando tráfego
-            </span>
-          )}
-        </span>
+      {empty && note ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+          {note}
+        </div>
       ) : null}
-      {/* Refino 4: reflexo de chão ciano ancora o globo ao card */}
       <span className="globe-floor" aria-hidden="true" />
     </>
   )

@@ -1,10 +1,10 @@
 'use client'
 
-// Fluxo único: quantidade, orçamento e um ou vários vídeos. Pixel, evento de
-// Compra, catálogo, público, capa e Product Link vêm do backend.
+// Fluxo único: um vídeo, quantidade e orçamento. Pixel, evento de Compra,
+// catálogo, público, capa e Product Link vêm do backend.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
 import { ApiError, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
@@ -42,10 +42,11 @@ export function CatalogQuickCampaignsDialog({
   const [count, setCount] = useState(1)
   const [budget, setBudget] = useState('50')
   const [namePrefix, setNamePrefix] = useState('')
-  const [videos, setVideos] = useState<{ url: string; name: string }[]>(
-    initialVideoUrl ? [{ url: initialVideoUrl, name: 'Vídeo já enviado' }] : []
-  )
+  const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '')
+  const [videoName, setVideoName] = useState(initialVideoUrl ? 'Vídeo já enviado' : '')
+  const [bidStrategy, setBidStrategy] = useState<'lowest_cost' | 'cost_cap'>('lowest_cost')
   const [bidAmount, setBidAmount] = useState('')
+  const [acceleratedDelivery, setAcceleratedDelivery] = useState(false)
   const [identityKey, setIdentityKey] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -61,28 +62,31 @@ export function CatalogQuickCampaignsDialog({
   } = useAdsCatalogIdentities(open, catalog.id, advertiserId)
   const identities = useMemo(() => identityData?.identities ?? [], [identityData])
   const costCapAvailable = capabilities?.catalogCostCap === true
-  
-  // Strategy selection
-  const [strategy, setStrategy] = useState<'abo' | 'cbo' | null>(null)
-  const [investmentProfile, setInvestmentProfile] = useState<'conservative' | 'aggressive'>('aggressive')
-  
+  const acceleratedDeliveryAvailable = capabilities?.catalogAcceleratedDelivery === true
   const selectedIdentity = useMemo(
     () => identities.find((identity) => `${identity.identityId}:${identity.identityType}` === identityKey) ?? null,
     [identities, identityKey],
   )
   useEffect(() => {
+    if (costCapAvailable) return
+    setBidStrategy('lowest_cost')
+    setBidAmount('')
+    setAcceleratedDelivery(false)
+  }, [costCapAvailable])
+  useEffect(() => {
     if (!open) return
     setCount(1)
     setBudget(String(TIKTOK_MIN_BUDGET))
     setNamePrefix('')
-    setVideos(initialVideoUrl ? [{ url: initialVideoUrl, name: 'Vídeo já enviado' }] : [])
+    setVideoUrl(initialVideoUrl || '')
+    setVideoName(initialVideoUrl ? 'Vídeo já enviado' : '')
+    setBidStrategy('lowest_cost')
     setBidAmount('')
+    setAcceleratedDelivery(false)
     setIdentityKey('')
     setAdvancedOpen(false)
     setUploading(false)
     setBusy(false)
-    setStrategy(null)
-    setInvestmentProfile('aggressive')
     idempotencyKeyRef.current = null
   }, [open, advertiserId, catalog.id, initialVideoUrl])
 
@@ -95,6 +99,7 @@ export function CatalogQuickCampaignsDialog({
   const budgetValid = Number.isFinite(budgetNumber) && budgetNumber >= TIKTOK_MIN_BUDGET
   const countValid = Number.isInteger(count) && count >= 1 && count <= MAX_COUNT
   const bidAmountNumber = Number(String(bidAmount).replace(',', '.'))
+  const bidValid = bidStrategy === 'lowest_cost' || (Number.isFinite(bidAmountNumber) && bidAmountNumber > 0)
   const effectivePrefix = namePrefix.trim() || `${catalog.name} — VSA`
   const pad = Math.max(2, String(count).length)
   const sampleName = (index: number) => `${effectivePrefix} ${String(index).padStart(pad, '0')}`
@@ -111,36 +116,32 @@ export function CatalogQuickCampaignsDialog({
     return identity.username.startsWith('@') ? identity.username : `@${identity.username}`
   }
 
-  const submitHint = !countValid
-    ? `Escolha de 1 a ${MAX_COUNT} campanhas`
-    : !budgetValid
-      ? `Orçamento mínimo: ${advertiserCurrency} ${TIKTOK_MIN_BUDGET}/dia`
-      : videos.length === 0
-        ? 'Envie os vídeos criativos para liberar a criação'
+  const advancedSummary = `${bidStrategy === 'cost_cap' ? 'Custo-alvo' : 'Máxima entrega'} · ${selectedIdentity ? identityName(selectedIdentity) : 'perfil automático'}`
+  const submitHint = !budgetValid
+    ? `Orçamento mínimo: ${advertiserCurrency} ${TIKTOK_MIN_BUDGET}/dia`
+    : !bidValid
+      ? 'Informe o CPA alvo para continuar'
+      : !videoUrl
+        ? 'Envie o vídeo para liberar a criação'
         : `${count} campanha${count === 1 ? '' : 's'} pronta${count === 1 ? '' : 's'} para criar`
 
   async function create() {
     if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
     if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
-    if (videos.length === 0) return toast.error('Envie os vídeos das campanhas')
-    
-    // Map simplified investment profile to TikTok API fields if CBO
-    const finalBidStrategy = strategy === 'cbo' && investmentProfile === 'conservative' ? 'cost_cap' : 'lowest_cost'
-    const finalBidAmount = finalBidStrategy === 'cost_cap' ? bidAmountNumber || budgetNumber / 2 : undefined
-    
+    if (!bidValid) return toast.error('Informe um CPA alvo maior que zero')
+    if (!videoUrl) return toast.error('Envie o vídeo das campanhas')
     setBusy(true)
     try {
       const result = await adsCreateCatalogCampaignBatch(catalog.id, advertiserId, {
         count,
         budgetAmount: budgetNumber,
         budgetType: 'daily',
-        budgetOptimization: strategy === 'cbo' ? 'campaign' : 'adgroup',
-        bidStrategy: finalBidStrategy,
-        bidAmount: finalBidAmount,
-        deliveryMode: 'standard',
+        budgetOptimization: 'adgroup',
+        bidStrategy,
+        bidAmount: bidStrategy === 'cost_cap' ? bidAmountNumber : undefined,
+        deliveryMode: acceleratedDelivery && bidStrategy === 'cost_cap' ? 'accelerated' : 'standard',
         productScope: 'all',
-        videoUrl: videos[0].url,
-        videoUrls: videos.map(v => v.url),
+        videoUrl,
         namePrefix: effectivePrefix,
         identityId: selectedIdentity?.identityId,
         identityType: selectedIdentity?.identityType,
@@ -167,13 +168,12 @@ export function CatalogQuickCampaignsDialog({
 
   async function uploadVideo(file: File) {
     if (!/\.(mp4|mov)$/i.test(file.name)) return toast.error('Envie um vídeo MP4 ou MOV')
-    if (videos.length >= MAX_COUNT) return toast.error(`Limite máximo de ${MAX_COUNT} vídeos`)
     setUploading(true)
     try {
       const result = await adsUpload(file, 'video')
-      setVideos((current) => current.length >= MAX_COUNT ? current : [...current, { url: result.url, name: file.name }])
-      idempotencyKeyRef.current = null
-      toast.success('Vídeo adicionado')
+      update(setVideoUrl, result.url)
+      setVideoName(file.name)
+      toast.success('Vídeo pronto')
     } catch (error) {
       toast.error('Não foi possível enviar o vídeo', { hint: error instanceof Error ? error.message : undefined })
     } finally {
@@ -191,69 +191,47 @@ export function CatalogQuickCampaignsDialog({
         aria-modal="true"
         aria-label={`Criar campanhas do catálogo ${catalog.name}`}
         aria-busy={busy}
-        className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-primary/40 bg-background shadow-[0_0_50px_rgba(37,244,238,0.16)] sm:max-w-xl sm:rounded-2xl"
+        className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:max-w-xl sm:rounded-2xl"
       >
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3.5 sm:px-5">
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-              <Rocket className="size-4 text-primary" aria-hidden="true" /> {strategy ? 'Configurar Campanha' : 'Escolha sua Estratégia'}
+              <Rocket className="size-4 text-primary" aria-hidden="true" /> Criar campanhas
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {strategy ? 'Informe o orçamento e envie os vídeos criativos.' : 'Qual é o seu objetivo principal hoje?'}
+              Informe quantidade, orçamento e vídeo. A dashboard valida e ativa tudo.
             </p>
           </div>
-          <button type="button" className="btn-ghost size-8 shrink-0 justify-center p-0" onClick={() => strategy ? setStrategy(null) : onClose()} disabled={busy} aria-label={strategy ? 'Voltar' : 'Fechar'}>
+          <button type="button" className="btn-ghost size-8 shrink-0 justify-center p-0" onClick={onClose} disabled={busy} aria-label="Fechar">
             <X className="size-4 min-w-4 shrink-0" aria-hidden="true" />
           </button>
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-5">
-        
-        {!strategy ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <button type="button" onClick={() => setStrategy('abo')} className="flex flex-col items-start p-4 rounded-2xl border border-border bg-card hover:border-brand-cyan/50 hover:bg-brand-cyan/5 transition-colors text-left shadow-sm">
-              <div className="size-8 rounded-full bg-brand-cyan/20 flex items-center justify-center mb-3">
-                <Video className="size-4 text-brand-cyan" />
-              </div>
-              <span className="text-sm font-bold text-foreground">Teste de Criativos</span>
-              <span className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">Crie de 1 a 50 campanhas ABO com um ou vários vídeos.</span>
-            </button>
-            <button type="button" onClick={() => setStrategy('cbo')} className="flex flex-col items-start p-4 rounded-2xl border border-border bg-card hover:border-warning/50 hover:bg-warning/5 transition-colors text-left shadow-sm">
-              <div className="size-8 rounded-full bg-warning/20 flex items-center justify-center mb-3">
-                <Rocket className="size-4 text-warning" />
-              </div>
-              <span className="text-sm font-bold text-foreground">Escala (CBO)</span>
-              <span className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">Crie de 1 a 50 campanhas CBO e distribua o orçamento.</span>
-            </button>
-          </div>
-        ) : (
-          <>
-        <fieldset className="rounded-xl border border-primary/40 bg-primary/[0.06] p-3">
-          <legend className="px-1 text-xs font-semibold text-foreground">Quantidade de campanhas</legend>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-foreground">Quantidade</span>
+          <div className="flex flex-wrap items-center gap-1.5">
             {COUNT_PRESETS.map((preset) => (
               <button
                 key={preset}
                 type="button"
                 onClick={() => update(setCount, preset)}
-                className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${count === preset ? 'border-primary bg-primary text-black shadow-[var(--glow-cyan-soft)]' : 'border-border bg-background text-foreground hover:border-primary/60'}`}
-                aria-pressed={count === preset}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${count === preset ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-secondary/40 text-foreground hover:border-primary/50'}`}
               >
                 {preset}
               </button>
             ))}
             <input
-              className="input-base w-20 text-center text-xs font-semibold"
+              className="input-base w-20 text-center text-xs"
               type="number"
               min={1}
               max={MAX_COUNT}
               value={count}
-              onChange={(event) => update(setCount, Math.trunc(Number(event.target.value) || 0))}
+              onChange={(event) => update(setCount, Math.max(1, Math.min(MAX_COUNT, Math.trunc(Number(event.target.value) || 1))))}
               aria-label="Quantidade de campanhas"
             />
           </div>
-          <p className="mt-2 text-[10px] text-muted-foreground">Um vídeo pode ser reutilizado no lote. Com vários vídeos, a distribuição é automática.</p>
-        </fieldset>
+        </div>
 
         <label className="flex flex-col gap-1.5 text-xs">
           <span className="font-medium text-foreground">Orçamento diário por campanha ({advertiserCurrency})</span>
@@ -273,53 +251,26 @@ export function CatalogQuickCampaignsDialog({
           )}
         </label>
 
-        <label className="rounded-xl border border-border bg-card p-3 shadow-sm">
-          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeos do lote ({videos.length})</span>
-          <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">Um vídeo será usado nas {count} campanhas. Se enviar vários, eles serão distribuídos entre elas.</span>
-          
-          {videos.length > 0 && (
-            <div className="mt-3 flex flex-col gap-2">
-              {videos.map((vid, idx) => (
-                <div key={`${vid.url}-${idx}`} className="flex items-center justify-between rounded-md border border-border bg-secondary/20 p-2">
-                  <span className="max-w-[200px] truncate text-[11px] font-medium sm:max-w-xs">{vid.name}</span>
-                  <button
-                    type="button"
-                    className="text-muted-foreground transition-colors hover:text-error"
-                    onClick={() => update(setVideos, videos.filter((_, i) => i !== idx))}
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
+        <label className="rounded-lg border border-border bg-card p-3">
+          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo das campanhas</span>
+          <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">O mesmo vídeo com áudio será usado nas campanhas; a capa é automática.</span>
           <span className="mt-3 flex flex-wrap items-center gap-2">
             <span className="btn-ghost cursor-pointer text-xs">
               {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-              {videos.length > 0 ? 'Adicionar mais criativos' : 'Enviar vídeo(s)'}
+              {videoUrl ? 'Trocar vídeo' : 'Enviar vídeo'}
               <input
                 className="sr-only"
                 type="file"
-                multiple
                 accept="video/mp4,video/quicktime,.mp4,.mov"
                 disabled={uploading}
                 onChange={(event) => {
-                  const files = event.target.files
-                  if (!files || files.length === 0) return
-                  const fileList = Array.from(files).slice(0, Math.max(0, MAX_COUNT - videos.length))
-                  
-                  // Para uploads múltiplos sequenciais, criamos uma fila ou promises
-                  const startUpload = async () => {
-                    for (const file of fileList) {
-                      await uploadVideo(file)
-                    }
-                  }
-                  void startUpload()
+                  const file = event.target.files?.[0]
+                  if (file) void uploadVideo(file)
                   event.currentTarget.value = ''
                 }}
               />
             </span>
+            {videoName && <span className="max-w-full truncate text-[10px] text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
           </span>
         </label>
 
@@ -330,7 +281,7 @@ export function CatalogQuickCampaignsDialog({
           Pixel, Compra e capa são automáticos. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
         </div>
 
-        <div className="rounded-xl border border-border px-3 py-2 shadow-sm">
+        <div className="rounded-lg border border-border px-3 py-2">
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 text-left text-[11px] text-muted-foreground"
@@ -339,39 +290,45 @@ export function CatalogQuickCampaignsDialog({
             aria-controls="catalog-campaign-delivery-profile"
           >
             <span className="min-w-0">
-              <span className="font-medium text-foreground">Configurações Avançadas</span>
-              <span className="ml-2 text-[10px]">{strategy === 'cbo' ? 'Perfil e Entrega' : 'Perfil'}</span>
+              <span className="font-medium text-foreground">Entrega e perfil</span>
+              <span className="ml-2 text-[10px]">{advancedSummary}</span>
             </span>
             <ChevronDown className={`size-3.5 min-w-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
           {advancedOpen && (
           <div className="mt-3 flex flex-col gap-4">
-            {strategy === 'cbo' && (
             <fieldset className="flex flex-col gap-2">
-              <legend className="text-[11px] font-medium text-foreground">Perfil de Investimento</legend>
-              <div className="grid grid-cols-2 gap-2">
+              <legend className="text-[11px] font-medium text-foreground">Como gastar o orçamento</legend>
+              <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
                   type="button"
-                  className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${investmentProfile === 'aggressive' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
-                  onClick={() => setInvestmentProfile('aggressive')}
+                  className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${bidStrategy === 'lowest_cost' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
+                  onClick={() => {
+                    update(setBidStrategy, 'lowest_cost')
+                    setAcceleratedDelivery(false)
+                  }}
+                  aria-pressed={bidStrategy === 'lowest_cost'}
                 >
-                  <strong className="block font-semibold">Agressivo 🔥</strong>
-                  Máxima entrega. Foca em volume rápido.
+                  <strong className="block font-semibold">Máxima entrega</strong>
+                  Usa o orçamento para gerar mais compras.
                 </button>
-                <button
-                  type="button"
-                  className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${investmentProfile === 'conservative' ? 'border-brand-cyan bg-brand-cyan/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-brand-cyan/40'}`}
-                  onClick={() => setInvestmentProfile('conservative')}
-                >
-                  <strong className="block font-semibold">Conservador ❄️</strong>
-                  Controla CPA. Foca em eficiência.
-                </button>
+                {costCapAvailable && (
+                  <button
+                    type="button"
+                    className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${bidStrategy === 'cost_cap' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
+                    onClick={() => update(setBidStrategy, 'cost_cap')}
+                    aria-pressed={bidStrategy === 'cost_cap'}
+                  >
+                    <strong className="block font-semibold">Custo-alvo</strong>
+                    Busca manter o CPA próximo da meta.
+                  </button>
+                )}
               </div>
 
-              {investmentProfile === 'conservative' && costCapAvailable && (
-                <div className="rounded-lg border border-border bg-secondary/20 p-3 mt-2">
+              {bidStrategy === 'cost_cap' && (
+                <div className="rounded-lg border border-border bg-secondary/20 p-3">
                   <label className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="font-medium text-foreground">Meta de CPA (Opcional)</span>
+                    <span className="font-medium text-foreground">CPA alvo ({advertiserCurrency})</span>
                     <input
                       className="input-base"
                       type="number"
@@ -380,14 +337,29 @@ export function CatalogQuickCampaignsDialog({
                       step="0.01"
                       value={bidAmount}
                       onChange={(event) => update(setBidAmount, event.target.value)}
-                      placeholder="Deixe em branco para usar 50% do orçamento"
+                      placeholder="Ex.: 15,00"
                     />
+                    {!bidValid && bidAmount.trim() !== '' && (
+                      <span className="text-[10px] text-warning" role="alert">Informe um valor maior que zero.</span>
+                    )}
                   </label>
+                  {acceleratedDeliveryAvailable && (
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 text-[11px]">
+                      <input
+                        className="mt-0.5 accent-primary"
+                        type="checkbox"
+                        checked={acceleratedDelivery}
+                        onChange={(event) => update(setAcceleratedDelivery, event.target.checked)}
+                      />
+                      <span>
+                        <strong className="block font-medium text-foreground">Entrega acelerada</strong>
+                        <span className="text-muted-foreground">Pode gastar mais rápido e oscilar o CPA nos primeiros dias.</span>
+                      </span>
+                    </label>
+                  )}
                 </div>
               )}
             </fieldset>
-            )}
-
 
             <label className="flex flex-col gap-1.5 text-[11px]">
               <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -451,19 +423,15 @@ export function CatalogQuickCampaignsDialog({
           </div>
           )}
         </div>
-        </>
-        )}
         </div>
 
-        {strategy && (
-        <footer className="flex shrink-0 flex-col gap-2 border-t border-primary/25 bg-background/95 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <p className={`text-[10px] ${videos.length > 0 && budgetValid ? 'text-success' : 'text-muted-foreground'}`}>{submitHint}</p>
-          <button type="button" className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-extrabold text-black shadow-[var(--glow-cyan)] transition-all hover:-translate-y-px hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto" onClick={create} disabled={!countValid || !budgetValid || videos.length === 0 || uploading || busy}>
+        <footer className="flex shrink-0 flex-col gap-2 border-t border-border bg-background/95 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <p className={`text-[10px] ${videoUrl && budgetValid && bidValid ? 'text-success' : 'text-muted-foreground'}`}>{submitHint}</p>
+          <button type="button" className="btn-primary w-full justify-center text-xs disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto" onClick={create} disabled={!countValid || !budgetValid || !bidValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
             Criar e ativar {count} campanha{count === 1 ? '' : 's'}
           </button>
         </footer>
-        )}
       </div>
     </div>
   )

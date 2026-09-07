@@ -42,12 +42,16 @@ require.cache[rdbPath] = {
   },
 };
 
+const originalFetch = global.fetch;
 let capturedHeader = null;
 let fetchCalls = 0;
-global.fetch = async (_url, opts) => {
-  fetchCalls++;
-  capturedHeader = opts && opts.headers && opts.headers['Access-Token'];
-  return { status: 200, json: async () => ({ code: 0, message: 'OK' }) };
+global.fetch = async (url, opts) => {
+  if (typeof url === 'string' && url.includes('tiktok.com')) {
+    fetchCalls++;
+    capturedHeader = opts && opts.headers && opts.headers['Access-Token'];
+    return { status: 200, json: async () => ({ code: 0, message: 'OK' }), text: async () => '{"code":0,"message":"OK"}' };
+  }
+  return originalFetch(url, opts);
 };
 
 const tt = require('../tiktok-events');

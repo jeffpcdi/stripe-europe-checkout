@@ -749,6 +749,56 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Públicos Personalizados (Remarketing / Lookalike via Pipeboard) ───────
+  app.get('/api/ads/audiences', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const selected = await requireAdvertiser(req.account.id, null, req.query.adAccountId || req.query.advertiserId, null);
+      const audiences = await pipeboard.listCustomAudiences(selected.advertiserId, {
+        page: req.query.page,
+        pageSize: req.query.pageSize,
+        fresh: req.query.fresh === '1',
+      });
+      res.json({ audiences });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/audiences', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      let pixelId = body.pixelId;
+      if (!pixelId) {
+        const context = await pixelContext(req.account.id, selected.advertiserId).catch(() => null);
+        if (context && context.binding) pixelId = context.binding.pixelId;
+      }
+      const result = await pipeboard.createCustomAudience(selected.advertiserId, {
+        ...body,
+        pixelId,
+      });
+      res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/audiences/lookalike', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      const result = await pipeboard.createLookalikeAudience(selected.advertiserId, body);
+      res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/audiences', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      const audienceIds = Array.isArray(body.audienceIds) ? body.audienceIds : [body.audienceId];
+      const result = await pipeboard.deleteCustomAudiences(selected.advertiserId, audienceIds);
+      res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
   app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -1560,7 +1610,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
       }
 
-      // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/leads)
+      // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/events de venda)
       const revByDay = {}; const salesByDay = {};
       let revenueCents = 0, sales = 0;
       // F2 (guarda de moeda): a receita vem dos gateways (ex.: BRL) e o gasto
@@ -1570,17 +1620,36 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const revCurCount = {};
       if (typeof stats.getStats === 'function') {
         const snap = stats.getStats(req.account.id) || {};
-        (snap.leads || []).forEach((l) => {
-          if (l.stage !== 'purchased' || !l.convertedAt) return;
-          const day = adsDay(l.convertedAt, advertiserTimeZone);
-          if (day < fromDate || day > toDate) return;
-          const cents = Number(l.reportedAmount) || 0;
-          revenueCents += cents; sales += 1;
-          revByDay[day] = (revByDay[day] || 0) + cents;
-          salesByDay[day] = (salesByDay[day] || 0) + 1;
-          const rc = String(l.reportedCurrency || 'BRL').toUpperCase();
-          revCurCount[rc] = (revCurCount[rc] || 0) + cents;
-        });
+        const saleEvents = (snap.events || []).filter((e) => e && e.type === 'sale');
+        if (saleEvents.length > 0) {
+          saleEvents.forEach((e) => {
+            const evAt = e.at || e.convertedAt;
+            if (!evAt) return;
+            const day = adsDay(evAt, advertiserTimeZone);
+            if (day < fromDate || day > toDate) return;
+            const cents = Number(e.amount) || 0;
+            revenueCents += cents; sales += 1;
+            revByDay[day] = (revByDay[day] || 0) + cents;
+            salesByDay[day] = (salesByDay[day] || 0) + 1;
+            const rc = String(e.currency || 'BRL').toUpperCase();
+            revCurCount[rc] = (revCurCount[rc] || 0) + cents;
+          });
+        } else {
+          // Fallback para leads convertidos se não houver events
+          (snap.leads || []).forEach((l) => {
+            if (l.stage !== 'purchased') return;
+            const convDate = l.convertedAt || l.purchasedAt || l.at;
+            if (!convDate) return;
+            const day = adsDay(convDate, advertiserTimeZone);
+            if (day < fromDate || day > toDate) return;
+            const cents = Number(l.reportedAmount) || Number(l.amount) || 0;
+            revenueCents += cents; sales += 1;
+            revByDay[day] = (revByDay[day] || 0) + cents;
+            salesByDay[day] = (salesByDay[day] || 0) + 1;
+            const rc = String(l.reportedCurrency || l.currency || 'BRL').toUpperCase();
+            revCurCount[rc] = (revCurCount[rc] || 0) + cents;
+          });
+        }
       }
       const revenueCurrency = Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0] ? Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0][0] : null;
 
