@@ -41,8 +41,8 @@ function dayStr(v) { return String(v || '').slice(0, 10); }
 function syncKey(accountId, advertiserId) { return accountId + '|' + advertiserId; }
 
 // Coleta métricas DIÁRIAS de um nível (dimensão de entidade + stat_time_day).
-// Uma linha por (entidade, dia). Falha isolada devolve [] (o snapshot preserva
-// o cache antigo daquele nível em vez de zerá-lo).
+// Uma linha por (entidade, dia). Qualquer falha cancela a substituição do
+// snapshot inteiro, mantendo a última leitura completa disponível.
 const LEVELS = {
   campaign: { level: 'AUCTION_CAMPAIGN', dimKey: 'campaign_id' },
   adgroup: { level: 'AUCTION_ADGROUP', dimKey: 'adgroup_id' },
@@ -69,7 +69,10 @@ async function collectDaily(advertiserId, levelName, startDate, endDate) {
   // Promise.all só encurta a espera de agendamento.
   const perChunk = await Promise.all(chunks.map((c) =>
     provider.getInsights(advertiserId, { level, startDate: c.start, endDate: c.end, dimensions: [dimKey, 'stat_time_day'] })
-      .then((r) => r.rows || [])
+      .then((r) => {
+        if (!r || !Array.isArray(r.rows)) throw new Error('Resposta de métricas inválida: ' + levelName);
+        return r.rows;
+      })
   ));
   const out = [];
   for (const rows of perChunk) {
@@ -77,7 +80,7 @@ async function collectDaily(advertiserId, levelName, startDate, endDate) {
       const d = r.dimensions || {};
       const entityId = String(d[dimKey] || '');
       const day = dayStr(d.stat_time_day);
-      if (!entityId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      if (!entityId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Métrica diária sem entidade/data válida: ' + levelName);
       out.push({ level: levelName, entityId, day, spend: r.spend, impressions: r.impressions, clicks: r.clicks, conversions: r.conversions, reach: r.reach });
     }
   }
@@ -169,16 +172,18 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
       tree.campaigns = merged;
     }
 
-    // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
+    // Só substitui o espelho quando TODOS os níveis e períodos foram lidos.
+    // Uma falha preserva o snapshot anterior e não renova seu frescor.
     const [cd, gd, ad] = await Promise.all([
-      collectDaily(advertiserId, 'campaign', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas campaign falharam:', e.message); return []; }),
-      collectDaily(advertiserId, 'adgroup', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas adgroup falharam:', e.message); return []; }),
-      collectDaily(advertiserId, 'ad', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas ad falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'campaign', metricsFrom, to),
+      collectDaily(advertiserId, 'adgroup', metricsFrom, to),
+      collectDaily(advertiserId, 'ad', metricsFrom, to),
     ]);
     const dailyMetrics = cd.concat(gd, ad);
 
-    // Incremental NÃO poda métricas (preserva o backfill histórico).
-    await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics }, { pruneMetrics: full });
+    // Incremental substitui somente os dias consultados (preserva o histórico).
+    const saved = await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics }, { pruneMetrics: full, metricsFrom, metricsTo: to });
+    if (saved && saved.ok === false) throw new Error('Espelho indisponível; sincronização não foi persistida');
     // A mesma árvore já coletada alimenta a caixa durável de reprovações. Não
     // há chamada extra ao TikTok e um incidente some da caixa automaticamente
     // quando deixa de estar rejeitado no próximo sync.

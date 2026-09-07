@@ -133,7 +133,7 @@ function dedupeByKey(arr, keyFn) {
   return [...m.values()];
 }
 
-async function bulkUpsertMetrics(accountId, advertiserId, syncedAt, rows) {
+async function bulkUpsertMetrics(accountId, advertiserId, syncedAt, rows, statements) {
   if (!rows.length) return 0;
   rows = dedupeByKey(rows, (r) => r.level + '|' + r.entityId + '|' + r.day);
   const CHUNK = 400;
@@ -152,13 +152,13 @@ async function bulkUpsertMetrics(accountId, advertiserId, syncedAt, rows) {
       ON CONFLICT (account_id, advertiser_id, level, entity_id, day) DO UPDATE SET
         spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
         conversions = EXCLUDED.conversions, reach = EXCLUDED.reach, synced_at = EXCLUDED.synced_at`;
-    await sql.query(text, params);
+    statements.push(sql.query(text, params));
     total += chunk.length;
   }
   return total;
 }
 
-async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns) {
+async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns, statements) {
   if (!campaigns.length) return 0;
   // dedup por campaign_id (o merge de Smart+ ou paginação da API pode repetir) —
   // senão o ON CONFLICT quebra com "cannot affect row a second time".
@@ -186,7 +186,7 @@ async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns)
         objective = EXCLUDED.objective, budget = EXCLUDED.budget, budget_mode = EXCLUDED.budget_mode,
         currency = EXCLUDED.currency, ad_count = EXCLUDED.ad_count, ad_set_count = EXCLUDED.ad_set_count,
         data = EXCLUDED.data, synced_at = EXCLUDED.synced_at`;
-    await sql.query(text, params);
+    statements.push(sql.query(text, params));
     total += chunk.length;
   }
   return total;
@@ -194,31 +194,38 @@ async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns)
 
 // Grava o snapshot completo de um advertiser: estrutura (campanhas) + métricas
 // diárias. Poda linhas com synced_at anterior a este sync (entidades/dias que
-// sumiram lá fora). Não é uma transação única (driver HTTP), mas é seguro para
-// um cache: uma falha parcial é corrigida no próximo sync.
+// sumiram lá fora). O driver HTTP aceita transação em lote: nenhum chunk ou
+// DELETE fica visível se uma das escritas falhar.
 async function writeAdvertiserSnapshot(accountId, advertiserId, snapshot, opts = {}) {
   accountId = cleanAccountId(accountId);
   advertiserId = String(advertiserId || '').trim();
   if (!enabled || !advertiserId) return { ok: false };
   await ensureSchema();
   const syncedAt = new Date().toISOString();
-  const campaigns = Array.isArray(snapshot.campaigns) ? snapshot.campaigns : [];
-  const metrics = Array.isArray(snapshot.dailyMetrics) ? snapshot.dailyMetrics : [];
-  // pruneMetrics: só o sync COMPLETO poda o histórico. O incremental refaz
-  // apenas os últimos dias (upsert) e NÃO deve apagar o backfill mais antigo.
+  if (!snapshot || !Array.isArray(snapshot.campaigns) || !Array.isArray(snapshot.dailyMetrics)) {
+    throw new Error('Snapshot incompleto; espelho anterior preservado');
+  }
+  const campaigns = snapshot.campaigns;
+  const metrics = snapshot.dailyMetrics;
+  // pruneMetrics: o sync COMPLETO substitui todo o histórico retido. O
+  // incremental substitui só sua janela e preserva o backfill mais antigo.
   const pruneMetrics = opts.pruneMetrics !== false;
 
-  const nCamp = await bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns);
-  const nMet = await bulkUpsertMetrics(accountId, advertiserId, syncedAt, metrics);
+  const statements = [sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([accountId, advertiserId])}, 0))`];
+  const nCamp = await bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns, statements);
+  const nMet = await bulkUpsertMetrics(accountId, advertiserId, syncedAt, metrics, statements);
 
   // Poda: remove campanhas que não vieram neste sync (deletadas no TikTok).
   // A estrutura é sempre refetch completa, então a poda é sempre segura.
-  await sql`DELETE FROM ads_campaigns_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`;
-  // Poda de métricas: só no sync completo e só quando houve alguma métrica
-  // (evita apagar tudo se a chamada de insights falhou e veio vazia).
-  if (pruneMetrics && metrics.length) {
-    await sql`DELETE FROM ads_metrics_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`;
+  statements.push(sql`DELETE FROM ads_campaigns_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`);
+  // Vazio confirmado também remove valores antigos. No incremental, só a
+  // janela efetivamente consultada é substituída; o histórico é preservado.
+  if (pruneMetrics) {
+    statements.push(sql`DELETE FROM ads_metrics_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`);
+  } else if (opts.metricsFrom && opts.metricsTo) {
+    statements.push(sql`DELETE FROM ads_metrics_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND day >= ${opts.metricsFrom}::date AND day <= ${opts.metricsTo}::date AND synced_at < ${syncedAt}`);
   }
+  await sql.transaction(statements);
   return { ok: true, campaigns: nCamp, metrics: nMet, syncedAt };
 }
 

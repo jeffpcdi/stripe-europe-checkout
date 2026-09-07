@@ -15,16 +15,13 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const mockDb = require('./mock-db');
-
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
-let useFallback = isPlaceholder;
 const enabled = !isPlaceholder && !!URL;
 const sql = (!isPlaceholder && URL) ? neon(URL) : null;
 
 if (isPlaceholder) {
-  console.log('[db] DATABASE_URL não configurada ou placeholder — persistência local (mock-db) ativada.');
+  console.log('[db] DATABASE_URL não configurada ou placeholder — Neon e autenticação desativados.');
 }
 
 let ready = false;
@@ -40,14 +37,9 @@ function nsKey(accountId, name) {
 
 // Cria as tabelas se ainda não existirem. Idempotente.
 async function init() {
-  if (useFallback || !sql) {
-    ready = true;
-    migrations.customDomains = true;
-    migrations.accountCurrency = true;
-    migrations.quarantine = true;
-    migrations.notifications = true;
-    return true;
-  }
+  if (!sql) return false;
+  ready = false;
+  for (const key of Object.keys(migrations)) migrations[key] = false;
   try {
     // ── Contas / sessões de login / gateways (multi-tenant) ──────────────
     await sql`CREATE TABLE IF NOT EXISTS accounts (
@@ -333,20 +325,16 @@ async function init() {
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
   } catch (err) {
-    console.warn('[db] Conexão com Neon falhou (' + err.message + ') — usando mock-db local.');
-    useFallback = true;
-    ready = true;
-    migrations.customDomains = true;
-    migrations.accountCurrency = true;
-    migrations.quarantine = true;
-    migrations.notifications = true;
-    return true;
+    console.error('[db] Falha ao inicializar Neon; persistência indisponível:', err.message);
+    ready = false;
+    return false;
   }
 }
 
 // init com retry — uma falha transitória de rede no boot não pode deixar o
 // processo rodando sem persistência (era um dos vetores de perda de config).
 async function initWithRetry(attempts) {
+  if (!enabled) return false;
   const max = Math.max(1, attempts || 3);
   for (let i = 1; i <= max; i++) {
     if (await init()) return true;
@@ -379,16 +367,6 @@ function missingColumnError(err) {
   const m = String((err && err.message) || err);
   // Postgres 42703 = undefined_column; a mensagem cita o nome da coluna.
   return /totp_secret/i.test(m) || /column .* does not exist/i.test(m) || /42703/.test(m);
-}
-
-// Sonda leve de disponibilidade do banco. `SELECT 1` transfere ~nada, então
-// serve para distinguir "conta não existe / senha errada" de "banco fora"
-// (ex.: Neon HTTP 402 cota de transferência estourada, queda de rede). Sem
-// isso, um erro de infra vira "senha incorreta" e manda o dono caçar a senha.
-async function ping() {
-  if (!enabled) return false;
-  try { await sql`SELECT 1`; return true; }
-  catch (err) { console.error('[db] ping falhou:', err && err.message); return false; }
 }
 
 async function getAccountByEmail(email) {
@@ -1025,11 +1003,16 @@ async function resolveQuarantine(accountId, isAdmin, id) {
 // Risco 5: dedup DURÁVEL de receita. Retorna true se o pedido é NOVO (registra
 // e segue o fluxo), false se já foi processado antes (retry do gateway — a
 // receita NÃO deve ser recontada). Atômico via INSERT ... ON CONFLICT DO
-// NOTHING, imune a corrida entre dois retries simultâneos. Fail-open: com o
-// banco desativado ou em erro, devolve true para não BLOQUEAR vendas legítimas
-// (o dedup de curto prazo do Redis ainda cobre a janela de retries imediatos).
+// NOTHING, imune a corrida entre dois retries simultâneos. Em falha do Neon,
+// não confirma nem rejeita o pedido: o worker preserva a conversão para retry.
+// Sem banco, somente desenvolvimento mantém o processamento local legado.
 async function markOrderProcessed(accountId, gateway, orderId) {
-  if (!enabled) return true;
+  if (!enabled) {
+    if (process.env.NODE_ENV !== 'production') return true;
+    const err = new Error('Banco não configurado; confirmação da venda pendente');
+    err.code = 'ORDER_PERSISTENCE_UNAVAILABLE';
+    throw err;
+  }
   if (!orderId) return true; // sem order_id não há chave estável p/ deduplicar
   try {
     const rows = await sql`INSERT INTO processed_orders (account_id, gateway, order_id)
@@ -1037,7 +1020,13 @@ async function markOrderProcessed(accountId, gateway, orderId) {
       ON CONFLICT (account_id, gateway, order_id) DO NOTHING
       RETURNING order_id`;
     return rows.length > 0;
-  } catch (err) { console.error('[db] markOrderProcessed:', err.message); return true; }
+  } catch (cause) {
+    console.error('[db] markOrderProcessed:', cause.message);
+    const err = new Error('Não foi possível confirmar a deduplicação da venda no banco');
+    err.code = 'ORDER_PERSISTENCE_UNAVAILABLE';
+    err.cause = cause;
+    throw err;
+  }
 }
 
 // Retenção do dedup durável: apaga pedidos com mais de 90 dias. Boot + diária.
@@ -1439,98 +1428,81 @@ async function pruneSessions(olderThanDays) {
   }
 }
 
-function wrapFallback(fnName, realFn) {
-  return async function(...args) {
-    if (useFallback || !realFn) {
-      if (typeof mockDb[fnName] === 'function') return mockDb[fnName](...args);
-      return null;
-    }
-    try {
-      return await realFn(...args);
-    } catch (err) {
-      console.warn(`[db] ${fnName} falhou no Neon (${err.message}) — chaveando para mock-db.`);
-      useFallback = true;
-      if (typeof mockDb[fnName] === 'function') return mockDb[fnName](...args);
-      return null;
-    }
-  };
-}
-
 module.exports = {
   enabled,
   isReady: () => ready,
   init, initWithRetry,
   // contas / auth / migração
-  createAccount: wrapFallback('createAccount', createAccount),
-  getAccountByEmail: wrapFallback('getAccountByEmail', getAccountByEmail),
-  getAccountById: wrapFallback('getAccountById', getAccountById),
-  countAccounts: wrapFallback('countAccounts', countAccounts),
-  getFirstAccountId: wrapFallback('getFirstAccountId', getFirstAccountId),
-  claimLegacyData: wrapFallback('claimLegacyData', claimLegacyData),
-  ping: wrapFallback('ping', ping),
-  createAuthSession: wrapFallback('createAuthSession', createAuthSession),
-  getAuthSession: wrapFallback('getAuthSession', getAuthSession),
-  deleteAuthSession: wrapFallback('deleteAuthSession', deleteAuthSession),
-  pruneAuthSessions: wrapFallback('pruneAuthSessions', pruneAuthSessions),
-  listAuthSessions: wrapFallback('listAuthSessions', listAuthSessions),
-  deleteAuthSessionBySid: wrapFallback('deleteAuthSessionBySid', deleteAuthSessionBySid),
-  updateAccountName: wrapFallback('updateAccountName', updateAccountName),
-  setAccountTotp: wrapFallback('setAccountTotp', setAccountTotp),
-  anonymizeOldLeads: wrapFallback('anonymizeOldLeads', anonymizeOldLeads),
-  accountDataCounts: wrapFallback('accountDataCounts', accountDataCounts),
-  deleteAccountCascade: wrapFallback('deleteAccountCascade', deleteAccountCascade),
+  createAccount,
+  getAccountByEmail,
+  getAccountById,
+  countAccounts,
+  getFirstAccountId,
+  claimLegacyData,
+  ping,
+  createAuthSession,
+  getAuthSession,
+  deleteAuthSession,
+  pruneAuthSessions,
+  listAuthSessions,
+  deleteAuthSessionBySid,
+  updateAccountName,
+  setAccountTotp,
+  anonymizeOldLeads,
+  accountDataCounts,
+  deleteAccountCascade,
   // gateways
-  upsertGateway: wrapFallback('upsertGateway', upsertGateway),
-  deleteGateway: wrapFallback('deleteGateway', deleteGateway),
-  loadGateways: wrapFallback('loadGateways', loadGateways),
-  getGatewayByToken: wrapFallback('getGatewayByToken', getGatewayByToken),
-  touchGateway: wrapFallback('touchGateway', touchGateway),
+  upsertGateway,
+  deleteGateway,
+  loadGateways,
+  getGatewayByToken,
+  touchGateway,
   // dados por conta
-  upsertLead: wrapFallback('upsertLead', upsertLead),
-  findLeadsByContact: wrapFallback('findLeadsByContact', findLeadsByContact),
-  insertEvent: wrapFallback('insertEvent', insertEvent),
-  archiveOldEvents: wrapFallback('archiveOldEvents', archiveOldEvents),
-  aggregateDaily: wrapFallback('aggregateDaily', aggregateDaily),
-  readDaily: wrapFallback('readDaily', readDaily),
-  insertAudit: wrapFallback('insertAudit', insertAudit),
-  listAudit: wrapFallback('listAudit', listAudit),
-  insertNotification: wrapFallback('insertNotification', insertNotification),
-  listNotifications: wrapFallback('listNotifications', listNotifications),
-  touchAuthSession: wrapFallback('touchAuthSession', touchAuthSession),
-  updateAccountPassword: wrapFallback('updateAccountPassword', updateAccountPassword),
-  deleteOtherAuthSessions: wrapFallback('deleteOtherAuthSessions', deleteOtherAuthSessions),
-  upsertVariant: wrapFallback('upsertVariant', upsertVariant),
-  loadState: wrapFallback('loadState', loadState),
-  reset: wrapFallback('reset', reset),
-  upsertSession: wrapFallback('upsertSession', upsertSession),
+  upsertLead,
+  findLeadsByContact,
+  insertEvent,
+  archiveOldEvents,
+  aggregateDaily,
+  readDaily,
+  insertAudit,
+  listAudit,
+  insertNotification,
+  listNotifications,
+  touchAuthSession,
+  updateAccountPassword,
+  deleteOtherAuthSessions,
+  upsertVariant,
+  loadState,
+  reset,
+  upsertSession,
   // quarentena de webhooks rejeitados
-  insertQuarantine: wrapFallback('insertQuarantine', insertQuarantine),
-  listQuarantine: wrapFallback('listQuarantine', listQuarantine),
-  countQuarantine: wrapFallback('countQuarantine', countQuarantine),
-  resolveQuarantine: wrapFallback('resolveQuarantine', resolveQuarantine),
-  pruneQuarantine: wrapFallback('pruneQuarantine', pruneQuarantine),
+  insertQuarantine,
+  listQuarantine,
+  countQuarantine,
+  resolveQuarantine,
+  pruneQuarantine,
   // dedup durável de receita por pedido (Risco 5)
-  markOrderProcessed: wrapFallback('markOrderProcessed', markOrderProcessed),
-  pruneProcessedOrders: wrapFallback('pruneProcessedOrders', pruneProcessedOrders),
-  saveConfig: wrapFallback('saveConfig', saveConfig),
-  loadConfig: wrapFallback('loadConfig', loadConfig),
-  loadAllConfigs: wrapFallback('loadAllConfigs', loadAllConfigs),
-  pruneSessions: wrapFallback('pruneSessions', pruneSessions),
-  upsertPixel: wrapFallback('upsertPixel', upsertPixel),
-  deletePixel: wrapFallback('deletePixel', deletePixel),
-  loadPixels: wrapFallback('loadPixels', loadPixels),
-  getPixelByToken: wrapFallback('getPixelByToken', getPixelByToken),
-  upsertLink: wrapFallback('upsertLink', upsertLink),
-  deleteLink: wrapFallback('deleteLink', deleteLink),
-  loadLinks: wrapFallback('loadLinks', loadLinks),
-  insertPixelEvent: wrapFallback('insertPixelEvent', insertPixelEvent),
-  loadPixelEvents: wrapFallback('loadPixelEvents', loadPixelEvents),
-  prunePixelEvents: wrapFallback('prunePixelEvents', prunePixelEvents),
+  markOrderProcessed,
+  pruneProcessedOrders,
+  saveConfig,
+  loadConfig,
+  loadAllConfigs,
+  pruneSessions,
+  upsertPixel,
+  deletePixel,
+  loadPixels,
+  getPixelByToken,
+  upsertLink,
+  deleteLink,
+  loadLinks,
+  insertPixelEvent,
+  loadPixelEvents,
+  prunePixelEvents,
   // domínios personalizados duráveis + moeda por conta (itens 241–252)
-  upsertCustomDomain: wrapFallback('upsertCustomDomain', upsertCustomDomain),
-  deleteCustomDomain: wrapFallback('deleteCustomDomain', deleteCustomDomain),
-  loadCustomDomains: wrapFallback('loadCustomDomains', loadCustomDomains),
-  setAccountCurrency: wrapFallback('setAccountCurrency', setAccountCurrency),
-  loadAccountCurrencies: wrapFallback('loadAccountCurrencies', loadAccountCurrencies),
+  upsertCustomDomain,
+  deleteCustomDomain,
+  loadCustomDomains,
+  setAccountCurrency,
+  loadAccountCurrencies,
   migrationStatus: () => Object.assign({}, migrations)
 };

@@ -4236,6 +4236,10 @@ async function processConversion(n) {
   } catch (err) {
     receipt.status = 'erro';
     receipt.error = String(err.message || err).slice(0, 200);
+    if (err.code === 'ORDER_PERSISTENCE_UNAVAILABLE') {
+      receipt.retryable = true;
+      receipt.status = 'aguardando banco';
+    }
     // Caminho do dinheiro: falha ao processar a conversão não pode sumir.
     console.error('[server] processConversion falhou:', err && err.message,
       '| event=', n.event, '| gateway=', n.gateway, '| orderId=', n.orderId, '| acc=', n.acc);
@@ -4257,17 +4261,24 @@ function submitConversion(n) {
   const onProcErr = (where) => (err) =>
     console.error('[server] submitConversion/processConversion falhou (' + where + '):', err && err.message,
       '| event=', n && n.event, '| gateway=', n && n.gateway, '| orderId=', n && n.orderId);
+  const processInline = async () => {
+    const receipt = await processConversion(n);
+    if (receipt && receipt.retryable) {
+      const timer = setTimeout(() => submitConversion(n), 30000);
+      if (timer.unref) timer.unref();
+    }
+  };
   if (rdb.enabled) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
-      if (!ok) processConversion(n).catch(onProcErr('fallback-inline'));
+      if (!ok) processInline().catch(onProcErr('fallback-inline'));
     }).catch((err) => {
       console.error('[server] enqueueConversion falhou, processando inline:', err && err.message,
         '| orderId=', n && n.orderId);
-      processConversion(n).catch(onProcErr('enqueue-rejeitado'));
+      processInline().catch(onProcErr('enqueue-rejeitado'));
     });
   } else {
-    processConversion(n).catch(onProcErr('sem-redis'));
+    processInline().catch(onProcErr('sem-redis'));
   }
 }
 
@@ -4284,8 +4295,14 @@ async function convWorkerTick() {
     for (const item of batch) {
       const n = item.env && item.env.n;
       if (!n) { await rdb.ackConversion(item.raw); continue; } // item corrompido → descarta
-      try { await processConversion(n); } catch (_) {}
-      await rdb.ackConversion(item.raw); // dedup cobre reprocesso; ack sempre
+      try {
+        const receipt = await processConversion(n);
+        // Sem confirmação do banco, deixa o item reservado para o reclaim.
+        if (receipt && receipt.retryable) continue;
+        await rdb.ackConversion(item.raw);
+      } catch (err) {
+        console.error('[server] conversão mantida na fila para retry:', err.message);
+      }
     }
   } catch (_) {} finally {
     _convWorkerBusy = false;

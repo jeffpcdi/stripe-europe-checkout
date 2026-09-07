@@ -60,6 +60,7 @@ async function register({ email, password, name, meta }) {
   }
 
   const token = await db.createAuthSession(id, SESSION_TTL_DAYS, meta);
+  if (!token) return { error: 'Não foi possível salvar a sessão. Tente novamente em instantes.', dbDown: true };
   return { account, token };
 }
 
@@ -105,7 +106,7 @@ async function login({ email, password, meta }) {
     // dois para não acusar "senha incorreta" quando o Neon está fora (ex.: 402
     // cota estourada) — isso mandava o dono trocar senha à toa. Não conta como
     // tentativa de login falha (não é culpa da credencial).
-    if (typeof db.ping === 'function' && !(await db.ping())) {
+    if (typeof db.ping === 'function' && (await db.ping()).ok !== true) {
       return { error: 'Banco de dados temporariamente indisponível. Tente novamente em instantes.', dbDown: true };
     }
     registerLoginFail(email);
@@ -127,6 +128,7 @@ async function login({ email, password, meta }) {
   }
 
   const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS, meta);
+  if (!token) return { error: 'Não foi possível salvar a sessão. Tente novamente em instantes.', dbDown: true };
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
 }
@@ -224,6 +226,7 @@ async function complete2faLogin({ pending, code }) {
   twofaFails.delete(ticket.accountId);
   pending2fa.delete(String(pending));
   const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS, ticket.meta);
+  if (!token) return { error: 'Não foi possível salvar a sessão. Tente novamente em instantes.', dbDown: true };
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
 }

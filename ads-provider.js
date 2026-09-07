@@ -646,19 +646,34 @@ async function getInsights(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate
   const dims = (Array.isArray(dimensions) && dimensions.length)
     ? dimensions
     : (LEVEL_DEFAULT_DIMENSION[level] || ['campaign_id']);
-  const out = await pipeboard.callTool('get_tiktok_insights', {
-    advertiser_id: id,
-    data_level: level,
-    start_date: startDate,
-    end_date: endDate,
-    dimensions: dims,
-  });
-  const rows = Array.isArray(out.metrics) ? out.metrics : [];
-  return {
-    rows: rows.map(mapInsightRow),
-    totalRows: num(out.total_rows),
-    raw: out,
-  };
+  const rows = [];
+  const seenPages = new Set();
+  const pageSize = 100;
+  let lastResponse;
+  for (let page = 1; page <= 200; page++) {
+    const out = await pipeboard.callTool('get_tiktok_insights', {
+      advertiser_id: id, data_level: level, start_date: startDate,
+      end_date: endDate, dimensions: dims, page, page_size: pageSize,
+    });
+    if (!out || !Array.isArray(out.metrics)) throw new Error('Resposta de métricas inválida do Pipeboard');
+    const current = out.metrics;
+    const info = paginationInfo(out);
+    const total = Math.max(info.totalNumber, num(out.total_rows));
+    if (info.page && info.page !== page) throw new Error('Pipeboard retornou uma página de métricas diferente da solicitada');
+    const signature = JSON.stringify(current);
+    if (current.length && seenPages.has(signature)) throw new Error('Pipeboard repetiu uma página de métricas');
+    seenPages.add(signature);
+    rows.push(...current);
+    lastResponse = out;
+    const hasMore = info.totalPage > 0 ? page < info.totalPage
+      : total > 0 ? rows.length < total : current.length >= pageSize;
+    if (!hasMore) {
+      if (total > rows.length) throw new Error('Paginação de métricas terminou antes do total informado');
+      return { rows: rows.map(mapInsightRow), totalRows: rows.length, raw: { ...lastResponse, metrics: rows } };
+    }
+    if (!current.length) throw new Error('Página de métricas vazia antes do fim da consulta');
+  }
+  throw new Error('Limite de paginação de métricas atingido; sincronização incompleta');
 }
 
 // ── Árvore no SHAPE do dashboard (contrato do frontend) ──────────────────────

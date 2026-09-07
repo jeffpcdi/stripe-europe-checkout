@@ -95,6 +95,15 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **db.js** — camada Neon (SQL puro, multi-tenant). Ver esquema completo em §6. Desativa (modo
   memória/arquivo) se faltar `DATABASE_URL`. `db.init()`/`initWithRetry()` criam tudo com
   `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS` (idempotente).
+  Falha do Neon nunca muda para banco de demonstração: `mock-db.js` foi removido,
+  `initWithRetry()` retorna falha após esgotar as tentativas e `isReady()` não simula sucesso.
+  Sem URL, auth fica desativada; caches locais dos stores continuam disponíveis. O ping usa
+  `{ok, latencyMs?, reason?}` tanto na saúde quanto no diagnóstico de login. Uma sessão só é
+  aceita após sua gravação durável. A deduplicação de venda mantém a chave
+  `account_id + gateway + order_id`; erro do Neon (ou ausência dele em produção) retorna
+  `ORDER_PERSISTENCE_UNAVAILABLE` antes dos efeitos da conversão. O worker mantém o item em
+  `convQ:proc` para reclaim; o caminho inline tenta novamente após 30s (somente em memória
+  enquanto não conseguir enfileirar no Redis, sem garantia de sobreviver a restart).
 - **redis.js** — Upstash via HTTP REST. Chaves e TTLs em §7. Aceita aliases `KV_REST_API_URL/TOKEN`.
   Fallback: `Map`/array em memória (o log de conversão sempre tem ring em memória).
 - **config.js** — config editável na dash (Pushcut, shortlinks, notas, token da API pública, domínios,
@@ -199,6 +208,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   declarar, falha antes da primeira escrita (`PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED`) em vez
   de criar uma hierarquia parcial. O escopo reconstruído é `ALL`, `PRODUCT_SET` ou
   `CUSTOMIZED_PRODUCTS` conforme os IDs salvos.
+- **Integridade do espelho Ads:** `getInsights()` percorre todas as páginas e rejeita resposta
+  inválida, página repetida, término prematuro e teto de paginação. `ads-sync.js` exige todos os
+  níveis e períodos antes de substituir o snapshot; falha mantém as datas do último sucesso e
+  registra `error`. Campanhas, métricas e limpeza são gravadas numa transação HTTP do Neon,
+  serializada por conta/advertiser com advisory lock. Vazio confirmado remove métricas antigas;
+  sincronização incremental só substitui os dias consultados e preserva o restante do histórico.
+  Regressões isoladas: `db-failure-integrity`, `conversion-database-retry`, `ads-sync-integrity`
+  e `ads-insights-pagination` (incluídas em `npm test`, sem serviços externos).
 - **ads-bulk.js** — fila durável de mutações em massa/duplicações. Produção preserva a chave histórica
   `adsBulkQ`; desenvolvimento e teste usam namespace próprio (ou `ADS_BULK_QUEUE_NAMESPACE`) para um
   worker local nunca consumir jobs de produção. A leitura de job reconcilia sempre o snapshot em memória
