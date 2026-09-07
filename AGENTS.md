@@ -145,7 +145,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   O launcher do catálogo prioriza uma única ação de alto contraste e recolhe produtos/sincronização
   quando o catálogo já está saudável. A criação em massa aceita de 1 a 50 campanhas independentemente
   da quantidade de vídeos: um vídeo pode ser reutilizado no lote e vários são distribuídos em rodízio;
-  cada item continua sendo um run durável com idempotência própria.
+  cada item continua sendo um run durável com idempotência própria. O lançador aceita até 50 criativos
+  MP4/MOV por seleção/lote, mostra progresso e falha individual, permite reenviar/remover e preserva
+  a ordem. Por padrão cria uma campanha por criativo (5 vídeos → 5 campanhas); quantidade maior
+  reutiliza os vídeos em rodízio e a prévia mostra a distribuição. Quantidade menor que o número de
+  criativos é bloqueada para não omitir vídeos silenciosamente. `campaign-batch` aceita `videoUrls`
+  sem exigir `videoUrl`, valida todas as URLs antes do primeiro run e mantém o contrato antigo de
+  vídeo único. Uploads de um modal fechado não alteram o próximo lote; o idempotency key permanece
+  estável em erro/timeout até o usuário alterar o plano.
   No fluxo rápido, essa pausa é uma barreira interna: somente depois desse readback o worker habilita
   anúncio → conjunto → campanha (pai por último) e exige novo readback `ENABLE` nos três níveis antes de
   marcar `ready_active`. Falha ou confirmação parcial pausa novamente toda a hierarquia; updates de status
@@ -478,7 +485,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `get_tiktok_pixel_event_stats` por sete dias para escolher Compra; planilha, wizard e lote rápido
   não pedem Pixel/evento repetidamente.
   No wizard dedicado há uma única ação “Criar campanhas”; o fluxo principal pede somente quantidade,
-  orçamento e vídeo, começa em uma campanha e aceita até 50. “Entrega e perfil” concentra Máxima
+  orçamento e criativos, começa em uma campanha por criativo e aceita até 50. “Entrega e perfil” concentra Máxima
   entrega/Cost Cap, CPA alvo, entrega acelerada (quando elegível) e o perfil mostrado no anúncio;
   o resumo fechado expõe a configuração atual sem poluir o formulário. Reabrir o modal sempre restaura
   os padrões automáticos, e o rodapé fixo mantém a única ação de criação visível. A identidade automática

@@ -4222,25 +4222,40 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/campaign', dashboardAuth, enqueueCatalogCampaign);
   app.post('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, enqueueCatalogCampaign);
 
-  // Modo Turbo: cria N campanhas idênticas do catálogo em uma única chamada.
+  // Lote de catálogo: distribui os criativos em ordem, uma campanha por vídeo
+  // por padrão; uma quantidade maior repete os vídeos em rodízio.
   // Todas as validações de prontidão são feitas UMA vez (prepareCatalogCampaign)
   // e cada campanha vira um run durável idempotente ({chave}:{índice}), então
   // repetir a chamada com a mesma Idempotency-Key não duplica campanhas.
   app.post('/api/ads/catalogs/:catalogId/campaign-batch', dashboardAuth, async (req, res) => {
     try {
       const body = req.body || {};
-      const videoUrls = Array.isArray(body.videoUrls) && body.videoUrls.length > 0 ? body.videoUrls : [body.videoUrl].filter(Boolean);
+      const rawVideos = body.videoUrls === undefined ? [body.videoUrl].filter(Boolean) : body.videoUrls;
+      if (!Array.isArray(rawVideos) || !rawVideos.length || rawVideos.length > catalogDomain.CATALOG_CAMPAIGN_BATCH_MAX) {
+        throw catalogDomain.catalogError('CATALOG_BATCH_VIDEOS_INVALID', 'Envie de 1 a 50 vídeos para o lote.', { status: 400 });
+      }
+      // Valida todos antes de persistir o primeiro run, inclusive os que só
+      // serão usados no final do lote. O cliente antigo com videoUrl continua aceito.
+      const videoUrls = rawVideos.map((value, index) => {
+        if (typeof value !== 'string' || !/^https:\/\/[^\s]+$/i.test(value.trim())) {
+          throw catalogDomain.catalogError('CATALOG_BATCH_VIDEO_INVALID', `O vídeo ${index + 1} não possui uma URL HTTPS válida.`, { status: 400 });
+        }
+        return value.trim();
+      });
       // Quantidade e criativos são independentes: um único vídeo pode ser
       // reutilizado em várias campanhas, ou vários vídeos podem ser
       // distribuídos pelo lote. Sem count explícito, preserva o comportamento
       // anterior de criar uma campanha por vídeo.
       const hasExplicitCount = body.count !== undefined && body.count !== null && body.count !== '';
       const count = hasExplicitCount ? Number(body.count) : videoUrls.length;
+      if (count < videoUrls.length) {
+        throw catalogDomain.catalogError('CATALOG_BATCH_UNUSED_VIDEOS', 'Escolha ao menos uma campanha por criativo enviado.', { status: 400 });
+      }
       const requestedPrefix = String(body.namePrefix || '').trim().slice(0, 100);
 
       // Valida a spec base uma única vez com o MESMO caminho da criação
       // individual (prontidão, capabilities, pixel, orçamento mínimo).
-      req.body = { ...body, name: requestedPrefix || undefined };
+      req.body = { ...body, videoUrl: videoUrls[0], name: requestedPrefix || undefined };
       const prepared = await prepareCatalogCampaign(req);
       const namePrefix = requestedPrefix || `${prepared.catalog.name || 'Catálogo'} — VSA`;
       const names = catalogDomain.buildCampaignBatchNames(namePrefix, count);
@@ -4254,7 +4269,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (await isDryRun(prepared.accId)) {
         await auditSimulated(prepared.accId, {
           action: 'catalog_campaign', targetType: 'catalog', targetId: prepared.catalog.id, advertiserId: prepared.advertiserId,
-          metadata: { ...prepared.spec, batchCount: count },
+          metadata: { ...prepared.spec, batchCount: count, videoUrls },
           title: `Criar ${count} campanhas de catálogo: ${namePrefix}`,
         });
         return res.json({ dryRun: true, simulated: true, count, names });

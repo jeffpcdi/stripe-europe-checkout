@@ -866,7 +866,7 @@ export async function adsCreateCatalogCampaign(
   )
 }
 
-// Modo Turbo: cria N campanhas idênticas do catálogo em uma chamada só.
+// Lote: distribui os vídeos em ordem entre as campanhas do catálogo.
 // O backend valida tudo uma vez e enfileira N runs duráveis idempotentes.
 export async function adsCreateCatalogCampaignBatch(
   catalogId: string,
