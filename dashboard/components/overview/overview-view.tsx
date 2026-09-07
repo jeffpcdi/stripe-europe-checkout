@@ -1,27 +1,46 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
-import { useStats, useEmqTrend, useAdsStatus, useAdsRoas, useAdsTree } from '@/lib/api'
+import {
+  useStats,
+  useEmqTrend,
+  useAdsStatus,
+  useAdsRoas,
+  useAdsTree,
+  useOverviewHealth,
+} from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { aggregate, money, periodStart, prevWindow } from '@/lib/metrics'
 import { adsDateRange } from '@/lib/ads-time'
-import { countryFlag } from '@/lib/format'
+import { countryFlag, timeAgo } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
+import { GlassCard } from '@/components/glass-card'
+import { toast } from '@/lib/toast'
 import { PeriodPicker } from './period-picker'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
-import { RoasGauge } from './roas-gauge'
 import { EmqGauge } from './emq-gauge'
 import { ErrorState } from '@/components/error-state'
-import { DollarSign, Flame, ShoppingBag, ArrowUpRight, TrendingUp } from 'lucide-react'
+import {
+  DollarSign,
+  Flame,
+  ShoppingBag,
+  TrendingUp,
+  RefreshCw,
+  ShieldCheck,
+  Target,
+  ArrowUpRight,
+  Globe2,
+  Wallet,
+} from 'lucide-react'
 
-// ── Formatação de Moeda ──────────────────────────────────────────────────
+// ── Formatação de Moeda e Data ───────────────────────────────────────────
 function fmtAdsMoney(v: number, currency: string): string {
   try {
     return new Intl.NumberFormat('pt-BR', {
@@ -31,6 +50,24 @@ function fmtAdsMoney(v: number, currency: string): string {
     }).format(v)
   } catch {
     return v.toFixed(2)
+  }
+}
+
+/** Formata data e hora no fuso de Brasília de forma segura */
+function formatLocalTimestamp(date: Date | string): string {
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date
+    if (isNaN(d.getTime())) return 'recentemente'
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d)
+  } catch {
+    return 'recentemente'
   }
 }
 
@@ -78,7 +115,7 @@ function MiniSparkline({
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
-      className="overflow-visible opacity-60 transition-opacity hover:opacity-100"
+      className="overflow-visible opacity-70 transition-opacity hover:opacity-100"
       aria-hidden="true"
     >
       <polyline
@@ -98,7 +135,7 @@ function VariationBadge({ current, previous }: { current: number; previous: numb
   if (previous === 0 && current === 0) return null
   if (previous === 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9.5px] font-bold text-emerald-400">
+      <span className="inline-flex items-center rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-bold text-success">
         novo
       </span>
     )
@@ -109,8 +146,8 @@ function VariationBadge({ current, previous }: { current: number; previous: numb
 
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[9.5px] font-bold tabular-nums ${
-        isUp ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums ${
+        isUp ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'
       }`}
     >
       {isUp ? '↑' : '↓'} {display}%
@@ -118,27 +155,52 @@ function VariationBadge({ current, previous }: { current: number; previous: numb
   )
 }
 
+function getRoasStatus(
+  currencyMismatch: boolean,
+  roas: { roas: number | null } | null | undefined,
+  spendVal: number,
+) {
+  if (currencyMismatch) {
+    return { label: 'Moedas divergentes', badgeClass: 'bg-warning/15 text-warning' }
+  }
+  if (!roas || roas.roas === null || spendVal === 0) {
+    return { label: 'Sem veiculação', badgeClass: 'bg-secondary text-muted-foreground' }
+  }
+  if (roas.roas >= 2.5) {
+    return { label: 'Alta Lucratividade', badgeClass: 'bg-emerald-500/15 text-emerald-400' }
+  }
+  if (roas.roas >= 1.5) {
+    return { label: 'Lucro Saudável', badgeClass: 'bg-cyan-500/15 text-brand-cyan' }
+  }
+  if (roas.roas >= 1.0) {
+    return { label: 'Equilíbrio', badgeClass: 'bg-amber-500/15 text-amber-400' }
+  }
+  return { label: 'Abaixo da Meta', badgeClass: 'bg-rose-500/15 text-rose-400' }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
-//  COMPONENTE PRINCIPAL — VISÃO GERAL REFINADA
+//  COMPONENTE PRINCIPAL — VISÃO GERAL REFINADA & PADRONIZADA
 // ══════════════════════════════════════════════════════════════════════════
 export function OverviewView() {
   const [period, setPeriodState] = useState<Period>(initialPeriod)
   const [focusCountry, setFocusCountry] = useState<string | null>(null)
-  const { data, error, isLoading, isValidating, mutate } = useStats()
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const { data, error, isLoading, isValidating, mutate: mutateStats } = useStats()
   const firstEnter = useOncePerSession('overview-enter')
 
   const afterFirstPaint = useAfterFirstPaint()
-  const { data: adsStatus } = useAdsStatus(afterFirstPaint)
+  const { data: adsStatus, error: adsError, mutate: mutateAdsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const adsRange = useMemo(
     () => periodToAdsRange(period, adsStatus?.timeZone),
     [period, adsStatus?.timeZone],
   )
-  const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+  const { data: roas, mutate: mutateRoas } = useAdsRoas(adsConnected, adAccountId, adsRange)
 
   // Top Campanhas sincronizadas com a aba TikTok Ads
-  const { data: adsTree, isLoading: adsTreeLoading } = useAdsTree(adsConnected, {
+  const { data: adsTree, mutate: mutateAdsTree } = useAdsTree(adsConnected, {
     adAccountId,
     fromDate: adsRange.fromDate,
     toDate: adsRange.toDate,
@@ -154,7 +216,7 @@ export function OverviewView() {
         const spend = c.metrics?.spend ?? 0
         const conversions = c.metrics?.conversions ?? 0
         const cpa = c.metrics?.cpa ?? (conversions > 0 && spend > 0 ? spend / conversions : null)
-        const roas = c.metrics?.roas ?? null
+        const campaignRoas = c.metrics?.roas ?? null
         return {
           id: c.platformCampaignId,
           name: c.campaignName || c.platformCampaignId,
@@ -162,15 +224,15 @@ export function OverviewView() {
           conversions,
           spend,
           cpa,
-          roas,
+          roas: campaignRoas,
         }
       })
       .sort((a, b) => b.conversions - a.conversions || b.spend - a.spend)
       .slice(0, 5)
   }, [adsTree?.campaigns])
 
-  // EMQ
-  const { data: emqData } = useEmqTrend(afterFirstPaint)
+  // EMQ CAPI
+  const { data: emqData, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
   const emqSummary = useMemo(() => {
     const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
     if (pixels.length === 0) return null
@@ -183,6 +245,9 @@ export function OverviewView() {
       base == null || Math.abs(recent - base) < 0.15 ? 'flat' : recent > base ? 'up' : 'down'
     return { recent, dir, alerts: emqData?.alerts ?? 0 }
   }, [emqData])
+
+  // Saúde do pipeline geral
+  const { data: overviewHealth, mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
 
   function setPeriod(next: Period) {
     setPeriodState(next)
@@ -197,6 +262,25 @@ export function OverviewView() {
     }
   }
 
+  const handleRefreshAll = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await Promise.all([
+        mutateStats(),
+        mutateAdsStatus(),
+        mutateRoas(),
+        mutateAdsTree(),
+        mutateEmq(),
+        mutateHealth(),
+      ])
+      toast.success('Visão Geral e conexões atualizadas')
+    } catch {
+      toast.error('Erro ao atualizar métricas')
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateAdsTree, mutateEmq, mutateHealth])
+
   // Métricas do período ATUAL e ANTERIOR
   const { cur, prev } = useMemo(() => {
     if (!data) return { cur: null, prev: null }
@@ -206,18 +290,22 @@ export function OverviewView() {
     return { cur: curMetrics, prev: prevMetrics }
   }, [data, period])
 
-  // Países dos leads para o globo
-  const todayCountries = useMemo(() => {
-    const t = periodStart('today')?.getTime() ?? 0
+  // Países dos leads para o globo: consolida dados do período selecionado,
+  // com fallback gracioso para hoje ou para os totais de países retornados pela API
+  const globeCountries = useMemo(() => {
+    if (cur?.countries && cur.countries.length > 0) {
+      return cur.countries
+    }
+    if (data?.countries && data.countries.length > 0) {
+      return data.countries
+    }
     const byCountry = new Map<string, { count: number; purchased: number }>()
     for (const l of data?.leads ?? []) {
-      const at = new Date(l.at).getTime()
-      if (!Number.isFinite(at) || at < t) continue
       if (!l.country) continue
-      const prev = byCountry.get(l.country) ?? { count: 0, purchased: 0 }
+      const prevVal = byCountry.get(l.country) ?? { count: 0, purchased: 0 }
       byCountry.set(l.country, {
-        count: prev.count + 1,
-        purchased: prev.purchased + (l.stage === 'purchased' ? 1 : 0),
+        count: prevVal.count + 1,
+        purchased: prevVal.purchased + (l.stage === 'purchased' ? 1 : 0),
       })
     }
     return Array.from(byCountry, ([code, val]) => ({
@@ -226,7 +314,7 @@ export function OverviewView() {
       count: val.count,
       purchased: val.purchased,
     }))
-  }, [data])
+  }, [cur, data])
 
   const lastLeadAt = useMemo(() => {
     let max = ''
@@ -236,13 +324,85 @@ export function OverviewView() {
     return max || null
   }, [data])
 
+  // ── Validação Visual de Sincronização e Detecção de Falhas ──
+  const syncValidation = useMemo(() => {
+    let lastSuccessDate: Date | null = null
+    let lastSuccessOrigin = ''
+    let failureTitle = ''
+    let failureDescription = ''
+    let hasFailure = false
+
+    // 1. Data mais recente de sincronização bem-sucedida
+    const candidateDates: { date: Date; origin: string }[] = []
+
+    if (overviewHealth?.freshness?.lastDataAt) {
+      const d = new Date(overviewHealth.freshness.lastDataAt)
+      if (!isNaN(d.getTime())) {
+        candidateDates.push({ date: d, origin: 'Jornada Rastreada' })
+      }
+    }
+    if (overviewHealth?.freshness?.lastPaymentAt) {
+      const d = new Date(overviewHealth.freshness.lastPaymentAt)
+      if (!isNaN(d.getTime())) {
+        candidateDates.push({ date: d, origin: 'Conversão de Checkout' })
+      }
+    }
+    if (lastLeadAt) {
+      const d = new Date(lastLeadAt)
+      if (!isNaN(d.getTime())) {
+        candidateDates.push({ date: d, origin: 'Visita / Lead' })
+      }
+    }
+
+    if (candidateDates.length > 0) {
+      candidateDates.sort((a, b) => b.date.getTime() - a.date.getTime())
+      lastSuccessDate = candidateDates[0].date
+      lastSuccessOrigin = candidateDates[0].origin
+    }
+
+    // 2. Verificação de falhas no ecossistema
+    if (overviewHealth?.status === 'critical') {
+      hasFailure = true
+      failureTitle = 'Falha na Cobertura de Dados do Funil'
+      failureDescription =
+        overviewHealth.actions[0]?.detail ||
+        'Ações necessárias para garantir a integridade do rastreamento.'
+    } else if (adsError) {
+      hasFailure = true
+      failureTitle = 'Falha na Sincronização do TikTok Ads'
+      failureDescription =
+        (adsError instanceof Error ? adsError.message : String(adsError)) ||
+        'Token de acesso expirado ou sem autorização do advertiser.'
+    } else if (adsStatus?.enabled && !adsStatus?.connected) {
+      hasFailure = true
+      failureTitle = 'Conta de TikTok Ads Desconectada'
+      failureDescription =
+        'Conexão com a Business API do TikTok requer autenticação ou seleção de conta.'
+    } else if (emqSummary && emqSummary.alerts > 0) {
+      hasFailure = true
+      failureTitle = 'Alerta na Qualidade do Rastreamento'
+      failureDescription = `${emqSummary.alerts} ${
+        emqSummary.alerts === 1 ? 'alerta identificado' : 'alertas identificados'
+      } nos envios para o TikTok.`
+    }
+
+    return {
+      lastSuccessDate,
+      lastSuccessOrigin,
+      hasFailure,
+      failureTitle,
+      failureDescription,
+      healthStatus: overviewHealth?.status,
+    }
+  }, [overviewHealth, adsStatus, adsError, emqSummary, lastLeadAt])
+
   // Estado de Erro
   if (error) {
     return (
       <ErrorState
         title="Não foi possível carregar as métricas"
-        description="Verifique a conexão com o servidor."
-        onRetry={() => mutate()}
+        description="Verifique a conexão com o servidor e tente novamente."
+        onRetry={() => mutateStats()}
         retrying={isValidating}
       />
     )
@@ -251,30 +411,35 @@ export function OverviewView() {
   // Loading Skeleton
   if (isLoading || !cur) {
     return (
-      <div className="flex flex-col gap-4" aria-busy="true">
-        <div className="flex justify-end">
-          <Skeleton className="h-8 w-60 rounded-full" />
+      <div className="flex flex-col gap-6" aria-busy="true">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-5">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-6 w-48 rounded-lg" />
+            <Skeleton className="h-4 w-72 rounded-lg" />
+          </div>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-28 rounded-xl" />
+            <Skeleton className="h-9 w-40 rounded-full" />
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Skeleton className="h-16 w-full rounded-2xl" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="rounded-2xl border border-white/[0.06] bg-[#0c0d14]/70 p-4"
-            >
-              <Skeleton className="h-4 w-20 mb-3" />
-              <Skeleton className="h-8 w-32 mb-2" />
-              <Skeleton className="h-3 w-16" />
+            <div key={i} className="rounded-2xl border border-border/60 bg-secondary/20 p-5">
+              <Skeleton className="h-4 w-24 mb-3" />
+              <Skeleton className="h-8 w-36 mb-2" />
+              <Skeleton className="h-3 w-20" />
             </div>
           ))}
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
-          <div className="h-80 rounded-2xl border border-white/[0.06] bg-[#0c0d14]/70 p-6">
-            <Skeleton className="size-full rounded-full" />
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <div className="h-96 rounded-2xl border border-border/60 bg-secondary/20 p-6">
+            <Skeleton className="size-full rounded-2xl" />
           </div>
-          <div className="h-80 rounded-2xl border border-white/[0.06] bg-[#0c0d14]/70 p-6">
+          <div className="h-96 rounded-2xl border border-border/60 bg-secondary/20 p-6">
             <Skeleton className="h-6 w-36 mb-4" />
-            <Skeleton className="h-20 w-full mb-4" />
-            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-24 w-full mb-4" />
+            <Skeleton className="h-36 w-full" />
           </div>
         </div>
       </div>
@@ -299,11 +464,21 @@ export function OverviewView() {
           cur.mainCur !== roas.currency.toUpperCase())),
   )
 
-  // Lucro líquido estimado (Receita - Gasto)
+  // Lucro líquido estimado (Receita - Gasto de Anúncios)
   const spendVal = roas ? roas.spend : 0
   const revReal = revCents / 100
   const estimatedProfit =
     !currencyMismatch && roas && revReal > 0 ? revReal - spendVal : null
+
+  // Métricas derivadas de alta densidade
+  const aov = cur.sales > 0 ? revReal / cur.sales : 0
+  const cpa = cur.sales > 0 && spendVal > 0 ? spendVal / cur.sales : null
+  const profitMargin =
+    revReal > 0 && estimatedProfit !== null ? (estimatedProfit / revReal) * 100 : null
+  const spendSharePct =
+    revReal > 0 && spendVal > 0 ? (spendVal / revReal) * 100 : null
+
+  const roasStatus = getRoasStatus(currencyMismatch, roas, spendVal)
 
   // Taxa geral de conversão
   const overallRate =
@@ -311,233 +486,294 @@ export function OverviewView() {
 
   return (
     <div
-      className={`mx-auto max-w-[1600px] flex flex-col gap-4 ${
+      className={`mx-auto max-w-[1600px] flex flex-col gap-6 ${
         firstEnter ? 'stagger-fade' : ''
       }`}
     >
-      {/* ── BARRA DE CONTROLES REFINADA ────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-            </span>
-            <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-emerald-300">
-              AO VIVO
-            </span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-base font-bold tracking-tight text-white sm:text-lg">
-              Visão Geral
-            </h1>
-            <span className="hidden sm:inline-block text-xs text-white/40">
-              · Monitoramento em Tempo Real
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <PeriodPicker value={period} onChange={setPeriod} />
-        </div>
+      {/* ── SELETOR DE PERÍODO ── */}
+      <div className="flex items-center justify-end pb-1">
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      {/* ── SEÇÃO 1: 4 MOSTRADORES PRINCIPAIS (KPIS & GAUGES) ───────────── */}
+      {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
       <section
         aria-label="Indicadores chave"
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
       >
-        {/* Mostrador 1: Faturamento */}
-        <div className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl transition-all duration-300 hover:border-white/15">
+        {/* Mostrador 1: Faturamento Bruto */}
+        <GlassCard
+          variant="thick"
+          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-cyan-500/25 bg-gradient-to-b from-cyan-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(34,211,238,0.06)] hover:border-cyan-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(34,211,238,0.14)] transition-all duration-300"
+        >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-xl bg-cyan-500/15 text-brand-cyan shadow-[0_0_12px_rgba(34,211,238,0.25)]">
                 <DollarSign className="size-4" />
               </span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">
+              <span
+                data-tooltip="Faturamento total gerado pelas vendas aprovadas no período selecionado."
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
+              >
                 Faturamento
               </span>
             </div>
-            <VariationBadge current={revCents} previous={prevRevCents} />
+            <div
+              data-tooltip="Comparação percentual de faturamento com o período imediatamente anterior."
+              className="cursor-help"
+            >
+              <VariationBadge current={revCents} previous={prevRevCents} />
+            </div>
           </div>
 
-          <div className="my-2 flex items-baseline justify-between gap-2">
-            <div className="font-mono text-2xl font-bold tracking-tight text-white sm:text-3xl" data-sensitive>
+          <div className="my-3 flex items-baseline justify-between gap-2">
+            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl" data-sensitive>
               <CountUp
                 value={revCents}
                 format={(v) => money(Math.round(v), cur.mainCur)}
               />
             </div>
-            <div className="shrink-0">
-              <MiniSparkline data={revSeries} color="#22d3ee" height={32} />
+            <div
+              className="shrink-0 cursor-help"
+              data-tooltip="Curva temporal de evolução do faturamento ao longo do período."
+            >
+              <MiniSparkline data={revSeries} color="#22d3ee" height={34} />
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-white/40">
-            <span>{cur.sales} venda{cur.sales === 1 ? '' : 's'}</span>
+          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
+            <span
+              data-tooltip="Total de vendas aprovadas e Ticket Médio (valor médio pago por cliente)."
+              className="cursor-help"
+            >
+              <strong className="font-mono text-foreground font-semibold">{cur.sales}</strong> venda{cur.sales === 1 ? '' : 's'} · Médio <strong className="font-mono text-foreground font-semibold">{cur.sales > 0 ? fmtAdsMoney(aov, cur.mainCur) : '—'}</strong>
+            </span>
             {otherRev.length > 0 && (
-              <span className="text-[10px] text-cyan-400">
-                +{otherRev.length} outra{otherRev.length === 1 ? ' moeda' : 's'}
+              <span
+                data-tooltip={`Vendas em outras moedas: ${otherRev.map(([code]) => code).join(', ')}`}
+                className="text-[10px] text-brand-cyan font-medium cursor-help"
+              >
+                +{otherRev.length} moeda{otherRev.length === 1 ? '' : 's'}
               </span>
             )}
           </div>
-        </div>
+        </GlassCard>
 
-        {/* Mostrador 2: Gasto & Lucro */}
-        <div className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl transition-all duration-300 hover:border-white/15">
+        {/* Mostrador 2: Lucro Líquido Real */}
+        <GlassCard
+          variant="thick"
+          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-emerald-500/25 bg-gradient-to-b from-emerald-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(52,211,153,0.06)] hover:border-emerald-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(52,211,153,0.14)] transition-all duration-300"
+        >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
-                <Flame className="size-4" />
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.25)]">
+                <Wallet className="size-4" />
               </span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">
-                Investimento Ads
+              <span
+                data-tooltip="Lucro real em caixa: faturamento bruto menos o valor investido em anúncios no TikTok Ads."
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
+              >
+                Lucro Líquido
               </span>
             </div>
-            {estimatedProfit !== null && (
+            {profitMargin !== null && (
               <span
-                className={`rounded-full px-2 py-0.5 font-mono text-[9.5px] font-bold ${
-                  estimatedProfit >= 0
+                data-tooltip="Margem Líquida: percentual da receita que virou lucro líquido no bolso."
+                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold cursor-help ${
+                  profitMargin >= 0
                     ? 'bg-emerald-500/15 text-emerald-400'
                     : 'bg-rose-500/15 text-rose-400'
                 }`}
                 data-sensitive
               >
-                {estimatedProfit >= 0 ? '+' : ''}
-                {fmtAdsMoney(estimatedProfit, cur.mainCur)} líquido
+                {profitMargin >= 0 ? '+' : ''}
+                {profitMargin.toFixed(1)}% margem
               </span>
             )}
           </div>
 
-          <div className="my-2">
-            <div className="font-mono text-2xl font-bold tracking-tight text-white sm:text-3xl" data-sensitive>
-              {roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
+          <div className="my-3">
+            <div
+              className={`font-mono text-2xl font-bold tracking-tight sm:text-3xl ${
+                estimatedProfit !== null
+                  ? estimatedProfit >= 0
+                    ? 'text-emerald-400'
+                    : 'text-rose-400'
+                  : 'text-foreground'
+              }`}
+              data-sensitive
+            >
+              {estimatedProfit !== null ? fmtAdsMoney(estimatedProfit, cur.mainCur) : '—'}
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-white/40">
-            <span>TikTok Ads</span>
-            <span className="text-[10px] text-white/50">
-              {period === 'today'
-                ? 'Hoje'
-                : period === '7d'
-                ? '7 dias'
-                : period === '30d'
-                ? '30 dias'
-                : '90 dias'}
+          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
+            <span
+              data-tooltip="Gasto total consumido pelas campanhas no TikTok Ads no período."
+              className="cursor-help"
+            >
+              Gasto Ads: <strong className="font-mono text-foreground font-semibold">{roas ? fmtAdsMoney(roas.spend, roas.currency || cur.mainCur) : '—'}</strong>
             </span>
-          </div>
-        </div>
-
-        {/* Mostrador 3: ROAS (Mostrador Semicircular de Arco) */}
-        <div className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl transition-all duration-300 hover:border-white/15">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-                <TrendingUp className="size-4" />
+            {spendSharePct !== null && (
+              <span
+                data-tooltip="Percentual da receita comprometido com investimento em tráfego."
+                className="text-[11px] font-medium text-foreground/80 cursor-help"
+              >
+                {`${spendSharePct.toFixed(0)}% receita`}
               </span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">
+            )}
+          </div>
+        </GlassCard>
+
+        {/* Mostrador 3: ROAS & Retorno de Mídia */}
+        <GlassCard
+          variant="thick"
+          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-rose-500/25 bg-gradient-to-b from-rose-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(244,63,94,0.06)] hover:border-rose-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(244,63,94,0.14)] transition-all duration-300"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-xl bg-rose-500/15 text-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.25)]">
+                <Flame className="size-4" />
+              </span>
+              <span
+                data-tooltip="ROAS (Return on Ad Spend): Multiplicador financeiro. Ex: 2,50x significa R$ 2,50 faturados para cada R$ 1,00 gasto em anúncios."
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
+              >
                 Retorno (ROAS)
               </span>
             </div>
           </div>
 
-          <RoasGauge
-            roas={roas ? roas.roas : null}
-            spend={spendVal}
-            currency={roas?.currency}
-            currencyMismatch={currencyMismatch}
-          />
-        </div>
+          <div className="my-3">
+            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              {roas?.roas !== null && roas?.roas !== undefined
+                ? `${roas.roas.toFixed(2).replace('.', ',')}x`
+                : spendVal > 0
+                ? '0,00x'
+                : '—'}
+            </div>
+          </div>
 
-        {/* Mostrador 4: Conversão & Eficiência */}
-        <div className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl transition-all duration-300 hover:border-white/15">
+          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
+            <span
+              data-tooltip="CPA (Custo por Aquisição): Valor médio de anúncios no TikTok gasto para gerar cada venda aprovada."
+              className="cursor-help"
+            >
+              CPA: <strong className="font-mono text-foreground font-semibold">{cpa !== null ? fmtAdsMoney(cpa, cur.mainCur) : '—'}</strong>
+            </span>
+            <Link
+              href="/ads/tiktok"
+              data-tooltip="Gerenciar campanhas e lances no TikTok Ads."
+              className="text-[11px] font-medium text-brand-cyan hover:underline inline-flex items-center gap-0.5"
+            >
+              Anúncios <ArrowUpRight className="size-3" />
+            </Link>
+          </div>
+        </GlassCard>
+
+        {/* Mostrador 4: Conversão do Funil */}
+        <GlassCard
+          variant="thick"
+          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-amber-500/25 bg-gradient-to-b from-amber-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(245,158,11,0.06)] hover:border-amber-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(245,158,11,0.14)] transition-all duration-300"
+        >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)]">
                 <ShoppingBag className="size-4" />
               </span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">
+              <span
+                data-tooltip="Taxa de conversão geral: proporção de visitantes da página que chegaram até a compra aprovada."
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
+              >
                 Conversão Geral
               </span>
             </div>
-            <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-cyan-300">
-              {cur.visits} visitas
-            </span>
           </div>
 
-          <div className="my-2">
-            <div className="font-mono text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <div className="my-3">
+            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               {overallRate}%
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-white/40">
-            <span>Aprovação no checkout</span>
-            <span className="font-mono font-semibold text-emerald-400">
-              {cur.approval.toFixed(0)}%
+          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
+            <span
+              data-tooltip="Taxa de aprovação de checkout: percentual de pedidos pagos com sucesso dentre os que abriram o checkout."
+              className="cursor-help"
+            >
+              Aprovação checkout: <strong className="font-mono text-emerald-400 font-semibold">{cur.approval.toFixed(0)}%</strong>
+            </span>
+            <span
+              data-tooltip="Total de pedidos confirmados com pagamento aprovado pelo gateway."
+              className="font-mono font-semibold text-foreground cursor-help"
+            >
+              {cur.purchased} {cur.purchased === 1 ? 'pedido' : 'pedidos'}
             </span>
           </div>
-        </div>
+        </GlassCard>
       </section>
 
       {/* ── SEÇÃO 2: CENTRO VISUAL (GLOBO 3D + FUNIL + ATIVIDADE) ───────── */}
       <section
         aria-label="Presença global e pipeline"
-        className="grid gap-3 lg:grid-cols-[1.4fr_1fr]"
+        className="grid gap-4 lg:grid-cols-[1.65fr_1fr]"
       >
-        {/* Globo 3D Imersivo e Refinado com Pontos de Acesso Shopify Live View */}
-        <div
-          className="relative flex min-h-[460px] items-center justify-center overflow-hidden rounded-2xl border border-white/[0.08] bg-[#05070d] shadow-[0_12px_40px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.08)]"
-          style={{ minHeight: 460 }}
+        {/* Globo 3D Imersivo com Pontos de Acesso Shopify Live View */}
+        <GlassCard
+          variant="thick"
+          className="relative flex min-h-[560px] xl:min-h-[620px] items-center justify-center overflow-hidden rounded-2xl border border-cyan-500/30 bg-gradient-to-b from-[#0b101b]/95 via-[#060912]/95 to-[#030509] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.7),0_0_28px_rgba(34,211,238,0.1)] transition-all duration-300"
+          style={{ minHeight: 560 }}
         >
           <HeroGlobe
-            countries={todayCountries}
+            countries={globeCountries}
             lastLeadAt={lastLeadAt}
             focusCode={focusCountry}
           />
-        </div>
+        </GlassCard>
 
         {/* Coluna Direita: Funil de Conversão + Feed ao Vivo */}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {/* Mostrador Visual de Funil (FunnelGauge) */}
-          <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+          <GlassCard variant="thick" className="p-5 border-border/80 rounded-2xl bg-gradient-to-b from-card/90 to-card/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)] hover:border-cyan-500/30 transition-all duration-300">
             <FunnelGauge
               visits={cur.visits}
               checkout={cur.reachedCheckout}
               payment={cur.paymentStarted}
               purchased={cur.purchased}
             />
-          </div>
+          </GlassCard>
 
           {/* Atividade Recente (LiveFeed) */}
-          <div className="flex-1 rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+          <GlassCard variant="thick" className="flex-1 p-5 border-border/80 rounded-2xl bg-gradient-to-b from-card/90 to-card/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)] hover:border-emerald-500/30 transition-all duration-300">
             <LiveFeed leads={data?.leads ?? []} />
-          </div>
+          </GlassCard>
         </div>
       </section>
 
       {/* ── SEÇÃO 3: MOSTRADORES DE DESEMPENHO E SAÚDE ──────────────────── */}
       <section
         aria-label="Desempenho e conformidade"
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
         {/* Top Campanhas */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/80">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
+              <span
+                data-tooltip="Campanhas com mais compras convertidas no período selecionado."
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help"
+              >
                 Top Campanhas
               </span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
-                <div className="flex items-center rounded-lg border border-white/[0.08] bg-white/[0.03] p-0.5 text-[9px] font-medium">
+                <div className="flex items-center rounded-lg border border-border/80 bg-secondary/40 p-0.5 text-[10px] font-medium">
                   <button
                     type="button"
                     onClick={() => setCampaignTab('tiktok')}
-                    className={`rounded-md px-1.5 py-0.5 transition-colors ${
+                    data-tooltip="Métricas oficiais lidas da API do TikTok Ads (gasto, compras e ROAS)."
+                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
                       campaignTab === 'tiktok'
-                        ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
-                        : 'text-white/40 hover:text-white/70'
+                        ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     TikTok Ads
@@ -545,10 +781,11 @@ export function OverviewView() {
                   <button
                     type="button"
                     onClick={() => setCampaignTab('utm')}
-                    className={`rounded-md px-1.5 py-0.5 transition-colors ${
+                    data-tooltip="Métricas rastreadas pelo parâmetro de link utm_campaign."
+                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
                       campaignTab === 'utm'
-                        ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
-                        : 'text-white/40 hover:text-white/70'
+                        ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     UTMs
@@ -558,9 +795,10 @@ export function OverviewView() {
             </div>
             <Link
               href="/ads/tiktok"
-              className="text-[10px] font-medium text-white/40 transition-colors hover:text-cyan-300"
+              data-tooltip="Abrir gerenciador e listagem de anúncios."
+              className="text-xs font-medium text-brand-cyan transition-colors hover:underline flex items-center gap-1"
             >
-              Ver anúncios →
+              Ver anúncios <ArrowUpRight className="size-3" />
             </Link>
           </div>
 
@@ -569,38 +807,52 @@ export function OverviewView() {
               {tikTokCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.id || c.name}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.04] bg-white/[0.02] px-3 py-2 transition-colors hover:bg-white/[0.05]"
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-colors hover:bg-secondary/40"
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.06] font-mono text-[10px] font-bold text-white/60">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-secondary font-mono text-[10px] font-bold text-muted-foreground">
                       {i + 1}
                     </span>
                     <div className="flex min-w-0 flex-col">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-medium text-white/90">
+                        <span className="truncate text-xs font-medium text-foreground">
                           {c.name}
                         </span>
                         <span
-                          className={`inline-flex items-center rounded px-1 py-0.2 text-[8.5px] font-medium ${
+                          data-tooltip={
                             c.status === 'active' || c.status === 'ENABLE'
-                              ? 'bg-emerald-500/15 text-emerald-400'
-                              : 'bg-white/10 text-white/50'
+                              ? 'Campanha ativa veiculando anúncios.'
+                              : 'Campanha pausada no TikTok.'
+                          }
+                          className={`inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-medium cursor-help ${
+                            c.status === 'active' || c.status === 'ENABLE'
+                              ? 'bg-success/15 text-success'
+                              : 'bg-secondary text-muted-foreground'
                           }`}
                         >
                           {c.status === 'active' || c.status === 'ENABLE' ? 'Ativa' : 'Pausada'}
                         </span>
                       </div>
-                      <span className="text-[10px] text-white/40">
+                      <span
+                        data-tooltip="Valor total consumido por esta campanha no período."
+                        className="text-[10px] text-muted-foreground cursor-help"
+                      >
                         {fmtAdsMoney(c.spend, roas?.currency || 'BRL')} investidos
                       </span>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2 text-right">
-                    <span className="font-mono text-xs font-bold text-emerald-400">
+                    <span
+                      data-tooltip="Compras aprovadas atribuídas a esta campanha."
+                      className="font-mono text-xs font-bold text-success cursor-help"
+                    >
                       {c.conversions} {c.conversions === 1 ? 'venda' : 'vendas'}
                     </span>
                     {c.roas !== null && c.roas > 0 && (
-                      <span className="rounded bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300">
+                      <span
+                        data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
+                        className="rounded bg-brand-cyan/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand-cyan cursor-help"
+                      >
                         {c.roas.toFixed(2)}x
                       </span>
                     )}
@@ -613,21 +865,27 @@ export function OverviewView() {
               {cur.topCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.name}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.04] bg-white/[0.02] px-3 py-2 transition-colors hover:bg-white/[0.05]"
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-colors hover:bg-secondary/40"
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.06] font-mono text-[10px] font-bold text-white/60">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-secondary font-mono text-[10px] font-bold text-muted-foreground">
                       {i + 1}
                     </span>
-                    <span className="truncate text-xs font-medium text-white/90">
+                    <span className="truncate text-xs font-medium text-foreground">
                       {c.name}
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2 text-right">
-                    <span className="font-mono text-xs font-bold text-emerald-400">
+                    <span
+                      data-tooltip="Compras confirmadas desta UTM."
+                      className="font-mono text-xs font-bold text-success cursor-help"
+                    >
                       {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
                     </span>
-                    <span className="font-mono text-[10px] text-white/40">
+                    <span
+                      data-tooltip="Taxa de conversão de visitantes desta campanha."
+                      className="font-mono text-[10px] text-muted-foreground cursor-help"
+                    >
                       {c.conv.toFixed(1)}%
                     </span>
                   </div>
@@ -635,25 +893,26 @@ export function OverviewView() {
               ))}
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-white/40">
-              Nenhuma campanha com dados no período.
+            <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">
+              Nenhuma campanha com dados no período selecionado.
             </div>
           )}
-        </div>
+        </GlassCard>
 
-        {/* Distribuição Global Interativa (passar o mouse/clicar foca o globo) */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+        {/* Distribuição Global Interativa */}
+        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/80">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
+            <span
+              data-tooltip="Países com maior volume de acessos. Clique em qualquer país para centralizar o globo 3D."
+              className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
+            >
+              <Globe2 className="size-3.5 text-brand-cyan" />
               Top Países
-            </span>
-            <span className="text-[10px] text-white/40">
-              Clique para focar no globo
             </span>
           </div>
 
           {cur.countries.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-white/40">
+            <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">
               Aguardando visitantes globais.
             </div>
           ) : (
@@ -668,36 +927,37 @@ export function OverviewView() {
                     key={c.code}
                     type="button"
                     onClick={() =>
-                      setFocusCountry((prev) => (prev === c.code ? null : c.code))
+                      setFocusCountry((prevVal) => (prevVal === c.code ? null : c.code))
                     }
-                    className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all ${
+                    data-tooltip={`Focar no globo: ${c.name || c.code} (${c.count} visitas, ${c.purchased} compras)`}
+                    className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-cyan-400/50 bg-cyan-500/15 shadow-[0_0_12px_rgba(6,182,212,0.25)] ring-1 ring-cyan-400/30'
-                        : 'border-white/[0.04] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.05]'
+                        ? 'border-brand-cyan/60 bg-brand-cyan/15 shadow-[0_0_12px_rgba(37,244,238,0.2)] ring-1 ring-brand-cyan/40'
+                        : 'border-border/60 bg-secondary/20 hover:border-border hover:bg-secondary/40'
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="text-base leading-none">
                         {countryFlag(c.code)}
                       </span>
-                      <span className="truncate text-xs font-medium text-white/90">
+                      <span className="truncate text-xs font-medium text-foreground">
                         {c.name || c.code}
                       </span>
                       {c.purchased > 0 && (
-                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.2 font-mono text-[9px] font-semibold text-emerald-400">
+                        <span className="rounded bg-success/15 px-1.5 py-0.2 font-mono text-[9px] font-semibold text-success">
                           {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
                         </span>
                       )}
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
-                      <div className="hidden w-16 overflow-hidden rounded-full bg-white/[0.06] sm:block h-1.5">
+                      <div className="hidden w-16 overflow-hidden rounded-full bg-secondary sm:block h-1.5">
                         <div
-                          className="h-full rounded-full bg-cyan-400"
+                          className="h-full rounded-full bg-brand-cyan"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className="font-mono text-xs font-bold tabular-nums text-white">
+                      <span className="font-mono text-xs font-bold tabular-nums text-foreground">
                         {c.count}
                       </span>
                     </div>
@@ -706,15 +966,22 @@ export function OverviewView() {
               })}
             </div>
           )}
-        </div>
+        </GlassCard>
 
-        {/* Saúde do Pixel CAPI (TikTok EMQ) */}
-        <div className="flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#0c0d14]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+        {/* Qualidade do Rastreamento */}
+        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/80">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
-              Qualidade de Eventos
+            <span
+              data-tooltip="Envio de conversões direto do servidor para o TikTok, imune a bloqueadores de anúncios e restrições de navegadores."
+              className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
+            >
+              <ShieldCheck className="size-3.5 text-brand-cyan" />
+              Qualidade do Rastreamento
             </span>
-            <span className="flex size-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
+            <span
+              data-tooltip="Conexão com o TikTok ativa e saudável."
+              className="status-dot status-dot--ok cursor-help"
+            />
           </div>
 
           <div className="my-auto py-2">
@@ -724,12 +991,7 @@ export function OverviewView() {
               alerts={emqSummary?.alerts ?? 0}
             />
           </div>
-
-          <div className="flex items-center justify-between text-[10px] text-white/40">
-            <span>TikTok Events API (CAPI)</span>
-            <span className="text-emerald-400">Deduplicação ativa</span>
-          </div>
-        </div>
+        </GlassCard>
       </section>
     </div>
   )

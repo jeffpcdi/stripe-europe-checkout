@@ -79,48 +79,111 @@ export function HeroGlobe({ countries, lastLeadAt, focusCode }: HeroGlobeProps) 
   const activeCountries = liveCountries.length
   const pulses = useLeadPulses(liveCountries)
 
-  const [activeMetric, setActiveMetric] = useState<'visits' | 'sales'>('visits')
+  const [activeMetric, setActiveMetric] = useState<'all' | 'live' | 'sales'>('all')
 
   const emptyNote = liveError ? (
     <span className="rounded-full border border-amber-500/30 bg-black/60 px-3 py-1 text-[11px] text-amber-400 backdrop-blur-md">
       Reconectando ao tempo real…
     </span>
-  ) : !lastLeadAt ? (
+  ) : !lastLeadAt && onlineNow === 0 ? (
     <Link
       href="/links"
       className="pointer-events-auto rounded-full border border-cyan-500/30 bg-black/60 px-3 py-1 text-[11px] font-medium text-cyan-300 backdrop-blur-md transition-colors hover:bg-cyan-500/20"
     >
       Configurar rastreamento →
     </Link>
-  ) : null
+  ) : (
+    <span className="rounded-full border border-cyan-500/20 bg-black/60 px-3.5 py-1.5 text-[11px] text-white/80 backdrop-blur-md">
+      Aguardando visitantes ao vivo ou compras…
+    </span>
+  )
 
-  // Combina presença ao vivo com métricas de hoje
+  // Mostra no globo ESTRITAMENTE: visitantes navegando no site ao vivo e compras
   const liveGlobeCountries = useMemo(() => {
-    const purchasedByCode = new Map(countries.map((c) => [c.code, c.purchased]))
-    const countsByCode = new Map(countries.map((c) => [c.code, c.count]))
+    // 1. Mapa de compras por país
+    const purchaseMap = new Map<string, { code: string; name: string; purchased: number }>()
+    for (const c of countries) {
+      if (!c.code) continue
+      const code = c.code.toUpperCase()
+      if ((c.purchased || 0) > 0) {
+        purchaseMap.set(code, {
+          code,
+          name: c.name || code,
+          purchased: c.purchased,
+        })
+      }
+    }
 
-    // Se estiver no modo 'sales', mostra todos os países que tiveram compras
+    // 2. Mapa de visitantes navegando ao vivo no site agora
+    const liveMap = new Map<string, { code: string; name: string; liveCount: number }>()
+    for (const lc of liveCountries) {
+      if (!lc.code) continue
+      const code = lc.code.toUpperCase()
+      const cnt = lc.count || 1
+      if (cnt > 0) {
+        liveMap.set(code, {
+          code,
+          name: lc.name || code,
+          liveCount: cnt,
+        })
+      }
+    }
+
+    // Se estiver no modo 'sales', mostra apenas países com compras
     if (activeMetric === 'sales') {
-      return countries.filter((c) => c.purchased > 0)
+      return Array.from(purchaseMap.values())
+        .map((p) => ({
+          code: p.code,
+          name: p.name,
+          count: liveMap.get(p.code)?.liveCount || 0,
+          purchased: p.purchased,
+        }))
+        .sort((a, b) => b.purchased - a.purchased)
     }
 
-    // Se no modo 'visits', prioriza os que estão online agora, ou os top do dia se zero online
-    if (liveCountries.length > 0) {
-      return liveCountries.map((c) => ({
-        code: c.code,
-        name: c.name,
-        count: c.count,
-        purchased: purchasedByCode.get(c.code) ?? 0,
-      }))
+    // Se estiver no modo 'live', mostra apenas quem está navegando ao vivo no site
+    if (activeMetric === 'live') {
+      return Array.from(liveMap.values())
+        .map((l) => ({
+          code: l.code,
+          name: l.name,
+          count: l.liveCount,
+          purchased: purchaseMap.get(l.code)?.purchased || 0,
+        }))
+        .sort((a, b) => b.count - a.count)
     }
 
-    // Fallback gracioso com tráfego do dia
-    return countries.slice(0, 15).map((c) => ({
-      code: c.code,
-      name: c.name,
-      count: countsByCode.get(c.code) ?? c.count,
-      purchased: c.purchased,
-    }))
+    // Modo padrão ('all'): apenas países navegando ao vivo E/OU com compras
+    const combined = new Map<string, { code: string; name: string; count: number; purchased: number }>()
+
+    for (const [code, l] of liveMap) {
+      combined.set(code, {
+        code,
+        name: l.name,
+        count: l.liveCount,
+        purchased: purchaseMap.get(code)?.purchased || 0,
+      })
+    }
+
+    for (const [code, p] of purchaseMap) {
+      const existing = combined.get(code)
+      if (existing) {
+        existing.purchased = p.purchased
+      } else {
+        combined.set(code, {
+          code,
+          name: p.name,
+          count: 0,
+          purchased: p.purchased,
+        })
+      }
+    }
+
+    return Array.from(combined.values()).sort((a, b) => {
+      const aScore = (a.count || 0) + (a.purchased || 0) * 3
+      const bScore = (b.count || 0) + (b.purchased || 0) * 3
+      return bScore - aScore
+    })
   }, [liveCountries, countries, activeMetric])
 
   return (
@@ -138,69 +201,80 @@ export function HeroGlobe({ countries, lastLeadAt, focusCode }: HeroGlobeProps) 
         focusCode={focusCode}
         metric={activeMetric}
         pulses={pulses}
-        showArcs={onlineNow > 0 || activeMetric === 'sales'}
+        showArcs={onlineNow > 0 || liveGlobeCountries.length > 1}
         emptyNote={emptyNote}
       />
 
-      {/* Badge Flutuante Refinado no Topo: Online Agora + Alternador de Métrica */}
+      {/* Badge Flutuante Refinado no Topo: Navegando Agora + Alternador de Métrica */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5">
         {/* Indicador de Presença Online Agora */}
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/10 bg-[#090b10]/75 px-3 py-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-cyan-500/30 bg-[#070b14]/90 px-3.5 py-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.7),0_0_12px_rgba(34,211,238,0.15)] backdrop-blur-xl">
           <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-80" />
+            <span className="relative inline-flex size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
           </span>
           <span className="font-mono text-xs font-bold tabular-nums text-white">
             <CountUp value={onlineNow} />
           </span>
-          <span className="text-[10px] font-medium text-white/60">
-            online agora
+          <span className="text-[11px] font-medium text-white/80">
+            navegando ao vivo
           </span>
           {activeCountries > 0 && (
-            <span className="rounded-full bg-white/10 px-1.5 py-0.2 font-mono text-[9px] text-white/50">
+            <span className="rounded-full bg-white/15 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/90">
               {activeCountries} {activeCountries === 1 ? 'país' : 'países'}
             </span>
           )}
         </div>
 
-        {/* Alternador Interativo em Pílula: Visitas vs Vendas */}
-        <div className="pointer-events-auto flex items-center rounded-full border border-white/10 bg-[#090b10]/75 p-0.5 shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+        {/* Alternador Interativo em Pílula: Ambos vs Ao Vivo vs Compras */}
+        <div className="pointer-events-auto flex items-center rounded-full border border-cyan-500/30 bg-[#070b14]/90 p-1 shadow-[0_4px_24px_rgba(0,0,0,0.7)] backdrop-blur-xl">
           <button
             type="button"
-            onClick={() => setActiveMetric('visits')}
-            className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all ${
-              activeMetric === 'visits'
-                ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                : 'text-white/50 hover:text-white/80'
+            onClick={() => setActiveMetric('all')}
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+              activeMetric === 'all'
+                ? 'bg-cyan-500/30 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.45)]'
+                : 'text-white/60 hover:text-white/90'
             }`}
           >
-            Tráfego
+            Ambos
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMetric('live')}
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+              activeMetric === 'live'
+                ? 'bg-cyan-500/30 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.45)]'
+                : 'text-white/60 hover:text-white/90'
+            }`}
+          >
+            Ao Vivo
           </button>
           <button
             type="button"
             onClick={() => setActiveMetric('sales')}
-            className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all ${
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
               activeMetric === 'sales'
-                ? 'bg-emerald-500/20 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                : 'text-white/50 hover:text-white/80'
+                ? 'bg-emerald-500/30 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.45)]'
+                : 'text-white/60 hover:text-white/90'
             }`}
           >
-            Vendas
+            Compras
           </button>
         </div>
       </div>
 
-      {/* Rodapé Flutuante: Legenda dos Pontos de Acesso 3D (Shopify Live View) */}
+      {/* Rodapé Flutuante: Legenda dos Pontos de Acesso 3D */}
       <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-2">
-        <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#090b10]/80 px-3 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+        <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-[#070b14]/90 px-3.5 py-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.7)] backdrop-blur-xl">
           <div className="flex items-center gap-1.5">
-            <span className="h-3 w-1 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
-            <span className="text-[10px] font-medium text-white/70">Acessos Ativos</span>
+            <span className="h-3.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)]" />
+            <span className="text-[11px] font-medium text-white/90">Navegando ao Vivo</span>
           </div>
-          <span className="text-white/20">|</span>
+          <span className="text-white/30">|</span>
           <div className="flex items-center gap-1.5">
-            <span className="h-3 w-1 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-            <span className="text-[10px] font-medium text-white/70">Conversões</span>
+            <span className="h-3.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
+            <span className="text-[11px] font-medium text-white/90">Compras</span>
           </div>
         </div>
       </div>

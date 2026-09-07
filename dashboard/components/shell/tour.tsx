@@ -143,19 +143,6 @@ export function TourGuide() {
 
   return (
     <>
-      {/* Item 49: botão "?" flutuante reabre o tour da página */}
-      {currentTour && !active && (
-        <button
-          type="button"
-          onClick={() => start(currentTour)}
-          className="glass fixed bottom-4 right-4 z-40 flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-brand-cyan md:bottom-6 md:right-6 md:size-10"
-          aria-label={`Rever tour da página ${currentTour.label}`}
-          title="Rever o tour desta página"
-        >
-          <HelpCircle className="size-5" aria-hidden="true" />
-        </button>
-      )}
-
       {active && s && rect && (
         <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true" aria-label={`Tour: ${s.title}`}>
           {/* Item 44: spotlight — backdrop com recorte no alvo */}

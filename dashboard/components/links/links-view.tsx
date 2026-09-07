@@ -380,55 +380,37 @@ export function LinksView() {
             type="button"
             data-tour="links-new"
             onClick={() => setCreating(true)}
-            className="group relative flex items-center gap-1.5 rounded-lg overflow-hidden bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-bold text-black transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_15px_rgba(37,244,238,0.4)] hover:shadow-[0_0_25px_rgba(37,244,238,0.7)]"
+            className="flex items-center gap-1.5 rounded-lg bg-brand-cyan px-4 py-2 text-sm font-semibold text-black transition-all hover:opacity-90 active:scale-95"
           >
-            {/* Spin background glow effect */}
-            <div className="absolute -inset-[150%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_0_340deg,white_360deg)] opacity-0 group-hover:opacity-40 transition-opacity duration-300" />
-            <div className="relative z-10 flex items-center gap-1.5">
-              <Plus className="size-4 transition-transform duration-300 group-hover:rotate-90 group-hover:scale-110" /> 
-              Novo link
-            </div>
-            {/* Ripple white flash overlay on click/hover */}
-            <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 group-active:opacity-40 transition-opacity mix-blend-overlay" />
+            <Plus className="size-4" />
+            Novo link
           </button>
         </div>
       </div>
 
       {links.length === 0 ? (
-        <GlassCard className="relative overflow-hidden flex flex-col items-center justify-center gap-5 p-16 text-center transition-all duration-700 hover:shadow-[0_0_50px_rgba(37,244,238,0.15)] animate-in fade-in zoom-in-95 border border-dashed border-border/50 hover:border-[color:var(--brand-cyan)]/50 group/empty">
-          {/* Background particles and radial gradient */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,var(--brand-cyan-transparent)_0%,transparent_70%)] opacity-20 pointer-events-none" />
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjQiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSIvPjwvc3ZnPg==')] opacity-50 pointer-events-none" />
-          
-          <div className="relative flex size-24 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] shadow-[0_0_40px_rgba(37,244,238,0.2)] group-hover/empty:shadow-[0_0_80px_rgba(37,244,238,0.4)] transition-shadow duration-700">
-            {/* Pulsing rings */}
-            <div className="absolute inset-0 rounded-full border border-[color:var(--brand-cyan)]/30 animate-[ping_3s_ease-out_infinite]" />
-            <div className="absolute inset-0 rounded-full border border-[color:var(--brand-pink)]/20 animate-[ping_4s_ease-out_infinite_1s]" />
-            <Link2 className="size-10 transition-transform duration-700 group-hover/empty:scale-110 group-hover/empty:rotate-12" />
+        <GlassCard className="flex flex-col items-center justify-center gap-4 p-12 text-center border-dashed border-border/80">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan">
+            <Link2 className="size-7" />
           </div>
 
-          <div className="relative z-10 flex flex-col items-center gap-2 max-w-sm">
-            <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60 animate-in slide-in-from-bottom-2 duration-500 delay-100">
-              Crie seu primeiro link
+          <div className="flex flex-col items-center gap-1 max-w-sm">
+            <h3 className="text-base font-semibold text-foreground">
+              Nenhum link criado
             </h3>
-            <p className="text-sm text-muted-foreground font-medium text-pretty animate-in slide-in-from-bottom-2 duration-500 delay-200">
-              Configure URLs curtas com <strong className="text-foreground">Split A/B</strong>, <strong className="text-foreground">Cloak</strong> e o seu próprio domínio.
+            <p className="text-xs text-muted-foreground">
+              Crie links de checkout para rastrear cliques, vendas e enviar dados ao TikTok.
             </p>
           </div>
 
-          <div className="relative z-10 mt-2 flex flex-wrap items-center justify-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="group/btn relative overflow-hidden rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_35px_rgba(255,255,255,0.6)]"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] opacity-0 transition-opacity duration-300 group-hover/btn:opacity-100 mix-blend-screen" />
-              <div className="absolute -inset-[200%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_0_340deg,rgba(0,0,0,0.2)_360deg)] group-hover/btn:opacity-0" />
-              <span className="relative z-10 flex items-center gap-2 group-hover/btn:text-white transition-colors duration-300">
-                Criar Link Agora <Plus className="size-4" />
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-2 flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background hover:opacity-90 transition-opacity"
+          >
+            <Plus className="size-3.5" />
+            Criar Primeiro Link
+          </button>
         </GlassCard>
       ) : (
         <div className="flex flex-col gap-3" data-tour="links-list">
@@ -694,140 +676,64 @@ export function LinksView() {
                     )}
                   </div>
                   </div>
-                  {/* data-tour repete por card; o tour destaca o 1º (querySelector).
-                      A5.2: em desktop as ações aparecem no hover/foco do card;
-                      no mobile (sem hover) ficam sempre visíveis. */}
-                  {/* data-tour repete por card; o tour destaca o 1º (querySelector).
-                      A5.2: O "Dock" Flutuante. Somente visível via opacidade, 
-                      e agora com efeito de entrada 'spring' do bottom. */}
-                  <div
-                    className="absolute right-4 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-1.5 rounded-full border border-white/5 bg-background/40 p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl opacity-0 translate-y-2 transition-all duration-300 ease-out group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 sm:right-6"
-                    data-tour="links-qr"
-                  >
-                    {/* Item 62: pausar/ativar direto no card (otimista, sem abrir o editor) */}
+                  {/* Ações do Card: Limpas, diretas e sempre acessíveis */}
+                  <div className="flex items-center gap-1">
+                    {/* Botão Copiar */}
+                    <button
+                      type="button"
+                      onClick={() => copyUrl(l)}
+                      className="flex items-center gap-1 rounded-lg border border-border/70 bg-secondary/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                      title="Copiar link"
+                    >
+                      {copied === l.slug ? (
+                        <>
+                          <Check className="size-3.5 text-brand-cyan" />
+                          <span className="text-brand-cyan">Copiado</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3.5" />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Botão Ativar/Pausar */}
                     <button
                       type="button"
                       onClick={() => toggleAtivo(l)}
                       disabled={busy}
-                      className={`rounded-md p-2 transition-colors hover:bg-secondary disabled:opacity-40 ${
+                      className={`rounded-lg border border-border/70 p-1.5 text-xs transition-colors hover:bg-secondary disabled:opacity-40 ${
                         l.ativo
-                          ? 'text-[color:var(--success)] hover:text-[color:var(--success)]'
-                          : 'text-muted-foreground hover:text-foreground'
+                          ? 'text-[color:var(--success)]'
+                          : 'text-muted-foreground'
                       }`}
-                      aria-label={l.ativo ? `Pausar o link ${l.nome}` : `Ativar o link ${l.nome}`}
-                      aria-pressed={l.ativo}
                       title={l.ativo ? 'Pausar link' : 'Ativar link'}
+                      aria-label={l.ativo ? `Pausar link ${l.nome}` : `Ativar link ${l.nome}`}
                     >
-                      <Power className="size-4" />
+                      <Power className="size-3.5" />
                     </button>
-                    {/* Item 69: testar o /go em nova aba (conta como clique real) */}
-                    <a
-                      href={publicUrl(l)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      aria-label={`Abrir ${publicUrl(l)} em nova aba`}
-                      data-tooltip="Abrir /go em nova aba (atenção: conta como clique)"
-                    >
-                      <ExternalLink className="size-4" />
-                    </a>
-                    {/* Item 63: duplicar link (cópia pausada com contadores zerados) */}
-                    <button
-                      type="button"
-                      onClick={() => duplicateLink(l)}
-                      disabled={busy}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                      aria-label={`Duplicar o link ${l.nome}`}
-                      data-tooltip="Duplicar link (a cópia nasce pausada)"
-                    >
-                      <CopyPlus className="size-4" />
-                    </button>
-                    {/* Item 531: arquivar/desarquivar sem apagar histórico */}
-                    <button
-                      type="button"
-                      onClick={() => toggleArquivado(l)}
-                      disabled={busy}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                      aria-label={l.arquivado ? `Desarquivar o link ${l.nome}` : `Arquivar o link ${l.nome}`}
-                      title={
-                        l.arquivado
-                          ? 'Desarquivar (volta para a lista e reativa o /go)'
-                          : 'Arquivar (sai da lista e desativa o /go; histórico preservado)'
-                      }
-                    >
-                      {l.arquivado ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
-                    </button>
-                    {/* A5.5: morph Copy→Check via .copy-morph + toast */}
-                    <button
-                      type="button"
-                      onClick={() => copyUrl(l)}
-                      className="group/btn relative rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
-                      aria-label="Copiar URL"
-                      data-tooltip="Copiar link /go"
-                    >
-                      <span className="copy-morph transition-transform duration-300" data-copied={copied === l.slug}>
-                        <Copy className="size-4" aria-hidden="true" />
-                        <Check className="size-4" aria-hidden="true" />
-                      </span>
-                      {copied === l.slug && (
-                         <span className="absolute inset-0 animate-ping rounded-full bg-[color:var(--brand-cyan)] opacity-75" />
-                      )}
-                    </button>
-                    {/* Item 71: QR code em popover glass */}
-                    <button
-                      type="button"
-                      onClick={() => setQrFor(qrFor === l.slug ? null : l.slug)}
-                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
-                      aria-label="Ver QR code"
-                      aria-expanded={qrFor === l.slug}
-                      data-tooltip="Ver código QR"
-                    >
-                      <QrCode className="size-4" />
-                    </button>
-                    {qrFor === l.slug && (
-                      <div className="absolute right-0 top-14 z-20 flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-background/80 p-4 shadow-[0_15px_50px_rgba(37,244,238,0.15)] backdrop-blur-3xl animate-in zoom-in-95 duration-200">
-                        {qrDataUrl ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={qrDataUrl || "/placeholder.svg"}
-                            alt={`QR code do link ${l.nome}`}
-                            width={140}
-                            height={140}
-                            className="rounded-xl border border-[color:var(--brand-cyan)]/40 shadow-[0_0_20px_rgba(37,244,238,0.2)]"
-                          />
-                        ) : (
-                          <div className="flex size-[140px] items-center justify-center rounded-xl bg-secondary/40 backdrop-blur-md">
-                            <QrCode className="size-8 animate-pulse text-muted-foreground" aria-hidden="true" />
-                          </div>
-                        )}
-                        <span className="font-mono text-[10px] text-muted-foreground bg-black/40 px-2 py-0.5 rounded-full border border-white/5">/go/{l.slug}</span>
-                        <button
-                          type="button"
-                          onClick={() => downloadQr(l)}
-                          disabled={!qrDataUrl}
-                          className="group/dl flex w-full justify-center items-center gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary/80 hover:shadow-[0_0_10px_rgba(255,255,255,0.05)] disabled:opacity-40"
-                        >
-                          <Download className="size-3.5 transition-transform duration-300 group-hover/dl:translate-y-0.5" aria-hidden="true" /> Baixar PNG
-                        </button>
-                      </div>
-                    )}
+
+                    {/* Botão Editar */}
                     <button
                       type="button"
                       onClick={() => setEditing(l)}
-                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
+                      className="rounded-lg border border-border/70 p-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      title="Editar link"
                       aria-label="Editar link"
-                      data-tooltip="Editar link"
                     >
-                      <Pencil className="size-4" />
+                      <Pencil className="size-3.5" />
                     </button>
+
+                    {/* Botão Excluir */}
                     <button
                       type="button"
                       onClick={() => setDeleting(l.slug)}
-                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-destructive/20 hover:text-destructive hover:shadow-[0_0_15px_rgba(255,0,0,0.3)]"
+                      className="rounded-lg border border-border/70 p-1.5 text-xs text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive hover:border-destructive/40"
+                      title="Excluir link"
                       aria-label="Excluir link"
-                      data-tooltip="Excluir link"
                     >
-                      <Trash2 className="size-4" />
+                      <Trash2 className="size-3.5" />
                     </button>
                   </div>
                 </div>

@@ -9,19 +9,22 @@ const MAX_ROWS = 5
 
 const STAGE_CONFIG: Record<
   string,
-  { label: string; badge: string }
+  { label: string; badge: string; tooltip: string }
 > = {
   visit: {
     label: 'Visita',
     badge: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    tooltip: 'Visitante acessou uma página ou link',
   },
   checkout: {
     label: 'Checkout',
     badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    tooltip: 'Visitante abriu a tela de checkout',
   },
   purchased: {
     label: 'Venda',
     badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.3)]',
+    tooltip: 'Pedido confirmado e pago com sucesso',
   },
 }
 
@@ -40,7 +43,10 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
     <div className="flex h-full flex-col justify-between gap-3">
       {/* Cabeçalho minimalista */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div
+          data-tooltip="Fluxo em tempo real dos últimos visitantes e compradores."
+          className="flex items-center gap-2 cursor-help"
+        >
           <span className="relative flex size-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-cyan-400" />
@@ -51,6 +57,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
         </div>
         <Link
           href="/activity"
+          data-tooltip="Ver histórico completo de atividades e leads."
           className="text-[10px] font-medium text-white/40 transition-colors hover:text-cyan-300"
         >
           Histórico →
@@ -83,8 +90,9 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                     {label(lead)}
                   </span>
                   <span
+                    data-tooltip={config.tooltip}
                     className={cn(
-                      'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider',
+                      'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider cursor-help',
                       config.badge,
                     )}
                   >

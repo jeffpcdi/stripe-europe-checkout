@@ -22,11 +22,17 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
   const isMed = normalized >= 4 && normalized < 7
   const color = isGood ? '#10b981' : isMed ? '#f59e0b' : '#f43f5e'
   const statusLabel = isGood ? 'Excelente' : isMed ? 'Médio' : 'Atenção'
+  const tooltipText = isGood
+    ? 'Qualidade Excelente: o algoritmo do TikTok identifica com precisão os compradores para otimizar as campanhas.'
+    : isMed
+    ? 'Qualidade Média: envie mais dados (telefone e e-mail) nos webhooks para melhorar a entrega dos anúncios.'
+    : 'Qualidade Baixa: poucos dados enviados ao TikTok; anúncios podem perder eficiência.'
 
   return (
     <Link
       href="/conversions?tab=pixels"
-      className="group flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-all duration-200 hover:border-white/15 hover:bg-white/[0.05]"
+      data-tooltip={tooltipText}
+      className="group flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-all duration-200 hover:border-white/15 hover:bg-white/[0.05] cursor-help"
     >
       <div className="flex items-center gap-3">
         {/* Mostrador circular SVG */}
@@ -69,7 +75,7 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-white group-hover:text-cyan-400 transition-colors">
-              TikTok CAPI EMQ
+              Precisão do Rastreamento
             </span>
             {alerts > 0 && (
               <span className="rounded-full bg-rose-500/20 px-1.5 py-0.2 font-mono text-[9px] font-bold text-rose-400">

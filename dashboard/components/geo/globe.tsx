@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
-import { Crosshair, Maximize2, Minimize2, Minus, Plus } from 'lucide-react'
+import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause } from 'lucide-react'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 
 interface GeoPoint {
@@ -60,7 +60,7 @@ interface GlobePanelProps {
   /* Item 161: código do país em foco (hover na tabela) — gira o globo até ele */
   focusCode?: string | null
   /* Item 163: métrica ativa muda a cor dos pontos */
-  metric?: 'visits' | 'sales'
+  metric?: 'visits' | 'sales' | 'live' | 'all'
   /* Fase 5: pulsos externos (lead novo detectado no poll) → anéis temporários */
   pulses?: GeoPulse[]
   /* Arcos de tráfego só fazem sentido com gente NO SITE agora — o pai liga/
@@ -76,13 +76,13 @@ interface GlobePanelProps {
 const CYAN = '#25f4ee'
 const PINK = '#fe2c55'
 
-const ALT_MIN = 1.2
+const ALT_MIN = 1.02
 const ALT_MAX = 3.5
-const ALT_DEFAULT = 2.0
-const ALT_STEP = 0.45
+const ALT_DEFAULT = 1.62
+const ALT_STEP = 0.28
 // Entrada curta e suave: dá profundidade sem atrasar a leitura dos dados.
-const ALT_ENTRY = 3.4
-const ENTRY_MS = 1200
+const ALT_ENTRY = 2.8
+const ENTRY_MS = 1000
 
 // Movimento propositalmente contido: o globo deve sustentar a leitura, não
 // competir com os números e a lista de atividade sobre ele.
@@ -128,32 +128,32 @@ function createTotemMesh(d: GeoTotem): any {
   const mat = new THREE.MeshStandardMaterial({
     color: d.color,
     emissive: d.color,
-    emissiveIntensity: 0.85,
-    roughness: 0.2,
+    emissiveIntensity: 0.92,
+    roughness: 0.22,
     metalness: 0.15,
   })
   const cylinder = new THREE.Mesh(geom, mat)
   group.add(cylinder)
 
   // 2. Farol / Beacon luminoso no topo da haste cilíndrica
-  const capGeom = new THREE.SphereGeometry(d.radius * 1.25, 16, 12)
+  const capGeom = new THREE.SphereGeometry(d.radius * 1.3, 16, 12)
   capGeom.translate(0, 0, d.height)
   const capMat = new THREE.MeshStandardMaterial({
     color: '#ffffff',
     emissive: d.color,
-    emissiveIntensity: 1.2,
-    roughness: 0.1,
+    emissiveIntensity: 1.25,
+    roughness: 0.08,
   })
   const cap = new THREE.Mesh(capGeom, capMat)
   group.add(cap)
 
-  // 3. Disco de ancoragem na crosta da Terra (Z = 0.05 para evitar z-fighting)
-  const baseGeom = new THREE.RingGeometry(d.radius * 0.8, d.radius * 2.4, 24)
-  baseGeom.translate(0, 0, 0.05)
+  // 3. Disco de ancoragem na crosta da Terra (translúcido para não encobrir a geografia)
+  const baseGeom = new THREE.RingGeometry(d.radius * 0.7, d.radius * 2.2, 24)
+  baseGeom.translate(0, 0, 0.04)
   const baseMat = new THREE.MeshBasicMaterial({
     color: d.color,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.52,
     side: THREE.DoubleSide,
   })
   const baseRing = new THREE.Mesh(baseGeom, baseMat)
@@ -164,30 +164,52 @@ function createTotemMesh(d: GeoTotem): any {
 
 function buildPoints(
   countries: GlobePanelProps['countries'],
-  metric: 'visits' | 'sales' = 'visits',
+  metric: 'visits' | 'sales' | 'live' | 'all' = 'all',
   pulses: GeoPulse[] = [],
 ) {
-  // Em "vendas" só países com compra pontuam, em verde. Ordenar aqui evita
-  // que rings/arcos deem destaque a um país diferente do ponto dominante.
-  const base = (metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries)
+  // Filtra de acordo com a métrica:
+  // - sales: apenas países com compras (c.purchased > 0)
+  // - live / visits: apenas países com visitantes navegando ao vivo (c.count > 0)
+  // - all: apenas países com visitantes navegando ao vivo E/OU compras
+  const base = countries
+    .filter((c) => {
+      if (metric === 'sales') return (c.purchased || 0) > 0
+      if (metric === 'live' || metric === 'visits') return (c.count || 0) > 0
+      return (c.count || 0) > 0 || (c.purchased || 0) > 0
+    })
     .slice()
     .sort((a, b) => {
-      const av = metric === 'sales' ? a.purchased : a.count
-      const bv = metric === 'sales' ? b.purchased : b.count
+      const av = metric === 'sales' ? a.purchased : metric === 'live' ? a.count : (a.purchased * 3 + a.count)
+      const bv = metric === 'sales' ? b.purchased : metric === 'live' ? b.count : (b.purchased * 3 + b.count)
       return bv - av
     })
-  const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
+  const max = Math.max(
+    1,
+    ...base.map((c) =>
+      metric === 'sales'
+        ? c.purchased
+        : metric === 'live'
+        ? c.count
+        : Math.max(c.count || 0, c.purchased || 0)
+    )
+  )
 
   // Totens 3D verticais (estilo mapa ao vivo da Shopify): colunas cilíndricas que sobem da Terra
   const totems: GeoTotem[] = base.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
-    const value = metric === 'sales' ? c.purchased : c.count
-    // Altura proporcional: 12 unidades (mínimo visível) até 34 unidades no globo
+    const value =
+      metric === 'sales'
+        ? c.purchased
+        : metric === 'live'
+        ? c.count
+        : (c.purchased > 0 ? c.purchased : c.count)
+    // Altura proporcional: 10 unidades (mínimo visível) até 30 unidades no globo
     const norm = Math.log1p(value) / Math.log1p(max)
-    const height = 12 + norm * 24
-    const radius = 0.85 + norm * 0.45
-    const color = metric === 'sales' ? '#10b981' : c.purchased > 0 ? '#22d3ee' : '#25f4ee'
+    const height = 10 + norm * 20
+    const radius = 0.7 + norm * 0.35
+    const isSale = metric === 'sales' || (metric === 'all' && c.purchased > 0)
+    const color = isSale ? '#10b981' : '#22d3ee'
 
     return [
       {
@@ -206,8 +228,8 @@ function buildPoints(
             <span>${escapeHtml(c.name)}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: rgba(255,255,255,0.75);">
-            <span style="font-weight: 500;">${c.count} ${c.count === 1 ? 'visita' : 'visitas'}</span>
-            ${c.purchased ? `<span style="color: #34d399; font-weight: 600;">· ${c.purchased} ${c.purchased === 1 ? 'venda' : 'vendas'}</span>` : ''}
+            ${c.count > 0 ? `<span style="font-weight: 500; color: #22d3ee;">${c.count} ${c.count === 1 ? 'navegando ao vivo' : 'navegando ao vivo'}</span>` : ''}
+            ${c.purchased > 0 ? `<span style="color: #34d399; font-weight: 600;">${c.count > 0 ? '· ' : ''}${c.purchased} ${c.purchased === 1 ? 'compra' : 'compras'}</span>` : ''}
           </div>
         </div>`,
       },
@@ -237,13 +259,22 @@ function buildPoints(
   const labels: GeoLabel[] = base.slice(0, MAX_LABELS).flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
+    let text = c.name
+    if (metric === 'sales') {
+      text = `${c.name} · ${c.purchased} ${c.purchased === 1 ? 'compra' : 'compras'}`
+    } else if (metric === 'live') {
+      text = `${c.name} · ${c.count} ao vivo`
+    } else {
+      const parts = []
+      if (c.count > 0) parts.push(`${c.count} ao vivo`)
+      if (c.purchased > 0) parts.push(`${c.purchased} ${c.purchased === 1 ? 'compra' : 'compras'}`)
+      text = `${c.name}${parts.length ? ' · ' + parts.join(' · ') : ''}`
+    }
     return [
       {
         lat: coords[0],
         lng: coords[1],
-        // `labelText` é desenhado no canvas, não interpretado como HTML.
-        // Escapar aqui exibiria entidades (&amp;) para o operador.
-        text: `${c.name} · ${metric === 'sales' ? c.purchased : c.count}`,
+        text,
         size: 1.0,
       },
     ]
@@ -286,7 +317,7 @@ function GlobeCanvas({
   width,
   height,
   globeRef,
-  metric = 'visits',
+  metric = 'all',
   pulses = [],
   showArcs = true,
   reducedMotion,
@@ -318,8 +349,13 @@ function GlobeCanvas({
   useEffect(() => {
     const g = globeRef.current
     if (!g) return
-    g.controls().autoRotate = !reducedMotion
-    g.controls().enableZoom = true
+    const controls = g.controls()
+    controls.autoRotate = !reducedMotion
+    controls.enableZoom = true
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.zoomSpeed = 1.35
+    controls.rotateSpeed = 0.9
 
     // Fluidez: limita o pixelRatio a 1.5. Em telas Retina (DPR 2–3) o three.js
     // renderizava em resolução cheia, dobrando/triplicando o trabalho de
@@ -343,7 +379,7 @@ function GlobeCanvas({
     } else {
       g.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, 0)
     }
-    g.controls().autoRotateSpeed = SPIN_IDLE
+    controls.autoRotateSpeed = SPIN_IDLE
 
     // Item 289: pausa o render loop com a aba oculta — three.js continuaria
     // gastando GPU em segundo plano sem isso.
@@ -383,29 +419,28 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    // Material refinado: brilho (glow) de superfície suave, elegante e sem estourar
+    // Material refinado: contraste ótimo com relevo nítido e oceanos profundos
     try {
       const mat = g.globeMaterial?.()
       if (mat) {
-        mat.emissive?.set?.('#041117')
-        mat.emissiveIntensity = 0.15
-        mat.shininess = 28
-        mat.specular?.set?.('#38bdf8')
+        mat.emissive?.set?.('#020617')
+        mat.emissiveIntensity = 0.05
+        mat.shininess = 35
+        mat.specular?.set?.('#0ea5e9')
       }
     } catch {
       /* material indisponível nesta versão */
     }
 
-    // Iluminação simplificada e suave: reduz a complexidade das luzes
-    // para um acabamento sedoso, homogêneo e sem sombras duras
+    // Iluminação refinada: contraste perfeito entre continentes e oceanos
     try {
       for (const light of g.lights()) {
         if (light.type === 'DirectionalLight') {
-          light.intensity = 1.3
-          light.color?.set?.('#f0f9ff')
+          light.intensity = 1.6
+          light.color?.set?.('#ffffff')
         }
         if (light.type === 'AmbientLight') {
-          light.intensity = 1.15
+          light.intensity = 0.95
         }
       }
     } catch {
@@ -447,8 +482,8 @@ function GlobeCanvas({
       globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
       showAtmosphere
-      atmosphereColor="#38bdf8"
-      atmosphereAltitude={0.13}
+      atmosphereColor="#0ea5e9"
+      atmosphereAltitude={0.14}
       /* Totens 3D verticais de pontos de acesso (Shopify Live View) */
       objectsData={totems}
       objectLat="lat"
@@ -458,46 +493,50 @@ function GlobeCanvas({
       objectThreeObject={(d: object) => createTotemMesh(d as GeoTotem)}
       objectLabel="label"
       ringsData={rings}
-      ringColor={() => (t: number) => metric === 'sales' ? `rgba(16,185,129,${(1 - t) * 0.42})` : `rgba(56,189,248,${(1 - t) * 0.42})`}
-      ringMaxRadius={(d: object) => 1.4 + (d as GeoRing).intensity * 1.8}
-      ringPropagationSpeed={0.75}
-      ringRepeatPeriod={2800}
+      ringColor={() => (t: number) => metric === 'sales' ? `rgba(16,185,129,${(1 - t) * 0.55})` : `rgba(6,182,212,${(1 - t) * 0.55})`}
+      ringMaxRadius={(d: object) => 1.3 + (d as GeoRing).intensity * 1.6}
+      ringPropagationSpeed={0.8}
+      ringRepeatPeriod={2500}
       labelsData={labels}
       labelLat="lat"
       labelLng="lng"
       labelText="text"
       labelSize="size"
-      labelColor={() => 'rgba(255,255,255,0.92)'}
-      labelDotRadius={0.28}
-      labelAltitude={0.012}
+      labelColor={() => 'rgba(255,255,255,0.95)'}
+      labelDotRadius={0.32}
+      labelAltitude={0.015}
       labelResolution={2}
       arcsData={visibleArcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
       arcEndLat="endLat"
       arcEndLng="endLng"
-      arcColor={() => ['rgba(56, 189, 248, 0.7)', 'rgba(52, 211, 153, 0.7)']}
+      arcColor={() => ['rgba(37, 244, 238, 0.95)', 'rgba(52, 211, 153, 0.95)']}
       arcAltitudeAutoScale={0.32}
-      arcStroke={0.36}
-      arcDashLength={0.35}
-      arcDashGap={0.65}
-      arcDashAnimateTime={2400}
+      arcStroke={0.45}
+      arcDashLength={0.4}
+      arcDashGap={0.6}
+      arcDashAnimateTime={2000}
       arcsTransitionDuration={600}
     />
   )
 }
 
-/** Controles flutuantes refinados: zoom + / − / recentrar / tela cheia */
+/** Controles flutuantes refinados: zoom + / − / recentrar / pausar / tela cheia */
 function GlobeControls({
   onZoomIn,
   onZoomOut,
   onRecenter,
+  onTogglePause,
+  isPaused,
   onFullscreen,
   isFullscreen,
 }: {
   onZoomIn: () => void
   onZoomOut: () => void
   onRecenter: () => void
+  onTogglePause: () => void
+  isPaused: boolean
   onFullscreen: () => void
   isFullscreen: boolean
 }) {
@@ -526,6 +565,23 @@ function GlobeControls({
         aria-label="Recentrar globo"
       >
         <Crosshair className="size-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={onTogglePause}
+        className={`flex size-7 items-center justify-center rounded-lg border backdrop-blur-md transition-all ${
+          isPaused
+            ? 'border-cyan-400 bg-cyan-400/20 text-cyan-300 shadow-[0_0_10px_rgba(37,244,238,0.25)]'
+            : 'border-white/10 bg-black/40 text-white/70 hover:border-cyan-400/40 hover:bg-white/10 hover:text-white'
+        }`}
+        aria-label={isPaused ? 'Retomar rotação automática' : 'Pausar rotação'}
+        title={isPaused ? 'Retomar rotação' : 'Pausar rotação'}
+      >
+        {isPaused ? (
+          <Play className="size-3.5 fill-current" aria-hidden="true" />
+        ) : (
+          <Pause className="size-3.5 fill-current" aria-hidden="true" />
+        )}
       </button>
       <button
         type="button"
@@ -570,14 +626,17 @@ function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
   const g = globeRef.current
   if (!g) return
   const pov = g.pointOfView()
-  const altitude = Math.min(ALT_MAX, Math.max(ALT_MIN, pov.altitude + delta))
-  g.pointOfView({ ...pov, altitude }, 320)
+  // Escala exponencial suave e responsiva (zoom in aproxima 22%, zoom out afasta 26%)
+  const altitude = delta < 0
+    ? Math.max(ALT_MIN, pov.altitude * 0.78)
+    : Math.min(ALT_MAX, pov.altitude * 1.26)
+  g.pointOfView({ ...pov, altitude }, 240)
 }
 
 export default function GlobePanel({
   countries,
   focusCode,
-  metric = 'visits',
+  metric = 'all',
   pulses = [],
   showArcs = true,
   emptyNote,
@@ -611,14 +670,15 @@ export default function GlobePanel({
 
   const empty = countries.length === 0
 
-  // Item 161: hover na tabela gira o globo até o país
+  // Item 161: clique na tabela foca o globo no país com transição de escala e rotação suave
   useEffect(() => {
     if (!focusCode) return
     const coords = COUNTRY_COORDS[focusCode.toUpperCase()]
     const g = globeRef.current
     if (!coords || !g) return
-    const alt = g.pointOfView().altitude
-    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: alt }, 700)
+    const pov = g.pointOfView()
+    const targetAlt = Math.max(ALT_MIN, Math.min(1.42, pov.altitude))
+    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: targetAlt }, 650)
   }, [focusCode])
 
   useEffect(() => {
@@ -645,22 +705,40 @@ export default function GlobePanel({
     if (globe) globe.controls().autoRotate = false
   }, [reducedMotion])
 
+  const [userPaused, setUserPaused] = useState(false)
+  const userPausedRef = useRef(false)
+
+  function togglePause() {
+    const next = !userPaused
+    setUserPaused(next)
+    userPausedRef.current = next
+    const g = globeRef.current
+    if (!g) return
+    if (next) {
+      if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
+      g.controls().autoRotate = false
+    } else {
+      g.controls().autoRotate = true
+      g.controls().autoRotateSpeed = SPIN_IDLE
+    }
+  }
+
   // Interação contida: hover acelera levemente; arrastar pausa e só retoma
   // após quatro segundos sem ação.
   function setSpin(speed: number) {
-    if (reducedMotion) return
+    if (reducedMotion || userPausedRef.current) return
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotateSpeed = speed
   }
   function pauseSpin() {
-    if (reducedMotion) return
+    if (reducedMotion || userPausedRef.current) return
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotate = false
     if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
     resumeTimer.current = window.setTimeout(() => {
-      if (reducedMotionRef.current) return
+      if (reducedMotionRef.current || userPausedRef.current) return
       const g2 = globeRef.current
       if (!g2) return
       g2.controls().autoRotate = true
@@ -698,6 +776,8 @@ export default function GlobePanel({
         onRecenter={() =>
           globeRef.current?.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, 500)
         }
+        onTogglePause={togglePause}
+        isPaused={userPaused}
         onFullscreen={toggleFullscreen}
         isFullscreen={isFullscreen}
       />

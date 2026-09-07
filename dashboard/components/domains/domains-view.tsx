@@ -107,32 +107,30 @@ export function DomainsView() {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[color:var(--brand-cyan)]/50 focus:shadow-[0_0_15px_rgba(37,244,238,0.25)]'
+    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/50'
 
   return (
     <div className="flex flex-col gap-6">
-      
-      {/* ── PAINEL DE CONEXÃO MÁGICA ── */}
-      <GlassCard className="relative overflow-hidden p-6 sm:p-8 border-[color:var(--brand-cyan)]/30 shadow-[0_0_40px_rgba(37,244,238,0.05)]">
-        {/* Efeitos de fundo mágicos */}
-        <div className="pointer-events-none absolute -right-20 -top-20 size-64 rounded-full bg-[color:var(--brand-cyan)]/10 blur-[80px]" />
-        
-        <div className="relative z-10 flex flex-col items-center text-center mb-8">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[color:var(--brand-cyan)]/20 to-[color:var(--brand-cyan)]/5 shadow-inner mb-4">
-            <CloudLightning className="size-8 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
+      {/* PAINEL DE ADIÇÃO DE DOMÍNIO */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-brand-cyan/10 text-brand-cyan">
+            <Globe className="size-5" />
           </div>
-          <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
-            Conexão Mágica de Domínio
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground max-w-lg text-balance">
-            Esqueça tutoriais de DNS e propagação. Diga onde está o seu domínio e nosso robô injeta os registros de alta performance automaticamente.
-          </p>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              Conectar Domínio Próprio
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Utilize o seu próprio domínio em seus links de vendas.
+            </p>
+          </div>
         </div>
 
-        <div className="mx-auto max-w-xl flex flex-col gap-5">
-          <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Endereço do Domínio</span>
+        <div className="flex flex-col gap-4 max-w-xl">
+          <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Endereço do Domínio</span>
               <input
                 className={inputCls}
                 value={host}
@@ -141,8 +139,8 @@ export function DomainsView() {
                 disabled={adding}
               />
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Provedor</span>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Provedor</span>
               <select 
                 className={inputCls} 
                 value={provider} 
@@ -163,65 +161,62 @@ export function DomainsView() {
           )}
 
           {error && (
-            <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive border border-destructive/20" role="alert">
+            <p className="rounded-lg bg-destructive/10 px-3.5 py-2 text-xs text-destructive border border-destructive/20" role="alert">
               {error}
             </p>
           )}
 
           {adding ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-4 mt-2">
-              <div className="flex items-center gap-3 rounded-full border border-[color:var(--brand-cyan)]/40 bg-[color:var(--brand-cyan)]/10 px-6 py-3 text-sm font-semibold text-[color:var(--brand-cyan)] animate-pulse shadow-[0_0_20px_rgba(37,244,238,0.2)]">
-                <ServerCog className="size-5 animate-spin" />
-                {magicStep === 1 && 'Autenticando via API do Provedor...'}
-                {magicStep === 2 && 'Injetando Registros de Alta Performance (CNAME)...'}
-                {magicStep === 3 && 'Emitindo Certificado SSL Edge...'}
-              </div>
+            <div className="flex items-center gap-2.5 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-4 py-2.5 text-xs font-semibold text-brand-cyan animate-pulse">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Conectando domínio e configurando segurança…</span>
             </div>
           ) : (
             <button
               type="button"
               onClick={handleMagicConnect}
               disabled={!host.trim() || !!hostInvalidReason(host)}
-              className="mt-2 group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-[color:var(--brand-cyan)] px-6 py-3.5 text-sm font-bold text-black shadow-[0_0_20px_rgba(37,244,238,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-lg bg-brand-cyan px-4 py-2.5 text-xs font-semibold text-black transition-all hover:opacity-90 active:scale-95 disabled:pointer-events-none disabled:opacity-50 self-start"
             >
-              <Sparkles className="size-5 transition-transform group-hover:rotate-12 group-hover:scale-110" /> 
-              Conectar Magicamente
+              <Plus className="size-4" /> 
+              Conectar Domínio
             </button>
           )}
         </div>
       </GlassCard>
 
-      {/* ── LISTA DE DOMÍNIOS ATIVOS ── */}
+      {/* LISTA DE DOMÍNIOS ATIVOS */}
       {loadError && !data ? (
         <ErrorState title="Não foi possível carregar seus domínios." onRetry={() => mutate()} />
       ) : isLoading && !data ? (
-        <Skeleton className="h-40" />
+        <Skeleton className="h-28" />
       ) : domains.length > 0 && (
         <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-widest pl-2 mt-4">
-            Meus Domínios Edge
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">
+            Domínios Conectados ({domains.length})
           </h3>
           {domains.map((d) => (
             <div 
               key={d.host} 
-              className="relative flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4 transition-all hover:border-[color:var(--brand-cyan)]/30 hover:bg-secondary/40"
+              className="flex items-center justify-between rounded-xl border border-border/60 bg-secondary/20 p-3.5 transition-all hover:border-border"
             >
-              <div className="flex items-center gap-4">
-                <div className={`flex size-10 shrink-0 items-center justify-center rounded-full ${d.verificado ? 'bg-[color:var(--success)]/20 text-[color:var(--success)] shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'bg-[color:var(--warning)]/20 text-[color:var(--warning)] animate-pulse'}`}>
-                  {d.verificado ? <CheckCircle2 className="size-5" /> : <Loader2 className="size-5 animate-spin" />}
+              <div className="flex items-center gap-3">
+                <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${d.verificado ? 'bg-[color:var(--success)]/15 text-[color:var(--success)]' : 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'}`}>
+                  {d.verificado ? <CheckCircle2 className="size-4" /> : <Loader2 className="size-4 animate-spin" />}
                 </div>
                 <div>
-                  <h4 className="font-bold text-foreground text-base">{d.host}</h4>
+                  <h4 className="font-semibold text-foreground text-sm">{d.host}</h4>
                   <p className="text-xs text-muted-foreground">
-                    {d.verificado ? 'Rotas otimizadas e SSL ativo. Tráfego liberado.' : 'Sincronizando infraestrutura Edge global...'}
+                    {d.verificado ? 'Ativo e pronto para uso' : 'Verificando conexão…'}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setDeleting(d.host)}
-                className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive"
+                className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive"
                 aria-label="Desconectar domínio"
+                title="Desconectar"
               >
                 <Trash2 className="size-4" />
               </button>

@@ -7,7 +7,6 @@ import { usePathname } from 'next/navigation'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { useHealth } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { GestaoHelp } from '@/components/shell/gestao-help'
 
 /** Item 10/208: rodapé com status do sistema + uptime + versão */
 function SidebarFooter() {
@@ -89,74 +88,49 @@ export function Sidebar() {
       </div>
 
       {/* Seções de navegação */}
-      <nav className="flex flex-col gap-5 px-3" aria-label="Seções" data-tour="nav">
-        {NAV_SECTIONS.map((section, sIdx) => {
-          const sectionActive = section.items.some((item) =>
-            item.href === '/' ? pathname === '/' : pathname.startsWith(item.href),
-          )
-          return (
-            <div key={section.title}>
-              {/* Item 12: divisória com hairline ciano→transparente */}
-              {sIdx > 0 ? <div className="side-section-divider mb-4" aria-hidden="true" /> : null}
-              {/* Item 210: label da seção ativa em ciano.
-                  Item 59: "?" na seção Gestão abre a visão geral do fluxo. */}
-              {/* V2-78: labels de seção em mono com tracking maior (identidade HUD) */}
-              <p
-                className={cn(
-                  'mb-2 flex items-center gap-1.5 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground',
-                  sectionActive && 'side-section-label--active',
-                )}
-              >
-                {section.title}
-                {section.title === 'Gestão' && <GestaoHelp />}
-              </p>
-              <ul className="flex flex-col gap-0.5">
-                {section.items.map((item) => {
-                  const active =
-                    item.href === '/'
-                      ? pathname === '/'
-                      : pathname.startsWith(item.href)
-                  const delay = itemIndex++ * 40
-                  return (
-                    <li key={item.id}>
-                      <Link
-                        href={item.href}
-                        aria-current={active ? 'page' : undefined}
-                        className={cn(
-                          'side-item',
-                          active && 'side-item--active',
-                          enterAnim && 'side-item--enter',
-                        )}
-                        style={enterAnim ? { animationDelay: `${delay}ms` } : undefined}
-                      >
-                        <item.icon
-                          className={cn(
-                            'size-4 shrink-0',
-                            active ? 'text-brand-cyan' : 'text-muted-foreground',
-                          )}
-                          aria-hidden="true"
-                        />
-                        {item.label}
-                        {/* Tooltip com nome + descrição */}
-                        <span className="side-item__tip" role="presentation" aria-hidden="true">
-                          <span className="block text-xs font-semibold text-foreground">
-                            {item.label}
-                          </span>
-                          <span className="block text-[11px] text-muted-foreground">
-                            {item.description}
-                          </span>
-                        </span>
-                      </Link>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )
-        })}
+      <nav className="flex flex-col gap-1 px-3" aria-label="Seções" data-tour="nav">
+        <ul className="flex flex-col gap-0.5">
+          {NAV_SECTIONS.flatMap((s) => s.items).map((item) => {
+            const active =
+              item.href === '/'
+                ? pathname === '/'
+                : pathname.startsWith(item.href)
+            const delay = itemIndex++ * 40
+            return (
+              <li key={item.id}>
+                <Link
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'side-item',
+                    active && 'side-item--active',
+                    enterAnim && 'side-item--enter',
+                  )}
+                  style={enterAnim ? { animationDelay: `${delay}ms` } : undefined}
+                >
+                  <item.icon
+                    className={cn(
+                      'size-4 shrink-0',
+                      active ? 'text-brand-cyan' : 'text-muted-foreground',
+                    )}
+                    aria-hidden="true"
+                  />
+                  {item.label}
+                  {/* Tooltip com nome + descrição */}
+                  <span className="side-item__tip" role="presentation" aria-hidden="true">
+                    <span className="block text-xs font-semibold text-foreground">
+                      {item.label}
+                    </span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {item.description}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
       </nav>
-
-      <SidebarFooter />
     </aside>
   )
 }

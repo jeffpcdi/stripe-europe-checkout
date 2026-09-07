@@ -65,10 +65,10 @@ export const NAV_GROUPS: NavGroup[] = [
     href: '/links',
     routes: ['/links', '/cloak', '/domains', '/conversions', '/pixels', '/gateways'],
     tabs: [
-      { label: 'Links de Checkout', href: '/links' },
-      { label: 'Filtro de Bots', href: '/cloak' },
+      { label: 'Links', href: '/links' },
+      { label: 'Cloaker', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Conversões', href: '/conversions' },
+      { label: 'Pixel', href: '/conversions' },
     ],
   },
   {
@@ -100,23 +100,23 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Métricas',
     items: [
-      { id: 'overview', label: 'Visão Geral', description: 'KPIs, funil, presença ao vivo e campanhas', icon: LayoutDashboard, href: '/' },
+      { id: 'overview', label: 'Visão Geral', description: 'Resumo de vendas e acessos em tempo real', icon: LayoutDashboard, href: '/' },
     ],
   },
   {
     title: 'Gestão',
     items: [
-      { id: 'links', label: 'Links', description: 'Links e shortlinks', icon: Link2, href: '/links' },
-      { id: 'conversions', label: 'Conversões', description: 'Gateways + Pixels (venda → CAPI)', icon: CreditCard, href: '/conversions' },
-      { id: 'domains', label: 'Domínios', description: 'Domínios verificados', icon: Globe, href: '/domains' },
-      { id: 'cloak', label: 'Cloaker', description: 'Filtros e entries', icon: ShieldAlert, href: '/cloak' },
-      { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, Smart+, catálogo e automações', icon: Megaphone, href: '/ads/tiktok' },
+      { id: 'links', label: 'Links', description: 'Criação e monitoramento de links', icon: Link2, href: '/links' },
+      { id: 'conversions', label: 'Pixel', description: 'Integração de Checkouts e Pixels', icon: CreditCard, href: '/conversions' },
+      { id: 'domains', label: 'Domínios', description: 'Conexão de domínios próprios', icon: Globe, href: '/domains' },
+      { id: 'cloak', label: 'Cloaker', description: 'Filtro automático de robôs', icon: ShieldAlert, href: '/cloak' },
+      { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, métricas e automações', icon: Megaphone, href: '/ads/tiktok' },
     ],
   },
   {
     title: 'Sistema',
     items: [
-      { id: 'config', label: 'Configurações', description: 'iPhone, conta e segurança', icon: Settings, href: '/config' },
+      { id: 'config', label: 'Configurações', description: 'Preferências da conta e notificações', icon: Settings, href: '/config' },
     ],
   },
 ]

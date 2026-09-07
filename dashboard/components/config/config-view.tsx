@@ -2,137 +2,133 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Code, Loader2, Sparkles, Wand2, Terminal, Fingerprint, Lock, ShieldCheck, Download, Trash2, Coins, SlidersHorizontal, MessageCircle
+  SlidersHorizontal,
+  Bell,
+  Lock,
+  Database,
+  Loader2,
+  Trash2,
+  Download,
+  Fingerprint,
+  MessageCircle,
+  ShieldCheck,
 } from 'lucide-react'
+import * as Tabs from '@radix-ui/react-tabs'
 import useSWR from 'swr'
-import { fetcher } from '@/lib/api'
+import { fetcher, apiSend } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
-
-// Imports originais
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 import { WebPushCard } from '@/components/config/web-push-card'
 import { Switch } from '@/components/ui/switch'
 import { usePrefs } from '@/lib/prefs'
-import { apiSend } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
 import type { AccountSettings } from '@/lib/types'
 import { toast } from '@/lib/toast'
 
 export function ConfigView() {
-  const [developerMode, setDeveloperMode] = useState(false)
   const { prefs, update } = usePrefs()
 
   return (
     <div className="flex flex-col gap-6">
-      
-      {/* HEADER DE CONFIGURAÇÃO (Modo Mágico / Modo Desenvolvedor) */}
-      <GlassCard className="relative overflow-hidden p-6 sm:p-8 border-[color:var(--brand-cyan)]/30 shadow-[0_0_40px_rgba(37,244,238,0.05)]">
-        <div className="pointer-events-none absolute -right-20 -top-20 size-64 rounded-full bg-[color:var(--brand-cyan)]/10 blur-[80px]" />
-        
-        <div className="relative z-10 flex flex-col items-center text-center mb-6">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[color:var(--brand-cyan)]/20 to-[color:var(--brand-cyan)]/5 shadow-inner mb-4">
-            {developerMode ? (
-              <Terminal className="size-8 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
-            ) : (
-              <Sparkles className="size-8 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
-            )}
-          </div>
-          <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
-            {developerMode ? 'Modo Desenvolvedor Ativo' : 'Configurações Inteligentes'}
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground max-w-lg text-balance">
-            {developerMode 
-              ? 'Acesso total aos parâmetros, logs de auditoria, integrações brutas de API e controles destrutivos.' 
-              : 'Nós otimizamos e conectamos sua plataforma por debaixo dos panos. Altere apenas preferências visuais essenciais.'}
-          </p>
-        </div>
-
-        <div className="mx-auto max-w-sm flex items-center justify-center p-1 rounded-xl bg-secondary/30 border border-border">
-          <button
-            className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-2 ${!developerMode ? 'bg-[color:var(--brand-cyan)] text-black shadow-[0_0_15px_rgba(37,244,238,0.4)] scale-[1.02]' : 'text-muted-foreground hover:bg-white/5'}`}
-            onClick={() => setDeveloperMode(false)}
+      <Tabs.Root defaultValue="prefs" className="flex flex-col gap-6">
+        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max">
+          <Tabs.Trigger
+            value="prefs"
+            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
           >
-            <Wand2 className="size-4" />
-            Modo Mágico
-          </button>
-          <button
-            className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-2 ${developerMode ? 'bg-secondary text-foreground shadow-md' : 'text-muted-foreground hover:bg-white/5'}`}
-            onClick={() => setDeveloperMode(true)}
+            <SlidersHorizontal className="size-3.5" />
+            Preferências
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="notifications"
+            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
           >
-            <Code className="size-4" />
-            Avançado
-          </button>
-        </div>
-      </GlassCard>
+            <Bell className="size-3.5" />
+            Notificações
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="security"
+            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+          >
+            <Lock className="size-3.5" />
+            Segurança & Conta
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="data"
+            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+          >
+            <Database className="size-3.5" />
+            Dados & Backup
+          </Tabs.Trigger>
+        </Tabs.List>
 
-      {/* ── MODO MÁGICO (Configurações Silenciosas) ── */}
-      {!developerMode && (
-        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {/* ABA 1: PREFERÊNCIAS */}
+        <Tabs.Content value="prefs" className="focus:outline-none outline-none flex flex-col gap-4">
           <GlassCard className="p-5">
-            <div className="mb-4 flex items-center gap-2.5">
-              <SlidersHorizontal className="size-5 text-[color:var(--brand-cyan)]" />
-              <div>
-                <h2 className="text-sm font-bold text-foreground">Experiência da Plataforma</h2>
-                <p className="text-xs text-muted-foreground">Sua interface adaptada ao seu estilo.</p>
-              </div>
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-foreground">Exibição e Interface</h2>
+              <p className="text-xs text-muted-foreground">Ajustes visuais e de comodidade.</p>
             </div>
-            <div className="flex flex-col gap-2">
-              <label className="flex cursor-pointer items-center justify-between gap-3 py-2 rounded-lg hover:bg-secondary/20 px-3 transition-colors">
+            <div className="flex flex-col gap-2 divide-y divide-border/30">
+              <label className="flex cursor-pointer items-center justify-between gap-3 py-2.5 rounded-lg hover:bg-secondary/20 px-2 transition-colors">
                 <span>
-                  <span className="block text-sm font-semibold text-foreground">Reduzir Animações</span>
+                  <span className="block text-sm font-medium text-foreground">Reduzir Animações</span>
                   <span className="block text-xs text-muted-foreground">Desliga transições e efeitos de movimento</span>
                 </span>
                 <Switch checked={prefs.anim === 'off'} onChange={() => update({ anim: prefs.anim === 'off' ? 'on' : 'off' })} label="Reduzir animações" />
               </label>
-              <label className="flex cursor-pointer items-center justify-between gap-3 py-2 rounded-lg hover:bg-secondary/20 px-3 transition-colors">
+
+              <label className="flex cursor-pointer items-center justify-between gap-3 pt-3 py-2.5 rounded-lg hover:bg-secondary/20 px-2 transition-colors">
                 <span>
-                  <span className="block text-sm font-semibold text-foreground">Modo Apresentação / Privacidade</span>
-                  <span className="block text-xs text-muted-foreground">Borra receitas e valores sensíveis (ideal para gravar vídeos)</span>
+                  <span className="block text-sm font-medium text-foreground">Modo Privacidade</span>
+                  <span className="block text-xs text-muted-foreground">Oculta valores de faturamento na tela para gravações</span>
                 </span>
-                <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo apresentação" />
+                <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo privacidade" />
               </label>
             </div>
           </GlassCard>
 
-          <DailyReportCard />
-
-          <GlassCard className="p-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--success)]/20 text-[color:var(--success)] shadow-[0_0_15px_rgba(34,197,94,0.3)]">
-                <ShieldCheck className="size-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-foreground">Segurança & Auditoria Inteligente</h2>
-                <p className="text-xs text-muted-foreground">Sua conta está protegida e auditada invisivelmente. (Gerencie em Avançado)</p>
-              </div>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="p-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/20 text-[color:var(--brand-cyan)] shadow-[0_0_15px_rgba(37,244,238,0.3)]">
-                <Coins className="size-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-foreground">Sincronização de Vendas Ativa</h2>
-                <p className="text-xs text-muted-foreground">CAPI e Webhooks processando conversões silenciosamente. (Ver logs em Avançado)</p>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
-      )}
-
-      {/* ── MODO DESENVOLVEDOR (Tudo visível) ── */}
-      {developerMode && (
-        <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <SecurityCard />
           <AccountPrefsCard />
+        </Tabs.Content>
+
+        {/* ABA 2: NOTIFICAÇÕES */}
+        <Tabs.Content value="notifications" className="focus:outline-none outline-none flex flex-col gap-4">
+          <DailyReportCard />
           <WebPushCard />
+        </Tabs.Content>
+
+        {/* ABA 3: SEGURANÇA */}
+        <Tabs.Content value="security" className="focus:outline-none outline-none flex flex-col gap-4">
+          <SecurityCard />
+        </Tabs.Content>
+
+        {/* ABA 4: DADOS E BACKUP */}
+        <Tabs.Content value="data" className="focus:outline-none outline-none flex flex-col gap-4">
+          <GlassCard className="p-5">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-foreground">Backup dos Dados</h2>
+              <p className="text-xs text-muted-foreground">Baixe uma cópia dos seus links e configurações.</p>
+            </div>
+            <div className="flex items-center justify-between gap-4 pt-1">
+              <div>
+                <span className="block text-xs font-medium text-foreground">Exportar Dados</span>
+                <span className="block text-xs text-muted-foreground">Arquivo completo em formato JSON</span>
+              </div>
+              <a
+                href="/api/account/export"
+                download
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+              >
+                <Download className="size-3.5" /> Baixar Cópia
+              </a>
+            </div>
+          </GlassCard>
+
           <AuditCard />
           <DangerCard />
-        </div>
-      )}
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
   )
 }
@@ -172,34 +168,33 @@ function AuditCard() {
         tabIndex={0}
       >
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-secondary border border-border">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-secondary border border-border">
              <Fingerprint className="size-4 text-muted-foreground" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Trilha de Auditoria (Logs API)</h2>
-            <p className="text-xs text-muted-foreground">Eventos de sistema com resolução de IP</p>
+            <h2 className="text-sm font-semibold text-foreground">Registro de Atividades (Auditoria)</h2>
+            <p className="text-xs text-muted-foreground">Histórico de ações recentes realizadas no painel</p>
           </div>
         </div>
-        <span className="text-xs font-mono font-semibold text-muted-foreground border border-border bg-black/50 px-3 py-1.5 rounded-lg">
-          GET /api/audit
-        </span>
+        <button type="button" className="text-xs font-semibold text-brand-cyan hover:underline">
+          Ver Histórico
+        </button>
       </GlassCard>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="Audit Logs" description="Eventos de auditoria brutos" maxWidth="max-w-xl">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="Histórico de Atividades" description="Ações recentes registradas" maxWidth="max-w-xl">
         {!data ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">Fetching...</p>
+          <p className="py-4 text-center text-xs text-muted-foreground">Carregando...</p>
         ) : data.log.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">Nenhuma atividade registrada.</p>
+          <p className="py-4 text-center text-xs text-muted-foreground">Nenhuma atividade recente encontrada.</p>
         ) : (
           <ul className="flex flex-col divide-y divide-border/40 border-t border-border pt-1 max-h-[60vh] overflow-y-auto pr-2">
             {data.log.map((r) => (
-              <li key={r.id} className="flex items-baseline gap-3 py-3 text-xs font-mono">
-                <span className="shrink-0 font-bold text-foreground">
-                  [{r.action.toUpperCase()}]
+              <li key={r.id} className="flex items-baseline gap-3 py-2.5 text-xs">
+                <span className="shrink-0 font-semibold text-foreground">
+                  {AUDIT_LABELS[r.action] || r.action}
                 </span>
                 {r.detail ? <span className="truncate text-muted-foreground">{r.detail}</span> : null}
-                <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground/50">
-                  {r.ip ? <span>{r.ip}</span> : null}
+                <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
                   <span>{formatDateTime(r.at)}</span>
                 </span>
               </li>
@@ -229,22 +224,45 @@ function DailyReportCard() {
     setSaving(true)
     try {
       await apiSend('/api/settings', 'POST', { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone })
-      toast.success('Relatório diário configurado')
+      toast.success('Notificação diária atualizada.')
       await mutate()
     } catch (error) { toast.error('Falha ao salvar', { hint: error instanceof Error ? error.message : undefined }) }
     finally { setSaving(false) }
   }
   return (
     <GlassCard className="p-5">
-      <div className="mb-4 flex items-start justify-between gap-3"><div className="flex gap-3"><div className="flex size-10 items-center justify-center rounded-full bg-success/15 text-success"><MessageCircle className="size-5" /></div><div><h2 className="text-sm font-bold text-foreground">Resumo das 8h no celular</h2><p className="text-xs text-muted-foreground">Gasto, vendas, ROAS e lucro por Pushcut, Web Push e WhatsApp.</p></div></div><Switch checked={enabled} onChange={setEnabled} label="Ativar relatório diário" /></div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto]">
-        <label className="text-[11px] text-muted-foreground">WhatsApp com DDI<input className="input mt-1 w-full" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} placeholder="5511999999999" /></label>
-        <label className="text-[11px] text-muted-foreground">Hora<input className="input mt-1 w-full" type="number" min="0" max="23" value={hour} onChange={(event) => setHour(Number(event.target.value))} /></label>
-        <button type="button" className="btn-primary self-end text-xs" onClick={save} disabled={saving}>{saving ? <Loader2 className="size-3 animate-spin" /> : null} Salvar</button>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex gap-3">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
+            <MessageCircle className="size-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Resumo Diário no WhatsApp</h2>
+            <p className="text-xs text-muted-foreground">Receba gasto, vendas e lucro automaticamente todos os dias.</p>
+          </div>
+        </div>
+        <Switch checked={enabled} onChange={setEnabled} label="Ativar resumo diário" />
       </div>
-      <label className="mt-4 flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs"><span><b className="block text-foreground">Som e vibração nas ações</b><small className="text-muted-foreground">Feedback sutil ao salvar orçamentos e campanhas.</small></span><Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" /></label>
-      {data?.whatsapp && !data.whatsapp.configured && <p className="mt-3 text-[10px] text-warning">WhatsApp ainda requer as credenciais Cloud API no servidor. Pushcut e Web Push continuam disponíveis.</p>}
-      {data?.whatsapp?.configured && !data.whatsapp.templateConfigured && <p className="mt-3 text-[10px] text-warning">Configure WHATSAPP_DAILY_TEMPLATE aprovado pela Meta para envios proativos fora da janela de atendimento.</p>}
+      <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto] pt-1">
+        <label className="text-xs text-muted-foreground">
+          WhatsApp com DDD
+          <input className="input mt-1 w-full" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} placeholder="5511999999999" />
+        </label>
+        <label className="text-xs text-muted-foreground">
+          Horário de Envio
+          <input className="input mt-1 w-full" type="number" min="0" max="23" value={hour} onChange={(event) => setHour(Number(event.target.value))} />
+        </label>
+        <button type="button" className="btn-primary self-end text-xs" onClick={save} disabled={saving}>
+          {saving ? <Loader2 className="size-3 animate-spin" /> : null} Salvar
+        </button>
+      </div>
+      <label className="mt-4 flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs">
+        <span>
+          <b className="block text-foreground font-medium">Som e vibração de confirmação</b>
+          <small className="text-muted-foreground">Feedback sutil ao salvar alterações na plataforma.</small>
+        </span>
+        <Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" />
+      </label>
     </GlassCard>
   )
 }
@@ -263,7 +281,10 @@ function DangerCard() {
     try {
       await apiSend('/api/reset-stats', 'POST', {})
       setDone(true)
+      toast.success('Estatísticas zeradas com sucesso.')
       setTimeout(() => setDone(false), 3000)
+    } catch {
+      toast.error('Não foi possível zerar os dados.')
     } finally {
       setResetting(false)
       setConfirming(false)
@@ -271,33 +292,16 @@ function DangerCard() {
   }
 
   return (
-    <GlassCard className="danger-zone p-5 border-destructive/20 bg-destructive/5">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-destructive/20 pb-4">
-        <div className="flex items-center gap-2.5">
-          <Download className="size-4 text-[color:var(--brand-cyan)]" />
-          <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Dump de Dados (JSON)</h2>
-            <p className="text-xs text-muted-foreground">
-              Exportação via API de schema completo
-            </p>
+    <GlassCard className="p-5 border-destructive/20 bg-destructive/[0.02]">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+            <Trash2 className="size-4" />
           </div>
-        </div>
-        <a
-          href="/api/account/export"
-          download
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-black/50 px-3 py-2 text-xs font-mono text-foreground transition-colors hover:bg-secondary"
-        >
-          <Download className="size-3.5" /> GET /export
-        </a>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
-        <div className="flex items-center gap-2.5">
-          <Trash2 className="size-4 text-destructive" />
           <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">TRUNCATE Data (Estatísticas)</h2>
+            <h2 className="text-sm font-semibold text-foreground">Zerar Métricas e Estatísticas</h2>
             <p className="text-xs text-muted-foreground">
-              Deleta todos os leads e eventos do banco. Ação irreversível.
+              Limpa o histórico de cliques e visitas. Links, checkouts e pixels cadastrados são mantidos.
             </p>
           </div>
         </div>
@@ -306,19 +310,19 @@ function DangerCard() {
             <button
               type="button"
               onClick={() => setConfirming(false)}
-              className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
             >
-              Cancel
+              Cancelar
             </button>
           )}
           <button
             type="button"
             onClick={handleReset}
             disabled={resetting}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
               confirming
                 ? 'bg-destructive text-white hover:opacity-90'
-                : 'border border-destructive/50 text-destructive hover:bg-destructive/10'
+                : 'border border-destructive/40 text-destructive hover:bg-destructive/10'
             }`}
           >
             {resetting ? (
@@ -326,7 +330,7 @@ function DangerCard() {
             ) : done ? (
               <ShieldCheck className="size-3.5" />
             ) : null}
-            {done ? 'Executed' : confirming ? 'Ação Crítica. Confirmar TRUNCATE' : 'TRUNCATE Estatísticas'}
+            {done ? 'Zerado' : confirming ? 'Confirmar e Zerar Agora' : 'Zerar Histórico'}
           </button>
         </div>
       </div>

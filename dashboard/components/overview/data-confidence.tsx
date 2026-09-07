@@ -31,7 +31,10 @@ function CoverageItem({
   warning?: boolean
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2.5">
+    <div
+      className="flex min-w-0 items-start gap-2.5 rounded-xl p-1.5 transition-colors hover:bg-white/[0.03] cursor-help"
+      data-tooltip={detail}
+    >
       <span
         className={cn(
           'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
@@ -47,7 +50,6 @@ function CoverageItem({
         <span className={cn('mt-0.5 block font-mono text-sm font-semibold tabular-nums', warning ? 'text-warning' : 'text-foreground')}>
           {value}
         </span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{detail}</span>
       </span>
     </div>
   )

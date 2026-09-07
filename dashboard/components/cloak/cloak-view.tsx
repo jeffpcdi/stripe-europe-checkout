@@ -22,19 +22,19 @@ export function CloakView() {
             value="overview"
             className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
           >
-            Visão Geral
+            Estatísticas
           </Tabs.Trigger>
           <Tabs.Trigger
             value="rules"
             className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
           >
-            Regras e Simulação
+            Configurações
           </Tabs.Trigger>
           <Tabs.Trigger
             value="traffic"
             className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
           >
-            Tráfego ao Vivo
+            Histórico de Acessos
           </Tabs.Trigger>
         </Tabs.List>
 

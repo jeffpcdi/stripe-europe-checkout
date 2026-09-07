@@ -302,23 +302,15 @@ export function Header() {
             {current.label}
           </h1>
         </div>
-        {/* Item 119: abaixo de 1100px a data empilha para não colidir */}
-        <div className="flex items-center gap-3 pb-0.5 max-[1100px]:flex-col max-[1100px]:items-end max-[1100px]:gap-1.5">
-          <span className="hidden sm:block">
-            <LiveClock />
+        <div className="flex items-center gap-2 pb-0.5">
+          {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
+          <DurabilityBadge />
+          {/* O TopNav já exibe o sino no mobile; aqui ele pertence só ao desktop. */}
+          <span className="hidden md:block">
+            <NotificationBell />
           </span>
-          <div className="flex items-center gap-2">
-            {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
-            <DurabilityBadge />
-            {/* O TopNav já exibe o sino no mobile; aqui ele pertence só ao desktop. */}
-            <span className="hidden md:block">
-              <NotificationBell />
-            </span>
-            <PrivacyButton />
-            <RefreshButton />
-            <LiveBadge />
-            <UserMenu />
-          </div>
+          <PrivacyButton />
+          <UserMenu />
         </div>
       </div>
 
