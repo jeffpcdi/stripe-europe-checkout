@@ -618,14 +618,14 @@ export function CatalogDetail({
 
             {/* Métricas de Saúde Objetivas */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {/* Produtos Ativos */}
+              {/* Produtos ativos */}
               <div className="flex items-center gap-3 rounded-xl border border-success/20 bg-success/5 p-3.5">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
                   <Check className="size-5" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-foreground">{validCount}</div>
-                  <div className="text-xs font-medium text-success">Produtos Ativos</div>
+                  <div className="text-xs font-medium text-success">Produtos ativos</div>
                 </div>
               </div>
 
@@ -677,7 +677,7 @@ export function CatalogDetail({
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">Produtos do Catálogo</h3>
+                  <h3 className="text-sm font-bold text-foreground">Produtos</h3>
                   <p className="text-xs text-muted-foreground">
                     {products.length} {products.length === 1 ? 'produto cadastrado' : 'produtos cadastrados'}
                   </p>

@@ -9,7 +9,7 @@ import { GlassCard } from '@/components/glass-card'
 
 export function ErrorState({
   title = 'Não foi possível carregar',
-  description = 'Verifique se o servidor está rodando e se você está autenticado.',
+  description = 'Confira sua conexão e tente novamente.',
   onRetry,
   retrying = false,
 }: {
@@ -21,9 +21,9 @@ export function ErrorState({
   return (
     <GlassCard
       role="alert"
-      className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center anim-shake"
+      className="flex min-h-48 flex-col items-center justify-center gap-3 p-8 text-center"
     >
-      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <AlertTriangle className="h-5 w-5" aria-hidden="true" />
       </span>
       <div className="flex flex-col gap-1">

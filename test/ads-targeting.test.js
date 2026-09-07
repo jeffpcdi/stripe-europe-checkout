@@ -31,7 +31,7 @@ console.log('Interface — uma entrada, três áreas e configuração automátic
 {
   ok(/type TabKey = 'campaigns' \| 'automation' \| 'catalog'/.test(view), 'TikTok Ads tem somente três subabas operacionais');
   ok(!/TodayPanel|SmartPlusPanel|campaignsView/.test(view), 'abas redundantes Hoje e Manuais/Smart+ foram removidas');
-  ok(/Conversão ABO\/CBO/.test(view) && /Smart\+/.test(view) && /Spark Ads/.test(view), 'Nova campanha concentra os tipos úteis');
+  ok(/<UniversalLauncherDialog/.test(view) && /onSmartPlus=/.test(view) && /onSpark=/.test(view), 'Nova campanha mantém os formatos acessíveis no lançador');
   ok(/const STEPS = \['Configuração', 'Criativo', 'Revisão'\]/.test(create), 'criador regular usa três etapas');
   ok(!/interestIds|gender|placementMode|pixelId|customEventType/.test(create), 'criador não expõe segmentação e Pixel técnicos');
   ok(/goal: 'conversions'/.test(create), 'criador envia somente conversão');

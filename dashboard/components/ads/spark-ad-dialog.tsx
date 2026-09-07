@@ -154,12 +154,12 @@ export function SparkAdDialog({
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
     >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Impulsionar post (Spark Ads)" tabIndex={-1} className="w-full max-w-md outline-none">
-        <GlassCard className="anim-pop-in flex flex-col gap-4 p-5">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="Usar publicação · Spark" tabIndex={-1} className="w-full max-w-md outline-none">
+        <GlassCard className="anim-pop-in flex max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-y-auto overscroll-contain p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Zap className="size-4 text-primary" aria-hidden="true" />
-              Impulsionar post (Spark Ads)
+              Usar publicação · Spark
             </h2>
             <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={submitting} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />
@@ -168,7 +168,7 @@ export function SparkAdDialog({
 
           {/* Identidade (conta vinculada ou criador autorizado) */}
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-foreground">Identidade (de quem é o post)</span>
+            <span className="text-xs font-medium text-foreground">Perfil da publicação</span>
             {identLoading ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -271,7 +271,7 @@ export function SparkAdDialog({
               Conversão · compra · Pixel automático
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Países (ISO-2)</span>
+              <span className="text-xs font-medium text-foreground">Países (ex.: BR, PT)</span>
               <input
                 className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={countries}

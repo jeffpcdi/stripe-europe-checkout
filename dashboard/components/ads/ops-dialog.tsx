@@ -3,7 +3,7 @@
 // Painel de Operações do TikTok Ads — duas seções:
 // 1. Jobs duráveis (bulk/duplicação) persistidos no Neon: histórico com
 //    progresso, tentativas e erro por job (sobrevive a reinícios do servidor).
-// 2. Política de segurança (guardrails): dry-run, kill switch, teto de gasto
+// 2. Política de segurança (guardrails): dry-run, bloqueio de ações, teto de gasto
 //    diário e % máxima de mudança de orçamento — vale para TODA ação de
 //    escrita (manual, automação e IA).
 
@@ -290,7 +290,7 @@ export function OpsDialog({
                 )}
               </div>
 
-              {/* Kill switch — destaque máximo */}
+              {/* Bloquear ações — destaque máximo */}
               <label
                 className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${draft.killSwitch ? 'border-error/40 bg-error/10' : 'border-border bg-secondary/30'}`}
               >
@@ -359,7 +359,7 @@ export function OpsDialog({
                     onChange={(e) => patch({ maxBudgetChangePct: Number(e.target.value) || 20 })}
                     aria-label="Mudança máxima de orçamento em porcentagem"
                   />
-                  <span className="text-[11px] text-muted-foreground">Por ação de automação/IA</span>
+                  <span className="text-[11px] text-muted-foreground">Limite por ajuste automático</span>
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Máx. de ações/hora</span>
@@ -373,7 +373,7 @@ export function OpsDialog({
                     onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 10 : Math.max(1, Math.floor(Number(e.target.value) || 10)) })}
                     aria-label="Máximo de ações automáticas por hora"
                   />
-                  <span className="text-[11px] text-muted-foreground">Anti-loop obrigatório · padrão 10</span>
+                  <span className="text-[11px] text-muted-foreground">Evita ações repetidas · padrão: 10</span>
                 </label>
               </div>
 

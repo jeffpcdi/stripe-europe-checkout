@@ -5,6 +5,7 @@ import { Filter, ArrowRight, DollarSign, MousePointerClick, ShoppingCart, CheckC
 import { useStats } from '@/lib/api'
 import { aggregate, periodStart, isMacroCampaign } from '@/lib/metrics'
 import { GlassCard } from '@/components/glass-card'
+import { ErrorState } from '@/components/error-state'
 import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
 import { PeriodPicker } from '@/components/overview/period-picker'
@@ -12,7 +13,7 @@ import { fmtPercent, formatMoney } from '@/lib/format'
 import type { Period } from '@/lib/types'
 
 export function FunnelView() {
-  const { data, isLoading } = useStats()
+  const { data, error, mutate, isLoading } = useStats()
   const [period, setPeriod] = useState<Period>('7d')
 
   const [linkFilter, setLinkFilter] = useState('')
@@ -51,6 +52,7 @@ export function FunnelView() {
 
   const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
 
+  if (error && !data) return <ErrorState onRetry={() => mutate()} />
   if (isLoading && !data) {
     return (
       <div className="flex flex-col gap-4">
@@ -64,7 +66,8 @@ export function FunnelView() {
   const c2p = m && m.reachedCheckout ? +((m.purchased / m.reachedCheckout) * 100).toFixed(1) : 0
 
   return (
-    <div className="flex flex-col gap-6 pt-2 pb-20">
+    <div className="flex flex-col gap-4">
+      {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Dados não atualizados · tentar novamente</button>}
       
       {/* ── HEADER MÁGICO DO FUNIL ── */}
       <GlassCard className="relative overflow-hidden p-6 sm:p-8 border-[color:var(--brand-cyan)]/30 shadow-[0_0_40px_rgba(37,244,238,0.05)]">
@@ -77,7 +80,7 @@ export function FunnelView() {
                 <DollarSign className="size-5 text-[color:var(--brand-cyan)] drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" />
               </div>
               <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
-                Pipeline
+                Funil de vendas
               </h2>
             </div>
           </div>
@@ -92,7 +95,7 @@ export function FunnelView() {
                   onChange={(e) => setLinkFilter(e.target.value)}
                   className="w-full rounded-lg border border-border bg-input/50 py-2 pl-8 pr-3 text-xs text-foreground focus:outline-none focus:border-[color:var(--brand-cyan)]/50 focus:shadow-[0_0_15px_rgba(37,244,238,0.25)]"
                 >
-                  <option value="">Link Mágico (Todos)</option>
+                  <option value="">Todos os links</option>
                   {filterOptions.links.map((l) => (
                     <option key={l} value={l}>{l}</option>
                   ))}
@@ -114,7 +117,7 @@ export function FunnelView() {
             <div className="flex size-14 items-center justify-center rounded-full bg-secondary/80 text-foreground mb-4">
               <MousePointerClick className="size-6" />
             </div>
-            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Visitas Únicas</h3>
+            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Visitantes</h3>
             <span className="text-4xl font-black text-foreground drop-shadow-md">
               <CountUp value={m?.visits ?? 0} />
             </span>
@@ -130,7 +133,7 @@ export function FunnelView() {
             <div className="flex size-14 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/20 text-[color:var(--brand-cyan)] mb-4">
               <ShoppingCart className="size-6" />
             </div>
-            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Checkouts Abertos</h3>
+            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Checkouts abertos</h3>
             <span className="text-4xl font-black text-[color:var(--brand-cyan)] drop-shadow-[0_0_15px_rgba(37,244,238,0.3)]">
               <CountUp value={m?.reachedCheckout ?? 0} />
             </span>
@@ -146,7 +149,7 @@ export function FunnelView() {
             <div className="flex size-14 items-center justify-center rounded-full bg-success/20 text-success mb-4">
               <CheckCircle2 className="size-6" />
             </div>
-            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Vendas Fechadas</h3>
+            <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">Compras confirmadas</h3>
             <span className="text-4xl font-black text-success drop-shadow-[0_0_15px_rgba(34,197,94,0.3)]">
               <CountUp value={m?.purchased ?? 0} />
             </span>

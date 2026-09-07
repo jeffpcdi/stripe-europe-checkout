@@ -315,12 +315,13 @@ export function LinksView() {
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
     <div className="flex flex-col gap-5">
-      <div className="sticky top-0 z-30 -mx-4 -mt-4 px-4 py-4 sm:-mx-6 sm:px-6 mb-2 flex flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-background/60 backdrop-blur-2xl transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
+      {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
+      <div className="relative py-1 flex flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-background transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
         <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
           <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-secondary/80 text-foreground text-xs tabular-nums font-semibold border border-border/50">
             <CountUp value={links.length} />
           </span>
-          link{links.length === 1 ? '' : 's'} de checkout
+          link{links.length === 1 ? '' : 's'} de venda
           {query.trim() && visibleLinks.length !== links.length && (
             <span className="ml-1 flex items-center text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
                <span className="mr-1 text-muted-foreground/50">/</span> {visibleLinks.length} no filtro

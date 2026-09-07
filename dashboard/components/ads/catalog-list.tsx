@@ -116,14 +116,14 @@ export function CatalogList({
       const res = await apiSend<{ catalog: AdsCatalog; syncStarted: boolean }>(
         adsCatalogApiUrl('/api/ads/catalogs/magic-import', advertiserId), 'POST', { url: magicUrl.trim() }
       )
-      toast.success('Catálogo mágico criado com sucesso', {
+      toast.success('Catálogo criado', {
         hint: res.syncStarted ? 'A sincronização com o TikTok já começou.' : 'O produto foi extraído e o catálogo criado.',
       })
       setMagicUrl('')
       onChanged()
       onOpen(res.catalog.id)
     } catch (e) {
-      toast.error('Falha na criação expressa', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Não foi possível importar', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setMagicBusy(false)
     }
@@ -155,8 +155,8 @@ export function CatalogList({
       {/* Header com Ações Rápidas */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-bold text-foreground">Catálogos de Produtos</h2>
-          <p className="text-xs text-muted-foreground">Gerencie feeds e produtos para campanhas de conversão no TikTok</p>
+          <h2 className="text-base font-bold text-foreground">Catálogos</h2>
+          <p className="text-xs text-muted-foreground">Seus produtos para anunciar no TikTok.</p>
         </div>
 
         {!creating && (
@@ -176,7 +176,7 @@ export function CatalogList({
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
               <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
-              <span>Criar Catálogo Mágico por Link</span>
+              <span>Importar pelo link do produto</span>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
@@ -364,7 +364,7 @@ export function BusinessCenterBar({
       return (
         <div className="rounded-xl border border-border bg-background p-3">
           <p className="text-xs font-medium text-foreground">Escolha a organização deste catálogo</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">O TikTok devolveu mais de um Business Center autorizado para esta conta.</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">O TikTok devolveu mais de um organização autorizada para esta conta.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {candidates.map((candidate) => (
               <button key={candidate.id} type="button" className="btn-ghost text-xs" onClick={() => save(candidate.id)} disabled={busy}>
@@ -387,7 +387,7 @@ export function BusinessCenterBar({
           </button>
         </div>
         <details className="mt-2 border-t border-warning/20 pt-2">
-          <summary className="cursor-pointer text-[10px] font-medium text-muted-foreground">Recuperação avançada</summary>
+          <summary className="cursor-pointer text-[10px] font-medium text-muted-foreground">Detalhes da conexão</summary>
           <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => { setValue(''); setEditing(true) }}>
             Informar ID do Business Center
           </button>

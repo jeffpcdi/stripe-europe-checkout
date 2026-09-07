@@ -17,12 +17,12 @@ export function CloakView() {
   return (
     <div className="flex flex-col gap-6">
       <Tabs.Root defaultValue="overview" className="flex flex-col gap-6">
-        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max">
+        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar w-full max-w-full sm:w-max">
           <Tabs.Trigger
             value="overview"
             className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
           >
-            Estatísticas
+            Resultados
           </Tabs.Trigger>
           <Tabs.Trigger
             value="rules"
@@ -34,7 +34,7 @@ export function CloakView() {
             value="traffic"
             className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
           >
-            Histórico de Acessos
+            Links protegidos
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -123,7 +123,7 @@ function CloakTestPanel() {
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <SectionTitle>Teste ao vivo</SectionTitle>
+          <SectionTitle>Testar acesso</SectionTitle>
         </div>
         <button
           type="button"

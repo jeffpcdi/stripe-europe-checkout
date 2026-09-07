@@ -44,15 +44,11 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
       {/* Cabeçalho minimalista */}
       <div className="flex items-center justify-between">
         <div
-          data-tooltip="Fluxo em tempo real dos últimos visitantes e compradores."
+          data-tooltip="Últimas visitas e compras registradas. Este é o histórico, não a presença online."
           className="flex items-center gap-2 cursor-help"
         >
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-cyan-400" />
-          </span>
           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
-            Atividade Recente
+            Últimas visitas
           </span>
         </div>
         <Link
@@ -60,13 +56,13 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
           data-tooltip="Ver histórico completo de atividades e leads."
           className="text-[10px] font-medium text-white/40 transition-colors hover:text-cyan-300"
         >
-          Histórico →
+          Ver histórico →
         </Link>
       </div>
 
       {rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center py-6 text-center">
-          <p className="text-xs text-white/40">Aguardando visitantes ao vivo.</p>
+          <p className="text-xs text-white/40">Nenhuma visita registrada ainda.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">

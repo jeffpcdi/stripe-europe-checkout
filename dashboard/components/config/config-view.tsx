@@ -22,6 +22,7 @@ import { WebPushCard } from '@/components/config/web-push-card'
 import { Switch } from '@/components/ui/switch'
 import { usePrefs } from '@/lib/prefs'
 import { formatDateTime } from '@/lib/format'
+import { ErrorState } from '@/components/error-state'
 import { Modal } from '@/components/ui/modal'
 import type { AccountSettings } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -32,7 +33,7 @@ export function ConfigView() {
   return (
     <div className="flex flex-col gap-6">
       <Tabs.Root defaultValue="prefs" className="flex flex-col gap-6">
-        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max">
+        <Tabs.List aria-label="Configurações da conta" className="grid grid-cols-2 sm:flex items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar w-full max-w-full sm:w-max">
           <Tabs.Trigger
             value="prefs"
             className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
@@ -52,14 +53,14 @@ export function ConfigView() {
             className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
           >
             <Lock className="size-3.5" />
-            Segurança & Conta
+            Sua conta
           </Tabs.Trigger>
           <Tabs.Trigger
             value="data"
             className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
           >
             <Database className="size-3.5" />
-            Dados & Backup
+            Dados
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -67,13 +68,13 @@ export function ConfigView() {
         <Tabs.Content value="prefs" className="focus:outline-none outline-none flex flex-col gap-4">
           <GlassCard className="p-5">
             <div className="mb-4">
-              <h2 className="text-sm font-semibold text-foreground">Exibição e Interface</h2>
-              <p className="text-xs text-muted-foreground">Ajustes visuais e de comodidade.</p>
+              <h2 className="text-sm font-semibold text-foreground">Aparência</h2>
+              <p className="text-xs text-muted-foreground">Deixe o painel confortável para você.</p>
             </div>
             <div className="flex flex-col gap-2 divide-y divide-border/30">
               <label className="flex cursor-pointer items-center justify-between gap-3 py-2.5 rounded-lg hover:bg-secondary/20 px-2 transition-colors">
                 <span>
-                  <span className="block text-sm font-medium text-foreground">Reduzir Animações</span>
+                  <span className="block text-sm font-medium text-foreground">Reduzir animações</span>
                   <span className="block text-xs text-muted-foreground">Desliga transições e efeitos de movimento</span>
                 </span>
                 <Switch checked={prefs.anim === 'off'} onChange={() => update({ anim: prefs.anim === 'off' ? 'on' : 'off' })} label="Reduzir animações" />
@@ -81,7 +82,7 @@ export function ConfigView() {
 
               <label className="flex cursor-pointer items-center justify-between gap-3 pt-3 py-2.5 rounded-lg hover:bg-secondary/20 px-2 transition-colors">
                 <span>
-                  <span className="block text-sm font-medium text-foreground">Modo Privacidade</span>
+                  <span className="block text-sm font-medium text-foreground">Ocultar valores</span>
                   <span className="block text-xs text-muted-foreground">Oculta valores de faturamento na tela para gravações</span>
                 </span>
                 <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo privacidade" />
@@ -107,20 +108,20 @@ export function ConfigView() {
         <Tabs.Content value="data" className="focus:outline-none outline-none flex flex-col gap-4">
           <GlassCard className="p-5">
             <div className="mb-4">
-              <h2 className="text-sm font-semibold text-foreground">Backup dos Dados</h2>
+              <h2 className="text-sm font-semibold text-foreground">Cópia dos dados</h2>
               <p className="text-xs text-muted-foreground">Baixe uma cópia dos seus links e configurações.</p>
             </div>
             <div className="flex items-center justify-between gap-4 pt-1">
               <div>
-                <span className="block text-xs font-medium text-foreground">Exportar Dados</span>
-                <span className="block text-xs text-muted-foreground">Arquivo completo em formato JSON</span>
+                <span className="block text-xs font-medium text-foreground">Exportar dados</span>
+                <span className="block text-xs text-muted-foreground">Links e configurações em um arquivo JSON</span>
               </div>
               <a
                 href="/api/account/export"
                 download
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
               >
-                <Download className="size-3.5" /> Baixar Cópia
+                <Download className="size-3.5" /> Baixar cópia
               </a>
             </div>
           </GlassCard>
@@ -153,8 +154,8 @@ interface AuditRow {
 
 function AuditCard() {
   const [open, setOpen] = useState(false)
-  const { data } = useSWR<{ ok: boolean; enabled: boolean; log: AuditRow[] }>(
-    '/api/audit?limit=30',
+  const { data, error, mutate } = useSWR<{ ok: boolean; enabled: boolean; log: AuditRow[] }>(
+    open ? '/api/audit?limit=30' : null,
     fetcher,
     { revalidateOnFocus: false },
   )
@@ -163,26 +164,24 @@ function AuditCard() {
     <>
       <GlassCard 
         className="p-5 flex items-center justify-between cursor-pointer transition-colors hover:bg-secondary/40" 
-        onClick={() => setOpen(true)}
-        role="button"
-        tabIndex={0}
+
       >
         <div className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-secondary border border-border">
              <Fingerprint className="size-4 text-muted-foreground" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Registro de Atividades (Auditoria)</h2>
+            <h2 className="text-sm font-semibold text-foreground">Histórico de ações</h2>
             <p className="text-xs text-muted-foreground">Histórico de ações recentes realizadas no painel</p>
           </div>
         </div>
-        <button type="button" className="text-xs font-semibold text-brand-cyan hover:underline">
-          Ver Histórico
+        <button type="button" onClick={() => setOpen(true)} className="btn-ghost text-xs font-semibold text-brand-cyan">
+          Ver histórico
         </button>
       </GlassCard>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="Histórico de Atividades" description="Ações recentes registradas" maxWidth="max-w-xl">
-        {!data ? (
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="Histórico de ações" description="Ações recentes registradas" maxWidth="max-w-xl">
+        {error ? <ErrorState onRetry={() => mutate()} /> : !data ? (
           <p className="py-4 text-center text-xs text-muted-foreground">Carregando...</p>
         ) : data.log.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">Nenhuma atividade recente encontrada.</p>
@@ -237,7 +236,7 @@ function DailyReportCard() {
             <MessageCircle className="size-5" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Resumo Diário no WhatsApp</h2>
+            <h2 className="text-sm font-semibold text-foreground">Resumo diário</h2>
             <p className="text-xs text-muted-foreground">Receba gasto, vendas e lucro automaticamente todos os dias.</p>
           </div>
         </div>
@@ -249,7 +248,7 @@ function DailyReportCard() {
           <input className="input mt-1 w-full" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} placeholder="5511999999999" />
         </label>
         <label className="text-xs text-muted-foreground">
-          Horário de Envio
+          Hora de envio (fuso da conta)
           <input className="input mt-1 w-full" type="number" min="0" max="23" value={hour} onChange={(event) => setHour(Number(event.target.value))} />
         </label>
         <button type="button" className="btn-primary self-end text-xs" onClick={save} disabled={saving}>
@@ -259,7 +258,7 @@ function DailyReportCard() {
       <label className="mt-4 flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs">
         <span>
           <b className="block text-foreground font-medium">Som e vibração de confirmação</b>
-          <small className="text-muted-foreground">Feedback sutil ao salvar alterações na plataforma.</small>
+          <small className="text-muted-foreground">Confirma quando uma alteração é salva.</small>
         </span>
         <Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" />
       </label>
@@ -299,7 +298,7 @@ function DangerCard() {
             <Trash2 className="size-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Zerar Métricas e Estatísticas</h2>
+            <h2 className="text-sm font-semibold text-foreground">Apagar estatísticas</h2>
             <p className="text-xs text-muted-foreground">
               Limpa o histórico de cliques e visitas. Links, checkouts e pixels cadastrados são mantidos.
             </p>

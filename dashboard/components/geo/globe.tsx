@@ -1,5 +1,7 @@
 'use client'
 
+import { useReducedMotion } from '@/lib/motion'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
@@ -87,7 +89,7 @@ const ENTRY_MS = 1000
 // Movimento propositalmente contido: o globo deve sustentar a leitura, não
 // competir com os números e a lista de atividade sobre ele.
 const SPIN_IDLE = 0.18
-const SPIN_HOVER = 0.32
+const SPIN_HOVER = 0.12
 const RESUME_AFTER_MS = 4000
 const MAX_AMBIENT_RINGS = 3
 const MAX_LABELS = 2
@@ -101,20 +103,6 @@ function escapeHtml(value: string): string {
     "'": '&#39;',
     '"': '&quot;',
   })[char] ?? char)
-}
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setReduced(media.matches)
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
-
-  return reduced
 }
 
 function createTotemMesh(d: GeoTotem): any {
@@ -206,8 +194,8 @@ function buildPoints(
         : (c.purchased > 0 ? c.purchased : c.count)
     // Altura proporcional: 10 unidades (mínimo visível) até 30 unidades no globo
     const norm = Math.log1p(value) / Math.log1p(max)
-    const height = 10 + norm * 20
-    const radius = 0.7 + norm * 0.35
+    const height = 2 + norm * 6
+    const radius = 0.45 + norm * 0.25
     const isSale = metric === 'sales' || (metric === 'all' && c.purchased > 0)
     const color = isSale ? '#10b981' : '#22d3ee'
 
@@ -317,15 +305,17 @@ function GlobeCanvas({
   width,
   height,
   globeRef,
-  metric = 'all',
+  metric = 'live',
   pulses = [],
-  showArcs = true,
+  showArcs = false,
   reducedMotion,
+  userPaused,
 }: GlobePanelProps & {
   width: number
   height: number
   globeRef: React.MutableRefObject<any>
   reducedMotion: boolean
+  userPaused: boolean
 }) {
   // Libera o contexto WebGL ao desmontar. O navegador limita a
   // ~8-16 contextos simultâneos — sem dispose, navegar entre abas
@@ -350,8 +340,8 @@ function GlobeCanvas({
     const g = globeRef.current
     if (!g) return
     const controls = g.controls()
-    controls.autoRotate = !reducedMotion
-    controls.enableZoom = true
+    controls.autoRotate = !reducedMotion && !userPaused
+    controls.enableZoom = false // A roda rola a página; o zoom fica nos botões explícitos.
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.zoomSpeed = 1.35
@@ -383,11 +373,12 @@ function GlobeCanvas({
 
     // Item 289: pausa o render loop com a aba oculta — three.js continuaria
     // gastando GPU em segundo plano sem isso.
+    let inViewport = true
     function onVisibility() {
       const globe = globeRef.current
       if (!globe) return
       try {
-        if (document.hidden) globe.pauseAnimation()
+        if (document.hidden || !inViewport) globe.pauseAnimation()
         else globe.resumeAnimation()
       } catch {
         /* método indisponível na versão instalada */
@@ -402,14 +393,8 @@ function GlobeCanvas({
       if (canvasEl && typeof IntersectionObserver !== 'undefined') {
         io = new IntersectionObserver(
           (entries) => {
-            const globe = globeRef.current
-            if (!globe || document.hidden) return
-            try {
-              if (entries[0]?.isIntersecting) globe.resumeAnimation()
-              else globe.pauseAnimation()
-            } catch {
-              /* método indisponível na versão instalada */
-            }
+            inViewport = Boolean(entries[0]?.isIntersecting)
+            onVisibility()
           },
           { threshold: 0.05 },
         )
@@ -451,7 +436,12 @@ function GlobeCanvas({
       document.removeEventListener('visibilitychange', onVisibility)
       io?.disconnect()
     }
-  }, [width, globeRef, reducedMotion])
+  }, [globeRef, reducedMotion])
+
+  useEffect(() => {
+    const g = globeRef.current
+    if (g) g.controls().autoRotate = !reducedMotion && !userPaused
+  }, [globeRef, reducedMotion, userPaused])
 
   // Fluidez: memoizado — antes recalculava a cada render do pai (poll do
   // /api/live a cada 5s), forçando o three-globe a reconstruir tudo.
@@ -476,14 +466,14 @@ function GlobeCanvas({
       /* Refino 1: céu estrelado LOCAL — resolve o fundo vazio sem unpkg.
          URLs precisam do basePath /dashboard: o Next só o injeta em
          next/image e next/link, nunca em strings passadas a libs. */
-      backgroundImageUrl="/dashboard/textures/night-sky.png"
+
       /* Textura blue-marble (dia): continentes visíveis de longe — a
          earth-night deixava o globo escuro demais no card do overview */
       globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
       showAtmosphere
       atmosphereColor="#0ea5e9"
-      atmosphereAltitude={0.14}
+      atmosphereAltitude={0.09}
       /* Totens 3D verticais de pontos de acesso (Shopify Live View) */
       objectsData={totems}
       objectLat="lat"
@@ -492,7 +482,7 @@ function GlobeCanvas({
       objectFacesSurfaces={true}
       objectThreeObject={(d: object) => createTotemMesh(d as GeoTotem)}
       objectLabel="label"
-      ringsData={rings}
+      ringsData={reducedMotion ? [] : rings}
       ringColor={() => (t: number) => metric === 'sales' ? `rgba(16,185,129,${(1 - t) * 0.55})` : `rgba(6,182,212,${(1 - t) * 0.55})`}
       ringMaxRadius={(d: object) => 1.3 + (d as GeoRing).intensity * 1.6}
       ringPropagationSpeed={0.8}
@@ -541,11 +531,11 @@ function GlobeControls({
   isFullscreen: boolean
 }) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
+    <div className="absolute right-3 top-3 z-30 flex flex-col gap-1.5" data-tour="globe-controls">
       <button
         type="button"
         onClick={onZoomIn}
-        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
         aria-label="Aproximar"
       >
         <Plus className="size-3.5" aria-hidden="true" />
@@ -553,7 +543,7 @@ function GlobeControls({
       <button
         type="button"
         onClick={onZoomOut}
-        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
         aria-label="Afastar"
       >
         <Minus className="size-3.5" aria-hidden="true" />
@@ -561,7 +551,7 @@ function GlobeControls({
       <button
         type="button"
         onClick={onRecenter}
-        className="flex size-7 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
+        className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-white/70 backdrop-blur-md transition-all hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
         aria-label="Recentrar globo"
       >
         <Crosshair className="size-3.5" aria-hidden="true" />
@@ -569,7 +559,7 @@ function GlobeControls({
       <button
         type="button"
         onClick={onTogglePause}
-        className={`flex size-7 items-center justify-center rounded-lg border backdrop-blur-md transition-all ${
+        className={`flex size-8 items-center justify-center rounded-lg border backdrop-blur-md transition-all ${
           isPaused
             ? 'border-cyan-400 bg-cyan-400/20 text-cyan-300 shadow-[0_0_10px_rgba(37,244,238,0.25)]'
             : 'border-white/10 bg-black/40 text-white/70 hover:border-cyan-400/40 hover:bg-white/10 hover:text-white'
@@ -586,7 +576,7 @@ function GlobeControls({
       <button
         type="button"
         onClick={onFullscreen}
-        className="flex size-7 items-center justify-center rounded-lg border border-cyan-400/40 bg-black/40 text-white/80 shadow-[0_0_10px_rgba(37,244,238,0.15)] backdrop-blur-md transition-all hover:border-cyan-400 hover:bg-white/10 hover:text-white"
+        className="flex size-8 items-center justify-center rounded-lg border border-cyan-400/40 bg-black/40 text-white/80 shadow-[0_0_10px_rgba(37,244,238,0.15)] backdrop-blur-md transition-all hover:border-cyan-400 hover:bg-white/10 hover:text-white"
         aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
         aria-pressed={isFullscreen}
       >
@@ -636,9 +626,9 @@ function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
 export default function GlobePanel({
   countries,
   focusCode,
-  metric = 'all',
+  metric = 'live',
   pulses = [],
-  showArcs = true,
+  showArcs = false,
   emptyNote,
 }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -678,8 +668,8 @@ export default function GlobePanel({
     if (!coords || !g) return
     const pov = g.pointOfView()
     const targetAlt = Math.max(ALT_MIN, Math.min(1.42, pov.altitude))
-    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: targetAlt }, 650)
-  }, [focusCode])
+    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: targetAlt }, reducedMotion ? 0 : 650)
+  }, [focusCode, reducedMotion])
 
   useEffect(() => {
     const el = containerRef.current
@@ -718,7 +708,7 @@ export default function GlobePanel({
       if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
       g.controls().autoRotate = false
     } else {
-      g.controls().autoRotate = true
+      g.controls().autoRotate = !reducedMotion
       g.controls().autoRotateSpeed = SPIN_IDLE
     }
   }
@@ -767,6 +757,7 @@ export default function GlobePanel({
           pulses={pulses}
           showArcs={showArcs}
           reducedMotion={reducedMotion}
+          userPaused={userPaused}
         />
       )}
       <GlobeHud empty={empty} note={emptyNote} />
@@ -774,7 +765,7 @@ export default function GlobePanel({
         onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
         onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
         onRecenter={() =>
-          globeRef.current?.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, 500)
+          globeRef.current?.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, reducedMotion ? 0 : 500)
         }
         onTogglePause={togglePause}
         isPaused={userPaused}

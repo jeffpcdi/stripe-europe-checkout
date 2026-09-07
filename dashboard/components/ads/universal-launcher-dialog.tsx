@@ -41,6 +41,8 @@ export function UniversalLauncherDialog({
   currency,
   onFinished,
   onSuccess,
+  onSmartPlus,
+  onSpark,
 }: {
   open: boolean
   onClose: () => void
@@ -48,6 +50,8 @@ export function UniversalLauncherDialog({
   currency: string
   onFinished?: () => void
   onSuccess?: () => void
+  onSmartPlus?: () => void
+  onSpark?: () => void
 }) {
   const handleDone = () => {
     onSuccess?.()
@@ -56,9 +60,6 @@ export function UniversalLauncherDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const idempotencyRef = useRef<{ signature: string; key: string } | null>(null)
-
-  // Modos de criação: 'standard' (Campanha Rápida CBO), 'smart_plus' (Smart+ IA), 'bulk' (Lote automático)
-  const [singleMode, setSingleMode] = useState<'standard' | 'smart_plus'>('standard')
 
   // 2 Campos Essenciais
   const [linkUrl, setLinkUrl] = useState('')
@@ -92,7 +93,6 @@ export function UniversalLauncherDialog({
 
   useEffect(() => {
     if (open) {
-      setSingleMode('standard')
       setLinkUrl('')
       setBudget(String(Math.max(TIKTOK_MIN_BUDGET, 60)))
       setShowAdvanced(false)
@@ -115,7 +115,7 @@ export function UniversalLauncherDialog({
           hint: 'Revise os erros abaixo e tente reprocessar as falhas.',
         })
       } else {
-        toast.success(`${job!.total} campanha(s) criada(s) com sucesso! 🚀`, {
+        toast.success(`${job!.total} campanha(s) criada(s) e pausada(s)`, {
           hint: 'Todas criadas pausadas para sua revisão antes de ativar.',
         })
       }
@@ -257,27 +257,6 @@ export function UniversalLauncherDialog({
         ? `${campaignPrefix.trim()} - ${singleItem.name}`
         : singleItem.name
 
-      if (singleMode === 'smart_plus') {
-        const payload = {
-          adAccountId: advertiserId,
-          name: campaignName,
-          goal: 'conversions',
-          budgetAmount: budgetNum,
-          countries: ['BR'],
-          videoUrl: singleItem.videoUrl,
-          linkUrl: cleanLink,
-          body: cleanBody,
-          callToAction: cta,
-        }
-        await apiSend('/api/ads/smart-plus', 'POST', payload)
-        toast.success('Campanha Smart+ criada (Pausada)', {
-          hint: 'O algoritmo do TikTok otimizará criativo e público automaticamente.',
-        })
-        handleDone()
-        onClose()
-        return
-      }
-
       // Caso 3: 1 Vídeo - Campanha Rápida Otimizada (CBO / Conversão)
       const payload = {
         adAccountId: advertiserId,
@@ -292,14 +271,16 @@ export function UniversalLauncherDialog({
         body: cleanBody,
         linkUrl: cleanLink,
         callToAction: cta,
-        idempotencyKey: `quick-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       }
 
-      await apiSend('/api/ads/create/preflight', 'POST', payload)
-      await apiSend('/api/ads/create', 'POST', payload)
+      const signature = JSON.stringify(payload)
+      if (idempotencyRef.current?.signature !== signature) idempotencyRef.current = { signature, key: `quick:${advertiserId}:${crypto.randomUUID()}` }
+      const request = { ...payload, idempotencyKey: idempotencyRef.current.key }
+      await apiSend('/api/ads/create/preflight', 'POST', request)
+      await apiSend('/api/ads/create', 'POST', request)
 
-      toast.success('Campanha de Conversão Criada! 🚀', {
-        hint: 'Nascida pausada com Pixel de Compra vinculado. Ative quando desejar.',
+      toast.success('Campanha criada e pausada', {
+        hint: 'Revise a campanha antes de ativar.',
       })
       handleDone()
       onClose()
@@ -342,7 +323,7 @@ export function UniversalLauncherDialog({
         aria-modal="true"
         aria-label="Lançador de Campanhas"
         tabIndex={-1}
-        className="anim-pop-in flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#09090b]/95 shadow-[0_0_60px_rgba(0,0,0,0.85)] outline-none"
+        className="anim-pop-in flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#09090b]/95 shadow-[0_0_60px_rgba(0,0,0,0.85)] outline-none"
       >
         {/* Cabeçalho Minimalista */}
         <div className="flex items-center justify-between border-b border-border/40 px-5 py-4">
@@ -351,7 +332,7 @@ export function UniversalLauncherDialog({
               <Rocket className="size-4" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-foreground">Lançador Rápido de Anúncios</h2>
+              <h2 className="text-sm font-bold text-foreground">Criar campanha</h2>
               <p className="text-[11px] text-muted-foreground">
                 {isBulk
                   ? `Lote de ${items.length} campanhas com 1 clique`
@@ -371,14 +352,21 @@ export function UniversalLauncherDialog({
         </div>
 
         {/* Corpo do Modal */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 space-y-5">
+          {!items.length && !jobId && (onSmartPlus || onSpark) && <details className="rounded-xl border border-border p-3 text-xs">
+            <summary className="cursor-pointer text-muted-foreground">Outros formatos</summary>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {onSmartPlus && <button type="button" className="btn-secondary justify-start text-xs" onClick={onSmartPlus}>Smart+ · otimização automática</button>}
+              {onSpark && <button type="button" className="btn-secondary justify-start text-xs" onClick={onSpark}>Spark · usar publicação</button>}
+            </div>
+          </details>}
           {/* Se houver job em andamento (Modo progresso do lote) */}
           {jobId && job ? (
             <div className="space-y-4 rounded-xl border border-border/50 bg-secondary/15 p-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-foreground flex items-center gap-2">
                   <Layers className="size-4 text-primary" />
-                  Progresso da Criação em Lote
+                  Progresso das campanhas
                 </span>
                 <span className="text-xs font-mono tabular-nums text-muted-foreground">
                   {(job.done ?? 0) + (job.failed ?? 0)} / {job.total}
@@ -435,12 +423,14 @@ export function UniversalLauncherDialog({
               {/* 1. SELEÇÃO / UPLOAD DE VÍDEOS */}
               <div>
                 <label className="block text-xs font-semibold text-foreground mb-1.5">
-                  1. Vídeos do Anúncio (1 a 20 vídeos)
+                  1. Vídeos · até 20
                 </label>
 
                 {/* Dropzone */}
                 <div
                   className="group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-secondary/10 p-5 text-center transition-colors hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
+                  role="button" tabIndex={0} aria-label="Adicionar vídeos"
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
                   onClick={() => fileInputRef.current?.click()}
                   onDragOver={(e) => {
                     e.preventDefault()
@@ -454,6 +444,7 @@ export function UniversalLauncherDialog({
                 >
                   <input
                     ref={fileInputRef}
+                    aria-label="Selecionar vídeos para as campanhas"
                     type="file"
                     accept="video/mp4,video/quicktime,video/webm"
                     multiple
@@ -467,10 +458,10 @@ export function UniversalLauncherDialog({
                     <UploadCloud className="size-5" aria-hidden="true" />
                   </div>
                   <p className="mt-2 text-xs font-semibold text-foreground">
-                    Clique para selecionar ou arraste vídeos aqui
+                    Selecionar vídeos
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Formatos MP4 ou MOV · Até 500 MB cada · 1 vídeo = campanha única | 2+ = lote automático
+                    MP4, MOV ou WebM · até 500 MB cada · uma campanha por vídeo
                   </p>
                 </div>
 
@@ -480,7 +471,7 @@ export function UniversalLauncherDialog({
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
                       <span>{items.length} vídeo(s) pronto(s)</span>
                       {items.length > 1 && (
-                        <span className="text-primary font-semibold">Modo Lote Ativo 🚀</span>
+                        <span className="text-primary font-semibold">Uma campanha por vídeo</span>
                       )}
                     </div>
                     <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
@@ -514,41 +505,13 @@ export function UniversalLauncherDialog({
                   </div>
                 )}
 
-                {/* Alternância se for apenas 1 vídeo: Campanha Rápida vs Smart+ */}
-                {items.length === 1 && (
-                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-secondary/20 p-1 border border-border/40">
-                    <button
-                      type="button"
-                      className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                        singleMode === 'standard'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => setSingleMode('standard')}
-                    >
-                      <Rocket className="size-3.5 text-primary" />
-                      Campanha Padrão CBO
-                    </button>
-                    <button
-                      type="button"
-                      className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                        singleMode === 'smart_plus'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => setSingleMode('smart_plus')}
-                    >
-                      <Sparkles className="size-3.5 text-primary" />
-                      Smart+ Inteligente
-                    </button>
-                  </div>
-                )}
+
               </div>
 
               {/* 2. DESTINO (PÁGINA DE VENDAS) */}
               <div>
                 <label htmlFor="launcher-link" className="block text-xs font-semibold text-foreground mb-1.5">
-                  2. Link da Página de Vendas (Destino)
+                  2. Página de vendas
                 </label>
                 <div className="relative">
                   <LinkIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -613,10 +576,11 @@ export function UniversalLauncherDialog({
               <div className="border-t border-border/30 pt-3">
                 <button
                   type="button"
+                  aria-expanded={showAdvanced}
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center justify-between w-full text-xs font-medium text-muted-foreground hover:text-foreground py-1"
                 >
-                  <span>Configurações adicionais (opcional)</span>
+                  <span>Nome e texto do anúncio</span>
                   {showAdvanced ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
                 </button>
 
@@ -624,10 +588,11 @@ export function UniversalLauncherDialog({
                   <div className="mt-3 space-y-3 rounded-xl border border-border/40 bg-secondary/10 p-3.5 anim-content-in">
                     <div>
                       <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Prefixo no Nome da Campanha
+                        Início do nome da campanha
                       </label>
                       <input
                         type="text"
+                        aria-label="Início do nome da campanha"
                         value={campaignPrefix}
                         onChange={(e) => setCampaignPrefix(e.target.value)}
                         placeholder="Ex.: [Escala BR] ou [Teste Criativos]"
@@ -636,10 +601,11 @@ export function UniversalLauncherDialog({
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Texto da Legenda / Copy
+                        Texto do anúncio
                       </label>
                       <input
                         type="text"
+                        aria-label="Texto do anúncio"
                         value={bodyText}
                         onChange={(e) => setBodyText(e.target.value)}
                         placeholder="Ex.: Frete grátis apenas hoje! Clique e garanta o seu."
@@ -648,16 +614,17 @@ export function UniversalLauncherDialog({
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Chamada para Ação (Botão)
+                        Botão do anúncio
                       </label>
                       <select
+                        aria-label="Botão do anúncio"
                         value={cta}
                         onChange={(e) => setCta(e.target.value)}
                         className="input-neon w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground"
                       >
-                        <option value="SHOP_NOW">Comprar agora (SHOP_NOW)</option>
-                        <option value="LEARN_MORE">Saiba mais (LEARN_MORE)</option>
-                        <option value="ORDER_NOW">Pedir agora (ORDER_NOW)</option>
+                        <option value="SHOP_NOW">Comprar agora</option>
+                        <option value="LEARN_MORE">Saiba mais</option>
+                        <option value="ORDER_NOW">Pedir agora</option>
                       </select>
                     </div>
                   </div>
@@ -668,7 +635,7 @@ export function UniversalLauncherDialog({
         </div>
 
         {/* Rodapé com Ação Principal */}
-        <div className="flex items-center justify-between border-t border-border/40 bg-secondary/10 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-5 py-3.5">
           <div className="text-[11px] text-muted-foreground">
             {validationError ? (
               <span className="text-warning flex items-center gap-1">
@@ -706,7 +673,7 @@ export function UniversalLauncherDialog({
               ) : (
                 <>
                   <Rocket className="size-3.5" aria-hidden="true" />
-                  {isBulk ? `Lançar ${items.length} Campanhas` : 'Lançar Campanha'}
+                  {isBulk ? `Criar ${items.length} campanhas` : 'Criar campanha'}
                 </>
               )}
             </button>

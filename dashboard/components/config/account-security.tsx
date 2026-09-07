@@ -451,7 +451,7 @@ interface SettingsData {
 }
 
 export function AccountPrefsCard() {
-  const { data, mutate } = useSWR<SettingsData>('/api/settings', fetcher, { revalidateOnFocus: false })
+  const { data, error, mutate } = useSWR<SettingsData>('/api/settings', fetcher, { revalidateOnFocus: false })
 
   // edições locais: null = ainda não mexeu (usa o valor do servidor)
   const [draft, setDraft] = useState<Partial<SettingsData>>({})
@@ -470,7 +470,6 @@ export function AccountPrefsCard() {
       await apiSend('/api/settings', 'POST', {
         timezone: v('timezone') || 'America/Sao_Paulo',
         revenueGoal: Number(v('revenueGoal')) || 0,
-        dailyReportHour: Number(v('dailyReportHour')) || 0,
         lgpdDays: Number(v('lgpdDays')) || 0,
         notificationTemplate: String(v('notificationTemplate') ?? '').trim(),
         outboundWebhook: String(v('outboundWebhook') ?? '').trim(),
@@ -505,6 +504,8 @@ export function AccountPrefsCard() {
     'rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50'
   const goalReais = v('revenueGoal') ? Math.round(Number(v('revenueGoal')) / 100) : 0
 
+  if (error && !data) return <GlassCard className="p-5"><p className="text-sm">Não foi possível carregar as preferências.</p><button type="button" className="btn-ghost mt-2 text-xs" onClick={() => void mutate()}>Tentar novamente</button></GlassCard>
+
   return (
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center gap-2.5">
@@ -512,12 +513,12 @@ export function AccountPrefsCard() {
         <div>
           <h2 className="section-head text-sm font-semibold text-foreground">Preferências da conta</h2>
           <p className="text-xs text-muted-foreground">
-            Fuso, meta de receita, resumo diário, webhook de saída e retenção LGPD
+            Fuso horário, meta de receita e privacidade.
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-tz">
             Fuso horário
@@ -553,25 +554,8 @@ export function AccountPrefsCard() {
           <p className="mt-1 text-[11px] text-muted-foreground">Em {data?.defaultCurrency || 'BRL'}, sem centavos</p>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-drh">
-            Resumo diário a partir das
-          </label>
-          <select
-            id="pref-drh"
-            className={`${selectCls} w-full`}
-            value={String(v('dailyReportHour') ?? 0)}
-            disabled={!data}
-            onChange={(e) => setDraft((d) => ({ ...d, dailyReportHour: parseInt(e.target.value, 10) }))}
-          >
-            {Array.from({ length: 24 }, (_, h) => (
-              <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">Hora local do fuso escolhido</p>
-        </div>
-        <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-lgpd">
-            Retenção LGPD
+            Guardar dados pessoais por
           </label>
           <select
             id="pref-lgpd"
@@ -584,10 +568,12 @@ export function AccountPrefsCard() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">Anonimiza e-mail/telefone de leads antigos</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Após esse prazo, remove e-mail e telefone dos registros antigos.</p>
         </div>
       </div>
 
+      <details className="mt-4 rounded-xl border border-border p-3">
+        <summary className="cursor-pointer text-xs text-muted-foreground">Mensagens e integrações</summary>
       <div className="mt-4 border-t border-border pt-4">
         <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-notification-template">
           Mensagem da venda no iPhone
@@ -606,7 +592,7 @@ export function AccountPrefsCard() {
 
       <div className="mt-4 border-t border-border pt-4">
         <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-webhook">
-          Webhook de saída <span className="font-normal">— POST JSON a cada venda aprovada (CRM, Zapier, planilha)</span>
+          Enviar vendas a outro sistema <span className="font-normal">(webhook)</span>
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -628,6 +614,8 @@ export function AccountPrefsCard() {
           </p>
         )}
       </div>
+
+      </details>
 
       <div className="mt-4 flex items-center justify-end gap-3">
         {saveMsg && (

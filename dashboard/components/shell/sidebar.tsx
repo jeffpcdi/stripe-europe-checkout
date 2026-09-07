@@ -5,43 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { NAV_SECTIONS } from '@/lib/navigation'
-import { useHealth } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-/** Item 10/208: rodapé com status do sistema + uptime + versão */
-function SidebarFooter() {
-  const { data: health } = useHealth()
-  const ok = health?.db !== false
-  const uptime = health?.uptimeSec
-    ? health.uptimeSec >= 86_400
-      ? `${Math.floor(health.uptimeSec / 86_400)}d`
-      : health.uptimeSec >= 3_600
-        ? `${Math.floor(health.uptimeSec / 3_600)}h`
-        : `${Math.floor(health.uptimeSec / 60)}min`
-    : null
-
-  return (
-    /* V2-77: divisória do rodapé com fade nas pontas + dot com pulso vivo */
-    <div className="mt-auto px-3 pb-5 pt-3">
-      <div className="divider-fade mb-3" aria-hidden="true" />
-      <div className="flex items-center gap-2 px-3">
-        <span
-          className={cn(
-            'status-dot shrink-0',
-            ok ? 'status-dot--ok status-dot--pulse' : 'status-dot--err status-dot--pulse',
-          )}
-          style={{ width: 6, height: 6 }}
-          aria-hidden="true"
-        />
-        <span className="text-[11px] text-muted-foreground">
-          {ok ? 'Operacional' : 'Instável'}
-          {uptime ? ` · ${uptime}` : ''}
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-faint">v2.0</span>
-      </div>
-    </div>
-  )
-}
 
 /**
  * Sidebar lateral esquerda — identidade do dashboard legado:
@@ -63,15 +27,15 @@ export function Sidebar() {
 
   return (
     <aside
-      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-[#040406]/60 backdrop-blur-3xl md:flex"
+      className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-background md:flex"
       aria-label="Navegação principal"
     >
       {/* Logo */}
-      <div className="flex justify-center px-4 pb-6 pt-8">
+      <div className="flex justify-center px-4 pb-5 pt-5">
         <Link
           href="/"
           className="group"
-          aria-label="ROI-NADOS — Visão Geral"
+          aria-label="ROI-NADOS — Visão geral"
         >
           <span className="brand-logo brand-logo--lg" aria-hidden="true">
             <span className="brand-logo__ring" />
@@ -89,8 +53,11 @@ export function Sidebar() {
 
       {/* Seções de navegação */}
       <nav className="flex flex-col gap-1 px-3" aria-label="Seções" data-tour="nav">
-        <ul className="flex flex-col gap-0.5">
-          {NAV_SECTIONS.flatMap((s) => s.items).map((item) => {
+        <div className="space-y-5">
+          {NAV_SECTIONS.map(section => <div key={section.title}>
+          <p className="mb-2 px-3 text-[11px] font-medium text-muted-foreground">{section.title}</p>
+          <ul className="flex flex-col gap-1">
+          {section.items.map((item) => {
             const active =
               item.href === '/'
                 ? pathname === '/'
@@ -129,7 +96,8 @@ export function Sidebar() {
               </li>
             )
           })}
-        </ul>
+          </ul></div>)}
+        </div>
       </nav>
     </aside>
   )

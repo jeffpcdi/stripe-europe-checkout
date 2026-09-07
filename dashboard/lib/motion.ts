@@ -38,10 +38,12 @@ export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduced(mq.matches)
-    const on = (e: MediaQueryListEvent) => setReduced(e.matches)
+    const on = () => setReduced(mq.matches || document.documentElement.dataset.anim === 'off')
+    on()
+    const observer = new MutationObserver(on)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-anim'] })
     mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
+    return () => { mq.removeEventListener('change', on); observer.disconnect() }
   }, [])
   return reduced
 }

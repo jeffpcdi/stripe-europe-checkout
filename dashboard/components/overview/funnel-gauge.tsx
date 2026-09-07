@@ -73,7 +73,7 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
         >
           <span className="flex size-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
-            Pipeline de Conversão
+            Funil de vendas
           </h3>
         </div>
         <div
@@ -127,7 +127,7 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
                 <div
                   className={`h-full rounded-full ${step.color} transition-all duration-700 ease-out`}
                   style={{
-                    width: `${Math.max(2, Math.min(100, (step.value / maxVal) * 100))}%`,
+                    width: `${Math.max(0, Math.min(100, (step.value / maxVal) * 100))}%`,
                   }}
                 />
               </div>
@@ -142,7 +142,7 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
           data-tooltip="Taxa de passagem de cada etapa do funil para a próxima."
           className="text-white/40 cursor-help"
         >
-          Retenção de Funil:
+          Entre etapas:
         </span>
         <div className="flex items-center gap-1.5 text-white/70">
           <span className="text-cyan-400">Visitas</span>

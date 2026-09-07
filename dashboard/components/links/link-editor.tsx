@@ -102,7 +102,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               <Tag className="size-4" />
             </div>
             <h2 className="text-xl font-bold text-foreground">
-              {link ? 'Editar Link Mágico' : 'Novo Link Mágico'}
+              {link ? 'Editar Link de venda' : 'Novo Link de venda'}
             </h2>
           </div>
           <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
@@ -226,7 +226,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida}
               className={`relative flex items-center gap-2 overflow-hidden rounded-full bg-[color:var(--brand-cyan)] px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50`}
             >
-              {saving ? 'Salvando...' : 'Criar Link Mágico'}
+              {saving ? 'Salvando...' : 'Criar Link de venda'}
             </button>
           </div>
         </div>

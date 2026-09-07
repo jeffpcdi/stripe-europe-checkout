@@ -202,7 +202,7 @@ function engineStatusView(engine: AdsAutomationEngine, loadFailed = false): {
   if (engine.state === 'blocked') {
     const blockedCopy: Record<string, [string, string]> = {
       provider_unavailable: ['Conexão indisponível', 'O motor aguarda a conexão com o TikTok voltar.'],
-      cache_unavailable: ['Persistência indisponível', 'O motor não roda sem o espelho durável de dados.'],
+      cache_unavailable: ['Não é possível salvar agora', 'O motor não roda sem o espelho durável de dados.'],
       worker_stopped: ['Motor parado', 'O processo automático não está em execução no servidor.'],
       worker_stale: ['Motor sem resposta', 'O processo automático deixou de confirmar atividade.'],
       policy_unavailable: ['Proteção indisponível', 'O motor não age sem conseguir ler os limites de segurança.'],
@@ -253,7 +253,7 @@ function engineStatusView(engine: AdsAutomationEngine, loadFailed = false): {
   }
 
   if (engine.running || engine.reasonCode === 'evaluation_running') {
-    return { title: 'Avaliando agora', detail: 'O motor está analisando esta conta.', tone: 'primary' }
+    return { title: 'Avaliando agora', detail: 'Analisando as campanhas desta conta.', tone: 'primary' }
   }
 
   const timing = engine.lastCompletedAt
@@ -657,11 +657,13 @@ export function AutomationPanel({
     )
   }
 
-  async function setPilot(pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) {
+  async function setPilot(pilot: PilotId, opts: { enabled: boolean; intensity: Intensity; toggleOnly?: boolean }) {
     const mode = data?.autonomy === 'auto' ? 'execute' as const : 'proposal' as const
-    const next = applyPilot(rules, pilot, { ...opts, mode })
+    const next = opts.toggleOnly && rules.some(rule => rule.pilot === pilot)
+      ? rules.map(rule => rule.pilot === pilot ? { ...rule, enabled: opts.enabled } : rule)
+      : applyPilot(rules, pilot, { ...opts, mode })
     const title = PILOTS.find((item) => item.id === pilot)?.title ?? pilot
-    await saveRules(next, opts.enabled ? `${title} ligado (${opts.intensity})` : `${title} desligado`)
+    await saveRules(next, opts.enabled ? `${title} ligado` : `${title} desligado`)
   }
 
   async function setAutonomy(autonomy: AdsAutomationAutonomy) {
@@ -802,16 +804,7 @@ export function AutomationPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
-      <PilotsPanel
-        currency={currency}
-        rules={rules}
-        autonomy={data?.autonomy ?? 'custom'}
-        saving={saving}
-        onSetPilot={setPilot}
-        onSetAutonomy={setAutonomy}
-        automaticBlockedReason={automaticBlockedReason}
-        onOpenLimits={onOpenLimits}
-      />
+
 
       {/* Um único estado operacional. Revisão/IDs ficam fora do fluxo normal. */}
       {data && engineView && (
@@ -862,6 +855,17 @@ export function AutomationPanel({
         </div>
       )}
 
+      <PilotsPanel
+        currency={currency}
+        rules={rules}
+        autonomy={data?.autonomy ?? 'custom'}
+        saving={saving}
+        onSetPilot={setPilot}
+        onSetAutonomy={setAutonomy}
+        automaticBlockedReason={automaticBlockedReason}
+        onOpenLimits={onOpenLimits}
+      />
+
       <RejectionInbox
         active={active}
         adAccountId={adAccountId}
@@ -883,7 +887,7 @@ export function AutomationPanel({
         className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-secondary hover:text-foreground"
       >
         <SlidersHorizontal className="size-3" aria-hidden="true" />
-        {advanced ? 'Ocultar configurações' : 'Configurações avançadas'}
+        {advanced ? 'Fechar personalização' : 'Personalizar regras'}
         <ChevronDown className={cn('size-3 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
       </button>
 
@@ -1043,7 +1047,7 @@ export function AutomationPanel({
               <Bell className="size-4.5" aria-hidden="true" />
             </span>
             <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Alertas de performance</span>
+              <span className="block text-xs font-semibold text-foreground">Alertas de desempenho</span>
               <span className="block text-[11px] text-muted-foreground">
                 {alertsCfg?.enabled
                   ? `Ativos · gasto sem venda, CPA${alertsCfg.rejectedAds ? ' e reprovações' : ''}`
@@ -1110,11 +1114,11 @@ export function AutomationPanel({
         )}
       </GlassCard>
 
-      {/* ── O que o robô fez: feed reutilizável (Hoje reusa) ── */}
+      {/* ── Histórico de ações: feed reutilizável (Hoje reusa) ── */}
       <GlassCard className="p-4">
         <div className="mb-2 flex items-center gap-2">
           <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-semibold text-foreground">O que o robô fez</h3>
+          <h3 className="text-sm font-semibold text-foreground">Histórico de ações</h3>
         </div>
         <RulesLogList
           log={log}

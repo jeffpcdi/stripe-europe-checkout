@@ -980,16 +980,16 @@ só no Railway (§5.2.2).
 - `lib/types.ts` espelha os shapes JSON do Express; `lib/metrics.ts` deriva KPIs/funil/série do
   `/api/stats`; `lib/format.ts` formata moeda/número/data em pt-BR (moeda multi com padrão BRL);
 `lib/navigation.ts` é a fonte
-  única do menu (seções Métricas/Gestão/Sistema) usada por sidebar, mobile-nav e subnav.
+  única do menu (seções Operação/Rastreamento/Conta) usada por sidebar, mobile-nav e subnav.
 
 ### 19.3 Páginas (App Router, grupo `(dashboard)`)
-`/` Visão Geral (KPIs + gráfico de receita + saúde) · `/live` Ao Vivo (feed tempo real + presença) ·
-`/geo` Geografia (globo 3D) · `/funnel` Funil (etapas + tabela de leads) · `/activity` Atividade
-(log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
+`/` Visão geral (indicadores + globo de presença + funil) · `/live` e `/geo` redirecionam para `/` ·
+`/funnel` Funil (etapas + filtros) · `/activity` Atividade (histórico real de eventos) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
 Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
 `/ads/tiktok` tem somente três áreas de trabalho: **Campanhas, Catálogo e Automações**. Há um único
-launcher “Criar campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spark). A área Campanhas
+launcher “Criar campanha” (conversão CBO e lote); “Outros formatos” abre os formulários completos
+de Smart+ e Spark. Os modais redundantes de criação comum e lote não são montados nesta view. A área Campanhas
 mostra apenas contexto, quatro KPIs acionáveis, busca/status e lista; exemplos fictícios de copiloto,
 Mapa Mental, resumo duplicado e simulador de orçamento foram removidos. Gasto, ROAS e conversões usam
 colunas fixas e cada linha mantém status e ações visíveis; detalhes só aparecem ao expandir. Os antigos
@@ -1003,8 +1003,32 @@ da aba soma incidentes abertos sem multiplicar notificações por anúncio. A fa
 estado real do motor (`idle|starting|running|paused|degraded|blocked`) e explica somente a condição
 acionável — motor parado, sync atrasado, conta sem acesso, modo teste ou pausa de segurança. Ela não
 mostra revisão/ID no fluxo normal, atualiza a cada 60s e nunca transforma falha de fetch em estado vazio.
-“Agir sozinho” só pode ser ativado com a proteção ligada, o advertiser desbloqueado e ao menos uma
+“Aplicar sozinho” só pode ser ativado com a proteção ligada, o advertiser desbloqueado e ao menos uma
 ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
+
+### 19.3.1 Revisão de interface e integridade visual (2026-09-07)
+- A presença ao vivo aparece somente no globo da Visão geral. `lib/live-globe.ts` aceita respostas
+  `/api/live` com até 20 segundos (tolerância futura de 5 segundos), agrega países e remove todos os
+  pontos em erro/expiração. Não usa histórico de vendas, visitantes inventados ou arcos decorativos.
+  As posições representam países, não coordenadas individuais; zero confirmado difere de `—`.
+- Cards de anúncios usam somente o total oficial da conta, preservam a moeda da receita e mostram
+  falhas de atualização. “Após anúncios” usa receita atribuída menos gasto do mesmo endpoint e não
+  é lucro líquido. A qualidade dos dados é uma estimativa de completude; sem medição mostra `—`.
+  Nenhuma nota fixa substitui EMQ ausente. A tela Atividade lista eventos reais, sem radar simulado.
+- Automações apresentam estado operacional antes das regras. “Como agir” oferece Só avisar,
+  Pedir aprovação e Aplicar sozinho. A aprovação pendente tem uma caixa única; custos/nuvem/análise
+  ficam em Mais ferramentas. Os resumos vêm das regras salvas (inclusive personalizadas); desligar
+  e religar preserva os parâmetros. Ajustes prontos substituem somente o respectivo grupo.
+- O hook `useModalA11y` mantém foco durante digitação, trata apenas o diálogo superior no ESC,
+  prende Tab/Shift+Tab e restaura foco/rolagem após o último fechamento. O Modal compartilhado usa
+  IDs exclusivos e corpo rolável. Contadores começam no valor real; movimento respeita preferências
+  do sistema e do painel. O globo suspende renderização fora da tela ou com a aba oculta; a roda rola a página e o zoom
+  usa botões explícitos. O retorno ao login usa `/login` na mesma origem, inclusive em produção.
+- Configurações concentra o resumo diário em Notificações; a edição duplicada de horário saiu de
+  Preferências. Mensagens/integrações ficam recolhidas. Os estilos compartilhados melhoram contraste,
+  foco, espaços e leitura no celular, sem movimento vertical em todos os cards.
+- Regressões: `test/dashboard-ui-integrity.test.js` e `test/dashboard-modal-focus.test.js`. A prévia
+  visual usa APIs locais de teste, sem workers Express, credenciais ou escrita em serviços externos.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
@@ -1034,12 +1058,11 @@ em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluí
 **Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
 concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
 `domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
-Aba Domínios (itens 120–130): card "Verificado e ativo desde DD/MM" + "reconectado", copiar bloco
-DNS completo (CNAME+TXT), dica de TTL, aviso automático de apex (CNAME em raiz), checagem
-instantânea de propagação via DoH da Cloudflare direto do navegador, falha de rede vira estado
-próprio com retry (`networkError`), diagnóstico dirigido (DNS pendente reabre tutorial; DNS ok +
-HTTPS pendente explica certificado automático), atalho "Usar em um link" (→ editor com domínio
-pré-selecionado via `?novo=1&dominio=`) e estado vazio guiado. **Aba Cloak (itens 133–141,
+Aba Domínios: cadastro e verificação são ações distintas, sem esperas simuladas nem configuração
+DNS fictícia. O painel mostra os registros CNAME/TXT/ownership/certificate devolvidos pelo backend,
+permite copiar cada valor e revalidar a conexão. `verificado` determina o estado pronto; criação
+bem-sucedida só informa cadastro. Remoção de domínio verificado exige digitar o endereço.
+**Aba Cloak (itens 133–141,
 LEVA 3 COMPLETA):** teste por entry (`POST /api/cloak/test` com `slug` → simula o julgamento do
 `/c/:slug` e reporta gates pré-score mobile/ad-click/país/idioma), stats offer/white inline por
 link, badge de sensibilidade+threshold no card, liga/desliga inline + ações em lote, preview da

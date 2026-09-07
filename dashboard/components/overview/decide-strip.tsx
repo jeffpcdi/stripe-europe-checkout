@@ -3,7 +3,7 @@
 // F4 — "O que preciso decidir": faixa na home com as propostas PENDENTES do
 // motor de regras (Fase 3, modo proposta). Aprovar/rejeitar inline usa as
 // MESMAS rotas da página de Ads (/api/ads/proposals/:id/*) — mesma trilha de
-// auditoria, mesmos guards (kill switch, cap/hora, breaker, re-validação).
+// auditoria, mesmos guards (bloqueio de ações, cap/hora, breaker, re-validação).
 // Renderiza null sem propostas: quem não usa regras nunca vê a faixa.
 
 import { Component, useState, type ReactNode } from 'react'

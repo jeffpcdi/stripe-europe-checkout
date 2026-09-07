@@ -117,7 +117,7 @@ function parseApiError(status: number, data: unknown): ApiError {
 }
 
 // Sessão expirada (cookie presente mas inválido no Express) → login
-const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || '/login'
 
 function handleUnauthorized() {
   if (typeof window !== 'undefined') window.location.href = LOGIN_URL

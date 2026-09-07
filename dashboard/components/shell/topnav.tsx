@@ -31,10 +31,6 @@ export function TopNav() {
 
         {/* Direita: status ao vivo + sino + menu */}
         <div className="flex items-center gap-2.5">
-          <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5">
-            <span className="live-dot" aria-hidden="true" />
-            <span className="text-xs font-medium text-sub">Ao vivo</span>
-          </div>
           <NotificationBell />
           <MobileNav />
         </div>

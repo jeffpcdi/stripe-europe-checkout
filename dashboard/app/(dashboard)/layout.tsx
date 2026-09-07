@@ -16,7 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-dvh">
+    <div className="dashboard-ui flex min-h-dvh">
       {/* Item 102: skip-link acessível — aparece no primeiro Tab */}
       <a href="#conteudo" className="skip-link">
         Pular para conteúdo
@@ -52,7 +52,7 @@ export default function DashboardLayout({
             pretas nas laterais em telas grandes (1920px). */}
         <main
           id="conteudo"
-          className="w-full px-4 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-2 lg:px-6"
+          className="mx-auto w-full max-w-[1680px] px-4 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 lg:px-6"
         >
           <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
             {children}

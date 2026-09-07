@@ -15,7 +15,9 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
     if (!pixelSlug && choices.length === 1) setPixelSlug(choices[0].localSlug || '')
   }, [choices, pixelSlug])
 
-  if (!active || isLoading || data?.ready) return null
+  useEffect(() => setPixelSlug(''), [advertiserId])
+
+  if (!active || isLoading || (data?.ready && !error)) return null
 
   async function save() {
     if (!pixelSlug) return
@@ -39,15 +41,15 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
         <div className="flex min-w-0 items-start gap-2.5">
           <Link2 className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
           <div>
-            <p className="text-xs font-semibold text-foreground">Conecte o Pixel uma vez</p>
+            <p className="text-xs font-semibold text-foreground">Vincular pixel de vendas</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Depois disso, campanhas comuns, Smart+, Spark e catálogos usam o evento Compra automaticamente.
+              Um único pixel acompanha as compras de todas as campanhas.
             </p>
           </div>
         </div>
         {choices.length > 0 ? (
-          <div className="flex shrink-0 gap-2">
-            <select className="input min-w-44 text-xs" value={pixelSlug} onChange={(event) => setPixelSlug(event.target.value)}>
+          <div className="flex min-w-0 flex-wrap gap-2">
+            <select aria-label="Pixel de vendas" className="input min-w-0 flex-1 text-xs" value={pixelSlug} onChange={(event) => setPixelSlug(event.target.value)}>
               <option value="">Selecione o Pixel</option>
               {choices.map((pixel) => (
                 <option key={pixel.id} value={pixel.localSlug || ''}>{pixel.localName || pixel.name}</option>
@@ -59,7 +61,7 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
             </button>
           </div>
         ) : (
-          <a className="btn-ghost shrink-0 text-xs" href="/dashboard/pixels">Abrir Conversões</a>
+          <a className="btn-ghost shrink-0 text-xs" href="/dashboard/conversions">Abrir conversões</a>
         )}
       </div>
       {error && <p className="mt-2 text-[10px] text-error">Não foi possível conferir os Pixels desta conta agora.</p>}

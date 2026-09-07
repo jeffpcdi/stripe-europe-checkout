@@ -49,7 +49,7 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'overview',
-    label: 'Visão Geral',
+    label: 'Visão geral',
     icon: LayoutDashboard,
     href: '/',
     routes: ['/'],
@@ -66,14 +66,14 @@ export const NAV_GROUPS: NavGroup[] = [
     routes: ['/links', '/cloak', '/domains', '/conversions', '/pixels', '/gateways'],
     tabs: [
       { label: 'Links', href: '/links' },
-      { label: 'Cloaker', href: '/cloak' },
+      { label: 'Proteção', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Pixel', href: '/conversions' },
+      { label: 'Conversões', href: '/conversions' },
     ],
   },
   {
     id: 'ads',
-    label: 'Anúncios',
+    label: 'TikTok Ads',
     icon: Megaphone,
     href: '/ads/tiktok',
     // /catalog segue nas rotas só p/ o redirect legado manter o grupo ativo
@@ -97,26 +97,17 @@ export function activeGroup(pathname: string): NavGroup {
 }
 
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Métricas',
-    items: [
-      { id: 'overview', label: 'Visão Geral', description: 'Resumo de vendas e acessos em tempo real', icon: LayoutDashboard, href: '/' },
-    ],
-  },
-  {
-    title: 'Gestão',
-    items: [
-      { id: 'links', label: 'Links', description: 'Criação e monitoramento de links', icon: Link2, href: '/links' },
-      { id: 'conversions', label: 'Pixel', description: 'Integração de Checkouts e Pixels', icon: CreditCard, href: '/conversions' },
-      { id: 'domains', label: 'Domínios', description: 'Conexão de domínios próprios', icon: Globe, href: '/domains' },
-      { id: 'cloak', label: 'Cloaker', description: 'Filtro automático de robôs', icon: ShieldAlert, href: '/cloak' },
-      { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, métricas e automações', icon: Megaphone, href: '/ads/tiktok' },
-    ],
-  },
-  {
-    title: 'Sistema',
-    items: [
-      { id: 'config', label: 'Configurações', description: 'Preferências da conta e notificações', icon: Settings, href: '/config' },
-    ],
-  },
+  { title: 'Operação', items: [
+    { id: 'overview', label: 'Visão geral', description: 'Resultados e visitantes online', icon: LayoutDashboard, href: '/' },
+    { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, catálogos e automações', icon: Megaphone, href: '/ads/tiktok' },
+  ] },
+  { title: 'Rastreamento', items: [
+    { id: 'conversions', label: 'Conversões', description: 'Vendas, pagamentos e pixels', icon: CreditCard, href: '/conversions' },
+    { id: 'links', label: 'Links', description: 'Links de venda e seus resultados', icon: Link2, href: '/links' },
+    { id: 'domains', label: 'Domínios', description: 'Endereços próprios dos seus links', icon: Globe, href: '/domains' },
+    { id: 'cloak', label: 'Proteção', description: 'Filtro de acessos automatizados', icon: ShieldAlert, href: '/cloak' },
+  ] },
+  { title: 'Conta', items: [
+    { id: 'config', label: 'Configurações', description: 'Preferências, notificações e segurança', icon: Settings, href: '/config' },
+  ] },
 ]

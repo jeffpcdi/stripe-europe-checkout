@@ -32,6 +32,7 @@ import {
   Info,
   ArrowRight,
 } from 'lucide-react'
+import { ErrorState } from '@/components/error-state'
 import { usePixels, useGateways, useConversionLog, apiSend } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -121,8 +122,8 @@ function formatRowAmount(amount?: number | string | null): string {
 }
 
 export function ConversionsView() {
-  const { data: pxData, mutate: mutatePixels, isLoading: loadingPixels } = usePixels()
-  const { data: gwData, mutate: mutateGateways, isLoading: loadingGateways } = useGateways()
+  const { data: pxData, mutate: mutatePixels, isLoading: loadingPixels, error: pixelsError } = usePixels()
+  const { data: gwData, mutate: mutateGateways, isLoading: loadingGateways, error: gatewaysError } = useGateways()
   const { data: convLog, mutate: mutateLog, isLoading: loadingLog } = useConversionLog()
 
   const pixels = pxData?.pixels ?? []
@@ -163,11 +164,11 @@ export function ConversionsView() {
 
     // 1. Analisa gateways para identificar o último evento bem-sucedido e falhas
     for (const gw of gateways) {
-      const isErr = gw.lastEventStatus === 'error' || gw.lastEventStatus === 'falhou'
+      const isErr = /erro|error|falh|inválid|invalid|rejeitad/i.test(gw.lastEventStatus || '')
       if (isErr && !failedGateway) {
         failedGateway = gw
       }
-      if (!isErr && gw.lastEventAt) {
+      if (/^ok\b/i.test(gw.lastEventStatus || '') && gw.lastEventAt) {
         const d = new Date(gw.lastEventAt)
         if (!isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
           lastSuccessDate = d
@@ -189,7 +190,7 @@ export function ConversionsView() {
         failedLogRow = row
       }
 
-      if (!isErr && row.at) {
+      if (!isErr && !/ignorado|pendente|recebido/i.test(row.status || '') && row.at) {
         const d = new Date(row.at)
         if (!isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
           lastSuccessDate = d
@@ -333,8 +334,11 @@ export function ConversionsView() {
     }
   }
 
+  if ((pixelsError && !pxData) || (gatewaysError && !gwData)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={() => { void mutatePixels(); void mutateGateways() }} />
+
   return (
     <div className="flex flex-col gap-6">
+      {(pixelsError || gatewaysError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Conexões não atualizadas · tentar novamente</button>}
       {/* ── AÇÕES ── */}
       <div className="flex items-center justify-end gap-2">
         <button
@@ -385,7 +389,7 @@ export function ConversionsView() {
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-semibold text-foreground truncate">2. Checkouts</span>
             <span className="text-[11px] text-muted-foreground truncate">
-              {gateways.length > 0 ? `${gateways.length} conectado(s)` : 'Pendente'}
+              {gateways.length > 0 ? `${gateways.length} cadastrado(s)` : 'Pendente'}
             </span>
           </div>
         </div>
@@ -400,7 +404,7 @@ export function ConversionsView() {
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-semibold text-foreground truncate">3. Código no Site</span>
             <span className="text-[11px] text-muted-foreground truncate">
-              {pixels.length > 0 ? 'Pronto para colar' : 'Aguardando Pixel'}
+              {pixels.length > 0 ? 'Código disponível' : 'Cadastre um pixel primeiro'}
             </span>
           </div>
         </div>
@@ -423,7 +427,7 @@ export function ConversionsView() {
                 disabled={testingGwId === syncValidation.failedGateway.id}
                 className="rounded-lg bg-destructive px-2.5 py-1 text-xs font-bold text-destructive-foreground hover:brightness-110 disabled:opacity-50"
               >
-                {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar Novamente'}
+                {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
               </button>
             )}
             <button
@@ -510,7 +514,7 @@ export function ConversionsView() {
                           <h3 className="text-sm font-semibold text-foreground truncate">{px.name}</h3>
                           {px.hasToken ? (
                             <span
-                              title="Envio seguro via servidor (CAPI do TikTok), garantindo que nenhuma compra seja perdida por bloqueadores de anúncio."
+                              title="Envio seguro via servidor (CAPI do TikTok), reduzindo perdas causadas por bloqueadores do navegador."
                               className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 cursor-help"
                             >
                               <ShieldCheck className="size-3" />
@@ -639,7 +643,7 @@ export function ConversionsView() {
               2
             </span>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Checkouts de Pagamento</h2>
+              <h2 className="text-sm font-bold text-foreground">Pagamentos</h2>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 {gateways.length}
               </span>
@@ -661,7 +665,7 @@ export function ConversionsView() {
             <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 mb-2">
               <CreditCard className="size-5" />
             </div>
-            <h3 className="text-sm font-semibold text-foreground">Nenhum checkout conectado</h3>
+            <h3 className="text-sm font-semibold text-foreground">Nenhuma plataforma cadastrada</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
               Conecte sua plataforma (Kiwify, Hotmart, PerfectPay, Cakto, etc.) para receber compras aprovadas e disparar as conversões.
             </p>
@@ -778,7 +782,7 @@ export function ConversionsView() {
               3
             </span>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Código de Rastreamento no Site</h2>
+              <h2 className="text-sm font-bold text-foreground">Instalar no site</h2>
               <span className="rounded-full bg-brand-cyan/10 px-2 py-0.5 text-[11px] font-medium text-brand-cyan">
                 Apenas 1 Linha
               </span>
@@ -1311,7 +1315,7 @@ function PixelEditorWithGatewaySync({
 
             {gateways.length === 0 && !showAddGateway ? (
               <p className="text-xs text-muted-foreground italic">
-                Nenhum checkout conectado ainda.
+                Nenhuma plataforma cadastrada ainda.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">

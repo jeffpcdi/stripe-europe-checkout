@@ -104,8 +104,8 @@ function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string })
     <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
       <Metric label="Impr." value={fmtCompact(m?.impressions)} />
       <Metric label="Cliques" value={fmtCompact(m?.clicks)} />
-      <Metric label="CTR" value={m?.ctr != null ? fmtPercent(m.ctr) : '—'} />
-      <Metric label="CPM" value={fmtMoney(m?.cpm, currency)} />
+      <Metric label="Taxa de cliques" value={m?.ctr != null ? fmtPercent(m.ctr) : '—'} />
+      <Metric label="Custo por mil exibições" value={fmtMoney(m?.cpm, currency)} />
     </div>
   )
 }
@@ -1240,8 +1240,8 @@ export function CampaignTree({
             <span className="size-1.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">Campanha</span>
             <span className={colGasto}>Gasto</span>
-            <span className={colRoas}>ROAS</span>
-            <span className={colConv}>Conv.</span>
+            <span className={colRoas} title="Receita dividida pelo investimento">Retorno</span>
+            <span className={colConv} title="Compras informadas pelo TikTok">Vendas</span>
             <span className={colActions} aria-hidden="true" />
           </div>
 

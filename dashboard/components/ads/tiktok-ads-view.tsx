@@ -6,8 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, Layers, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, Sparkles } from 'lucide-react'
+import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -26,9 +25,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { AdsConnectCard } from './connect-card'
 import { AdsContextBar } from './context-bar'
-import { BulkUploadDialog } from './bulk-upload-dialog'
 import { CampaignTree } from './campaign-tree'
-import { CreateAdPanel } from './create-ad-panel'
 import { SparkAdDialog } from './spark-ad-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
@@ -42,6 +39,7 @@ import { PixelBindingCard } from './pixel-binding-card'
 import { KpiRow } from './kpi-row'
 import { adsDateRange } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
+import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
 
 export function TikTokAdsView() {
@@ -49,7 +47,7 @@ export function TikTokAdsView() {
   const connected = Boolean(status?.connected)
 
   // Pipeboard não tem Business Center — as contas vêm direto do token.
-  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected)
+  const { data: accounts, mutate: mutateAccounts, error: accountsError, isLoading: accountsLoading } = useAdsAccounts(connected)
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
@@ -63,9 +61,14 @@ export function TikTokAdsView() {
   const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto
   const selectedAdvertiserInfo = accounts?.accounts.find((a) => String(a.id) === String(effectiveAdvertiser))
   const advertiserTimeZone = selectedAdvertiserInfo?.timezone || status?.timeZone
+  const [calendarTick, setCalendarTick] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000)
+    return () => clearInterval(timer)
+  }, [])
   const { fromDate, toDate } = useMemo(
     () => adsDateRange(rangeDays, advertiserTimeZone),
-    [rangeDays, advertiserTimeZone],
+    [rangeDays, advertiserTimeZone, calendarTick],
   )
 
   const treeActive = connected && Boolean(effectiveAdvertiser)
@@ -100,8 +103,9 @@ export function TikTokAdsView() {
   const SUBTABS: { value: TabKey; label: string; compactLabel: string; icon: typeof Megaphone }[] = [
     { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', icon: Megaphone },
     { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', icon: ShoppingBag },
-    { value: 'automation', label: 'Automações', compactLabel: 'Robô', icon: Bot },
+    { value: 'automation', label: 'Automações', compactLabel: 'Automações', icon: Bot },
   ]
+  const [toolsExpanded, setToolsExpanded] = useState(false)
   const [tab, setTab] = useState<TabKey>('campaigns')
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
@@ -133,8 +137,6 @@ export function TikTokAdsView() {
   }
 
   const [launcherOpen, setLauncherOpen] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [smartPlusOpen, setSmartPlusOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
@@ -146,7 +148,7 @@ export function TikTokAdsView() {
     setOpsOpen(true)
   }
 
-  // Política de segurança — alimenta o badge de simulação/kill switch
+  // Política de segurança — alimenta o badge de simulação/bloqueio de ações
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
   const dryRunActive = Boolean(safety?.policy?.dryRun)
   const killSwitchActive = Boolean(safety?.policy?.killSwitch)
@@ -168,6 +170,15 @@ export function TikTokAdsView() {
   const { data: syncStatus, mutate: mutateSyncStatus } = useAdsSyncStatus(treeActive, concreteAdvertiser)
   const selectedSyncState = syncStatus?.advertisers?.find((state) => state.advertiserId === concreteAdvertiser)
 
+  useEffect(() => {
+    setLauncherOpen(false)
+    setSmartPlusOpen(false)
+    setSparkOpen(false)
+    setDetailCampaign(null)
+    setDuplicateCampaign(null)
+    setOpsOpen(false)
+  }, [concreteAdvertiser])
+
   function openWriteFlow(setOpen: (open: boolean) => void) {
     if (!concreteAdvertiser) {
       toast.info('Selecione uma conta de anúncio específica antes de criar ou publicar.')
@@ -178,7 +189,7 @@ export function TikTokAdsView() {
 
   const currency = useMemo(() => {
     const adv = accounts?.accounts.find((a) => String(a.id) === String(concreteAdvertiser))
-    return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
+    return adv?.currency || tree?.campaigns?.[0]?.currency || 'BRL'
   }, [accounts, concreteAdvertiser, tree])
 
   // Fallback visual enquanto o total do advertiser carrega. O valor oficial
@@ -226,8 +237,8 @@ export function TikTokAdsView() {
     return (
       <div className="flex flex-col gap-5">
         <ErrorState
-          title="Integração não configurada no servidor"
-          description="A variável PIPEBOARD_API_KEY não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
+          title="Conecte o TikTok Ads"
+          description="Configure a chave do Pipeboard nas configurações do servidor para acessar suas campanhas."
           onRetry={() => mutateStatus()}
         />
       </div>
@@ -264,6 +275,9 @@ export function TikTokAdsView() {
       </div>
     )
   }
+
+  if (accountsError && !accounts) return <ErrorState title="Não foi possível carregar as contas" onRetry={() => mutateAccounts()} />
+  if (accountsLoading && !accounts) return <Skeleton className="h-48 rounded-2xl" />
 
   const advertisers = accounts?.accounts ?? []
 
@@ -328,12 +342,13 @@ export function TikTokAdsView() {
         }}
         onRefresh={async () => {
           try {
-            await apiSend(
+            const result = await apiSend<{ ok?: boolean; error?: string }>(
               `/api/ads/tree/refresh?adAccountId=${encodeURIComponent(concreteAdvertiser)}`,
               'POST',
               {},
             )
-            toast.success('Dados sincronizados com o TikTok')
+            if (result.ok === false) throw new Error(result.error || 'Atualização incompleta')
+            toast.success('Dados atualizados')
           } catch (e) {
             toast.error('Não foi possível sincronizar agora', {
               hint: e instanceof Error ? e.message : undefined,
@@ -352,15 +367,15 @@ export function TikTokAdsView() {
           <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
             <Megaphone className="size-5" aria-hidden="true" />
           </span>
-          <p className="text-sm font-medium text-foreground">Selecione um advertiser</p>
+          <p className="text-sm font-medium text-foreground">Escolha uma conta de anúncios</p>
           <p className="max-w-md text-pretty text-xs text-muted-foreground">Escolha uma conta acima para ver e operar as campanhas.</p>
         </GlassCard>
       ) : (
-        <>
+        <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)} className="min-w-0">
+            <div className="min-w-0">
               <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
@@ -384,18 +399,18 @@ export function TikTokAdsView() {
                   )
                 })}
               </Tabs.List>
-            </Tabs.Root>
+            </div>
 
             {tab === 'campaigns' && (
               <button
                 type="button"
-                className="btn-primary shrink-0 justify-center text-xs font-semibold px-4 py-2 gap-1.5 shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
+                className="btn-primary shrink-0 justify-center px-4 py-2 text-sm font-semibold"
                 onClick={() => openWriteFlow(() => setLauncherOpen(true))}
-                aria-label="Criar Campanha"
-                title="Criar campanha: Conversão ABO/CBO, Smart+, vídeos em massa ou Spark Ads"
+                aria-label="Criar campanha"
+                title="Criar campanhas de venda com um ou vários vídeos"
               >
                 <Plus className="size-4" aria-hidden="true" />
-                Criar Campanha
+                Criar campanha
               </button>
             )}
           </div>
@@ -454,7 +469,7 @@ export function TikTokAdsView() {
 
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
-            <>
+            <Tabs.Content value="campaigns" className="space-y-4 outline-none">
               <KpiRow
                 kpi={treeKpi}
                 currency={currency}
@@ -487,35 +502,38 @@ export function TikTokAdsView() {
               onDuplicate={setDuplicateCampaign}
               attribution={attribution?.byCampaign}
               />
-            </>
+            </Tabs.Content>
           )}
 
           {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
               Antes era página própria no menu; agora vive onde é usado. ── */}
           {tab === 'catalog' && (
-            <section className="min-w-0" aria-label="Catálogos">
+            <Tabs.Content value="catalog" className="min-w-0 outline-none" aria-label="Catálogos">
               <CatalogManager
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
                 advertiserCurrency={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.currency || currency}
               />
-            </section>
+            </Tabs.Content>
           )}
 
-          {/* ── Aba: Automações — Pilotos + Modo avançado + Copiloto (IA). O
-              inbox de decisões vive na aba Hoje (superfície única de decisão). ── */}
+          {/* Aprovações, estado e regras; ferramentas extras sob demanda. */}
           {tab === 'automation' && (
-            <div className="flex flex-col gap-4">
-              <MagicOpsPanel active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} />
+            <Tabs.Content value="automation" className="flex flex-col gap-4 outline-none">
+              <NeedsYouInbox active={treeActive} adAccountId={concreteAdvertiser} onOpenOps={() => openOps()} onOpenHealth={() => setHealthOpen(true)} onGoAutomations={() => openOps('safety')} />
               <AutomationPanel
                 active={treeActive}
                 currency={currency}
                 adAccountId={concreteAdvertiser}
                 onOpenLimits={() => openOps('safety')}
               />
-            </div>
+              <details className="rounded-xl border border-border p-4" onToggle={event => setToolsExpanded(event.currentTarget.open)}>
+                <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
+                {toolsExpanded && <div className="mt-4"><MagicOpsPanel active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} /></div>}
+              </details>
+            </Tabs.Content>
           )}
-        </>
+        </Tabs.Root>
       )}
 
       {/* Fluxos de escrita */}
@@ -525,25 +543,10 @@ export function TikTokAdsView() {
         advertiserId={concreteAdvertiser}
         currency={currency}
         onSuccess={() => mutateTree()}
+        onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}
+        onSpark={() => { setLauncherOpen(false); setSparkOpen(true) }}
       />
-      <CreateAdPanel
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        advertiserId={concreteAdvertiser}
-        currency={currency}
-        onCreated={() => {
-          setCreateOpen(false)
-          mutateTree()
-        }}
-      />
-      <BulkUploadDialog
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        advertiserId={concreteAdvertiser}
-        currency={currency}
-        onFinished={() => mutateTree()}
-      />
-      <SparkAdDialog
+      <SparkAdDialog key={concreteAdvertiser}
         open={sparkOpen}
         onClose={() => setSparkOpen(false)}
         advertiserId={concreteAdvertiser}
@@ -553,7 +556,7 @@ export function TikTokAdsView() {
           mutateTree()
         }}
       />
-      <SmartPlusCreateDialog
+      <SmartPlusCreateDialog key={concreteAdvertiser}
         open={smartPlusOpen}
         onClose={() => setSmartPlusOpen(false)}
         advertiserId={concreteAdvertiser}

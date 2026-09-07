@@ -42,7 +42,7 @@ export function GlassCard({
     <div
       ref={ref}
       className={cn(
-        'glass hover-float overflow-hidden rounded-2xl border border-white/[0.06] shadow-lg transition-all',
+        'glass overflow-hidden rounded-2xl border border-border shadow-sm transition-colors',
         variantClass[variant],
         hover && 'surface-hover',
         sheen && 'sheen',

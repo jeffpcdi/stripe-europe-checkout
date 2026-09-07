@@ -83,7 +83,7 @@ export function RejectionInbox({
       </div>
 
       {!canAutoAppeal && (
-        <p className="mt-2 text-[10px] text-muted-foreground">Selecione “Agir sozinho” para liberar o envio automático; detectar e listar continua ativo.</p>
+        <p className="mt-2 text-[10px] text-muted-foreground">Escolha “Aplicar sozinho” para enviar recursos automaticamente.</p>
       )}
 
       {items.length > 0 && (

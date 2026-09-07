@@ -1,6 +1,6 @@
 'use client'
 
-// Card TikTok Ads na Visão Geral — gasto, vendas atribuídas e ROAS do dia,
+// Card TikTok Ads na Visão geral — gasto, vendas atribuídas e ROAS do dia,
 // sem precisar entrar na aba de Ads. Auto-contido no padrão do GoalCard:
 // só renderiza quando a conta TikTok Ads está conectada (some do overview
 // de quem não usa a integração, sem custo de layout).

@@ -126,7 +126,7 @@ export function AdsContextBar({
       {/* Seletor de conta de anúncio (advertiser) */}
       <label className="col-span-2 flex min-w-0 items-center gap-2 text-muted-foreground sm:col-span-1 sm:flex-1">
         <span className="shrink-0 sm:hidden">Conta</span>
-        <span className="hidden shrink-0 sm:inline">Conta de anúncio</span>
+        <span className="hidden shrink-0 sm:inline">Conta de anúncios</span>
         <select
           className="input-neon w-0 min-w-0 max-w-full flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground sm:max-w-xl"
           value={selectedAdvertiser}

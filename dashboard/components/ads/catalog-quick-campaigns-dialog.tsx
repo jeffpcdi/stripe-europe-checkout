@@ -307,7 +307,7 @@ export function CatalogQuickCampaignsDialog({
         </label>
 
         <section className="rounded-lg border border-border bg-card p-3" aria-label="Criativos do lote">
-          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Criativos das campanhas</span>
+          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeos das campanhas</span>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Selecione vários vídeos MP4 ou MOV de uma vez. O áudio é mantido e a capa é automática.</p>
           <label className="btn-ghost mt-3 w-fit cursor-pointer text-xs">
             {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
@@ -338,7 +338,7 @@ export function CatalogQuickCampaignsDialog({
           </strong>
           {creatives.length > 0 && (
             <details className="my-2">
-              <summary className="cursor-pointer text-primary">Ver distribuição dos criativos</summary>
+              <summary className="cursor-pointer text-primary">Ver o vídeo de cada campanha</summary>
               <ol className="mt-2 max-h-40 space-y-1 overflow-y-auto">
                 {Array.from({ length: count }, (_, index) => <li key={index} className="break-words">{sampleName(index + 1)} → {creatives[index % creatives.length].name}</li>)}
               </ol>
@@ -419,7 +419,7 @@ export function CatalogQuickCampaignsDialog({
                       />
                       <span>
                         <strong className="block font-medium text-foreground">Entrega acelerada</strong>
-                        <span className="text-muted-foreground">Pode gastar mais rápido e oscilar o CPA nos primeiros dias.</span>
+                        <span className="text-muted-foreground">Pode gastar mais rápido e alterar o custo por venda.</span>
                       </span>
                     </label>
                   )}
@@ -476,7 +476,7 @@ export function CatalogQuickCampaignsDialog({
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              <span className="font-medium text-foreground">Prefixo dos nomes</span>
+              <span className="font-medium text-foreground">Início dos nomes</span>
               <input
                 className="input-base text-xs"
                 value={namePrefix}

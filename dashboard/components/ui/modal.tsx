@@ -1,5 +1,8 @@
-import { useEffect } from 'react'
+'use client'
+
+import { useId, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 
 interface ModalProps {
   isOpen: boolean
@@ -11,58 +14,22 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, description, children, maxWidth = 'max-w-md' }: ModalProps) {
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = 'unset'
-    }
-    return () => {
-      document.body.style.overflow = 'unset'
-    }
-  }, [isOpen])
-
-  // Fecha no ESC
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) onClose()
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [isOpen, onClose])
-
+  const id = useId()
+  const ref = useRef<HTMLDivElement>(null)
+  useModalA11y(isOpen, ref, onClose)
   if (!isOpen) return null
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        className={`w-full ${maxWidth} relative animate-in fade-in zoom-in-95 duration-200 rounded-xl border border-white/10 bg-black/50 p-5 shadow-[0_0_40px_rgba(0,0,0,0.5)] backdrop-blur-xl`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
-      >
-        <div className="mb-4 flex items-start justify-between gap-3 border-b border-white/10 pb-4">
-          <div>
-            <h3 id="modal-title" className="text-sm font-semibold text-white">
-              {title}
-            </h3>
-            {description && <p className="mt-1 text-xs text-white/50">{description}</p>}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-6" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={description ? `${id}-description` : undefined} tabIndex={-1}
+        className={`dialog-surface relative flex max-h-[calc(100dvh-2rem)] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl`}>
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border p-5">
+          <div className="min-w-0">
+            <h2 id={`${id}-title`} className="text-base font-semibold text-foreground">{title}</h2>
+            {description && <p id={`${id}-description`} className="mt-1 text-sm text-muted-foreground">{description}</p>}
           </div>
-          <button
-            onClick={onClose}
-            className="flex shrink-0 items-center justify-center rounded-full bg-white/5 p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-            aria-label="Fechar"
-          >
-            <X className="size-4" />
-          </button>
+          <button type="button" onClick={onClose} className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" aria-label="Fechar"><X className="size-4" /></button>
         </div>
-        <div className="mt-2">{children}</div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
       </div>
     </div>
   )

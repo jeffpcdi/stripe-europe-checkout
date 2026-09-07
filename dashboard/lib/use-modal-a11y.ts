@@ -1,87 +1,53 @@
 'use client'
 
-// Item 189: acessibilidade completa de modais/popups num só lugar.
-// Dá a qualquer diálogo: foco preso (focus trap), fechar com ESC, retorno de
-// foco ao elemento que abriu e trava de scroll do body. Todos os popups da
-// Gestão (TutorialModal, ConfirmDialog, editores) devem usar este hook para
-// não reimplementar a11y (e errar) caso a caso.
-//
-// Uso:
-//   const ref = useRef<HTMLDivElement>(null)
-//   useModalA11y(open, ref, onClose)
-//   return open ? <div ref={ref} role="dialog" aria-modal="true">…</div> : null
+import { useEffect, useRef, type RefObject } from 'react'
 
-import { useEffect, type RefObject } from 'react'
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+// Só o diálogo superior recebe teclado; o último fechado libera a rolagem.
+const dialogs: symbol[] = []
+let originalOverflow = ''
 
-const FOCUSABLE = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',')
-
-export function useModalA11y(
-  open: boolean,
-  containerRef: RefObject<HTMLElement | null>,
-  onClose: () => void,
-  opts: { autoFocus?: boolean } = {},
-) {
+export function useModalA11y(open: boolean, containerRef: RefObject<HTMLElement | null>, onClose: () => void, opts: { autoFocus?: boolean } = {}) {
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose }, [onClose])
   const autoFocus = opts.autoFocus !== false
-
   useEffect(() => {
     if (!open) return
     const container = containerRef.current
-    // Guarda quem tinha o foco para devolver ao fechar (retorno de foco).
-    const previouslyFocused = document.activeElement as HTMLElement | null
-
-    // Trava o scroll do body enquanto o modal está aberto.
-    const prevOverflow = document.body.style.overflow
+    if (!container) return
+    const token = Symbol('dialog')
+    const previous = document.activeElement as HTMLElement | null
+    if (!dialogs.length) originalOverflow = document.body.style.overflow
+    dialogs.push(token)
     document.body.style.overflow = 'hidden'
-
-    // Foca o primeiro elemento focável (ou o próprio container).
-    if (autoFocus && container) {
-      const first = container.querySelector<HTMLElement>(FOCUSABLE)
-      ;(first ?? container).focus()
-    }
-
+    if (!container.hasAttribute('tabindex')) container.tabIndex = -1
+    const items = () => Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.getClientRects().length > 0 && !el.closest('[inert]'))
+    if (autoFocus) (items()[0] ?? container).focus({ preventScroll: true })
     function onKeyDown(e: KeyboardEvent) {
+      if (dialogs.at(-1) !== token) return
       if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-        return
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        closeRef.current()
       }
-      if (e.key !== 'Tab' || !container) return
-      // Focus trap: mantém o Tab ciclando dentro do modal.
-      const items = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => el.offsetParent !== null || el === document.activeElement,
-      )
-      if (items.length === 0) {
-        e.preventDefault()
-        container.focus()
-        return
-      }
-      const firstEl = items[0]
-      const lastEl = items[items.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === firstEl || active === container)) {
-        e.preventDefault()
-        lastEl.focus()
-      } else if (!e.shiftKey && active === lastEl) {
-        e.preventDefault()
-        firstEl.focus()
+      if (e.key !== 'Tab') return
+      const list = items()
+      const active = document.activeElement
+      if (!list.length) { e.preventDefault(); container!.focus(); return }
+      if (e.shiftKey && (active === list[0] || !list.includes(active as HTMLElement))) {
+        e.preventDefault(); list.at(-1)!.focus()
+      } else if (!e.shiftKey && (active === list.at(-1) || !list.includes(active as HTMLElement))) {
+        e.preventDefault(); list[0].focus()
       }
     }
-
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
-      document.body.style.overflow = prevOverflow
-      // Devolve o foco ao gatilho, se ainda estiver no documento.
-      if (previouslyFocused && document.contains(previouslyFocused)) {
-        previouslyFocused.focus()
-      }
+      const wasTop = dialogs.at(-1) === token
+      const index = dialogs.indexOf(token)
+      if (index >= 0) dialogs.splice(index, 1)
+      if (!dialogs.length) document.body.style.overflow = originalOverflow
+      if (wasTop && previous?.isConnected) previous.focus({ preventScroll: true })
     }
-  }, [open, containerRef, onClose, autoFocus])
+  }, [open, containerRef, autoFocus])
 }

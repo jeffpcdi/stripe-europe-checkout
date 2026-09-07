@@ -1,7 +1,7 @@
 'use client'
 
 // ROAS/CPA real — cruza o GASTO do TikTok Ads com as VENDAS REAIS reportadas
-// pelos gateways (mesma fonte da Visão Geral). É o número que interessa:
+// pelos gateways (mesma fonte da Visão geral). É o número que interessa:
 // para cada 1 investido em tráfego, quanto voltou em receita de verdade.
 
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'

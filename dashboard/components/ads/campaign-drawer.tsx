@@ -3,7 +3,7 @@
 // Drawer de detalhe da campanha TikTok Ads — série temporal com recharts,
 // toggle de métrica (gasto/conversões/CTR), seletor de período e comparação
 // com o período anterior (curva fantasma + deltas nos KPIs), no mesmo padrão
-// visual do RevenueChart da Visão Geral.
+// visual do RevenueChart da Visão geral.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {

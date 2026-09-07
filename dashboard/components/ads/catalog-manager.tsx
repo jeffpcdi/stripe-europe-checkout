@@ -56,7 +56,7 @@ export function CatalogManager({
     return (
       <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-background p-8 text-center">
         <AlertCircle className="size-6 text-warning" aria-hidden="true" />
-        <p className="text-sm font-medium text-foreground">Persistência indisponível</p>
+        <p className="text-sm font-medium text-foreground">Não é possível salvar agora</p>
         <p className="max-w-md text-pretty text-xs text-muted-foreground">
           O banco de dados (Neon) não está configurado, então catálogos não podem ser salvos. Conecte o
           Neon nas configurações do projeto para usar este recurso.
@@ -69,7 +69,7 @@ export function CatalogManager({
     return (
       <ErrorState
         title="Não foi possível carregar os catálogos"
-        description="A seleção da conta foi preservada. Tente novamente sem criar ou apagar nada."
+        description="Tente atualizar a lista novamente."
         onRetry={() => mutateList()}
       />
     )

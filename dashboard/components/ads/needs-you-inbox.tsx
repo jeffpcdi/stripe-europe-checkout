@@ -1,6 +1,6 @@
 'use client'
 
-// "Precisa de você" — caixa de entrada unificada de decisões. Generaliza a
+// "Aguardando você" — caixa de entrada unificada de decisões. Generaliza a
 // antiga AttentionStrip para viver na aba Hoje: aqui aparece SÓ o que exige
 // ação humana — propostas do robô (Aprovar/Rejeitar de 1 toque) + chips de
 // alarme (jobs na fila, conta banida, alertas desligados). É o ÚNICO lugar de
@@ -122,7 +122,7 @@ export function NeedsYouInbox({
   /** Leva à aba Automações (onde se religa os alertas). */
   onGoAutomations: () => void
 }) {
-  const { data: proposals, mutate } = useAdsProposals(active, 'pending', adAccountId)
+  const { data: proposals, mutate, error, isLoading } = useAdsProposals(active, 'pending', adAccountId)
   const { data: jobs } = useAdsOpsJobs(active, adAccountId)
   const { data: health } = useAdsHealth(active)
   const { data: alertsCfg } = useAdsAlerts(active, adAccountId)
@@ -133,6 +133,10 @@ export function NeedsYouInbox({
   const alertsOff = alertsCfg ? !alertsCfg.enabled : false
   const hasAlarms = activeJobs > 0 || banned > 0 || alertsOff
 
+  if (isLoading && !proposals) return <p className="text-xs text-muted-foreground" role="status">Buscando aprovações…</p>
+  if (error) return <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Não foi possível atualizar as aprovações · tentar novamente</button>
+  if (!pending.length && !hasAlarms) return null
+
   return (
     <GlassCard
       className={cn('p-3.5 sm:p-4', pending.length > 0 && 'border-l-4 border-l-warning')}
@@ -141,7 +145,7 @@ export function NeedsYouInbox({
       <div className="relative flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Inbox className="size-4 text-primary" aria-hidden="true" />
-          Precisa de você
+          Aguardando você
         </h3>
         {hasAlarms && (
           <div className="flex flex-wrap items-center gap-1.5">

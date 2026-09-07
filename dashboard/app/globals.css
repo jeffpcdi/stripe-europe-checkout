@@ -8,7 +8,7 @@
 :root {
   /* Superfícies — fundo espacial atmosférico global */
   --bg: #09090b;
-  --card: rgba(18, 18, 21, 0.4);
+  --card: #141417;
   --border: rgba(255, 255, 255, 0.1);
 
   /* Texto — contraste elevado (muted agora ≥4.5:1 sobre #08080a) */
@@ -45,11 +45,11 @@
   --accent-light: rgba(37, 244, 238, 0.12);
 
   /* Liquid Glass (Fase 5: Upgrade Imersivo Global) */
-  --lg-blur: 32px;
+  --lg-blur: 12px;
   --lg-sat: 150%;
-  --lg-tint: rgba(9, 9, 11, 0.40);
-  --lg-tint-thick: rgba(9, 9, 11, 0.60);
-  --lg-tint-clear: rgba(9, 9, 11, 0.20);
+  --lg-tint: rgba(20, 20, 23, 0.96);
+  --lg-tint-thick: #18181c;
+  --lg-tint-clear: rgba(20, 20, 23, 0.85);
   --lg-tint-brand: rgba(37, 244, 238, 0.05);
   --lg-rim-top: rgba(255, 255, 255, 0.12);
   --lg-rim-side: rgba(255, 255, 255, 0.06);
@@ -60,7 +60,7 @@
 
   /* Motion */
   --dur-fast: 150ms;
-  --dur: 300ms;
+  --dur: 180ms;
   --dur-slow: 450ms;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --spring: cubic-bezier(0.32, 0.72, 0.24, 1.06);
@@ -2703,3 +2703,77 @@ input:focus, textarea:focus {
 [data-tooltip-pos="right"]:hover::after {
   transform: translateX(0) translateY(0);
 }
+
+
+/* Leitura e interação consistentes em todas as telas operacionais. */
+.dashboard-ui { color: var(--text); line-height: 1.5; }
+.dashboard-ui [class~="text-[9px]"], .dashboard-ui [class~="text-[10px]"],
+[role="dialog"] [class~="text-[9px]"], [role="dialog"] [class~="text-[10px]"] { font-size: 11px; line-height: 1.45; }
+.dashboard-ui :is(h1,h2,h3) { text-wrap: balance; }
+.dashboard-ui :is(input,select,textarea), [role="dialog"] :is(input,select,textarea) { color-scheme: dark; }
+.dashboard-ui :is(button,a,input,select,textarea,summary):focus-visible,
+[role="dialog"] :is(button,a,input,select,textarea,summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.dashboard-ui button:disabled, [role="dialog"] button:disabled { cursor: not-allowed; }
+.dashboard-ui table { font-variant-numeric: tabular-nums; }
+.dashboard-ui th { white-space: nowrap; font-weight: 500; color: var(--text-muted); }
+.dashboard-ui td { vertical-align: middle; }
+.dashboard-ui .glass { box-shadow: var(--shadow-sm); }
+.dashboard-ui .hover-float:hover { transform: none !important; }
+[role="dialog"].glass, [role="alertdialog"].glass { background: var(--lg-tint-thick); }
+.dialog-surface { animation: dialog-enter 180ms var(--ease) both; }
+@keyframes dialog-enter { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@media (max-width: 640px) {
+  .dashboard-ui :is(input,select,textarea), [role="dialog"] :is(input,select,textarea) { font-size: 16px; }
+  .dashboard-ui :is(.btn-primary,.btn-secondary,.btn-ghost), [role="dialog"] :is(.btn-primary,.btn-secondary,.btn-ghost) { min-height: 40px; }
+  .dashboard-ui [role="tab"], .dashboard-ui summary { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-surface { animation: none; }
+  .dashboard-ui *, .dashboard-ui *::before, .dashboard-ui *::after { scroll-behavior: auto !important; }
+}
+
+@media (max-width: 639px) {
+  .overview-kpis > .glass { min-width: 0; padding: 12px; }
+  .overview-kpis > .glass > div:first-child { flex-wrap: wrap; gap: 6px; }
+  .overview-kpis .size-8 { display: none; }
+  .overview-kpis [class~="text-2xl"] { font-size: clamp(14px, 4vw, 20px); }
+  .overview-kpis .border-t { flex-wrap: wrap; gap: 4px; }
+  .overview-kpis .tracking-wider { letter-spacing: 0; }
+}
+
+/* Campos e ações secundárias usados nas telas operacionais. */
+.input, .input-base {
+  min-height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.input::placeholder, .input-base::placeholder { color: var(--text-faint); }
+.input:focus-visible, .input-base:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent-light); outline-offset: 2px; }
+.input:disabled, .input-base:disabled { opacity: .6; cursor: not-allowed; }
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  color: var(--text-sub);
+  font-weight: 500;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--active); border-color: var(--text-faint); }
+.btn-secondary:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Botões só com ícone não podem herdar o preenchimento dos botões com texto. */
+.btn-ghost:is([class~="size-7"], [class~="size-8"], [class~="size-9"], [class~="size-10"]) { padding: 0; flex-shrink: 0; }
+:is(.btn-primary, .btn-secondary, .btn-ghost) > svg { flex-shrink: 0; }
+.btn-primary:disabled { opacity: .45; box-shadow: none; cursor: not-allowed; filter: none; }

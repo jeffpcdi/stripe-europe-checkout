@@ -127,7 +127,7 @@ export function SmartPlusCreateDialog({
       onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose() }}
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Nova campanha Smart+" tabIndex={-1} className="w-full max-w-lg outline-none">
-        <div className="anim-pop-in flex max-h-[88vh] flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5">
+        <div className="anim-pop-in flex max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center justify-between gap-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Sparkles className="size-4 text-primary" aria-hidden="true" />

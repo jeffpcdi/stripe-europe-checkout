@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
 import {
@@ -170,7 +170,7 @@ function getRoasStatus(
     return { label: 'Alta Lucratividade', badgeClass: 'bg-emerald-500/15 text-emerald-400' }
   }
   if (roas.roas >= 1.5) {
-    return { label: 'Lucro Saudável', badgeClass: 'bg-cyan-500/15 text-brand-cyan' }
+    return { label: 'Retorno acima de 1×', badgeClass: 'bg-cyan-500/15 text-brand-cyan' }
   }
   if (roas.roas >= 1.0) {
     return { label: 'Equilíbrio', badgeClass: 'bg-amber-500/15 text-amber-400' }
@@ -193,13 +193,15 @@ export function OverviewView() {
   const { data: adsStatus, error: adsError, mutate: mutateAdsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
+  const [calendarTick, setCalendarTick] = useState(0)
+  useEffect(() => { const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000); return () => clearInterval(timer) }, [])
   const adsRange = useMemo(
     () => periodToAdsRange(period, adsStatus?.timeZone),
-    [period, adsStatus?.timeZone],
+    [period, adsStatus?.timeZone, calendarTick],
   )
-  const { data: roas, mutate: mutateRoas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+  const { data: roas, error: roasError, mutate: mutateRoas } = useAdsRoas(adsConnected, adAccountId, adsRange)
 
-  // Top Campanhas sincronizadas com a aba TikTok Ads
+  // Campanhas em destaque sincronizadas com a aba TikTok Ads
   const { data: adsTree, mutate: mutateAdsTree } = useAdsTree(adsConnected, {
     adAccountId,
     fromDate: adsRange.fromDate,
@@ -232,7 +234,7 @@ export function OverviewView() {
   }, [adsTree?.campaigns])
 
   // EMQ CAPI
-  const { data: emqData, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
+  const { data: emqData, error: emqError, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
   const emqSummary = useMemo(() => {
     const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
     if (pixels.length === 0) return null
@@ -273,7 +275,7 @@ export function OverviewView() {
         mutateEmq(),
         mutateHealth(),
       ])
-      toast.success('Visão Geral e conexões atualizadas')
+      toast.success('Visão geral e conexões atualizadas')
     } catch {
       toast.error('Erro ao atualizar métricas')
     } finally {
@@ -292,30 +294,6 @@ export function OverviewView() {
 
   // Países dos leads para o globo: consolida dados do período selecionado,
   // com fallback gracioso para hoje ou para os totais de países retornados pela API
-  const globeCountries = useMemo(() => {
-    if (cur?.countries && cur.countries.length > 0) {
-      return cur.countries
-    }
-    if (data?.countries && data.countries.length > 0) {
-      return data.countries
-    }
-    const byCountry = new Map<string, { count: number; purchased: number }>()
-    for (const l of data?.leads ?? []) {
-      if (!l.country) continue
-      const prevVal = byCountry.get(l.country) ?? { count: 0, purchased: 0 }
-      byCountry.set(l.country, {
-        count: prevVal.count + 1,
-        purchased: prevVal.purchased + (l.stage === 'purchased' ? 1 : 0),
-      })
-    }
-    return Array.from(byCountry, ([code, val]) => ({
-      code,
-      name: countryName(code),
-      count: val.count,
-      purchased: val.purchased,
-    }))
-  }, [cur, data])
-
   const lastLeadAt = useMemo(() => {
     let max = ''
     for (const l of data?.leads ?? []) {
@@ -380,7 +358,7 @@ export function OverviewView() {
         'Conexão com a Business API do TikTok requer autenticação ou seleção de conta.'
     } else if (emqSummary && emqSummary.alerts > 0) {
       hasFailure = true
-      failureTitle = 'Alerta na Qualidade do Rastreamento'
+      failureTitle = 'Alerta na Dados de conversão'
       failureDescription = `${emqSummary.alerts} ${
         emqSummary.alerts === 1 ? 'alerta identificado' : 'alertas identificados'
       } nos envios para o TikTok.`
@@ -423,7 +401,7 @@ export function OverviewView() {
           </div>
         </div>
         <Skeleton className="h-16 w-full rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="overview-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="rounded-2xl border border-border/60 bg-secondary/20 p-5">
               <Skeleton className="h-4 w-24 mb-3" />
@@ -468,15 +446,15 @@ export function OverviewView() {
   const spendVal = roas ? roas.spend : 0
   const revReal = revCents / 100
   const estimatedProfit =
-    !currencyMismatch && roas && revReal > 0 ? revReal - spendVal : null
+    !currencyMismatch && roas && Number.isFinite(roas.revenueCents) ? roas.revenueCents / 100 - spendVal : null
 
   // Métricas derivadas de alta densidade
   const aov = cur.sales > 0 ? revReal / cur.sales : 0
-  const cpa = cur.sales > 0 && spendVal > 0 ? spendVal / cur.sales : null
+  const cpa = roas?.cpa ?? null
   const profitMargin =
-    revReal > 0 && estimatedProfit !== null ? (estimatedProfit / revReal) * 100 : null
+    roas && roas.revenueCents > 0 && estimatedProfit !== null ? (estimatedProfit / (roas.revenueCents / 100)) * 100 : null
   const spendSharePct =
-    revReal > 0 && spendVal > 0 ? (spendVal / revReal) * 100 : null
+    roas && roas.revenueCents > 0 && spendVal > 0 ? (spendVal / (roas.revenueCents / 100)) * 100 : null
 
   const roasStatus = getRoasStatus(currencyMismatch, roas, spendVal)
 
@@ -496,9 +474,10 @@ export function OverviewView() {
       </div>
 
       {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
+      {(roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <section
         aria-label="Indicadores chave"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        className="overview-kpis grid grid-cols-2 gap-3 lg:grid-cols-4"
       >
         {/* Mostrador 1: Faturamento Bruto */}
         <GlassCard
@@ -558,7 +537,7 @@ export function OverviewView() {
           </div>
         </GlassCard>
 
-        {/* Mostrador 2: Lucro Líquido Real */}
+        {/* Mostrador 2: Após anúncios Real */}
         <GlassCard
           variant="thick"
           className="group relative flex flex-col justify-between p-5 rounded-2xl border border-emerald-500/25 bg-gradient-to-b from-emerald-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(52,211,153,0.06)] hover:border-emerald-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(52,211,153,0.14)] transition-all duration-300"
@@ -569,15 +548,15 @@ export function OverviewView() {
                 <Wallet className="size-4" />
               </span>
               <span
-                data-tooltip="Lucro real em caixa: faturamento bruto menos o valor investido em anúncios no TikTok Ads."
+                data-tooltip="Receita atribuída aos anúncios menos o investimento. Não inclui taxas, impostos ou outros custos."
                 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
               >
-                Lucro Líquido
+                Após anúncios
               </span>
             </div>
             {profitMargin !== null && (
               <span
-                data-tooltip="Margem Líquida: percentual da receita que virou lucro líquido no bolso."
+                data-tooltip="Percentual da receita atribuída que resta após o gasto com anúncios, antes de outros custos."
                 className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold cursor-help ${
                   profitMargin >= 0
                     ? 'bg-emerald-500/15 text-emerald-400'
@@ -586,7 +565,7 @@ export function OverviewView() {
                 data-sensitive
               >
                 {profitMargin >= 0 ? '+' : ''}
-                {profitMargin.toFixed(1)}% margem
+                {profitMargin.toFixed(1).replace('.', ',')}% margem
               </span>
             )}
           </div>
@@ -602,7 +581,7 @@ export function OverviewView() {
               }`}
               data-sensitive
             >
-              {estimatedProfit !== null ? fmtAdsMoney(estimatedProfit, cur.mainCur) : '—'}
+              {estimatedProfit !== null ? fmtAdsMoney(estimatedProfit, roas?.currency || cur.mainCur) : '—'}
             </div>
           </div>
 
@@ -611,7 +590,7 @@ export function OverviewView() {
               data-tooltip="Gasto total consumido pelas campanhas no TikTok Ads no período."
               className="cursor-help"
             >
-              Gasto Ads: <strong className="font-mono text-foreground font-semibold">{roas ? fmtAdsMoney(roas.spend, roas.currency || cur.mainCur) : '—'}</strong>
+              Anúncios: <strong className="font-mono text-foreground font-semibold">{roas ? fmtAdsMoney(roas.spend, roas.currency || cur.mainCur) : '—'}</strong>
             </span>
             {spendSharePct !== null && (
               <span
@@ -658,7 +637,7 @@ export function OverviewView() {
               data-tooltip="CPA (Custo por Aquisição): Valor médio de anúncios no TikTok gasto para gerar cada venda aprovada."
               className="cursor-help"
             >
-              CPA: <strong className="font-mono text-foreground font-semibold">{cpa !== null ? fmtAdsMoney(cpa, cur.mainCur) : '—'}</strong>
+              Custo por venda: <strong className="font-mono text-foreground font-semibold">{cpa !== null ? fmtAdsMoney(cpa, roas?.currency || cur.mainCur) : '—'}</strong>
             </span>
             <Link
               href="/ads/tiktok"
@@ -691,7 +670,7 @@ export function OverviewView() {
 
           <div className="my-3">
             <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {overallRate}%
+              {overallRate.replace('.', ',')}%
             </div>
           </div>
 
@@ -714,18 +693,15 @@ export function OverviewView() {
 
       {/* ── SEÇÃO 2: CENTRO VISUAL (GLOBO 3D + FUNIL + ATIVIDADE) ───────── */}
       <section
-        aria-label="Presença global e pipeline"
+        aria-label="Visitantes online e funil de vendas"
         className="grid gap-4 lg:grid-cols-[1.65fr_1fr]"
       >
         {/* Globo 3D Imersivo com Pontos de Acesso Shopify Live View */}
         <GlassCard
           variant="thick"
-          className="relative flex min-h-[560px] xl:min-h-[620px] items-center justify-center overflow-hidden rounded-2xl border border-cyan-500/30 bg-gradient-to-b from-[#0b101b]/95 via-[#060912]/95 to-[#030509] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.7),0_0_28px_rgba(34,211,238,0.1)] transition-all duration-300"
-          style={{ minHeight: 560 }}
+          className="relative flex h-[360px] items-center justify-center overflow-hidden rounded-2xl border border-border bg-background p-0 sm:h-[460px] xl:h-[520px]"
         >
           <HeroGlobe
-            countries={globeCountries}
-            lastLeadAt={lastLeadAt}
             focusCode={focusCountry}
           />
         </GlassCard>
@@ -754,7 +730,7 @@ export function OverviewView() {
         aria-label="Desempenho e conformidade"
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
-        {/* Top Campanhas */}
+        {/* Campanhas em destaque */}
         <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/80">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -762,7 +738,7 @@ export function OverviewView() {
                 data-tooltip="Campanhas com mais compras convertidas no período selecionado."
                 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help"
               >
-                Top Campanhas
+                Campanhas em destaque
               </span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
                 <div className="flex items-center rounded-lg border border-border/80 bg-secondary/40 p-0.5 text-[10px] font-medium">
@@ -853,7 +829,7 @@ export function OverviewView() {
                         data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
                         className="rounded bg-brand-cyan/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand-cyan cursor-help"
                       >
-                        {c.roas.toFixed(2)}x
+                        {c.roas.toFixed(2).replace('.', ',')}x
                       </span>
                     )}
                   </div>
@@ -886,7 +862,7 @@ export function OverviewView() {
                       data-tooltip="Taxa de conversão de visitantes desta campanha."
                       className="font-mono text-[10px] text-muted-foreground cursor-help"
                     >
-                      {c.conv.toFixed(1)}%
+                      {c.conv.toFixed(1).replace('.', ',')}%
                     </span>
                   </div>
                 </div>
@@ -907,13 +883,13 @@ export function OverviewView() {
               className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
             >
               <Globe2 className="size-3.5 text-brand-cyan" />
-              Top Países
+              Países no período
             </span>
           </div>
 
           {cur.countries.length === 0 ? (
             <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">
-              Aguardando visitantes globais.
+              Nenhum país identificado neste período.
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -968,25 +944,22 @@ export function OverviewView() {
           )}
         </GlassCard>
 
-        {/* Qualidade do Rastreamento */}
+        {/* Dados de conversão */}
         <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/80">
           <div className="flex items-center justify-between">
             <span
-              data-tooltip="Envio de conversões direto do servidor para o TikTok, imune a bloqueadores de anúncios e restrições de navegadores."
+              data-tooltip="Completude dos dados enviados ao TikTok. Consulte os pixels para ver erros de envio."
               className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
             >
               <ShieldCheck className="size-3.5 text-brand-cyan" />
-              Qualidade do Rastreamento
+              Dados de conversão
             </span>
-            <span
-              data-tooltip="Conexão com o TikTok ativa e saudável."
-              className="status-dot status-dot--ok cursor-help"
-            />
+
           </div>
 
           <div className="my-auto py-2">
             <EmqGauge
-              score={emqSummary?.recent ?? 8.5}
+              score={emqError ? null : emqSummary?.recent ?? null}
               dir={emqSummary?.dir ?? 'flat'}
               alerts={emqSummary?.alerts ?? 0}
             />
