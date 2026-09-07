@@ -1012,8 +1012,11 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   pontos em erro/expiração. Não usa histórico de vendas, visitantes inventados ou arcos decorativos.
   As posições representam países, não coordenadas individuais; zero confirmado difere de `—`.
 - Cards de anúncios usam somente o total oficial da conta, preservam a moeda da receita e mostram
-  falhas de atualização. “Após anúncios” usa receita atribuída menos gasto do mesmo endpoint e não
-  é lucro líquido. A qualidade dos dados é uma estimativa de completude; sem medição mostra `—`.
+  falhas de atualização. `overview-metrics.tsx` organiza os quatro indicadores da Visão geral.
+  “Gasto em ADS” mostra somente `spend` de `/api/ads/roas` com escopo `advertiser_all_campaigns`,
+  na moeda da conta, sem subtrair receita. Zero confirmado difere de ausência (`—`); ROAS nulo
+  não vira zero e moedas divergentes não geram retorno. Valores têm transição pontual, ícones
+  de traço uniforme e entrada em sequência, respeitando movimento reduzido. A qualidade dos dados é uma estimativa de completude; sem medição mostra `—`.
   Nenhuma nota fixa substitui EMQ ausente. A tela Atividade lista eventos reais, sem radar simulado.
 - Automações apresentam estado operacional antes das regras. “Como agir” oferece Só avisar,
   Pedir aprovação e Aplicar sozinho. A aprovação pendente tem uma caixa única; custos/nuvem/análise

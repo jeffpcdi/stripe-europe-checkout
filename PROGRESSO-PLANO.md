@@ -522,3 +522,8 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
   `AGENTS.md` §19.3.1 e `docs/REVISAO-UI-2026-09-07.md`.
 - Corrigidos: radar/contagem simulados, EMQ fixo sem medição, subtotal como total, rótulo incorreto de
   lucro líquido, valores fictícios de regras personalizadas e conexão de domínio anunciada sem verificação.
+
+### 2026-09-07 — Cards da Visão geral
+- Substituído “Após anúncios” por “Gasto em ADS”, usando o investimento oficial e a moeda da conta.
+- Quatro cards padronizados com novos ícones, números legíveis, animações pontuais e movimento reduzido.
+- Validados build, testes de dados/estados e prévia responsiva local; sem publicação nesta etapa.

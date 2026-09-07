@@ -27,3 +27,23 @@ Os estilos compartilhados foram ajustados para contraste, espaço, foco visível
 - Verificação visual por navegador em desktop e celular com APIs locais de teste.
 
 A prévia não inicia o Express operacional nem seus workers. Nenhuma campanha, domínio, evento de compra ou configuração foi enviado aos serviços reais. Build e testes locais não equivalem a validação do deploy ou do estado atual de TikTok/Pipeboard/Neon em produção.
+
+### Refinamento dos quatro indicadores da Visão geral
+
+A pedido do usuário, o indicador “Após anúncios” foi substituído por **Gasto em ADS**:
+usa o `spend` oficial de `/api/ads/roas`, na moeda da conta, incluindo todos os status de campanha.
+Não calcula receita menos anúncios nem mostra margem. O período Tudo identifica a janela de
+90 dias atualmente suportada pela consulta de anúncios. Falhas preservam aviso de atualização.
+
+Os quatro cards agora compartilham `overview-metrics.tsx`: ícones de traço uniforme em bases
+quadradas, tipografia numérica proporcional com dígitos de largura fixa, entrada em sequência,
+transição dos valores e iluminação/elevação ao passar o mouse. Não há animação decorativa em loop.
+Movimento reduzido do sistema e a preferência do app são respeitados. A comparação de receita
+só aparece quando há base anterior positiva na mesma moeda. ROAS indefinido e conversão sem
+visitantes mostram `—`.
+
+Validação: build de produção e testes de integridade da UI aprovados. Prévia local com fixtures
+somente leitura conferida em 1512px (quatro cards alinhados, sem transbordamento) e 390px
+(duas colunas, textos legíveis, sem rolagem horizontal), sem erros no console. Os novos testes
+cobrem gasto versus lucro, moeda USD com receita BRL, escopo ausente, NaN, zero confirmado,
+erro de atualização e ROAS indefinido. Nenhuma campanha real foi alterada nesta validação.

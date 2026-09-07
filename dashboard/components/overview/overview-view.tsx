@@ -12,12 +12,12 @@ import {
   useOverviewHealth,
 } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import { aggregate, money, periodStart, prevWindow } from '@/lib/metrics'
+import { aggregate, periodStart, prevWindow } from '@/lib/metrics'
 import { adsDateRange } from '@/lib/ads-time'
 import { countryFlag, timeAgo } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
-import { CountUp } from '@/components/count-up'
+import { OverviewMetrics } from './overview-metrics'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { toast } from '@/lib/toast'
@@ -28,16 +28,12 @@ import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
 import { ErrorState } from '@/components/error-state'
 import {
-  DollarSign,
-  Flame,
-  ShoppingBag,
   TrendingUp,
   RefreshCw,
   ShieldCheck,
   Target,
   ArrowUpRight,
   Globe2,
-  Wallet,
 } from 'lucide-react'
 
 // ── Formatação de Moeda e Data ───────────────────────────────────────────
@@ -84,98 +80,6 @@ function initialPeriod(): Period {
   const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
   if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
   return 'today'
-}
-
-// ── Mini Sparkline Elegante ──────────────────────────────────────────────
-function MiniSparkline({
-  data,
-  color = '#22d3ee',
-  height = 36,
-}: {
-  data: number[]
-  color?: string
-  height?: number
-}) {
-  if (!data.length || data.length < 2) return null
-  const width = 96
-  const max = Math.max(...data, 1)
-  const min = Math.min(...data, 0)
-  const range = max - min || 1
-
-  const points = data
-    .map((v, i) => {
-      const x = (i / Math.max(data.length - 1, 1)) * width
-      const y = height - ((v - min) / range) * (height - 6) - 3
-      return `${x},${y}`
-    })
-    .join(' ')
-
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      className="overflow-visible opacity-70 transition-opacity hover:opacity-100"
-      aria-hidden="true"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-// ── Badge de Variação Discreto ──────────────────────────────────────────
-function VariationBadge({ current, previous }: { current: number; previous: number }) {
-  if (previous === 0 && current === 0) return null
-  if (previous === 0) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-bold text-success">
-        novo
-      </span>
-    )
-  }
-  const pct = ((current - previous) / previous) * 100
-  const isUp = pct >= 0
-  const display = Math.abs(pct) > 999 ? '999+' : Math.abs(pct).toFixed(0)
-
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums ${
-        isUp ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'
-      }`}
-    >
-      {isUp ? '↑' : '↓'} {display}%
-    </span>
-  )
-}
-
-function getRoasStatus(
-  currencyMismatch: boolean,
-  roas: { roas: number | null } | null | undefined,
-  spendVal: number,
-) {
-  if (currencyMismatch) {
-    return { label: 'Moedas divergentes', badgeClass: 'bg-warning/15 text-warning' }
-  }
-  if (!roas || roas.roas === null || spendVal === 0) {
-    return { label: 'Sem veiculação', badgeClass: 'bg-secondary text-muted-foreground' }
-  }
-  if (roas.roas >= 2.5) {
-    return { label: 'Alta Lucratividade', badgeClass: 'bg-emerald-500/15 text-emerald-400' }
-  }
-  if (roas.roas >= 1.5) {
-    return { label: 'Retorno acima de 1×', badgeClass: 'bg-cyan-500/15 text-brand-cyan' }
-  }
-  if (roas.roas >= 1.0) {
-    return { label: 'Equilíbrio', badgeClass: 'bg-amber-500/15 text-amber-400' }
-  }
-  return { label: 'Abaixo da Meta', badgeClass: 'bg-rose-500/15 text-rose-400' }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -426,41 +330,12 @@ export function OverviewView() {
 
   // Dados computados
   const revCents = cur.rev[cur.mainCur] || 0
-  const prevRevCents = prev ? prev.rev[prev.mainCur] || 0 : 0
-  const revSeries = cur.series.map((s) => s.revenue)
+  const prevRevCents = prev && prev.mainCur === cur.mainCur ? prev.rev[cur.mainCur] || 0 : null
 
   const otherRev = Object.entries(cur.rev)
     .filter(([c, v]) => c !== cur.mainCur && v > 0)
     .sort((a, b) => b[1] - a[1])
 
-  const currencyMismatch = Boolean(
-    roas &&
-      (roas.currencyMismatch ??
-        (roas.roas !== null &&
-          roas.currency &&
-          revCents > 0 &&
-          cur.mainCur !== roas.currency.toUpperCase())),
-  )
-
-  // Lucro líquido estimado (Receita - Gasto de Anúncios)
-  const spendVal = roas ? roas.spend : 0
-  const revReal = revCents / 100
-  const estimatedProfit =
-    !currencyMismatch && roas && Number.isFinite(roas.revenueCents) ? roas.revenueCents / 100 - spendVal : null
-
-  // Métricas derivadas de alta densidade
-  const aov = cur.sales > 0 ? revReal / cur.sales : 0
-  const cpa = roas?.cpa ?? null
-  const profitMargin =
-    roas && roas.revenueCents > 0 && estimatedProfit !== null ? (estimatedProfit / (roas.revenueCents / 100)) * 100 : null
-  const spendSharePct =
-    roas && roas.revenueCents > 0 && spendVal > 0 ? (spendVal / (roas.revenueCents / 100)) * 100 : null
-
-  const roasStatus = getRoasStatus(currencyMismatch, roas, spendVal)
-
-  // Taxa geral de conversão
-  const overallRate =
-    cur.visits > 0 ? ((cur.purchased / cur.visits) * 100).toFixed(1) : '0.0'
 
   return (
     <div
@@ -475,221 +350,19 @@ export function OverviewView() {
 
       {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
       {(roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
-      <section
-        aria-label="Indicadores chave"
-        className="overview-kpis grid grid-cols-2 gap-3 lg:grid-cols-4"
-      >
-        {/* Mostrador 1: Faturamento Bruto */}
-        <GlassCard
-          variant="thick"
-          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-cyan-500/25 bg-gradient-to-b from-cyan-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(34,211,238,0.06)] hover:border-cyan-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(34,211,238,0.14)] transition-all duration-300"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-xl bg-cyan-500/15 text-brand-cyan shadow-[0_0_12px_rgba(34,211,238,0.25)]">
-                <DollarSign className="size-4" />
-              </span>
-              <span
-                data-tooltip="Faturamento total gerado pelas vendas aprovadas no período selecionado."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
-              >
-                Faturamento
-              </span>
-            </div>
-            <div
-              data-tooltip="Comparação percentual de faturamento com o período imediatamente anterior."
-              className="cursor-help"
-            >
-              <VariationBadge current={revCents} previous={prevRevCents} />
-            </div>
-          </div>
-
-          <div className="my-3 flex items-baseline justify-between gap-2">
-            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl" data-sensitive>
-              <CountUp
-                value={revCents}
-                format={(v) => money(Math.round(v), cur.mainCur)}
-              />
-            </div>
-            <div
-              className="shrink-0 cursor-help"
-              data-tooltip="Curva temporal de evolução do faturamento ao longo do período."
-            >
-              <MiniSparkline data={revSeries} color="#22d3ee" height={34} />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
-            <span
-              data-tooltip="Total de vendas aprovadas e Ticket Médio (valor médio pago por cliente)."
-              className="cursor-help"
-            >
-              <strong className="font-mono text-foreground font-semibold">{cur.sales}</strong> venda{cur.sales === 1 ? '' : 's'} · Médio <strong className="font-mono text-foreground font-semibold">{cur.sales > 0 ? fmtAdsMoney(aov, cur.mainCur) : '—'}</strong>
-            </span>
-            {otherRev.length > 0 && (
-              <span
-                data-tooltip={`Vendas em outras moedas: ${otherRev.map(([code]) => code).join(', ')}`}
-                className="text-[10px] text-brand-cyan font-medium cursor-help"
-              >
-                +{otherRev.length} moeda{otherRev.length === 1 ? '' : 's'}
-              </span>
-            )}
-          </div>
-        </GlassCard>
-
-        {/* Mostrador 2: Após anúncios Real */}
-        <GlassCard
-          variant="thick"
-          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-emerald-500/25 bg-gradient-to-b from-emerald-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(52,211,153,0.06)] hover:border-emerald-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(52,211,153,0.14)] transition-all duration-300"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.25)]">
-                <Wallet className="size-4" />
-              </span>
-              <span
-                data-tooltip="Receita atribuída aos anúncios menos o investimento. Não inclui taxas, impostos ou outros custos."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
-              >
-                Após anúncios
-              </span>
-            </div>
-            {profitMargin !== null && (
-              <span
-                data-tooltip="Percentual da receita atribuída que resta após o gasto com anúncios, antes de outros custos."
-                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold cursor-help ${
-                  profitMargin >= 0
-                    ? 'bg-emerald-500/15 text-emerald-400'
-                    : 'bg-rose-500/15 text-rose-400'
-                }`}
-                data-sensitive
-              >
-                {profitMargin >= 0 ? '+' : ''}
-                {profitMargin.toFixed(1).replace('.', ',')}% margem
-              </span>
-            )}
-          </div>
-
-          <div className="my-3">
-            <div
-              className={`font-mono text-2xl font-bold tracking-tight sm:text-3xl ${
-                estimatedProfit !== null
-                  ? estimatedProfit >= 0
-                    ? 'text-emerald-400'
-                    : 'text-rose-400'
-                  : 'text-foreground'
-              }`}
-              data-sensitive
-            >
-              {estimatedProfit !== null ? fmtAdsMoney(estimatedProfit, roas?.currency || cur.mainCur) : '—'}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
-            <span
-              data-tooltip="Gasto total consumido pelas campanhas no TikTok Ads no período."
-              className="cursor-help"
-            >
-              Anúncios: <strong className="font-mono text-foreground font-semibold">{roas ? fmtAdsMoney(roas.spend, roas.currency || cur.mainCur) : '—'}</strong>
-            </span>
-            {spendSharePct !== null && (
-              <span
-                data-tooltip="Percentual da receita comprometido com investimento em tráfego."
-                className="text-[11px] font-medium text-foreground/80 cursor-help"
-              >
-                {`${spendSharePct.toFixed(0)}% receita`}
-              </span>
-            )}
-          </div>
-        </GlassCard>
-
-        {/* Mostrador 3: ROAS & Retorno de Mídia */}
-        <GlassCard
-          variant="thick"
-          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-rose-500/25 bg-gradient-to-b from-rose-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(244,63,94,0.06)] hover:border-rose-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(244,63,94,0.14)] transition-all duration-300"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-xl bg-rose-500/15 text-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.25)]">
-                <Flame className="size-4" />
-              </span>
-              <span
-                data-tooltip="ROAS (Return on Ad Spend): Multiplicador financeiro. Ex: 2,50x significa R$ 2,50 faturados para cada R$ 1,00 gasto em anúncios."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
-              >
-                Retorno (ROAS)
-              </span>
-            </div>
-          </div>
-
-          <div className="my-3">
-            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {roas?.roas !== null && roas?.roas !== undefined
-                ? `${roas.roas.toFixed(2).replace('.', ',')}x`
-                : spendVal > 0
-                ? '0,00x'
-                : '—'}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
-            <span
-              data-tooltip="CPA (Custo por Aquisição): Valor médio de anúncios no TikTok gasto para gerar cada venda aprovada."
-              className="cursor-help"
-            >
-              Custo por venda: <strong className="font-mono text-foreground font-semibold">{cpa !== null ? fmtAdsMoney(cpa, roas?.currency || cur.mainCur) : '—'}</strong>
-            </span>
-            <Link
-              href="/ads/tiktok"
-              data-tooltip="Gerenciar campanhas e lances no TikTok Ads."
-              className="text-[11px] font-medium text-brand-cyan hover:underline inline-flex items-center gap-0.5"
-            >
-              Anúncios <ArrowUpRight className="size-3" />
-            </Link>
-          </div>
-        </GlassCard>
-
-        {/* Mostrador 4: Conversão do Funil */}
-        <GlassCard
-          variant="thick"
-          className="group relative flex flex-col justify-between p-5 rounded-2xl border border-amber-500/25 bg-gradient-to-b from-amber-950/20 via-card/90 to-card shadow-[0_8px_30px_rgba(0,0,0,0.4),0_0_20px_rgba(245,158,11,0.06)] hover:border-amber-400/50 hover:-translate-y-0.5 hover:shadow-[0_12px_36px_rgba(0,0,0,0.5),0_0_28px_rgba(245,158,11,0.14)] transition-all duration-300"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)]">
-                <ShoppingBag className="size-4" />
-              </span>
-              <span
-                data-tooltip="Taxa de conversão geral: proporção de visitantes da página que chegaram até a compra aprovada."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help hover:text-foreground transition-colors"
-              >
-                Conversão Geral
-              </span>
-            </div>
-          </div>
-
-          <div className="my-3">
-            <div className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {overallRate.replace('.', ',')}%
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 pt-2.5 text-xs text-muted-foreground">
-            <span
-              data-tooltip="Taxa de aprovação de checkout: percentual de pedidos pagos com sucesso dentre os que abriram o checkout."
-              className="cursor-help"
-            >
-              Aprovação checkout: <strong className="font-mono text-emerald-400 font-semibold">{cur.approval.toFixed(0)}%</strong>
-            </span>
-            <span
-              data-tooltip="Total de pedidos confirmados com pagamento aprovado pelo gateway."
-              className="font-mono font-semibold text-foreground cursor-help"
-            >
-              {cur.purchased} {cur.purchased === 1 ? 'pedido' : 'pedidos'}
-            </span>
-          </div>
-        </GlassCard>
-      </section>
+      <OverviewMetrics
+        revenueCents={revCents}
+        currency={cur.mainCur}
+        sales={cur.sales}
+        visits={cur.visits}
+        purchased={cur.purchased}
+        approval={cur.approval}
+        otherCurrencies={otherRev.length}
+        previousRevenueCents={prevRevCents}
+        ads={roas}
+        adsError={Boolean(roasError)}
+        allPeriod={period === 'all'}
+      />
 
       {/* ── SEÇÃO 2: CENTRO VISUAL (GLOBO 3D + FUNIL + ATIVIDADE) ───────── */}
       <section

@@ -82,3 +82,24 @@ assert(html.includes('Aguardando conexão'));
 assert(html.includes('target.example.test'));
 assert(!html.includes('Pronto para usar'));
 assert(html.includes('Verificar'));
+
+// O título de gasto deve corresponder ao investimento, inclusive com receita em outra moeda.
+const { OverviewMetrics } = load('components/overview/overview-metrics.tsx');
+const overviewProps = { revenueCents: 90000, currency: 'BRL', sales: 3, visits: 20, purchased: 3, approval: 50, otherCurrencies: 0, previousRevenueCents: null, ads: { scope: 'advertiser_all_campaigns', currency: 'USD', spend: 125, revenueCents: 90000, roas: null, cpa: null, currencyMismatch: true } };
+function metricCard(markup, name) { return markup.match(new RegExp('<article[^>]*aria-label="' + name + '"[^>]*>([\\s\\S]*?)</article>'))[1]; }
+html = renderToStaticMarkup(React.createElement(OverviewMetrics, overviewProps));
+let spendCard = metricCard(html, 'Gasto em ADS');
+assert(spendCard.includes('US$') && spendCard.includes('125,00'), 'gasto vem do spend na moeda da conta');
+assert(!spendCard.includes('775,00'), 'não exibe receita menos anúncios');
+assert(!spendCard.includes('margem'));
+assert(!metricCard(html, 'Retorno \\(ROAS\\)').includes('0,00×'), 'retorno ausente não vira zero');
+for (const ads of [undefined, { ...overviewProps.ads, scope: undefined }, { ...overviewProps.ads, spend: NaN }]) {
+  spendCard = metricCard(renderToStaticMarkup(React.createElement(OverviewMetrics, { ...overviewProps, ads })), 'Gasto em ADS');
+  assert(spendCard.includes('Dados indisponíveis') && !spendCard.includes('125,00'), 'total ausente/inválido não usa fallback');
+}
+html = renderToStaticMarkup(React.createElement(OverviewMetrics, { ...overviewProps, ads: { ...overviewProps.ads, spend: 0 } }));
+assert(metricCard(html, 'Gasto em ADS').includes('0,00'), 'zero confirmado permanece visível');
+html = renderToStaticMarkup(React.createElement(OverviewMetrics, { ...overviewProps, adsError: true, visits: 0, purchased: 0 }));
+assert(metricCard(html, 'Gasto em ADS').includes('Atualização pendente'));
+assert(!metricCard(html, 'Conversão geral').includes('0,0%'), 'sem visitas não inventa taxa');
+console.log('overview-metrics: gasto real, moeda, zero, ausência e retorno indefinido OK');
