@@ -47,3 +47,23 @@ somente leitura conferida em 1512px (quatro cards alinhados, sem transbordamento
 (duas colunas, textos legíveis, sem rolagem horizontal), sem erros no console. Os novos testes
 cobrem gasto versus lucro, moeda USD com receita BRL, escopo ausente, NaN, zero confirmado,
 erro de atualização e ROAS indefinido. Nenhuma campanha real foi alterada nesta validação.
+
+### Reestruturação do globo e da jornada
+
+- Globo: cenário com profundidade, iluminação difusa e direcional, atmosfera mais clara e
+  área própria para o canvas. O enquadramento reserva espaço para cabeçalho, controles e países.
+- Removidas hastes, etiquetas minúsculas na superfície, arcos e ondas contínuas. O primeiro
+  snapshot não simula entrada; aumento na contagem gera uma única onda curta. Erro e reconexão
+  restabelecem a base sem criar chegadas fictícias. Os pontos continuam restritos à presença fresca.
+- Corrigida a integração do material: a versão instalada de `react-globe.gl` recebe
+  `globeMaterial` por prop. O código antigo tentava chamar um método inexistente dentro de um
+  `try/catch` silencioso. A configuração agora usa a prop e o callback `onGlobeReady`.
+- Controles em barra única: zoom, recentrar, pausar/retomar e tela cheia. Tela cheia preserva
+  contador e países; falha da API recebe mensagem. Países podem ser selecionados repetidamente
+  para recentrar a câmera. A roda do mouse continua rolando a página.
+- Funil em quatro linhas alinhadas, com barras proporcionais e taxas por etapa; divisão sem
+  base aparece como `—`. Histórico com local, ação e horário, sem badges repetidos ou siglas
+  cruas de países; datas inválidas são excluídas.
+- Validação local com fixtures, build e suíte de testes. Nenhuma escrita em campanhas ou
+  serviço de produção durante a prévia. Novas regressões cobrem primeira leitura, contagem
+  estável, saídas, aumentos de presença, funil vazio e nomes de países.

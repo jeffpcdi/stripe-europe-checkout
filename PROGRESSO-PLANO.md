@@ -527,3 +527,9 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 - Substituído “Após anúncios” por “Gasto em ADS”, usando o investimento oficial e a moeda da conta.
 - Quatro cards padronizados com novos ícones, números legíveis, animações pontuais e movimento reduzido.
 - Validados build, testes de dados/estados e prévia responsiva local; sem publicação nesta etapa.
+
+### 2026-09-07 — Globo, funil e últimas visitas
+- Globo com iluminação corrigida, fundo com profundidade, pontos discretos e um pulso por aumento real.
+- Barra de controles unificada, enquadramento responsivo e tela cheia com contexto preservado.
+- Funil em linhas e histórico com país, ação e horário; taxas ausentes não viram zero.
+- Validação local com dados de teste, sem alteração de campanhas reais.

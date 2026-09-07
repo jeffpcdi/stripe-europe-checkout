@@ -364,37 +364,11 @@ export function OverviewView() {
         allPeriod={period === 'all'}
       />
 
-      {/* ── SEÇÃO 2: CENTRO VISUAL (GLOBO 3D + FUNIL + ATIVIDADE) ───────── */}
-      <section
-        aria-label="Visitantes online e funil de vendas"
-        className="grid gap-4 lg:grid-cols-[1.65fr_1fr]"
-      >
-        {/* Globo 3D Imersivo com Pontos de Acesso Shopify Live View */}
-        <GlassCard
-          variant="thick"
-          className="relative flex h-[360px] items-center justify-center overflow-hidden rounded-2xl border border-border bg-background p-0 sm:h-[460px] xl:h-[520px]"
-        >
-          <HeroGlobe
-            focusCode={focusCountry}
-          />
-        </GlassCard>
-
-        {/* Coluna Direita: Funil de Conversão + Feed ao Vivo */}
-        <div className="flex flex-col gap-4">
-          {/* Mostrador Visual de Funil (FunnelGauge) */}
-          <GlassCard variant="thick" className="p-5 border-border/80 rounded-2xl bg-gradient-to-b from-card/90 to-card/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)] hover:border-cyan-500/30 transition-all duration-300">
-            <FunnelGauge
-              visits={cur.visits}
-              checkout={cur.reachedCheckout}
-              payment={cur.paymentStarted}
-              purchased={cur.purchased}
-            />
-          </GlassCard>
-
-          {/* Atividade Recente (LiveFeed) */}
-          <GlassCard variant="thick" className="flex-1 p-5 border-border/80 rounded-2xl bg-gradient-to-b from-card/90 to-card/60 shadow-[0_8px_30px_rgba(0,0,0,0.4)] hover:border-emerald-500/30 transition-all duration-300">
-            <LiveFeed leads={data?.leads ?? []} />
-          </GlassCard>
+      <section className="overview-presence-layout" aria-label="Visitantes online e funil de vendas">
+        <HeroGlobe focusCode={focusCountry} />
+        <div className="overview-journey-column">
+          <FunnelGauge visits={cur.visits} checkout={cur.reachedCheckout} payment={cur.paymentStarted} purchased={cur.purchased} />
+          <LiveFeed leads={data?.leads ?? []} />
         </div>
       </section>
 

@@ -103,3 +103,22 @@ html = renderToStaticMarkup(React.createElement(OverviewMetrics, { ...overviewPr
 assert(metricCard(html, 'Gasto em ADS').includes('Atualização pendente'));
 assert(!metricCard(html, 'Conversão geral').includes('0,0%'), 'sem visitas não inventa taxa');
 console.log('overview-metrics: gasto real, moeda, zero, ausência e retorno indefinido OK');
+
+const { presenceIncreases } = load('lib/live-globe.ts');
+assert.equal(presenceIncreases(null, [{ code: 'BR', count: 3 }]).length, 0, 'carregamento inicial não simula entrada');
+assert.equal(presenceIncreases([{ code: 'BR', count: 3 }], [{ code: 'BR', count: 3 }]).length, 0, 'poll sem mudança não repete pulso');
+assert.equal(presenceIncreases([{ code: 'BR', count: 3 }], [{ code: 'BR', count: 2 }]).length, 0, 'saída não gera pulso');
+assert.equal(presenceIncreases([{ code: 'BR', count: 3 }], [{ code: 'BR', count: 4 }, { code: 'PT', count: 1 }]).join(','), 'BR,PT');
+const { FunnelGauge } = load('components/overview/funnel-gauge.tsx');
+html = renderToStaticMarkup(React.createElement(FunnelGauge, { visits: 55, checkout: 0, payment: 0, purchased: 0 }));
+assert(html.includes('width:100%'));
+assert.equal((html.match(/width:0%/g) || []).length, 3, 'zero não inventa preenchimento de barra');
+html = renderToStaticMarkup(React.createElement(FunnelGauge, { visits: 0, checkout: 0, payment: 0, purchased: 0 }));
+assert(!html.includes('0,0%'), 'sem base não calcula taxa fictícia');
+const { LiveFeed } = load('components/overview/live-feed.tsx');
+html = renderToStaticMarkup(React.createElement(LiveFeed, { leads: [{ id: 'jp', country: 'JP', stage: 'visit', at: new Date(now).toISOString() }, { id: 'invalid', country: 'BR', stage: 'visit', at: 'invalid' }] }));
+assert(html.includes('Japão'), 'nome do país traduzido, sem código cru');
+assert(html.includes('Visitou a página'));
+assert(!html.includes('Brasil'), 'data inválida não entra no histórico');
+assert(!html.includes('online'), 'histórico não indica presença atual');
+console.log('overview-presence: pulsos só com aumento, funil sem taxa fictícia e países traduzidos OK');

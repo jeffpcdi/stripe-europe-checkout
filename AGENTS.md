@@ -1011,6 +1011,13 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   `/api/live` com até 20 segundos (tolerância futura de 5 segundos), agrega países e remove todos os
   pontos em erro/expiração. Não usa histórico de vendas, visitantes inventados ou arcos decorativos.
   As posições representam países, não coordenadas individuais; zero confirmado difere de `—`.
+  `geo/globe.tsx` atende somente a presença: pontos planos sem hastes, rótulos flutuantes ou arcos.
+  `presenceIncreases()` estabelece a base na primeira leitura e emite um único anel por aumento
+  da contagem; falha/reconexão não simula chegada. O material é uma prop `globeMaterial` do React,
+  não um método da ref; iluminação é configurada em `onGlobeReady`. A barra de controles e os
+  países permanecem na tela cheia. Movimento reduzido desliga giro e pulsos; render pausa fora
+  da tela. O funil usa linhas e taxas com denominador válido; o histórico mostra quatro visitas
+  com nomes de países em pt-BR e nunca indica presença online.
 - Cards de anúncios usam somente o total oficial da conta, preservam a moeda da receita e mostram
   falhas de atualização. `overview-metrics.tsx` organiza os quatro indicadores da Visão geral.
   “Gasto em ADS” mostra somente `spend` de `/api/ads/roas` com escopo `advertiser_all_campaigns`,
