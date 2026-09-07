@@ -392,6 +392,7 @@ export function TikTokAdsView() {
                 className="btn-primary shrink-0 justify-center text-xs font-semibold px-4 py-2 gap-1.5 shadow-lg shadow-primary/20 transition-all hover:scale-[1.02]"
                 onClick={() => openWriteFlow(() => setLauncherOpen(true))}
                 aria-label="Criar Campanha"
+                title="Criar campanha: Conversão ABO/CBO, Smart+, vídeos em massa ou Spark Ads"
               >
                 <Plus className="size-4" aria-hidden="true" />
                 Criar Campanha

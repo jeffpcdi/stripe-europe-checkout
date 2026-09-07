@@ -2,7 +2,8 @@ const crypto = require('crypto');
 const { neon } = require('@neondatabase/serverless');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
-const sql = URL ? neon(URL) : null;
+const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
+const sql = (!isPlaceholder && URL) ? neon(URL) : null;
 const enabled = !!sql;
 const pixelBindingMemory = new Map();
 const rejectionMemory = new Map();

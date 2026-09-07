@@ -840,12 +840,12 @@ export function AutomationPanel({
             />
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground">{engineView.title}</p>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">{engineView.detail}</p>
+              <p className="text-[11px] leading-relaxed text-muted">{engineView.detail}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
-            <Clock3 className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-medium text-muted-foreground">
+            <Clock3 className="size-3.5 text-muted" aria-hidden="true" />
+            <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-medium text-muted">
               {ENGINE_MODE_LABEL[data.engine.executionMode]}
             </span>
             {error && (
@@ -880,7 +880,7 @@ export function AutomationPanel({
         onClick={() => setAdvanced(!advanced)}
         aria-expanded={advanced}
         data-tour="ads-advanced"
-        className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-secondary hover:text-foreground"
       >
         <SlidersHorizontal className="size-3" aria-hidden="true" />
         {advanced ? 'Ocultar configurações' : 'Configurações avançadas'}
@@ -893,7 +893,7 @@ export function AutomationPanel({
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">Regras automáticas</h3>
-            <span className="rounded-full bg-[var(--hover)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+            <span className="rounded-full bg-[var(--hover)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-muted">
               {enabledCount} de {rules.length} ativas
             </span>
           </div>
@@ -920,7 +920,7 @@ export function AutomationPanel({
         ) : null}
 
         {rules.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">
+          <p className="py-6 text-center text-xs text-muted">
             Nenhuma regra. Crie a primeira com &quot;Nova regra&quot; — ela nasce em modo
             &quot;Propõe&quot;: nada é executado sem a sua aprovação.
           </p>
@@ -969,7 +969,7 @@ export function AutomationPanel({
                         )}
                         {r.preset && !r.pilot && (
                           <span
-                            className="flex items-center gap-1 rounded-full bg-[var(--hover)] px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                            className="flex items-center gap-1 rounded-full bg-[var(--hover)] px-1.5 py-0.5 text-[10px] text-muted"
                             title="Regra pré-configurada de fábrica"
                           >
                             <Sparkles className="size-2.5" aria-hidden="true" />
@@ -977,10 +977,10 @@ export function AutomationPanel({
                           </span>
                         )}
                       </span>
-                      <span className="mt-0.5 block text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="mt-0.5 block text-pretty text-[11px] leading-relaxed text-muted">
                         {summarize(r, currency)}
                       </span>
-                      <span className="mt-0.5 block text-[10px] text-muted-foreground/80">
+                      <span className="mt-0.5 block text-[10px] text-faint">
                         {last || 'nunca disparou'}
                       </span>
                     </button>

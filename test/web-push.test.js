@@ -147,7 +147,7 @@ test('notificações nativas: rotina e simulação não poluem o sino', () => {
 
 test('central nativa: preserva prioridade e deduplica alertas repetidos', async () => {
   const redis = require('../redis');
-  const accountId = 'notif-log-test';
+  const accountId = 'notif-log-test-' + Date.now().toString(36);
   const note = {
     event: 'ads_breaker', priority: 'critical', title: 'Automação pausada',
     body: 'Muitas falhas.', url: '/dashboard/ads/tiktok', dedupeKey: 'breaker:adv-1',

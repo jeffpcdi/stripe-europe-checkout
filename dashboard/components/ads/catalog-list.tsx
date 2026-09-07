@@ -10,7 +10,7 @@ import {
   X, Loader2, Plus, Trash2, UploadCloud, Download,
   Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
-  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw,
+  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw, Sparkles,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
@@ -151,13 +151,18 @@ export function CatalogList({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      {/* Header com Ações Rápidas */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-bold text-foreground">Catálogos de Produtos</h2>
+          <p className="text-xs text-muted-foreground">Gerencie feeds e produtos para campanhas de conversão no TikTok</p>
+        </div>
 
         {!creating && (
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <CatalogBatchDialog advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
-            <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
+            <button type="button" className="btn-primary shrink-0 text-xs font-semibold px-3.5 py-1.5 shadow-xs" onClick={() => setCreating(true)}>
               <Plus className="size-3.5" aria-hidden="true" />
               Novo catálogo
             </button>
@@ -165,37 +170,47 @@ export function CatalogList({
         )}
       </div>
 
+      {/* Caixa de Importação Mágica Expressa */}
       {!creating && (
-        <div className="relative mt-1 mb-2">
-          <input
-            type="url"
-            className="input-base pr-28 w-full shadow-sm text-sm"
-            placeholder="Catálogo Mágico: cole o link do produto aqui..."
-            value={magicUrl}
-            onChange={(e) => setMagicUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleMagicImport()
-            }}
-            disabled={magicBusy}
-          />
-          <button
-            type="button"
-            className="btn-primary absolute right-1.5 top-1.5 bottom-1.5 text-xs py-1 px-3 min-w-[90px]"
-            onClick={handleMagicImport}
-            disabled={magicBusy || !magicUrl.trim()}
-          >
-            {magicBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : 'Extrair'}
-          </button>
+        <div className="rounded-xl border border-border bg-card p-3 sm:p-4 shadow-xs">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
+              <span>Criar Catálogo Mágico por Link</span>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="url"
+                className="input-base flex-1 text-xs"
+                placeholder="Cole o link do produto ou loja (ex: Shopify, Yampi, WooCommerce)..."
+                value={magicUrl}
+                onChange={(e) => setMagicUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleMagicImport()
+                }}
+                disabled={magicBusy}
+              />
+              <button
+                type="button"
+                className="btn-primary shrink-0 text-xs font-semibold px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 border-none text-white hover:opacity-90 shadow-xs"
+                onClick={handleMagicImport}
+                disabled={magicBusy || !magicUrl.trim()}
+              >
+                {magicBusy ? <Loader2 className="size-3.5 animate-spin mr-1.5" aria-hidden="true" /> : <Sparkles className="size-3.5 mr-1.5" aria-hidden="true" />}
+                Extrair e Criar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {creating && (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4">
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-foreground">Nome do catálogo</span>
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="font-semibold text-foreground">Nome do catálogo</span>
             <input
               autoFocus
-              className="input-base"
+              className="input-base text-sm"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex.: Loja Verão 2026"
@@ -205,13 +220,13 @@ export function CatalogList({
               }}
             />
           </label>
-          <div className="flex items-center justify-end gap-2 mt-4">
+          <div className="flex items-center justify-end gap-2 mt-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>
               Cancelar
             </button>
-            <button type="button" className="btn-primary text-xs" onClick={handleCreate} disabled={busy || !name.trim()}>
+            <button type="button" className="btn-primary text-xs font-semibold px-4 py-1.5" onClick={handleCreate} disabled={busy || !name.trim()}>
               {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
-              Criar
+              Criar Catálogo
             </button>
           </div>
         </div>
@@ -222,46 +237,56 @@ export function CatalogList({
           <Loader2 className="size-5 animate-spin" aria-hidden="true" />
         </div>
       ) : catalogs.length === 0 && !creating ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background p-8 text-center opacity-50 hover:opacity-100 transition-opacity">
-          <PackageOpen className="size-6 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm font-medium text-foreground">Nenhum catálogo.</p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
+          <PackageOpen className="size-7 text-muted-foreground/60" aria-hidden="true" />
+          <p className="text-sm font-semibold text-foreground">Nenhum catálogo criado ainda</p>
+          <p className="text-xs text-muted-foreground max-w-sm">
+            Cole o link do seu produto acima para criar automaticamente ou clique em "Novo catálogo".
+          </p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-2.5">
           {catalogs.map((c) => {
             const status = catalogStatusMeta(c)
             const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
             const displayCount = remoteCount > 0 ? remoteCount : c.productCount
             const isCloning = cloningId === c.id
             return <li key={c.id}>
-              <div className="flex w-full items-center gap-2 rounded-xl border border-border bg-background transition-colors hover:border-primary/50">
+              <div className="flex w-full items-center gap-2 rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-xs">
                 <button
                   type="button"
                   onClick={() => onOpen(c.id)}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 text-left"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="truncate text-sm font-bold text-foreground">{c.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {displayCount} produto{displayCount === 1 ? '' : 's'}{remoteCount > 0 ? ' no TikTok' : ''} · {c.currency}
                       {c.country ? ` · ${c.country}` : ''}
                     </p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
-                    {status.label}
-                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.className}`}>
+                      {status.label}
+                    </span>
+                    <span className="text-xs font-medium text-primary flex items-center gap-1 hover:underline">
+                      Gerenciar →
+                    </span>
+                  </div>
                 </button>
-                <button
-                  type="button"
-                  title="Clonar catálogo"
-                  className="btn-ghost mr-2 shrink-0 px-2 py-1.5 text-[10px]"
-                  disabled={isCloning}
-                  onClick={(e) => { e.stopPropagation(); handleCloneFromList(c.id) }}
-                >
-                  {isCloning
-                    ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                    : <CopyPlus className="size-3.5" aria-hidden="true" />}
-                </button>
+                <div className="flex items-center pr-3 shrink-0">
+                  <button
+                    type="button"
+                    title="Clonar catálogo"
+                    className="btn-ghost p-1.5 text-muted-foreground hover:text-foreground"
+                    disabled={isCloning}
+                    onClick={(e) => { e.stopPropagation(); handleCloneFromList(c.id) }}
+                  >
+                    {isCloning
+                      ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                      : <CopyPlus className="size-3.5" aria-hidden="true" />}
+                  </button>
+                </div>
               </div>
             </li>
           })}

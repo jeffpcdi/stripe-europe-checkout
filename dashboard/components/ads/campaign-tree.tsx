@@ -200,6 +200,7 @@ const ALL_STATUS_OPTIONS = [
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
+  { value: 'approved', label: 'Validadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
 ]

@@ -15,7 +15,8 @@ const storage = require('./ads-storage');
 const adsProvider = require('./ads-provider');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
-const sql = URL ? neon(URL) : null;
+const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
+const sql = (!isPlaceholder && URL) ? neon(URL) : null;
 const PROVIDERS = ['googleDrive', 'dropbox'];
 const MAX_VIDEO_BYTES = Math.max(10, Math.min(2000, Number(process.env.CLOUD_VIDEO_MAX_MB) || 500)) * 1024 * 1024;
 const SYNC_MS = Math.max(60_000, Number(process.env.CLOUD_VIDEO_SYNC_MS) || 2 * 60_000);

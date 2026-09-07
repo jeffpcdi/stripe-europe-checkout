@@ -207,10 +207,10 @@ export function CatalogCampaignWizard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">3</div> Lançamento</h3>
-          <p className="text-[11px] text-muted-foreground ml-7">Envie a campanha para o TikTok com orçamentos predefinidos.</p>
+          <p className="text-[11px] text-muted ml-7">Envie a campanha para o TikTok com orçamentos predefinidos.</p>
         </div>
         {capabilities === null
-          ? <span className="rounded-md border border-border bg-secondary/50 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">Carregando</span>
+          ? <span className="rounded-md border border-border bg-secondary/50 px-2.5 py-1.5 text-[10px] font-medium text-muted">Carregando</span>
           : (
             <div className="flex items-center gap-2">
               <CatalogPresetCampaignButton 
@@ -350,7 +350,7 @@ function CatalogPresetCampaignButton({ catalogId, advertiserId, disabled, onCrea
       <div className="flex gap-2">
         <button 
           type="button" 
-          className="btn-secondary text-xs" 
+          className="btn-primary text-xs" 
           onClick={() => handleLaunch()} 
           disabled={disabled || busy}
         >
@@ -360,7 +360,7 @@ function CatalogPresetCampaignButton({ catalogId, advertiserId, disabled, onCrea
         {preset && (
           <button 
             type="button" 
-            className="btn-primary text-xs bg-gradient-to-r from-indigo-500 to-purple-600 border-none text-white hover:opacity-90" 
+            className="btn-secondary text-xs" 
             onClick={() => handleLaunch({ ...preset, campaignKind: 'SMART_PLUS' })} 
             disabled={disabled || busy}
           >

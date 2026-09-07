@@ -112,16 +112,16 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
         <div className="flex items-center gap-2"><Wallet className="size-4 text-success" /><h3 className="text-sm font-semibold">Lucro líquido real</h3></div>
         {profit ? <>
           <p className={`font-mono text-2xl font-bold ${profit.netProfitCents >= 0 ? 'text-success' : 'text-error'}`}>{money(profit.netProfitCents, profit.currency)}</p>
-          <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+          <div className="grid grid-cols-2 gap-2 text-[10px] text-muted">
             <span>Receita <b className="block text-foreground">{money(profit.grossRevenueCents, profit.currency)}</b></span>
             <span>TikTok <b className="block text-foreground">-{money(profit.adSpendCents, profit.currency)}</b></span>
             <span>Taxas + impostos <b className="block text-foreground">-{money(profit.gatewayFeesCents + profit.taxesCents, profit.currency)}</b></span>
             <span>Margem <b className="block text-foreground">{profit.netMarginPct.toFixed(1)}%</b></span>
           </div>
           <p className={`text-[10px] ${profit.quality === 'exact' ? 'text-success' : 'text-warning'}`}>{profit.note}</p>
-        </> : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        </> : <Loader2 className="size-4 animate-spin text-muted" />}
         <button type="button" className="btn-ghost text-[10px]" onClick={() => void mutateProfit()}><RefreshCw className="size-3" /> Atualizar</button>
-        <details className="rounded-lg border border-border/50 p-2 text-[10px] text-muted-foreground">
+        <details className="rounded-lg border border-border/50 p-2 text-[10px] text-muted">
           <summary className="cursor-pointer font-medium text-foreground">Custos usados quando o gateway não informa</summary>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {([
@@ -137,7 +137,7 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
     anomalies: (
       <div className="space-y-3">
         <div className="flex items-center gap-2"><Sparkles className="size-4 text-primary" /><h3 className="text-sm font-semibold">Detector a cada 4 horas</h3></div>
-        <p className="min-h-12 text-xs leading-relaxed text-muted-foreground">{latestAnomaly?.content || 'O primeiro snapshot será comparado com a próxima janela. A IA só recebe anomalias já calculadas.'}</p>
+        <p className="min-h-12 text-xs leading-relaxed text-muted">{latestAnomaly?.content || 'O primeiro snapshot será comparado com a próxima janela. A IA só recebe anomalias já calculadas.'}</p>
         <button type="button" className="btn-ghost text-[10px]" onClick={runAnomaly} disabled={runningAnomaly}>{runningAnomaly ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Analisar agora</button>
       </div>
     ),
@@ -147,31 +147,31 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
         {(['googleDrive', 'dropbox'] as const).map((provider) => {
           const item = cloud?.providers?.[provider]
           const label = provider === 'googleDrive' ? 'Google Drive' : 'Dropbox'
-          return <div key={provider} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2 text-[11px]"><span>{label}<small className={`ml-2 ${item?.connected ? 'text-success' : 'text-muted-foreground'}`}>{item?.connected ? 'conectado' : item?.configured ? 'pronto' : 'configure OAuth'}</small></span>{item?.connected ? <button type="button" className="btn-ghost text-[10px]" onClick={() => void syncCloud(provider)} disabled={syncingCloud === provider}>{syncingCloud === provider ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Sincronizar</button> : <button type="button" className="btn-ghost text-[10px]" onClick={() => void connectCloud(provider)} disabled={!item?.configured}>Conectar</button>}</div>
+          return <div key={provider} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2 text-[11px]"><span>{label}<small className={`ml-2 ${item?.connected ? 'text-success' : 'text-muted'}`}>{item?.connected ? 'conectado' : item?.configured ? 'pronto' : 'configure OAuth'}</small></span>{item?.connected ? <button type="button" className="btn-ghost text-[10px]" onClick={() => void syncCloud(provider)} disabled={syncingCloud === provider}>{syncingCloud === provider ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Sincronizar</button> : <button type="button" className="btn-ghost text-[10px]" onClick={() => void connectCloud(provider)} disabled={!item?.configured}>Conectar</button>}</div>
         })}
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-[10px] text-muted-foreground">ID da pasta no Google Drive<input className="input mt-1 w-full text-[10px]" value={driveFolder} onChange={(event) => setDriveFolder(event.target.value)} placeholder="vazio = todos os vídeos" /></label>
-          <label className="text-[10px] text-muted-foreground">Caminho no Dropbox<input className="input mt-1 w-full text-[10px]" value={dropboxFolder} onChange={(event) => setDropboxFolder(event.target.value)} placeholder="/Criativos" /></label>
+          <label className="text-[10px] text-faint">ID da pasta no Google Drive<input className="input mt-1 w-full text-[10px]" value={driveFolder} onChange={(event) => setDriveFolder(event.target.value)} placeholder="vazio = todos os vídeos" /></label>
+          <label className="text-[10px] text-faint">Caminho no Dropbox<input className="input mt-1 w-full text-[10px]" value={dropboxFolder} onChange={(event) => setDropboxFolder(event.target.value)} placeholder="/Criativos" /></label>
         </div>
-        <p className="text-[10px] text-muted-foreground">Novos arquivos são enviados como assets reutilizáveis; nenhuma campanha é ativada.</p>
+        <p className="text-[10px] text-faint">Novos arquivos são enviados como assets reutilizáveis; nenhuma campanha é ativada.</p>
       </div>
     ),
     protection: (
       <div className="space-y-3">
         <div className="flex items-center gap-2"><ShieldAlert className="size-4 text-warning" /><h3 className="text-sm font-semibold">Proteção e filas</h3></div>
-        <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+        <div className="grid grid-cols-2 gap-2 text-[10px] text-muted">
           <span>IPs bloqueados <b className="block text-foreground">{blocks?.blocks?.length || 0}</b></span>
           <span>Fila de edições <b className={`block ${queue?.paused ? 'text-warning' : 'text-success'}`}>{queue?.paused ? 'pausada 5 min' : 'operando'}</b></span>
         </div>
         {queue?.paused && <p className="text-[10px] text-warning">Rate limit detectado. Retomada automática {queue.pausedUntil ? new Date(queue.pausedUntil).toLocaleTimeString('pt-BR') : 'em breve'}.</p>}
-        {(blocks?.blocks || []).filter((block) => block.active).slice(0, 2).map((block) => <div key={block.ipHash} className="flex items-center justify-between text-[10px]"><span className="font-mono text-muted-foreground">{block.ipHash.slice(0, 12)}… · {block.count} sinais</span><button type="button" className="text-error" onClick={async () => { await apiSend(`/api/cloak/blocks/${encodeURIComponent(block.ipHash)}`, 'DELETE'); await mutateBlocks() }}>desbloquear</button></div>)}
+        {(blocks?.blocks || []).filter((block) => block.active).slice(0, 2).map((block) => <div key={block.ipHash} className="flex items-center justify-between text-[10px]"><span className="font-mono text-faint">{block.ipHash.slice(0, 12)}… · {block.count} sinais</span><button type="button" className="text-error" onClick={async () => { await apiSend(`/api/cloak/blocks/${encodeURIComponent(block.ipHash)}`, 'DELETE'); await mutateBlocks() }}>desbloquear</button></div>)}
       </div>
     ),
   }
 
   return (
     <section className="space-y-2" aria-label="Central personalizável">
-      <div className="flex items-center justify-between"><div><h2 className="flex items-center gap-2 text-sm font-semibold"><Bot className="size-4 text-primary" /> Central mágica</h2><p className="text-[10px] text-muted-foreground">Arraste os módulos para montar sua central.</p></div></div>
+      <div className="flex items-center justify-between"><div><h2 className="flex items-center gap-2 text-sm font-semibold"><Bot className="size-4 text-primary" /> Central mágica</h2><p className="text-[10px] text-muted">Arraste os módulos para montar sua central.</p></div></div>
       <div className="grid gap-3 lg:grid-cols-2">
         {order.map((id) => <GlassCard key={id} draggable onDragStart={() => setDragging(id)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveWidget(id)} onDragEnd={() => setDragging(null)} className={`relative min-h-48 p-4 ${dragging === id ? 'opacity-50' : ''}`}><GripVertical className="absolute right-3 top-3 size-4 cursor-grab text-muted-foreground" aria-label="Arraste para reorganizar" />{cards[id]}</GlassCard>)}
       </div>

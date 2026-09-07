@@ -616,16 +616,42 @@ module.exports = {
     return data.audit.slice(-limit).reverse();
   },
 
-  insertNotification: async (entry) => {
+  insertNotification: async (accountId, entry) => {
     loadFromDisk();
-    data.notifications.push(entry);
-    if (data.notifications.length > 1000) data.notifications = data.notifications.slice(-1000);
+    if (!entry && typeof accountId === 'object') {
+      entry = accountId;
+      accountId = entry.accountId || 'default';
+    }
+    if (!entry) return null;
+    const now = Date.now();
+    const dedupeKey = entry.dedupeKey || entry.dedupe_key;
+    if (dedupeKey) {
+      const exists = data.notifications.some(
+        n => (n.accountId === accountId || n.account_id === accountId) &&
+             (n.dedupeKey === dedupeKey || n.dedupe_key === dedupeKey) &&
+             (now - (n.at || new Date(n.created_at || 0).getTime()) < 5 * 60 * 1000)
+      );
+      if (exists) return null;
+    }
+    const item = {
+      ...entry,
+      account_id: accountId,
+      accountId: accountId,
+      created_at: new Date().toISOString(),
+      at: now,
+    };
+    data.notifications.unshift(item);
+    if (data.notifications.length > 1000) data.notifications = data.notifications.slice(0, 1000);
     scheduleSave();
+    return item.id || 'notif_' + now;
   },
 
   listNotifications: async (accountId, limit = 50) => {
     loadFromDisk();
-    return data.notifications.slice(-limit).reverse();
+    const filtered = data.notifications.filter(
+      n => !accountId || n.accountId === accountId || n.account_id === accountId
+    );
+    return filtered.slice(0, limit);
   },
 
   // ── Sessões de Visita & Variantes ──────────────────────────────────────

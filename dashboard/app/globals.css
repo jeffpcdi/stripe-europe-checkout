@@ -194,6 +194,14 @@ h3 {
   color: var(--accent);
 }
 
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-faint {
+  color: var(--text-faint);
+}
+
 /* Item 88: números tabulares também em tabelas e contadores não-mono */
 table,
 [data-numeric] {
