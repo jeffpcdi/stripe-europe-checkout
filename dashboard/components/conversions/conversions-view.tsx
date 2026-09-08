@@ -338,81 +338,180 @@ export function ConversionsView() {
 
   return (
     <div className="flex flex-col gap-6">
-      {(pixelsError || gatewaysError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Conexões não atualizadas · tentar novamente</button>}
-      {/* ── AÇÕES ── */}
-      <div className="flex items-center justify-end gap-2">
+      {(pixelsError || gatewaysError) && (
         <button
           type="button"
+          className="btn-ghost self-start text-xs text-warning"
           onClick={handleRefreshAll}
-          disabled={isRefreshing}
-          className="flex items-center gap-1.5 rounded-xl border border-border/80 bg-secondary/40 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all disabled:opacity-50"
-          title="Recarregar status"
         >
-          <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
-          <span>Atualizar</span>
+          Conexões não atualizadas · tentar novamente
         </button>
+      )}
 
-        <button
-          type="button"
-          onClick={() => setEditingPixel('new')}
-          className="btn-primary shadow-[0_0_16px_rgba(34,211,238,0.25)]"
-        >
-          <Plus className="size-4 stroke-[2.5]" />
-          Adicionar Pixel
-        </button>
+      {/* ── BARRA DE CONTROLE E AÇÕES DO TOPO ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-white/5 bg-card/40 p-4 backdrop-blur-md">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400 border border-emerald-500/20">
+              <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
+              CAPI TikTok v1.3
+            </span>
+            <span className="text-xs text-muted-foreground font-medium">
+              Sincronização Server-Side Ativa
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{pixels.length} {pixels.length === 1 ? 'pixel' : 'pixels'}</span>
+            <span className="text-border">·</span>
+            <span>{gateways.length} {gateways.length === 1 ? 'checkout' : 'checkouts'}</span>
+            <span className="text-border">·</span>
+            <span>{convLog?.log?.length ?? 0} {convLog?.log?.length === 1 ? 'venda registrada' : 'vendas registradas'}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleRefreshAll}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-xl border border-border/80 bg-secondary/40 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all disabled:opacity-50"
+            title="Recarregar conexões e status"
+          >
+            <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
+            <span>Atualizar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEditingGateway('new')}
+            className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-all"
+          >
+            <CreditCard className="size-3.5" />
+            <span>Conectar Checkout</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEditingPixel('new')}
+            className="btn-primary shadow-[0_0_16px_rgba(34,211,238,0.25)]"
+          >
+            <Plus className="size-4 stroke-[2.5]" />
+            <span>Adicionar Pixel</span>
+          </button>
+        </div>
       </div>
 
-      {/* ── RESUMO DOS 3 PASSOS DE CONFIGURAÇÃO ── */}
+      {/* ── PIPELINE INTERATIVO DOS 3 PASSOS DE CONFIGURAÇÃO ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {/* Passo 1 Status */}
-        <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/60 p-3.5">
-          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg font-bold text-xs ${
-            pixels.length > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-brand-cyan/15 text-brand-cyan'
-          }`}>
-            {pixels.length > 0 ? <Check className="size-4 stroke-[3]" /> : '1'}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-foreground truncate">1. Pixel do TikTok</span>
-            <span className="text-[11px] text-muted-foreground truncate">
-              {pixels.length > 0 ? `${pixels.length} cadastrado(s)` : 'Pendente'}
+        <div
+          onClick={() => {
+            document.getElementById('secao-pixels')?.scrollIntoView({ behavior: 'smooth' })
+          }}
+          className="group cursor-pointer flex flex-col justify-between gap-3 rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-brand-cyan/50 hover:bg-card/90 transition-all shadow-sm"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`flex size-8 shrink-0 items-center justify-center rounded-xl font-bold text-xs ${
+                pixels.length > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-brand-cyan/15 text-brand-cyan border border-brand-cyan/30'
+              }`}>
+                {pixels.length > 0 ? <Check className="size-4 stroke-[3]" /> : '1'}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold text-foreground group-hover:text-brand-cyan transition-colors truncate">
+                  1. Pixel do TikTok
+                </span>
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {pixels.length > 0 ? `${pixels.length} cadastrado(s)` : 'Pendente'}
+                </span>
+              </div>
+            </div>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              pixels.length > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-secondary text-muted-foreground'
+            }`}>
+              {pixels.length > 0 ? 'Ativo' : 'Iniciar'}
             </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground/80 border-t border-border/30 pt-2">
+            <span>TikTok Events API</span>
+            <ArrowRight className="size-3 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-brand-cyan transition-all" />
           </div>
         </div>
 
         {/* Passo 2 Status */}
-        <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/60 p-3.5">
-          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg font-bold text-xs ${
-            gateways.length > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-brand-cyan/15 text-brand-cyan'
-          }`}>
-            {gateways.length > 0 ? <Check className="size-4 stroke-[3]" /> : '2'}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-foreground truncate">2. Checkouts</span>
-            <span className="text-[11px] text-muted-foreground truncate">
-              {gateways.length > 0 ? `${gateways.length} cadastrado(s)` : 'Pendente'}
+        <div
+          onClick={() => {
+            document.getElementById('secao-gateways')?.scrollIntoView({ behavior: 'smooth' })
+          }}
+          className="group cursor-pointer flex flex-col justify-between gap-3 rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-emerald-500/50 hover:bg-card/90 transition-all shadow-sm"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`flex size-8 shrink-0 items-center justify-center rounded-xl font-bold text-xs ${
+                gateways.length > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-brand-cyan/15 text-brand-cyan border border-brand-cyan/30'
+              }`}>
+                {gateways.length > 0 ? <Check className="size-4 stroke-[3]" /> : '2'}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold text-foreground group-hover:text-emerald-400 transition-colors truncate">
+                  2. Checkouts & Webhooks
+                </span>
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {gateways.length > 0 ? `${gateways.length} conectado(s)` : 'Pendente'}
+                </span>
+              </div>
+            </div>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              gateways.length > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-secondary text-muted-foreground'
+            }`}>
+              {gateways.length > 0 ? 'Conectado' : 'Configurar'}
             </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground/80 border-t border-border/30 pt-2">
+            <span>Kiwify, Hotmart, Cakto...</span>
+            <ArrowRight className="size-3 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-emerald-400 transition-all" />
           </div>
         </div>
 
         {/* Passo 3 Status */}
-        <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/60 p-3.5">
-          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg font-bold text-xs ${
-            pixels.length > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-muted text-muted-foreground'
-          }`}>
-            {pixels.length > 0 ? <Check className="size-4 stroke-[3]" /> : '3'}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-foreground truncate">3. Código no Site</span>
-            <span className="text-[11px] text-muted-foreground truncate">
-              {pixels.length > 0 ? 'Código disponível' : 'Cadastre um pixel primeiro'}
+        <div
+          onClick={() => {
+            document.getElementById('secao-codigo')?.scrollIntoView({ behavior: 'smooth' })
+          }}
+          className="group cursor-pointer flex flex-col justify-between gap-3 rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-blue-500/50 hover:bg-card/90 transition-all shadow-sm"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`flex size-8 shrink-0 items-center justify-center rounded-xl font-bold text-xs ${
+                pixels.length > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-muted text-muted-foreground'
+              }`}>
+                {pixels.length > 0 ? <Check className="size-4 stroke-[3]" /> : '3'}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold text-foreground group-hover:text-blue-400 transition-colors truncate">
+                  3. Código no Site
+                </span>
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {pixels.length > 0 ? 'Snippet pronto' : 'Aguardando pixel'}
+                </span>
+              </div>
+            </div>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              pixels.length > 0 ? 'bg-blue-500/10 text-blue-400' : 'bg-secondary text-muted-foreground'
+            }`}>
+              1 Linha
             </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground/80 border-t border-border/30 pt-2">
+            <span>Instalar na LP / Head</span>
+            <ArrowRight className="size-3 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-blue-400 transition-all" />
           </div>
         </div>
       </div>
 
       {/* ── STATUS COMPACTO DE FALHA (SE HOUVER) ── */}
       {syncValidation.hasFailure ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5">
             <span className="status-dot status-dot--err status-dot--pulse" />
             <span className="text-xs font-semibold text-destructive">
@@ -425,7 +524,7 @@ export function ConversionsView() {
                 type="button"
                 onClick={() => handleTestGateway(syncValidation.failedGateway!)}
                 disabled={testingGwId === syncValidation.failedGateway.id}
-                className="rounded-lg bg-destructive px-2.5 py-1 text-xs font-bold text-destructive-foreground hover:brightness-110 disabled:opacity-50"
+                className="rounded-lg bg-destructive px-3 py-1.5 text-xs font-bold text-destructive-foreground hover:brightness-110 disabled:opacity-50 transition-all"
               >
                 {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
               </button>
@@ -433,7 +532,7 @@ export function ConversionsView() {
             <button
               type="button"
               onClick={() => setShowLog(true)}
-              className="rounded-lg border border-border/80 bg-secondary/60 px-2.5 py-1 text-xs text-foreground hover:bg-secondary"
+              className="rounded-lg border border-border/80 bg-secondary/60 px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-all"
             >
               Ver Detalhes
             </button>
@@ -442,15 +541,15 @@ export function ConversionsView() {
       ) : null}
 
       {/* ── PASSO 1: PIXELS DO TIKTOK ── */}
-      <GlassCard variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5">
+      <GlassCard id="secao-pixels" variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5 scroll-mt-20">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border/40 pb-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-6 items-center justify-center rounded-full bg-brand-cyan/20 text-xs font-bold text-brand-cyan">
+            <span className="flex size-7 items-center justify-center rounded-xl bg-brand-cyan/20 text-xs font-bold text-brand-cyan border border-brand-cyan/30">
               1
             </span>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Pixel do TikTok</h2>
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <h2 className="text-sm font-bold text-foreground">Pixels do TikTok</h2>
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
                 {pixels.length}
               </span>
             </div>
@@ -459,7 +558,7 @@ export function ConversionsView() {
           <button
             type="button"
             onClick={() => setEditingPixel('new')}
-            className="flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-border/80 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition-all"
+            className="flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 transition-all"
           >
             <Plus className="size-3.5" />
             Adicionar Pixel
@@ -468,22 +567,22 @@ export function ConversionsView() {
 
         {loadingPixels ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="h-36 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
-            <div className="h-36 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
+            <div className="h-44 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
+            <div className="h-44 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
           </div>
         ) : pixels.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed border-border/80">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-cyan/10 text-brand-cyan mb-2">
-              <Target className="size-5" />
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan mb-2.5 border border-brand-cyan/20">
+              <Target className="size-6" />
             </div>
-            <h3 className="text-sm font-semibold text-foreground">Nenhum pixel cadastrado</h3>
+            <h3 className="text-sm font-bold text-foreground">Nenhum pixel cadastrado</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Adicione o ID do seu pixel do TikTok para obter o código do site e vincular aos checkouts.
+              Adicione o código do seu pixel do TikTok para gerar o script do site e conectar aos checkouts de pagamento.
             </p>
             <button
               type="button"
               onClick={() => setEditingPixel('new')}
-              className="mt-3.5 btn-primary"
+              className="mt-4 btn-primary"
             >
               <Plus className="size-4 stroke-[2.5]" />
               Adicionar Pixel
@@ -499,60 +598,41 @@ export function ConversionsView() {
               return (
                 <div
                   key={px.slug}
-                  className="group flex flex-col justify-between rounded-xl border border-border/70 bg-card/60 p-4 hover:border-border hover:bg-card/80 transition-all gap-3.5"
+                  className="group flex flex-col justify-between rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-border hover:bg-card/80 transition-all gap-4 shadow-sm"
                 >
                   <div className="flex flex-col gap-3">
-                    {/* Header do Card: Nome e Status */}
+                    {/* Header do Card: Nome, Status e Switch */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span
-                            className={`size-2 rounded-full shrink-0 ${
-                              px.active ? 'bg-success shadow-[0_0_6px_var(--success)]' : 'bg-muted-foreground'
+                            className={`size-2.5 rounded-full shrink-0 ${
+                              px.active ? 'bg-success shadow-[0_0_8px_var(--success)] animate-pulse' : 'bg-muted-foreground'
                             }`}
                           />
-                          <h3 className="text-sm font-semibold text-foreground truncate">{px.name}</h3>
+                          <h3 className="text-sm font-bold text-foreground truncate">{px.name}</h3>
                           {px.hasToken ? (
                             <span
                               title="Envio seguro via servidor (CAPI do TikTok), reduzindo perdas causadas por bloqueadores do navegador."
-                              className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 cursor-help"
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20 cursor-help"
                             >
                               <ShieldCheck className="size-3" />
-                              Envio via Servidor
+                              CAPI Servidor
                             </span>
                           ) : (
                             <span
                               title="Apenas navegador ativo. Adicione a chave de acesso para envio direto do servidor (CAPI)."
-                              className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help"
+                              className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help"
                             >
                               Navegador
                             </span>
                           )}
                         </div>
-
-                        {/* Pixel Code com Cópia Rápida */}
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-xs text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded border border-border/50">
-                            {px.pixelCode}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => copyText(px.pixelCode, `code-${px.slug}`, 'Código copiado!')}
-                            className="text-muted-foreground hover:text-foreground transition-colors p-1"
-                            title="Copiar código do pixel"
-                          >
-                            {copiedId === `code-${px.slug}` ? (
-                              <Check className="size-3 text-success" />
-                            ) : (
-                              <Copy className="size-3" />
-                            )}
-                          </button>
-                        </div>
                       </div>
 
-                      {/* Switch Ativo */}
-                      <label className="flex items-center gap-1.5 cursor-pointer select-none rounded-lg border border-border/60 bg-secondary/20 px-2 py-1">
-                        <span className="text-[11px] text-muted-foreground">{px.active ? 'Ativo' : 'Pausado'}</span>
+                      {/* Switch Ativo / Pausado */}
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none rounded-xl border border-border/60 bg-secondary/30 px-2.5 py-1 hover:bg-secondary/50 transition-colors">
+                        <span className="text-[11px] font-medium text-muted-foreground">{px.active ? 'Ativo' : 'Pausado'}</span>
                         <input
                           type="checkbox"
                           checked={px.active}
@@ -562,16 +642,50 @@ export function ConversionsView() {
                       </label>
                     </div>
 
+                    {/* Pixel Code com Cópia Rápida */}
+                    <div className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-black/40 px-3 py-2">
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                          Código do Pixel
+                        </span>
+                        <span className="font-mono text-xs font-semibold text-brand-cyan select-all truncate">
+                          {px.pixelCode}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyText(px.pixelCode, `code-${px.slug}`, 'Código copiado!')}
+                        className="flex items-center gap-1 rounded-lg bg-secondary/60 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-secondary transition-colors shrink-0"
+                        title="Copiar código do pixel"
+                      >
+                        {copiedId === `code-${px.slug}` ? (
+                          <>
+                            <Check className="size-3 text-success" />
+                            <span className="text-[10px] text-success font-semibold">Copiado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="size-3" />
+                            <span className="text-[10px]">Copiar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
                     {/* Checkouts Vinculados */}
-                    <div className="flex items-center justify-between text-xs rounded-lg border border-border/60 bg-secondary/20 px-2.5 py-2">
+                    <div className="flex items-center justify-between text-xs rounded-xl border border-border/60 bg-secondary/20 px-3 py-2">
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className="text-[11px] text-muted-foreground shrink-0">Checkouts:</span>
+                        <span className="text-[11px] text-muted-foreground shrink-0 font-medium">Checkouts:</span>
                         {linkedGateways.length > 0 ? (
                           linkedGateways.map((gw) => (
                             <span
                               key={gw.id}
-                              className="rounded bg-background px-1.5 py-0.5 text-[11px] font-medium text-foreground border border-border/50"
+                              className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-0.5 text-[11px] font-medium text-foreground border border-border/50"
                             >
+                              <span
+                                className="size-1.5 rounded-full shrink-0"
+                                style={{ backgroundColor: providerColor(gw.provider) }}
+                              />
                               {gw.name}
                             </span>
                           ))
@@ -582,49 +696,52 @@ export function ConversionsView() {
                       <button
                         type="button"
                         onClick={() => setEditingPixel(px)}
-                        className="text-[11px] font-medium text-brand-cyan hover:underline shrink-0 ml-2"
+                        className="text-[11px] font-semibold text-brand-cyan hover:underline shrink-0 ml-2"
                       >
-                        {linkedGateways.length > 0 ? 'Alterar' : 'Vincular'}
+                        {linkedGateways.length > 0 ? 'Alterar' : '+ Vincular'}
                       </button>
                     </div>
                   </div>
 
                   {/* Rodapé de Ações */}
-                  <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
+                  <div className="flex items-center justify-between border-t border-border/40 pt-3">
                     <button
                       type="button"
                       onClick={() => setInstallingPixel(px)}
-                      className="flex items-center gap-1 text-xs font-semibold text-brand-cyan hover:underline"
+                      className="flex items-center gap-1.5 rounded-lg border border-brand-cyan/30 bg-brand-cyan/10 px-2.5 py-1 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 transition-all"
                     >
                       <Code2 className="size-3.5" />
                       Código do Site
                     </button>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => handleTestPixel(px)}
                         disabled={testingPixelSlug === px.slug}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1 rounded-lg border border-border/70 bg-secondary/50 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary transition-all disabled:opacity-50"
                         title="Enviar evento de teste para o TikTok"
                       >
-                        {testingPixelSlug === px.slug ? 'Testando…' : 'Testar'}
+                        <Zap className="size-3 text-amber-400" />
+                        {testingPixelSlug === px.slug ? 'Testando…' : 'Testar CAPI'}
                       </button>
-                      <span className="text-border">·</span>
+
                       <button
                         type="button"
                         onClick={() => setEditingPixel(px)}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+                        title="Editar pixel"
                       >
-                        Editar
+                        <Pencil className="size-3.5" />
                       </button>
-                      <span className="text-border">·</span>
+
                       <button
                         type="button"
                         onClick={() => setDeletingPixel(px)}
-                        className="text-xs text-destructive/80 hover:text-destructive transition-colors"
+                        className="p-1.5 text-destructive/70 hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors"
+                        title="Excluir pixel"
                       >
-                        Excluir
+                        <Trash2 className="size-3.5" />
                       </button>
                     </div>
                   </div>
@@ -636,15 +753,15 @@ export function ConversionsView() {
       </GlassCard>
 
       {/* ── PASSO 2: CHECKOUTS DE PAGAMENTO ── */}
-      <GlassCard variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5">
+      <GlassCard id="secao-gateways" variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5 scroll-mt-20">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border/40 pb-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
+            <span className="flex size-7 items-center justify-center rounded-xl bg-emerald-500/20 text-xs font-bold text-emerald-400 border border-emerald-500/30">
               2
             </span>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Pagamentos</h2>
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <h2 className="text-sm font-bold text-foreground">Checkouts & Pagamentos</h2>
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
                 {gateways.length}
               </span>
             </div>
@@ -653,7 +770,7 @@ export function ConversionsView() {
           <button
             type="button"
             onClick={() => setEditingGateway('new')}
-            className="flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-border/80 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition-all"
+            className="flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-all"
           >
             <Plus className="size-3.5" />
             Conectar Checkout
@@ -662,24 +779,24 @@ export function ConversionsView() {
 
         {gateways.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed border-border/80">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 mb-2">
-              <CreditCard className="size-5" />
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400 mb-2.5 border border-emerald-500/20">
+              <CreditCard className="size-6" />
             </div>
-            <h3 className="text-sm font-semibold text-foreground">Nenhuma plataforma cadastrada</h3>
+            <h3 className="text-sm font-bold text-foreground">Nenhum checkout conectado</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Conecte sua plataforma (Kiwify, Hotmart, PerfectPay, Cakto, etc.) para receber compras aprovadas e disparar as conversões.
+              Conecte sua plataforma (Kiwify, Hotmart, PerfectPay, Cakto, etc.) para receber compras aprovadas e disparar as conversões server-side.
             </p>
             <button
               type="button"
               onClick={() => setEditingGateway('new')}
-              className="mt-3.5 btn-primary"
+              className="mt-4 btn-primary"
             >
               <Plus className="size-4 stroke-[2.5]" />
               Conectar Checkout
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
             {gateways.map((gw) => {
               const isGwError = gw.lastEventStatus === 'error' || gw.lastEventStatus === 'falhou'
               const isGwOk = !isGwError && Boolean(gw.lastEventAt)
@@ -687,26 +804,26 @@ export function ConversionsView() {
               return (
                 <div
                   key={gw.id}
-                  className="group flex flex-col justify-between rounded-xl border border-border/70 bg-card/60 p-4 hover:border-border hover:bg-card/80 transition-all gap-3"
+                  className="group flex flex-col justify-between rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-border hover:bg-card/80 transition-all gap-3.5 shadow-sm"
                 >
                   <div className="flex flex-col gap-2.5">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span
                           className="size-2.5 rounded-full shrink-0"
                           style={{ backgroundColor: providerColor(gw.provider) }}
                         />
-                        <span className="text-xs font-semibold text-foreground truncate">{gw.name}</span>
-                        <span className="text-[10px] font-mono text-muted-foreground uppercase">
-                          ({providerName(gw.provider)})
+                        <span className="text-xs font-bold text-foreground truncate">{gw.name}</span>
+                        <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground uppercase">
+                          {providerName(gw.provider)}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setEditingGateway(gw)}
-                          className="text-xs text-muted-foreground hover:text-foreground p-1"
+                          className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
                           title="Editar checkout"
                         >
                           <Pencil className="size-3.5" />
@@ -714,7 +831,7 @@ export function ConversionsView() {
                         <button
                           type="button"
                           onClick={() => setDeletingGateway(gw)}
-                          className="text-xs text-destructive/70 hover:text-destructive p-1"
+                          className="p-1 text-destructive/70 hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors"
                           title="Excluir checkout"
                         >
                           <Trash2 className="size-3.5" />
@@ -723,37 +840,53 @@ export function ConversionsView() {
                     </div>
 
                     {/* URL de notificação pronta com 1 botão copiar */}
-                    <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-input/80 px-2.5 py-1.5">
-                      <input
-                        readOnly
-                        value={gw.webhookUrl}
-                        className="w-full bg-transparent font-mono text-[11px] text-muted-foreground focus:outline-none select-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => copyText(gw.webhookUrl, `gw-${gw.id}`, 'Link copiado!')}
-                        className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-secondary/80 transition-colors shrink-0"
-                        title="Copiar URL para colar na plataforma"
-                      >
-                        {copiedId === `gw-${gw.id}` ? (
-                          <Check className="size-3 text-success" />
-                        ) : (
-                          <Copy className="size-3" />
-                        )}
-                        <span>Copiar</span>
-                      </button>
+                    <div className="flex flex-col gap-1 rounded-xl border border-border/60 bg-black/40 p-2.5">
+                      <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                        URL de Webhook (Cole na plataforma)
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          readOnly
+                          value={gw.webhookUrl}
+                          className="w-full bg-transparent font-mono text-[11px] text-muted-foreground focus:outline-none select-all truncate"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => copyText(gw.webhookUrl, `gw-${gw.id}`, 'Link copiado!')}
+                          className="flex items-center gap-1 rounded-lg bg-secondary px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-secondary/80 transition-colors shrink-0"
+                          title="Copiar URL para colar na plataforma"
+                        >
+                          {copiedId === `gw-${gw.id}` ? (
+                            <>
+                              <Check className="size-3 text-success" />
+                              <span className="text-[10px] text-success font-semibold">Copiado</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="size-3" />
+                              <span className="text-[10px]">Copiar</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Rodapé do Checkout */}
-                  <div className="flex items-center justify-between pt-2 border-t border-border/30 text-[11px]">
+                  <div className="flex items-center justify-between pt-2.5 border-t border-border/30 text-[11px]">
                     <div className="flex items-center gap-1.5 truncate">
                       {isGwError ? (
-                        <span className="text-destructive font-medium truncate">Falha recente</span>
+                        <span className="text-destructive font-medium truncate flex items-center gap-1">
+                          <AlertCircle className="size-3" /> Falha recente
+                        </span>
                       ) : isGwOk ? (
-                        <span className="text-muted-foreground truncate">Venda {timeAgo(gw.lastEventAt!)}</span>
+                        <span className="text-muted-foreground truncate flex items-center gap-1">
+                          <Clock className="size-3 text-emerald-400" /> Venda {timeAgo(gw.lastEventAt!)}
+                        </span>
                       ) : (
-                        <span className="text-muted-foreground">Aguardando 1ª compra</span>
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <span className="size-1.5 rounded-full bg-amber-400/80 animate-pulse" /> Aguardando 1ª compra
+                        </span>
                       )}
                     </div>
 
@@ -761,9 +894,10 @@ export function ConversionsView() {
                       type="button"
                       onClick={() => handleTestGateway(gw)}
                       disabled={testingGwId === gw.id}
-                      className="font-medium text-brand-cyan hover:underline disabled:opacity-50 shrink-0"
+                      className="flex items-center gap-1 rounded-lg border border-border/70 bg-secondary/40 px-2 py-1 text-[11px] font-semibold text-brand-cyan hover:bg-secondary transition-all disabled:opacity-50 shrink-0"
                       title="Dispara uma compra simulada para confirmar a integração"
                     >
+                      <Zap className="size-3 text-amber-400" />
                       {testingGwId === gw.id ? 'Simulando…' : 'Simular Venda'}
                     </button>
                   </div>
@@ -775,16 +909,16 @@ export function ConversionsView() {
       </GlassCard>
 
       {/* ── PASSO 3: CÓDIGO NO SITE ── */}
-      <GlassCard variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5">
+      <GlassCard id="secao-codigo" variant="thick" className="flex flex-col gap-4 rounded-2xl border border-border/70 p-5 scroll-mt-20">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border/40 pb-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-6 items-center justify-center rounded-full bg-blue-500/20 text-xs font-bold text-blue-400">
+            <span className="flex size-7 items-center justify-center rounded-xl bg-blue-500/20 text-xs font-bold text-blue-400 border border-blue-500/30">
               3
             </span>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Instalar no site</h2>
-              <span className="rounded-full bg-brand-cyan/10 px-2 py-0.5 text-[11px] font-medium text-brand-cyan">
-                Apenas 1 Linha
+              <h2 className="text-sm font-bold text-foreground">Instalar no Site (Rastreamento Automático)</h2>
+              <span className="rounded-full bg-brand-cyan/10 px-2 py-0.5 text-[11px] font-semibold text-brand-cyan">
+                1 Linha no &lt;head&gt;
               </span>
             </div>
           </div>
@@ -806,19 +940,19 @@ export function ConversionsView() {
               : activeSnippetPixel.scriptTag || ''
 
             return (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3.5">
                 {/* Seletor de Pixel caso haja mais de 1 */}
                 {pixels.length > 1 && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Selecionar Pixel:</span>
+                    <span className="text-xs text-muted-foreground font-medium">Selecionar Pixel:</span>
                     {pixels.map((p) => (
                       <button
                         key={p.slug}
                         type="button"
                         onClick={() => setSelectedSnippetSlug(p.slug)}
-                        className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+                        className={`rounded-lg px-3 py-1 text-xs font-medium transition-all ${
                           activeSnippetPixel.slug === p.slug
-                            ? 'bg-foreground text-background font-semibold'
+                            ? 'bg-foreground text-background font-bold shadow-sm'
                             : 'bg-secondary/40 text-muted-foreground hover:text-foreground'
                         }`}
                       >
@@ -828,37 +962,80 @@ export function ConversionsView() {
                   </div>
                 )}
 
-                {/* Bloco de Código com Cópia Rápida */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 rounded-xl border border-border/80 bg-black/60 p-3.5">
-                  <span className="font-mono text-xs text-brand-cyan select-all break-all">
-                    {scriptTag}
-                  </span>
+                {/* Bloco de Código estilo Terminal com Cópia Rápida */}
+                <div className="flex flex-col rounded-2xl border border-white/10 bg-black/70 overflow-hidden shadow-lg">
+                  <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] px-4 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="size-2.5 rounded-full bg-rose-500/80" />
+                      <span className="size-2.5 rounded-full bg-amber-500/80" />
+                      <span className="size-2.5 rounded-full bg-emerald-500/80" />
+                      <span className="ml-2 font-mono text-[11px] text-muted-foreground">
+                        snippet-rastreamento.html
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-muted-foreground/60">
+                      HTML Head
+                    </span>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => copyText(scriptTag, 'step3-snippet', 'Código copiado!')}
-                    className="flex items-center justify-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-xs font-bold text-background hover:opacity-90 transition-all shrink-0"
-                  >
-                    {copiedId === 'step3-snippet' ? (
-                      <>
-                        <Check className="size-3.5 stroke-[3]" />
-                        <span>Copiado!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="size-3.5" />
-                        <span>Copiar Código</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4">
+                    <span className="font-mono text-xs text-brand-cyan select-all break-all leading-relaxed">
+                      {scriptTag}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => copyText(scriptTag, 'step3-snippet', 'Código copiado!')}
+                      className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-cyan px-4 py-2 text-xs font-bold text-black hover:opacity-95 transition-all shrink-0 shadow-[0_0_16px_rgba(34,211,238,0.3)]"
+                    >
+                      {copiedId === 'step3-snippet' ? (
+                        <>
+                          <Check className="size-3.5 stroke-[3]" />
+                          <span>Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3.5" />
+                          <span>Copiar Código</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Instruções Rápidas */}
-                <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-secondary/20 p-3 text-xs text-muted-foreground">
-                  <Sparkles className="size-4 text-brand-cyan shrink-0 mt-0.5" />
-                  <p className="leading-relaxed">
-                    Cole esta linha dentro da tag <code className="rounded bg-secondary/80 px-1 py-0.5 text-foreground font-mono">&lt;head&gt;</code> da sua página de vendas. Visitas, cliques em botões e compras serão rastreados automaticamente.
-                  </p>
+                {/* Grid com os 4 Benefícios do Rastreamento */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+                  <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-secondary/20 p-2.5 text-xs">
+                    <ShieldCheck className="size-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground text-[11px]">100% Server-Side</span>
+                      <span className="text-[10px] text-muted-foreground">Bypassa adblockers e iOS 14+</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-secondary/20 p-2.5 text-xs">
+                    <Target className="size-4 text-brand-cyan shrink-0 mt-0.5" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground text-[11px]">Deduplicação Total</span>
+                      <span className="text-[10px] text-muted-foreground">Nunca duplica vendas no TikTok</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-secondary/20 p-2.5 text-xs">
+                    <Zap className="size-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground text-[11px]">Cliques em Checkout</span>
+                      <span className="text-[10px] text-muted-foreground">Dispara InitiateCheckout auto</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-secondary/20 p-2.5 text-xs">
+                    <Sparkles className="size-4 text-blue-400 shrink-0 mt-0.5" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground text-[11px]">Cookies & ttclid</span>
+                      <span className="text-[10px] text-muted-foreground">Atribuição perfeita em 1 clique</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )
@@ -871,24 +1048,29 @@ export function ConversionsView() {
         <button
           type="button"
           onClick={() => setShowLog((v) => !v)}
-          className="flex items-center justify-between w-full text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors py-1.5"
+          className="flex items-center justify-between w-full text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors py-2 px-2 rounded-xl hover:bg-secondary/30"
         >
           <span className="flex items-center gap-2">
-            <Clock className="size-3.5 text-brand-cyan" />
-            Últimas Vendas Recebidas
+            <Clock className="size-4 text-brand-cyan" />
+            <span className="text-sm font-bold text-foreground">Registro de Conversões em Tempo Real</span>
+            {convLog?.log && convLog.log.length > 0 && (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                {convLog.log.length}
+              </span>
+            )}
           </span>
           {showLog ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
         </button>
 
         {showLog && (
-          <div className="mt-2.5 rounded-xl border border-border/70 bg-secondary/15 p-3.5">
+          <div className="mt-2.5 rounded-2xl border border-border/70 bg-card/60 p-4 shadow-sm">
             {!convLog?.log || convLog.log.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-3">
-                Nenhuma venda registrada ainda.
+              <p className="text-xs text-muted-foreground text-center py-4">
+                Nenhuma venda registrada ainda. Use o botão <strong>Simular Venda</strong> acima para testar o fluxo!
               </p>
             ) : (
-              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto">
-                {convLog.log.slice(0, 15).map((row, idx) => {
+              <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+                {convLog.log.slice(0, 20).map((row, idx) => {
                   const isErr =
                     row.status === 'erro' ||
                     row.status === 'falhou' ||
@@ -901,7 +1083,7 @@ export function ConversionsView() {
                   return (
                     <div
                       key={row.id || idx}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs py-1.5 px-2 rounded-md border border-border/30 bg-secondary/20 hover:bg-secondary/40 transition-colors"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs py-2 px-3 rounded-xl border border-border/40 bg-secondary/20 hover:bg-secondary/40 transition-colors"
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         <span
@@ -909,33 +1091,34 @@ export function ConversionsView() {
                             isErr ? 'status-dot--err status-dot--pulse' : 'status-dot--ok'
                           }`}
                         />
-                        <span className="font-semibold text-foreground">
-                          {row.event === 'Purchase' || !row.event ? 'Compra Confirmada' : row.event}
+                        <span className="font-bold text-foreground">
+                          {row.event === 'Purchase' || !row.event ? 'Compra Aprovada' : row.event}
                         </span>
-                        <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                        <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
                           {row.gateway || 'Checkout'}
                         </span>
                         {row.orderId && (
-                          <span className="font-mono text-[10px] text-muted-foreground">
+                          <span className="font-mono text-[10px] text-muted-foreground bg-black/30 px-1.5 py-0.5 rounded border border-white/5">
                             #{row.orderId}
                           </span>
                         )}
                         {amountVal != null && (
-                          <span className="font-mono font-medium text-brand-cyan">
+                          <span className="font-mono font-bold text-brand-cyan">
                             {formatRowAmount(amountVal)}
                           </span>
                         )}
                         <span
                           title="Sincronização de conversão direta com o servidor do TikTok (CAPI)"
-                          className={`rounded px-1.5 py-0.2 text-[10px] font-medium cursor-help ${
-                            isErr ? 'bg-destructive/15 text-destructive' : 'bg-emerald-500/10 text-emerald-400'
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold cursor-help ${
+                            isErr ? 'bg-destructive/15 text-destructive border border-destructive/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                           }`}
                         >
-                          {isErr ? 'TikTok: Falha' : 'TikTok: Enviado'}
+                          <ShieldCheck className="size-3" />
+                          {isErr ? 'TikTok: Falha' : 'TikTok: Sincronizado'}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground shrink-0">
                         <span>{eventDate ? timeAgo(String(eventDate)) : 'recentemente'}</span>
                       </div>
                     </div>

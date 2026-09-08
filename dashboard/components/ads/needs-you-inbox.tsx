@@ -26,7 +26,7 @@ const ACTION_META: Record<string, { label: string; Icon: typeof Pause }> = {
   budget_down: { label: 'Reduzir orçamento', Icon: TrendingDown },
 }
 
-function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => void }) {
+function ProposalRow({ p, onDecided, index }: { p: AdsRuleProposal; onDecided: () => void; index?: number }) {
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const meta = ACTION_META[p.action] ?? { label: p.action, Icon: CircleAlert }
 
@@ -48,7 +48,10 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
   }
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5">
+    <li
+      className="stagger-fade flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5"
+      style={index !== undefined ? ({ '--i': Math.min(index, 10), '--stagger-index': Math.min(index, 10) } as React.CSSProperties) : undefined}
+    >
       <div className="flex min-w-0 items-center gap-2.5">
         <meta.Icon className="size-4 shrink-0 text-warning" aria-hidden="true" />
         <div className="min-w-0">
@@ -171,9 +174,9 @@ export function NeedsYouInbox({
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
             O robô sugere {pending.length === 1 ? 'esta ação' : 'estas ações'} — nada acontece sem o seu OK.
           </p>
-          <ul className="flex flex-col divide-y divide-border/60">
-            {pending.map((p) => (
-              <ProposalRow key={p.id} p={p} onDecided={() => mutate()} />
+          <ul className="flex flex-col divide-y divide-border/60 stagger-fade">
+            {pending.map((p, idx) => (
+              <ProposalRow key={p.id} p={p} onDecided={() => mutate()} index={idx} />
             ))}
           </ul>
         </>

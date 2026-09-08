@@ -66,6 +66,7 @@ export function UniversalLauncherDialog({
   // 2 Campos Essenciais
   const [linkUrl, setLinkUrl] = useState('')
   const [budget, setBudget] = useState(String(Math.max(TIKTOK_MIN_BUDGET, 60)))
+  const [isDragging, setIsDragging] = useState(false)
 
   // Opções Avançadas (recolhidas por padrão)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -354,15 +355,39 @@ export function UniversalLauncherDialog({
           </button>
         </div>
 
+        {/* Seletor Rápido de Formato */}
+        {!jobId && (onSmartPlus || onSpark) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/30 bg-secondary/15 px-5 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Formato:</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-3 py-1 text-xs font-semibold text-primary">
+              <Rocket className="size-3" />
+              Direta (CBO / Conversão)
+            </span>
+            {onSmartPlus && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                onClick={onSmartPlus}
+              >
+                <Sparkles className="size-3 text-cyan-400" />
+                Smart+ IA
+              </button>
+            )}
+            {onSpark && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                onClick={onSpark}
+              >
+                <Play className="size-3 text-emerald-400" />
+                Spark Ads (Post)
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Corpo do Modal */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 space-y-5">
-          {!items.length && !jobId && (onSmartPlus || onSpark) && <details className="rounded-xl border border-border p-3 text-xs">
-            <summary className="cursor-pointer text-muted-foreground">Outros formatos</summary>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {onSmartPlus && <button type="button" className="btn-secondary justify-start text-xs" onClick={onSmartPlus}>Smart+ · otimização automática</button>}
-              {onSpark && <button type="button" className="btn-secondary justify-start text-xs" onClick={onSpark}>Spark · usar publicação</button>}
-            </div>
-          </details>}
           {/* Se houver job em andamento (Modo progresso do lote) */}
           {jobId && job ? (
             <div className="space-y-4 rounded-xl border border-border/50 bg-secondary/15 p-4">
@@ -431,17 +456,33 @@ export function UniversalLauncherDialog({
 
                 {/* Dropzone */}
                 <div
-                  className="group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-secondary/10 p-5 text-center transition-colors hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
+                  className={`group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
+                    isDragging
+                      ? 'border-primary bg-primary/15 shadow-[0_0_25px_rgba(37,244,238,0.25)] scale-[1.01]'
+                      : 'border-border/60 bg-secondary/10 hover:border-primary/40 hover:bg-primary/5'
+                  }`}
                   role="button" tabIndex={0} aria-label="Adicionar vídeos"
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
                   onClick={() => fileInputRef.current?.click()}
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setIsDragging(true)
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDragging(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsDragging(false)
                   }}
                   onDrop={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setIsDragging(false)
                     if (e.dataTransfer.files) handleFiles(e.dataTransfer.files)
                   }}
                 >
@@ -477,31 +518,50 @@ export function UniversalLauncherDialog({
                         <span className="text-primary font-semibold">Uma campanha por vídeo</span>
                       )}
                     </div>
-                    <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
-                      {items.map((it) => (
+                    <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                      {items.map((it, idx) => (
                         <div
                           key={it.key}
-                          className="flex items-center justify-between rounded-lg border border-border/40 bg-secondary/20 px-3 py-2 text-xs"
+                          className="flex flex-col gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs"
                         >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            {it.uploading ? (
-                              <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-                            ) : (
-                              <Play className="size-3.5 shrink-0 text-success" />
-                            )}
-                            <span className="truncate font-medium text-foreground">{it.name}</span>
-                            {it.sizeMb && (
-                              <span className="text-[10px] text-muted-foreground shrink-0">{it.sizeMb} MB</span>
-                            )}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {it.uploading ? (
+                                <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+                              ) : (
+                                <Play className="size-3.5 shrink-0 text-success" />
+                              )}
+                              <span className="truncate font-medium text-foreground">{it.fileName || it.name}</span>
+                              {it.sizeMb && (
+                                <span className="text-[10px] text-muted-foreground shrink-0 font-mono">({it.sizeMb} MB)</span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className="btn-ghost p-1 text-muted-foreground hover:text-error shrink-0"
+                              onClick={() => removeItem(it.key)}
+                              aria-label="Remover vídeo"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            className="btn-ghost p-1 text-muted-foreground hover:text-error shrink-0"
-                            onClick={() => removeItem(it.key)}
-                            aria-label="Remover vídeo"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
+                          {items.length === 1 && (
+                            <div className="border-t border-border/30 pt-2">
+                              <label className="block text-[10px] uppercase font-semibold tracking-wider text-muted-foreground mb-1">
+                                Nome da campanha no TikTok
+                              </label>
+                              <input
+                                type="text"
+                                value={it.name}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setItems(prev => prev.map((item, i) => i === idx ? { ...item, name: val } : item))
+                                }}
+                                placeholder="Nome da campanha"
+                                className="input-neon w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+                              />
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -513,9 +573,11 @@ export function UniversalLauncherDialog({
 
               {/* 2. DESTINO (PÁGINA DE VENDAS) */}
               <div>
-                <label htmlFor="launcher-link" className="block text-xs font-semibold text-foreground mb-1.5">
-                  2. Página de vendas
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="launcher-link" className="text-xs font-semibold text-foreground">
+                    2. Página de vendas
+                  </label>
+                </div>
                 <div className="relative">
                   <LinkIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <input
@@ -524,11 +586,36 @@ export function UniversalLauncherDialog({
                     value={linkUrl}
                     onChange={(e) => setLinkUrl(e.target.value)}
                     placeholder="https://meusite.com/produto"
-                    className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground"
+                    className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-14 text-xs text-foreground placeholder:text-muted-foreground"
                   />
+                  {!linkUrl ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText()
+                          if (text) setLinkUrl(text.trim())
+                        } catch {
+                          // ignore clipboard permission error
+                        }
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-secondary/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Colar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setLinkUrl('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      aria-label="Limpar link"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Para onde o usuário vai ao clicar no anúncio.
+                  Para onde o visitante vai ao clicar no anúncio.
                 </p>
               </div>
 
@@ -555,7 +642,7 @@ export function UniversalLauncherDialog({
                       className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-3 text-xs font-mono font-semibold text-foreground"
                     />
                   </div>
-                  {/* Atalhos Rápidos */}
+                  {/* Atalhos Rápidos com Moeda Formatada */}
                   <div className="flex items-center gap-1.5">
                     {[60, 100, 150, 200].map((val) => (
                       <button
@@ -564,11 +651,11 @@ export function UniversalLauncherDialog({
                         onClick={() => setBudget(String(val))}
                         className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                           budget === String(val)
-                            ? 'border-primary/40 bg-primary/15 text-primary'
-                            : 'border-border/50 bg-secondary/20 text-muted-foreground hover:text-foreground'
+                            ? 'border-primary/50 bg-primary/20 text-primary font-semibold shadow-xs'
+                            : 'border-border/50 bg-secondary/30 text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        {val}
+                        {fmtSpend(val, currency)}
                       </button>
                     ))}
                   </div>

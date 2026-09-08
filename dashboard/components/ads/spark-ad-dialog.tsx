@@ -10,7 +10,7 @@ import { DialogPortal } from '@/components/ui/dialog-portal'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { X, Zap, Loader2, RefreshCw } from 'lucide-react'
+import { X, Zap, Loader2, RefreshCw, ClipboardPaste } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { GlassCard } from '@/components/glass-card'
@@ -159,11 +159,19 @@ export function SparkAdDialog({
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Usar publicação · Spark" tabIndex={-1} className="w-full max-w-md outline-none">
         <GlassCard className="anim-pop-in flex max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-y-auto overscroll-contain p-5">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Zap className="size-4 text-primary" aria-hidden="true" />
-              Usar publicação · Spark
-            </h2>
+          <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-[#25f4ee]/15 text-[#25f4ee] shadow-sm">
+                <Zap className="size-4" aria-hidden="true" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  Usar publicação · Spark Ad
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">TikTok Nativo</span>
+                </h2>
+                <p className="text-[11px] text-muted-foreground">Impulsione um post orgânico autorizado como anúncio de conversão</p>
+              </div>
+            </div>
             <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={submitting} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />
             </button>
@@ -296,6 +304,22 @@ export function SparkAdDialog({
                 onChange={(e) => setBudget(e.target.value)}
                 placeholder="50,00"
               />
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {[50, 100, 200, 500].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setBudget(String(val))}
+                    className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all ${
+                      Number(budget) === val
+                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                    }`}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
               <span className="text-[10px] text-muted-foreground">Mínimo: {currency} {TIKTOK_MIN_BUDGET}.</span>
             </label>
             <label className="flex flex-col gap-1.5">
@@ -325,7 +349,29 @@ export function SparkAdDialog({
           )}
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-foreground">Página de destino</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground">Página de destino</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText()
+                    if (text && /^https?:\/\//i.test(text.trim())) {
+                      setLinkUrl(text.trim())
+                      toast.success('Link colado da área de transferência')
+                    } else {
+                      toast.info('Nenhuma URL válida copiada')
+                    }
+                  } catch {
+                    toast.error('Permissão negada para ler área de transferência')
+                  }
+                }}
+                className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+              >
+                <ClipboardPaste className="size-3" aria-hidden="true" />
+                Colar do clipboard
+              </button>
+            </div>
             <input
               className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
               value={linkUrl}

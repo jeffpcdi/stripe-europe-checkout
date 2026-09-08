@@ -261,9 +261,13 @@ export function TikTokAdsView() {
     return (
       <div className="flex flex-col gap-5">
         <Skeleton className="h-24 rounded-2xl" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 stagger-fade">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-2xl" />
+            <Skeleton
+              key={i}
+              className="h-24 rounded-2xl stagger-fade"
+              style={{ '--i': i, '--stagger-index': i } as React.CSSProperties}
+            />
           ))}
         </div>
         <Skeleton className="h-64 rounded-2xl" />
@@ -475,6 +479,14 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" className="space-y-4 outline-none">
+              <NeedsYouInbox
+                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                onOpenOps={() => openOps()}
+                onOpenHealth={() => setHealthOpen(true)}
+                onGoAutomations={() => changeTab('automation')}
+              />
               <KpiRow
                 kpi={treeKpi}
                 currency={currency}

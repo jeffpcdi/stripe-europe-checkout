@@ -235,6 +235,22 @@ export function DuplicatePanel({
                 value={count}
                 onChange={(e) => setCount(e.target.value)}
               />
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                {[1, 2, 3, 5, 10].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setCount(String(num))}
+                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                      Number(count) === num
+                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                    }`}
+                  >
+                    {num}x
+                  </button>
+                ))}
+              </div>
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-foreground">Sufixo do nome</span>
@@ -245,6 +261,10 @@ export function DuplicatePanel({
                 onChange={(e) => setSuffix(e.target.value)}
                 placeholder=" (cópia)"
               />
+              <span className="truncate text-[10px] text-muted-foreground">
+                Ex.: {(campaign.campaignName || campaign.platformCampaignId).slice(0, 20)}
+                {suffix} {mode === 'variations' ? '1' : ''}
+              </span>
             </label>
           </div>
 
@@ -283,6 +303,22 @@ export function DuplicatePanel({
                   onChange={(e) => setVarBudget(e.target.value)}
                   placeholder="Mantém o original"
                 />
+                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                  {[50, 100, 200].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setVarBudget(String(val))}
+                      className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                        Number(varBudget) === val
+                          ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                          : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                      }`}
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
               </label>
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-foreground">Texto do anúncio (opcional)</span>

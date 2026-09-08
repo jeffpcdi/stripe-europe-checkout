@@ -267,6 +267,7 @@ export function CampaignTree({
   // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
   const [query, setQuery] = useState('')
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
+  const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
 
@@ -443,6 +444,24 @@ export function CampaignTree({
   const campaigns = tree?.campaigns ?? []
   const pagination = tree?.pagination
 
+  // Contagem em tempo real de campanhas por status na conta
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      active: 0,
+      paused: 0,
+      pending_review: 0,
+      rejected: 0,
+      all: campaigns.length,
+    }
+    for (const c of campaigns) {
+      if (c.status === 'active') counts.active++
+      else if (c.status === 'paused') counts.paused++
+      else if (c.status === 'pending_review') counts.pending_review++
+      else if (c.status === 'rejected' || c.status === 'error') counts.rejected++
+    }
+    return counts
+  }, [campaigns])
+
   // Aplica busca + "só com gasto" sobre a lista carregada
   const q = normalizeSearch(query.trim())
   const natural = parseNaturalCampaignFilter(query)
@@ -460,6 +479,12 @@ export function CampaignTree({
     const sales = Number(attr?.sales) || 0
     const roas = spend > 0 ? (Number(attr?.revenueCents) || 0) / 100 / spend : 0
     const ctr = Number(c.metrics?.ctr) || 0
+
+    // Filtros rápidos
+    if (quickFilter === 'with_sales' && sales <= 0) return false
+    if (quickFilter === 'high_roas' && roas < 2.0) return false
+    if (quickFilter === 'no_sales' && (sales > 0 || spend <= 0)) return false
+
     if (natural.spendAbove != null && !(spend > natural.spendAbove)) return false
     if (natural.spendBelow != null && !(spend < natural.spendBelow)) return false
     if (natural.roasAbove != null && !(roas > natural.roasAbove)) return false
@@ -553,16 +578,19 @@ export function CampaignTree({
   })
 
   // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
-  function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
+  function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, index?: number) {
     return (
-      <p className="flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+      <p
+        className="stagger-fade flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+        style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
+      >
         {(GROUP_LABELS[row.groupIdx] ?? 'Outras') + ` (${row.count})`}
       </p>
     )
   }
 
   // Uma linha de campanha (compacta ~40px) + bloco expandido (grupos/anúncios).
-  function renderCampaignRow(c: AdsTreeCampaign) {
+  function renderCampaignRow(c: AdsTreeCampaign, index?: number) {
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
@@ -600,7 +628,13 @@ export function CampaignTree({
 
     return (
       <div className="campaign-row-wrap">
-        <article className="campaign-operation-card" data-error={isError} data-selected={selected.has(id)} aria-label={c.campaignName || id}>
+        <article
+          className="campaign-operation-card stagger-fade"
+          style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
+          data-error={isError}
+          data-selected={selected.has(id)}
+          aria-label={c.campaignName || id}
+        >
           <div className="campaign-operation-heading">
             <input type="checkbox" checked={selected.has(id)} onChange={() => toggleSelect(id)} disabled={Boolean(busyId) || bulkBusy} aria-label={`Selecionar campanha ${c.campaignName || id}`} />
             <div className="campaign-operation-identity">
@@ -621,7 +655,7 @@ export function CampaignTree({
             </div>
           </div>
           {detailedError && <p className="campaign-operation-error"><AlertTriangle size={14} aria-hidden="true" />{detailedError}</p>}
-          <CampaignMetricGrid campaign={c} currency={currency} />
+          <CampaignMetricGrid campaign={c} currency={currency} attribution={attribution?.[id] || attribution?.[c.platformCampaignId]} />
           <button type="button" className="campaign-expand-action" onClick={() => toggle(id)} aria-expanded={isOpen} aria-controls={`campaign-details-${id}`}>
             <Layers size={14} aria-hidden="true" />{c.adSetCount ?? c.adSets?.length ?? 0} {(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? 'conjunto' : 'conjuntos'} · {c.adCount ?? 0} {c.adCount === 1 ? 'anúncio' : 'anúncios'}
             <span>{isOpen ? 'Recolher' : 'Ver conjuntos e anúncios'}</span><ChevronRight size={15} className={isOpen ? 'rotate-90' : ''} aria-hidden="true" />
@@ -689,7 +723,7 @@ export function CampaignTree({
                       />
                     )}
                   </div>
-                  <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-fade">
                     {(s.ads ?? []).map((ad, ai) => {
                       const adKey = ad.platformAdId || ad._id || String(ai)
                       return (
@@ -697,7 +731,8 @@ export function CampaignTree({
                           key={adKey}
                           onMouseEnter={() => setHoveredVideo(String(adKey))}
                           onMouseLeave={() => setHoveredVideo(null)}
-                          className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background"
+                          className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background stagger-fade"
+                          style={{ '--i': Math.min(ai, 15), '--stagger-index': Math.min(ai, 15) } as React.CSSProperties}
                         >
                           {(ad.creative?.imageUrl || /^https:\/\//i.test(ad.creative?.videoUrl || '')) && (
                             <div className="relative aspect-video overflow-hidden rounded-lg border border-border/50 bg-black">
@@ -805,8 +840,8 @@ export function CampaignTree({
     )
   }
 
-  function renderFlatRow(row: FlatRow) {
-    return row.kind === 'group' ? renderGroupHeader(row) : renderCampaignRow(row.c)
+  function renderFlatRow(row: FlatRow, index?: number) {
+    return row.kind === 'group' ? renderGroupHeader(row, index) : renderCampaignRow(row.c, index)
   }
 
   return (
@@ -814,10 +849,119 @@ export function CampaignTree({
       <div className="campaign-toolbar">
         <div className="campaign-toolbar-title"><div><h2>Suas campanhas</h2><p>Métricas do TikTok no período selecionado</p></div><span>{visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}</span></div>
         <div className="campaign-status-filters" role="group" aria-label="Filtrar por status">
-          {STATUS_FILTERS.map(filter => <button key={filter.value} type="button" onClick={() => onStatusFilter(filter.value)} aria-pressed={statusFilter === filter.value}>{filter.label}</button>)}
+          {STATUS_FILTERS.map(filter => {
+            const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
+            const isSelected = statusFilter === filter.value
+            return (
+              <button
+                key={filter.value}
+                type="button"
+                onClick={() => onStatusFilter(filter.value)}
+                aria-pressed={isSelected}
+                className="inline-flex items-center gap-1.5"
+              >
+                <span>{filter.label}</span>
+                <span
+                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors ${
+                    isSelected ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
         </div>
-        <div className="campaign-search-row"><label className="campaign-search"><Search size={17} aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar pelo nome da campanha" aria-label="Buscar campanha" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca"><X size={15} /></button>}</label>
-          <button type="button" className="campaign-secondary-action" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters}><SlidersHorizontal size={16} />Mais filtros</button>
+        <div className="campaign-search-row">
+          <label className="campaign-search">
+            <Search size={17} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Buscar pelo nome da campanha"
+              aria-label="Buscar campanha"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca">
+                <X size={15} />
+              </button>
+            )}
+          </label>
+          <button
+            type="button"
+            className="campaign-secondary-action"
+            onClick={() => setShowFilters(!showFilters)}
+            aria-expanded={showFilters}
+          >
+            <SlidersHorizontal size={16} />
+            Mais filtros
+          </button>
+        </div>
+
+        {/* Atalhos Rápidos de Seleção e Desempenho */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1 px-1">
+          <span className="text-[11px] font-medium text-muted-foreground mr-0.5">Atalhos:</span>
+          <button
+            type="button"
+            onClick={() => setOnlyWithSpend(v => !v)}
+            aria-pressed={onlyWithSpend}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+              onlyWithSpend
+                ? 'border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs'
+                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            🔥 Com gasto
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter(curr => curr === 'with_sales' ? 'all' : 'with_sales')}
+            aria-pressed={quickFilter === 'with_sales'}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+              quickFilter === 'with_sales'
+                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-400 font-semibold shadow-xs'
+                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            💰 Com vendas
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter(curr => curr === 'high_roas' ? 'all' : 'high_roas')}
+            aria-pressed={quickFilter === 'high_roas'}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+              quickFilter === 'high_roas'
+                ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-400 font-semibold shadow-xs'
+                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            ⚡ ROAS &gt; 2×
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuickFilter(curr => curr === 'no_sales' ? 'all' : 'no_sales')}
+            aria-pressed={quickFilter === 'no_sales'}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
+              quickFilter === 'no_sales'
+                ? 'border-amber-500/50 bg-amber-500/15 text-amber-400 font-semibold shadow-xs'
+                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            ⚠️ Gastando sem venda
+          </button>
+          {(onlyWithSpend || quickFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setOnlyWithSpend(false)
+                setQuickFilter('all')
+              }}
+              className="ml-auto text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              Limpar atalhos
+            </button>
+          )}
         </div>
         {/* Menu de Filtros Adicionais (simples e direto) */}
         {showFilters && (
@@ -941,9 +1085,13 @@ export function CampaignTree({
 
       {/* Corpo: loading / erro / vazio / linhas */}
       {loading ? (
-        <div className="flex flex-col gap-2 p-4">
+        <div className="flex flex-col gap-2 p-4 stagger-fade">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-16 rounded-xl" />
+            <Skeleton
+              key={i}
+              className="h-16 rounded-xl stagger-fade"
+              style={{ '--i': i, '--stagger-index': i } as React.CSSProperties}
+            />
           ))}
         </div>
       ) : error ? (
@@ -1015,15 +1163,21 @@ export function CampaignTree({
                     ref={rowVirtualizer.measureElement}
                     style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
                   >
-                    {renderFlatRow(row)}
+                    {renderFlatRow(row, vi.index)}
                   </div>
                 )
               })}
             </div>
           ) : (
-            <div>
-              {flatRows.map((row) => (
-                <div key={row.key}>{renderFlatRow(row)}</div>
+            <div className="stagger-fade">
+              {flatRows.map((row, index) => (
+                <div
+                  key={row.key}
+                  className="stagger-fade"
+                  style={{ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties}
+                >
+                  {renderFlatRow(row, index)}
+                </div>
               ))}
             </div>
           )}

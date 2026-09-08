@@ -1207,3 +1207,23 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   `roi_action_feedback`. As configurações mostram relatório e bloqueio automático.
 - **Teste transversal:** `test/magic-features.test.js` cobre lucro, A/B, autocura sem aumento do total,
   anomalia, XML, bloqueio sem IP bruto e cifragem OAuth. Ele roda no `pretest` antes da suíte completa.
+
+## 21. Refinamento de UX de Catálogos e Automações (2026-09-07)
+
+- **Consolidação da aba Catálogo (`catalog-detail.tsx`, `catalog-list.tsx`):**
+  - Substituição de múltiplos cartões fragmentados por um **Card de Status de Saúde** unificado (Produtos Ativos / Sincronizados no TikTok / Pendentes com Erros).
+  - Ações rápidas em destaque: **Sincronizar Feed** e **Criar Campanhas em Massa** (`CatalogQuickCampaignsDialog`).
+  - Importação expressa de produtos por URL em `catalog-list.tsx` e `catalog-detail.tsx`.
+  - Gestão direta de produtos com tabela limpa, reordenação drag-and-drop, duplicação e correção automática de erros por IA.
+  - Seções de readiness, conexão BC, auditoria e histórico de publicações consolidadas em painel recolhível de diagnóstico.
+- **Reestruturação da aba Automações (`pilots-panel.tsx`, `automation-panel.tsx`):**
+  - Unificação em **3 cartões objetivos**:
+    1. *Piloto Automático Principal:* seletor de autonomia (Avisar / Propor / 100% Autônomo), status ao vivo e atalho para Teto de Ações & Segurança.
+    2. *Regras de Proteção:* stop-loss contra desperdício (pausar ao gastar sem venda, teto de CPA, teto de CPC) com seletor de intensidade.
+    3. *Regras de Escala:* aumento inteligente de orçamento (+% de escala, gatilho de ROAS mínimo e teto diário de segurança).
+  - Regra de horários de funcionamento (dayparting) em cartão recolhível opcional.
+  - Padronização de tipografia e contraste usando classes utilitárias `.text-muted` e `.text-faint`.
+- **Filtro de Campanhas (`campaign-tree.tsx`):** adição do filtro de status "Validadas" (`approved`).
+- **Resiliência e Banco:**
+  - `ads-cache-store.js`, `ads-catalog-store.js`, `ads-ops-store.js` e `cloud-video-sync.js` detectam connection strings placeholder em `DATABASE_URL` (`USER:PASSWORD@HOST`, etc.) e ativam fallback gracefully.
+  - `mock-db.js`: suporte aprimorado a `insertNotification` com deduplicação por chave (5 min) e filtragem multi-tenant por `account_id`.

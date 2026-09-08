@@ -3171,16 +3171,16 @@ function globeEntrance(g){
     setTimeout(function(){ g.pointOfView({lat:24,lng:-12,altitude:1.95},1350); },90);
   }catch(_){}
 }
-// Cor da marcação conforme intensidade (paleta light): frio (ciano) → médio (azul) → quente (rosa marca)
+// Cor da marcação conforme intensidade (alto contraste): ouro solar → laranja elétrico → vermelho TikTok
 function heatColor(sz){
   if(sz>=.75) return '#fe2c55';
-  if(sz>=.45) return '#2f7dff';
-  return '#06b6d4';
+  if(sz>=.45) return '#ff8c00';
+  return '#ffb703';
 }
 function heatRGBA(sz,a){
   if(sz>=.75) return 'rgba(254,44,85,'+a+')';
-  if(sz>=.45) return 'rgba(47,125,255,'+a+')';
-  return 'rgba(6,182,212,'+a+')';
+  if(sz>=.45) return 'rgba(255,140,0,'+a+')';
+  return 'rgba(255,183,3,'+a+')';
 }
 // ── Zoom programático (botões + e −) ──
 function globeZoom(factor){
@@ -3491,8 +3491,8 @@ function renderLiveGlobe(){
     try{
       if(!liveGlobe){
         liveGlobe=makeGlobe(el,520);
-        liveGlobe.pointAltitude(function(d){return 0.01+d.size*0.08;})
-          .pointRadius(function(d){return 0.22+d.size*0.35;})
+        liveGlobe.pointAltitude(function(d){return 0.025+d.size*0.06;})
+          .pointRadius(function(d){return 0.5+d.size*0.45;})
           .pointColor(function(d){return heatColor(d.size);})
           .pointLabel(function(d){
             var c=heatColor(d.size);

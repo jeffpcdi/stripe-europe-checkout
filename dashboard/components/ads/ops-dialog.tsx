@@ -350,7 +350,23 @@ export function OpsDialog({
                     placeholder="Sem limite"
                     aria-label="Teto de gasto diário"
                   />
-                  <span className="text-[11px] text-muted-foreground">Vazio = sem teto</span>
+                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                    {[500, 1000, 2000, 5000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => patch({ dailySpendCap: val })}
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                          draft.dailySpendCap === val
+                            ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                            : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                        }`}
+                      >
+                        {val}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">Vazio = sem teto</span>
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Mudança máx. de orçamento (%)</span>
@@ -363,7 +379,23 @@ export function OpsDialog({
                     onChange={(e) => patch({ maxBudgetChangePct: Number(e.target.value) || 20 })}
                     aria-label="Mudança máxima de orçamento em porcentagem"
                   />
-                  <span className="text-[11px] text-muted-foreground">Limite por ajuste automático</span>
+                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                    {[10, 20, 30, 50].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => patch({ maxBudgetChangePct: pct })}
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                          draft.maxBudgetChangePct === pct
+                            ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                            : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">Limite por ajuste automático</span>
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Máx. de ações/hora</span>

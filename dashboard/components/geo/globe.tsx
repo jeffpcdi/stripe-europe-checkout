@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
-import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause } from 'lucide-react'
+import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap } from 'lucide-react'
 import { useReducedMotion } from '@/lib/motion'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 import { countryName } from '@/lib/countries'
+import { countryFlag } from '@/lib/format'
 
 interface Country { code: string; name: string; count: number; purchased: number }
 interface GlobePanelProps {
@@ -14,6 +15,7 @@ interface GlobePanelProps {
   focusCode?: string | null
   pulseCodes?: string[]
   focusRevision?: number
+  onSimulateLead?: () => void
   children?: ReactNode
 }
 
@@ -24,12 +26,12 @@ const SPIN = 0.3
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
 
 /** Um único canvas; presença vem exclusivamente do snapshot ao vivo validado pelo pai. */
-export default function GlobePanel({ countries, focusCode, focusRevision, pulseCodes = [], children }: GlobePanelProps) {
+export default function GlobePanel({ countries, focusCode, focusRevision, pulseCodes = [], onSimulateLead, children }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [ready, setReady] = useState(false)
-  const material = useMemo(() => new THREE.MeshPhongMaterial({ shininess: 8, specular: '#4b7184' }), [])
+  const material = useMemo(() => new THREE.MeshPhongMaterial({ shininess: 20, specular: '#1d384d' }), [])
   useEffect(() => () => { material.map?.dispose(); material.bumpMap?.dispose(); material.dispose() }, [material])
   const [paused, setPaused] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -43,14 +45,177 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   const dragging = useRef(false)
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const points = useMemo(() => countries.flatMap(country => {
-    const coords = COUNTRY_COORDS[country.code]
-    if (!coords || country.count <= 0) return []
-    const name = countryName(country.code)
-    return [{ lat: coords[0], lng: coords[1], code: country.code,
-      label: `<div class="presence-tooltip"><strong>${escapeHtml(name)}</strong><span>${country.count} ${country.count === 1 ? 'visitante online' : 'visitantes online'}</span></div>` }]
-  }), [countries])
-  const rings = useMemo(() => reduced || paused ? [] : points.filter(point => pulseCodes.includes(point.code)), [points, pulseCodes, reduced, paused])
+  const maxCount = useMemo(() => {
+    return countries.reduce((max, c) => Math.max(max, c.count), 1)
+  }, [countries])
+
+  const onMarkerClick = useCallback((d: any) => {
+    if (!d?.code || !globeRef.current) return
+    const coords = COUNTRY_COORDS[d.code]
+    if (coords) {
+      globeRef.current.pointOfView({ lat: coords[0], lng: coords[1], altitude: ALT_DEFAULT }, reduced ? 0 : 700)
+    }
+  }, [reduced])
+
+  // Marcadores HTML elegantes e nítidos projetados no espaço 3D
+  // Substitui rótulos de texto cru e cilindros negros por badges glassmorphism com bandeiras e pulso vivo
+  const htmlMarkers = useMemo(() => {
+    const list: any[] = []
+    for (const country of countries) {
+      const coords = COUNTRY_COORDS[country.code]
+      if (!coords || country.count <= 0) continue
+      const isPulse = pulseCodes.includes(country.code)
+      list.push({
+        lat: coords[0],
+        lng: coords[1],
+        code: country.code,
+        name: countryName(country.code),
+        flag: countryFlag(country.code),
+        count: country.count,
+        isPulse,
+        altitude: 0.034,
+      })
+    }
+    return list
+  }, [countries, pulseCodes])
+
+  const createMarkerElement = useCallback((d: any) => {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'globe-marker-wrapper'
+
+    const content = document.createElement('div')
+    content.className = `globe-marker-content ${d.isPulse ? 'is-pulse' : ''}`
+    content.setAttribute('data-code', d.code)
+
+    // Sonar radar ondulatório
+    const sonar = document.createElement('div')
+    sonar.className = 'globe-marker-sonar'
+    content.appendChild(sonar)
+
+    // Haste de luz que conecta o terreno ao card flutuante
+    const stem = document.createElement('div')
+    stem.className = 'globe-marker-stem'
+    content.appendChild(stem)
+
+    // Card flutuante estilo Glassmorphism
+    const badge = document.createElement('div')
+    badge.className = 'globe-marker-badge'
+    badge.setAttribute('title', `${d.name} (${d.code}) • ${d.count} visitante(s) online agora`)
+
+    const flag = document.createElement('span')
+    flag.className = 'globe-marker-flag'
+    flag.textContent = d.flag || '🌐'
+    badge.appendChild(flag)
+
+    const code = document.createElement('span')
+    code.className = 'globe-marker-code'
+    code.textContent = d.code
+    badge.appendChild(code)
+
+    const count = document.createElement('span')
+    count.className = 'globe-marker-count'
+    count.textContent = String(d.count)
+    badge.appendChild(count)
+
+    if (d.isPulse) {
+      const tag = document.createElement('span')
+      tag.className = 'globe-marker-tag'
+      tag.textContent = '⚡ NOVO LEAD'
+      badge.appendChild(tag)
+    }
+
+    content.appendChild(badge)
+
+    // Clique centraliza a visualização
+    content.addEventListener('click', (e) => {
+      e.stopPropagation()
+      onMarkerClick({ code: d.code })
+    })
+
+    wrapper.appendChild(content)
+    return wrapper
+  }, [onMarkerClick])
+
+  // Pontos de luz rente ao solo do globo e anéis de sonar radar
+  const { points, rings } = useMemo(() => {
+    const pts: any[] = []
+    const rgs: any[] = []
+
+    for (const country of countries) {
+      const coords = COUNTRY_COORDS[country.code]
+      if (!coords || country.count <= 0) continue
+      const name = countryName(country.code)
+      const flag = countryFlag(country.code)
+      const isPulse = pulseCodes.includes(country.code)
+      const rel = Math.max(0.15, Math.min(1, country.count / maxCount))
+
+      let beaconColor = '#25f4ee'
+      let ringRgb = '37, 244, 238'
+      if (isPulse || rel >= 0.6 || country.count >= 4) {
+        beaconColor = '#fe2c55'
+        ringRgb = '254, 44, 85'
+      } else if (rel >= 0.3 || country.count >= 2) {
+        beaconColor = '#ff8800'
+        ringRgb = '255, 136, 0'
+      }
+
+      const tooltip = `<div class="presence-tooltip">
+        <div class="presence-tooltip-header">
+          <span class="presence-tooltip-flag">${flag}</span>
+          <strong>${escapeHtml(name)}</strong>
+          <span class="presence-tooltip-code">${country.code}</span>
+        </div>
+        <div class="presence-tooltip-stat">
+          <span class="presence-tooltip-dot" style="background:${beaconColor};box-shadow:0 0 12px ${beaconColor}"></span>
+          <span class="presence-tooltip-count" style="color:${beaconColor}">${country.count}</span>
+          <span class="presence-tooltip-label">${country.count === 1 ? 'visitante online agora' : 'visitantes online agora'}</span>
+        </div>
+        ${isPulse ? '<div class="presence-tooltip-lead-alert">⚡ NOVO LEAD DETECTADO</div>' : ''}
+      </div>`
+
+      // 1. Ponto luminoso no terreno (flat contra a curvatura, sem extrusão de cilindro negro)
+      pts.push({
+        lat: coords[0],
+        lng: coords[1],
+        code: country.code,
+        count: country.count,
+        altitude: 0.005,
+        radius: isPulse ? 1.4 : 0.85,
+        color: isPulse ? '#fe2c55' : beaconColor,
+        label: tooltip,
+      })
+
+      // 2. Núcleo branco puro de luminância máxima (hot core)
+      pts.push({
+        lat: coords[0],
+        lng: coords[1],
+        code: country.code,
+        count: country.count,
+        altitude: 0.008,
+        radius: isPulse ? 0.65 : 0.35,
+        color: '#ffffff',
+        label: tooltip,
+      })
+
+      // 3. Anéis de pulso de radar contínuos e de alta resolução
+      if (!reduced && !paused) {
+        rgs.push({
+          lat: coords[0],
+          lng: coords[1],
+          code: country.code,
+          ringColor: (t: number) => {
+            const alpha = Math.max(0, (1 - t) * (isPulse ? 0.98 : 0.78))
+            return isPulse ? `rgba(254, 44, 85, ${alpha})` : `rgba(${ringRgb}, ${alpha})`
+          },
+          ringMaxRadius: isPulse ? 9.2 : (3.6 + rel * 3.8),
+          ringPropagationSpeed: isPulse ? 3.4 : 1.45,
+          ringRepeatPeriod: isPulse ? 720 : 1450,
+        })
+      }
+    }
+
+    return { points: pts, rings: rgs }
+  }, [countries, maxCount, pulseCodes, reduced, paused])
 
   useEffect(() => {
     const el = containerRef.current
@@ -75,11 +240,13 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     controls.autoRotateSpeed = SPIN
     controls.autoRotate = !motion.current.reduced && !motion.current.paused
     globe.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
-    // Luz difusa preenche o lado oposto; evita continentes pretos durante a rotação.
-    const fill = new THREE.AmbientLight('#ffffff', 2.2)
-    const key = new THREE.DirectionalLight('#e7f6ff', 1.7)
+    // Luz ambiente calibrada para preservar alto contraste dos oceanos e continentes; rim light ciano na borda
+    const fill = new THREE.AmbientLight('#ffffff', 0.95)
+    const key = new THREE.DirectionalLight('#ffffff', 1.85)
     key.position.set(-120, 100, 180)
-    globe.lights([fill, key])
+    const rim = new THREE.DirectionalLight('#25f4ee', 0.85)
+    rim.position.set(120, -70, -140)
+    globe.lights([fill, key, rim])
     if (!cameraInitialized.current) {
       const coords = initialFocus.current ? COUNTRY_COORDS[initialFocus.current] : undefined
       globe.pointOfView({ lat: coords?.[0] ?? 8, lng: coords?.[1] ?? -48, altitude: ALT_DEFAULT }, 0)
@@ -165,13 +332,27 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"
           globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
           bumpImageUrl="/dashboard/textures/earth-topology.png"
-          showAtmosphere atmosphereColor="#6bcbe7" atmosphereAltitude={0.14}
-          pointsData={points} pointLat="lat" pointLng="lng" pointAltitude={0.002}
-          pointRadius={0.5} pointResolution={24} pointColor={() => '#6ffff5'} pointLabel="label"
+          showAtmosphere atmosphereColor="#25f4ee" atmosphereAltitude={0.18}
+          htmlElementsData={htmlMarkers}
+          htmlLat="lat"
+          htmlLng="lng"
+          htmlAltitude="altitude"
+          htmlElement={createMarkerElement}
+          htmlTransitionDuration={250}
+          pointsData={points} pointLat="lat" pointLng="lng"
+          pointAltitude={(d: any) => d.altitude}
+          pointRadius={(d: any) => d.radius}
+          pointResolution={36}
+          pointColor={(d: any) => d.color}
+          pointLabel="label"
           pointsTransitionDuration={0}
-          ringsData={rings} ringLat="lat" ringLng="lng" ringAltitude={0.003}
-          ringColor={() => (t: number) => `rgba(103,255,241,${(1 - t) * 0.7})`}
-          ringMaxRadius={3} ringPropagationSpeed={1.3} ringRepeatPeriod={0}
+          onPointClick={onMarkerClick}
+          ringsData={rings} ringLat="lat" ringLng="lng" ringAltitude={0.014}
+          ringColor={(d: any) => d.ringColor}
+          ringMaxRadius={(d: any) => d.ringMaxRadius}
+          ringPropagationSpeed={(d: any) => d.ringPropagationSpeed}
+          ringRepeatPeriod={(d: any) => d.ringRepeatPeriod}
+          ringResolution={64}
         />}
       </div>
       {!ready && <div className="presence-loading" role="status"><span />Preparando o globo…</div>}
@@ -185,6 +366,22 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
           aria-pressed={paused || reduced} aria-label={paused ? 'Retomar rotação automática' : 'Pausar rotação'} title={reduced ? 'Movimento reduzido ativado' : paused ? 'Retomar rotação' : 'Pausar rotação'}>
           {paused || reduced ? <Play size={15} /> : <Pause size={15} />}<span>{paused || reduced ? 'Pausado' : 'Girando'}</span>
         </button>
+        {onSimulateLead && (
+          <>
+            <span className="presence-control-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="presence-simulate-btn"
+              onClick={onSimulateLead}
+              disabled={!ready}
+              title="Simular entrada de lead para testar o efeito no globo"
+              aria-label="Simular entrada de lead"
+            >
+              <Zap size={14} className="text-[#fe2c55]" />
+              <span>Simular lead</span>
+            </button>
+          </>
+        )}
         {fullscreenSupported && <><span className="presence-control-divider" aria-hidden="true" /><button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-pressed={fullscreen}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></>}
       </div>
       {fullscreenError && <p className="presence-control-error" role="status">Tela cheia indisponível neste navegador.</p>}

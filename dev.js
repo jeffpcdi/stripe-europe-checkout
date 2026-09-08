@@ -70,4 +70,6 @@ start('Next.js', process.execPath, [nextBin, ...nextArgs], {
   cwd: dashboardDir,
   env: nextEnv,
 });
-start('Express', process.execPath, ['server.js']);
+start('Express', process.execPath, ['server.js'], {
+  env: { PORT: '3000' },
+});

@@ -364,15 +364,26 @@ export function OverviewView() {
         allPeriod={period === 'all'}
       />
 
-      <section className="overview-presence-layout" aria-label="Visitantes online e funil de vendas">
+      {/* ── SEÇÃO 2: GLOBO EM DESTAQUE TOTAL (LARGURA TOTAL) ───────────── */}
+      <section className="w-full" aria-label="Visitantes online em tempo real">
         <HeroGlobe focusCode={focusCountry} />
-        <div className="overview-journey-column">
-          <FunnelGauge visits={cur.visits} checkout={cur.reachedCheckout} payment={cur.paymentStarted} purchased={cur.purchased} />
-          <LiveFeed leads={data?.leads ?? []} />
-        </div>
       </section>
 
-      {/* ── SEÇÃO 3: MOSTRADORES DE DESEMPENHO E SAÚDE ──────────────────── */}
+      {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}
+      <section
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+        aria-label="Funil de vendas e atividade recente"
+      >
+        <FunnelGauge
+          visits={cur.visits}
+          checkout={cur.reachedCheckout}
+          payment={cur.paymentStarted}
+          purchased={cur.purchased}
+        />
+        <LiveFeed leads={data?.leads ?? []} />
+      </section>
+
+      {/* ── SEÇÃO 4: MOSTRADORES DE DESEMPENHO E SAÚDE ──────────────────── */}
       <section
         aria-label="Desempenho e conformidade"
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -430,15 +441,25 @@ export function OverviewView() {
               {tikTokCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.id || c.name}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-colors hover:bg-secondary/40"
+                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-secondary font-mono text-[10px] font-bold text-muted-foreground">
+                    <span
+                      className={`flex size-5 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold ${
+                        i === 0
+                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                          : i === 1
+                          ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
+                          : i === 2
+                          ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
+                          : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
                       {i + 1}
                     </span>
                     <div className="flex min-w-0 flex-col">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-medium text-foreground">
+                        <span className="truncate text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
                           {c.name}
                         </span>
                         <span
@@ -449,7 +470,7 @@ export function OverviewView() {
                           }
                           className={`inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-medium cursor-help ${
                             c.status === 'active' || c.status === 'ENABLE'
-                              ? 'bg-success/15 text-success'
+                              ? 'border border-success/30 bg-success/15 text-success font-semibold shadow-[0_0_6px_rgba(34,197,94,0.15)]'
                               : 'bg-secondary text-muted-foreground'
                           }`}
                         >
@@ -474,7 +495,7 @@ export function OverviewView() {
                     {c.roas !== null && c.roas > 0 && (
                       <span
                         data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
-                        className="rounded bg-brand-cyan/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-brand-cyan cursor-help"
+                        className="rounded border border-brand-cyan/30 bg-brand-cyan/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-brand-cyan cursor-help shadow-[0_0_8px_rgba(37,244,238,0.2)]"
                       >
                         {c.roas.toFixed(2).replace('.', ',')}x
                       </span>
@@ -488,13 +509,23 @@ export function OverviewView() {
               {cur.topCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.name}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-colors hover:bg-secondary/40"
+                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-secondary font-mono text-[10px] font-bold text-muted-foreground">
+                    <span
+                      className={`flex size-5 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold ${
+                        i === 0
+                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                          : i === 1
+                          ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
+                          : i === 2
+                          ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
+                          : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
                       {i + 1}
                     </span>
-                    <span className="truncate text-xs font-medium text-foreground">
+                    <span className="truncate text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
                       {c.name}
                     </span>
                   </div>
@@ -555,19 +586,19 @@ export function OverviewView() {
                     data-tooltip={`Focar no globo: ${c.name || c.code} (${c.count} visitas, ${c.purchased} compras)`}
                     className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-brand-cyan/60 bg-brand-cyan/15 shadow-[0_0_12px_rgba(37,244,238,0.2)] ring-1 ring-brand-cyan/40'
-                        : 'border-border/60 bg-secondary/20 hover:border-border hover:bg-secondary/40'
+                        ? 'border-brand-cyan/70 bg-brand-cyan/20 shadow-[0_0_16px_rgba(37,244,238,0.25)] ring-1 ring-brand-cyan/50'
+                        : 'border-border/60 bg-secondary/20 hover:border-brand-cyan/30 hover:bg-secondary/40'
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="text-base leading-none">
+                      <span className="text-base leading-none transition-transform hover:scale-110">
                         {countryFlag(c.code)}
                       </span>
                       <span className="truncate text-xs font-medium text-foreground">
                         {c.name || c.code}
                       </span>
                       {c.purchased > 0 && (
-                        <span className="rounded bg-success/15 px-1.5 py-0.2 font-mono text-[9px] font-semibold text-success">
+                        <span className="rounded border border-success/30 bg-success/15 px-1.5 py-0.2 font-mono text-[9px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
                           {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
                         </span>
                       )}
@@ -576,8 +607,12 @@ export function OverviewView() {
                     <div className="flex shrink-0 items-center gap-3">
                       <div className="hidden w-16 overflow-hidden rounded-full bg-secondary sm:block h-1.5">
                         <div
-                          className="h-full rounded-full bg-brand-cyan"
-                          style={{ width: `${pct}%` }}
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${pct}%`,
+                            background: 'linear-gradient(90deg, #25f4ee, #0ea5e9)',
+                            boxShadow: '0 0 8px rgba(37, 244, 238, 0.4)',
+                          }}
                         />
                       </div>
                       <span className="font-mono text-xs font-bold tabular-nums text-foreground">
