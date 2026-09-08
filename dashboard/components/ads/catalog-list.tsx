@@ -100,6 +100,8 @@ const STATUS_FILTERS = [
 
 // ── Tela 1: lista + criação ──────────────────────────────────────────────
 export function CatalogList({
+  request,
+  onRequestHandled,
   catalogs,
   advertiserId,
   advertiserCurrency,
@@ -108,6 +110,8 @@ export function CatalogList({
   onOpen,
   onChanged,
 }: {
+  request?: { action: 'create' | 'magic' | 'batch'; id: number } | null
+  onRequestHandled?: () => void
   catalogs: AdsCatalog[]
   advertiserId: string
   advertiserCurrency: string
@@ -144,22 +148,14 @@ export function CatalogList({
     } catch {}
   }, [])
 
+  const [batchRequest, setBatchRequest] = useState(0)
   useEffect(() => {
-    const handleOpenCreate = () => {
-      setCreating(true)
-      setShowMagicImport(false)
-    }
-    const handleOpenMagic = () => {
-      setShowMagicImport(true)
-      setCreating(false)
-    }
-    window.addEventListener('open-catalog-create', handleOpenCreate)
-    window.addEventListener('open-catalog-magic', handleOpenMagic)
-    return () => {
-      window.removeEventListener('open-catalog-create', handleOpenCreate)
-      window.removeEventListener('open-catalog-magic', handleOpenMagic)
-    }
-  }, [])
+    if (!request || busy || magicBusy) return
+    setCreating(request.action === 'create')
+    setShowMagicImport(request.action === 'magic')
+    if (request.action === 'batch') setBatchRequest(value => value + 1)
+    onRequestHandled?.()
+  }, [request, busy, magicBusy, onRequestHandled])
 
   const handleViewModeChange = (mode: 'table' | 'cards') => {
     setViewMode(mode)
@@ -413,7 +409,7 @@ export function CatalogList({
             </button>
 
             {/* Quick Action: Batch Dialog */}
-            <CatalogBatchDialog advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
+            <CatalogBatchDialog openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
 
             {/* Quick Action: New Catalog */}
             <button

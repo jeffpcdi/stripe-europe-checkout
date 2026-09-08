@@ -44,6 +44,12 @@ import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
 
 export function TikTokAdsView() {
+  const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
+  function requestCatalog(action: 'create' | 'magic' | 'batch') {
+    setCatalogRequest(previous => ({ action, id: (previous?.id || 0) + 1 }))
+    changeTab('catalog')
+  }
+
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
 
@@ -417,7 +423,7 @@ export function TikTokAdsView() {
                               className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
                               onSelect={() => {
                                 changeTab('catalog')
-                                window.dispatchEvent(new CustomEvent('open-catalog-create'))
+                                requestCatalog('create')
                               }}
                             >
                               <Plus className="size-4 text-emerald-400" />
@@ -430,7 +436,7 @@ export function TikTokAdsView() {
                               className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
                               onSelect={() => {
                                 changeTab('catalog')
-                                window.dispatchEvent(new CustomEvent('open-catalog-magic'))
+                                requestCatalog('magic')
                               }}
                             >
                               <Sparkles className="size-4 text-indigo-400" />
@@ -443,7 +449,7 @@ export function TikTokAdsView() {
                               className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
                               onSelect={() => {
                                 changeTab('catalog')
-                                window.dispatchEvent(new CustomEvent('open-catalog-batch'))
+                                requestCatalog('batch')
                               }}
                             >
                               <UploadCloud className="size-4 text-brand-cyan" />
@@ -505,7 +511,7 @@ export function TikTokAdsView() {
                 <button
                   type="button"
                   className="btn-secondary flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation cursor-pointer"
-                  onClick={() => window.dispatchEvent(new CustomEvent('open-catalog-batch'))}
+                  onClick={() => requestCatalog('batch')}
                   title="Importar múltiplos catálogos por planilha"
                 >
                   <UploadCloud className="size-3.5" />
@@ -531,7 +537,7 @@ export function TikTokAdsView() {
                     >
                       <DropdownMenu.Item
                         className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-create'))}
+                        onSelect={() => requestCatalog('create')}
                       >
                         <Plus className="size-4 text-emerald-400" />
                         <div className="flex flex-col">
@@ -541,7 +547,7 @@ export function TikTokAdsView() {
                       </DropdownMenu.Item>
                       <DropdownMenu.Item
                         className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-magic'))}
+                        onSelect={() => requestCatalog('magic')}
                       >
                         <Sparkles className="size-4 text-indigo-400" />
                         <div className="flex flex-col">
@@ -551,7 +557,7 @@ export function TikTokAdsView() {
                       </DropdownMenu.Item>
                       <DropdownMenu.Item
                         className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-batch'))}
+                        onSelect={() => requestCatalog('batch')}
                       >
                         <UploadCloud className="size-4 text-brand-cyan" />
                         <div className="flex flex-col">
@@ -661,6 +667,8 @@ export function TikTokAdsView() {
           {tab === 'catalog' && (
             <Tabs.Content value="catalog" className="min-w-0 outline-none" aria-label="Catálogos">
               <CatalogManager key={`CatalogManager:${concreteAdvertiser}`}
+                request={catalogRequest}
+                onRequestHandled={() => setCatalogRequest(null)}
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
                 advertiserCurrency={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.currency || currency}

@@ -32,10 +32,14 @@ import { CatalogList, BusinessCenterBar } from './catalog-list'
 import { CatalogDetail } from './catalog-detail'
 
 export function CatalogManager({
+  request,
+  onRequestHandled,
   advertiserId,
   advertiserLabel,
   advertiserCurrency,
 }: {
+  request?: { action: 'create' | 'magic' | 'batch'; id: number } | null
+  onRequestHandled?: () => void
   advertiserId: string
   advertiserLabel: string
   advertiserCurrency: string
@@ -49,6 +53,8 @@ export function CatalogManager({
   // Um catalogId só é válido dentro do advertiser que o criou. Ao trocar a
   // seleção global, voltamos à lista antes de qualquer request de detalhe.
   useEffect(() => setSelectedId(null), [advertiserId])
+
+  useEffect(() => { if (request) setSelectedId(null) }, [request])
 
   const enabled = list?.enabled !== false
 
@@ -115,6 +121,8 @@ export function CatalogManager({
         />
       ) : (
         <CatalogList
+          request={request}
+          onRequestHandled={onRequestHandled}
           catalogs={list?.catalogs ?? []}
           advertiserId={advertiserId}
           advertiserCurrency={advertiserCurrency}

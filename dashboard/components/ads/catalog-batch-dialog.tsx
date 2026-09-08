@@ -34,10 +34,12 @@ function campaignSummary(campaign: Record<string, unknown>, currency: string) {
 }
 
 export function CatalogBatchDialog({
+  openRequest = 0,
   advertiserId,
   advertiserCurrency,
   onCreated,
 }: {
+  openRequest?: number
   advertiserId: string
   advertiserCurrency: string
   onCreated: () => void
@@ -45,10 +47,8 @@ export function CatalogBatchDialog({
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    const handleOpen = () => setOpen(true)
-    window.addEventListener('open-catalog-batch', handleOpen)
-    return () => window.removeEventListener('open-catalog-batch', handleOpen)
-  }, [])
+    if (openRequest > 0) setOpen(true)
+  }, [openRequest])
   const [source, setSource] = useState('')
   const [currency, setCurrency] = useState('BRL')
   const [syncToTikTok, setSyncToTikTok] = useState(true)

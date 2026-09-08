@@ -1283,3 +1283,9 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 
 - Conferência interativa local: filtros Ativas/Pausadas e contadores, menu de ações, lista de
   catálogos e formulário de criação abertos no navegador, sem escrita externa.
+
+- Revisão após `59f88ad`: os atalhos Novo catálogo / Importar link / Em massa usam estado React
+  passado de TikTokAdsView para CatalogManager e CatalogList. O pedido sobrevive à montagem da aba
+  e retorna do detalhe à lista antes de abrir; eventos globais instantâneos foram removidos porque
+  perdiam ações quando o componente ainda não estava montado. O lote recebe um contador de abertura.
+  `conversion-pii` cobre a prioridade de `ld_*`/`v_*` sobre códigos externos de checkout.

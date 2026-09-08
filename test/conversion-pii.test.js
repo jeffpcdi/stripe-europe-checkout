@@ -53,3 +53,13 @@ r = normalizeConversion({ event: 'paid', order_id: '6', amount: 10, customer_ema
 eq(r.email, 'raiz@buyer.com', 'alias da raiz vence alias genérico mais fundo');
 
 console.log('\n✅ conversion-pii: ' + n + ' asserts OK');
+
+// O identificador da jornada deve vencer códigos de checkout de outros sistemas.
+{
+  const { pickLeadId } = require('../conversion-normalize');
+  const assertLead = require('node:assert/strict');
+  assertLead.equal(pickLeadId({ sck: 'checkout-externo', src: 'ld_abc123456' }), 'ld_abc123456');
+  assertLead.equal(pickLeadId({ visitor_id: 'v_abc123456', src: 'campanha' }), 'v_abc123456');
+  assertLead.equal(pickLeadId({ leadId: 'legado', src: 'campanha' }), 'legado');
+  assertLead.equal(pickLeadId({}), null);
+}
