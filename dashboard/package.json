@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build": "NEXT_TURBOPACK_PERSISTENT_CACHING=false next build",
     "start": "next start -p 3001"
   },
   "dependencies": {
