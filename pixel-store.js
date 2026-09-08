@@ -70,6 +70,7 @@ function normalize(slug, raw) {
     gatewayIds: Array.isArray(raw.gatewayIds)
       ? [...new Set(raw.gatewayIds.map((g) => String(g || '').trim()).filter(Boolean))].slice(0, 50)
       : [],
+    gatewayBindingMode: raw.gatewayBindingMode === 'explicit' ? 'explicit' : 'legacy',
     events: {
       ViewContent: ev.ViewContent !== false,
       InitiateCheckout: ev.InitiateCheckout !== false,
@@ -214,7 +215,16 @@ async function save(accountId, input) {
   let dbOk = false;
   let redisOk = false;
   if (db.enabled) dbOk = await db.upsertPixel(accountId, slug, cfg);   // fonte primária
-  if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, slug, cfg); // espelho durável
+  // O Neon é autoritativo no boot; não confirmar apenas pelo espelho Redis.
+  if (db.enabled && !dbOk) {
+    const err = new Error('Não foi possível salvar no banco. O pixel anterior foi preservado.');
+    err.code = 'pixel_save_not_durable'; err.status = 503; throw err;
+  }
+  if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, slug, cfg);
+  if (!db.enabled && ((redis.enabled && !redisOk) || (!redis.enabled && process.env.NODE_ENV === 'production'))) {
+    const err = new Error('Armazenamento indisponível. O pixel não foi alterado.');
+    err.code = 'pixel_save_not_durable'; err.status = 503; throw err;
+  }
 
   const durable = dbOk || redisOk;
   saveHealth.durable = durable;

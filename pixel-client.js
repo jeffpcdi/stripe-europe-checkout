@@ -27,8 +27,9 @@ function buildPixelClient(pixel, token) {
 
   if(!window.ttq){${TTQ_STUB}}
   var ttq=window.ttq;
-  function lsGet(k){try{return localStorage.getItem(k)}catch(_){return null}}
-  function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(_){return false}}
+  var volatileStorage=window.__roinadosVolatileStorage=window.__roinadosVolatileStorage||{};
+  function lsGet(k){try{return localStorage.getItem(k)||volatileStorage[k]||null}catch(_){return volatileStorage[k]||null}}
+  function lsSet(k,v){volatileStorage[k]=v;try{localStorage.setItem(k,v);return true}catch(_){return false}}
   var consentGranted=CONSENT!=='required'||lsGet('roinados_consent')==='granted';
   if(!consentGranted){try{ttq.holdConsent()}catch(_){}}
   if(!(ttq._i&&ttq._i[CODE]))ttq.load(CODE);
@@ -64,7 +65,7 @@ function buildPixelClient(pixel, token) {
   function cleanProps(p){
     p=p&&typeof p==='object'?p:{};var out={};
     ['content_id','content_name','content_category','content_type','currency','description','query'].forEach(function(k){if(p[k]!=null)out[k]=String(p[k]).slice(0,100)});
-    ['value','price','quantity'].forEach(function(k){var n=Number(p[k]);if(isFinite(n)&&n>=0)out[k]=n});
+    ['value','price','quantity'].forEach(function(k){if(p[k]==null||p[k]==='')return;var n=Number(p[k]);if(isFinite(n)&&n>=0)out[k]=n});
     if(Array.isArray(p.contents))out.contents=p.contents.slice(0,20).map(function(row){
       row=row&&typeof row==='object'?row:{};var item={};
       ['content_id','content_name','content_category','content_type'].forEach(function(k){if(row[k]!=null)item[k]=String(row[k]).slice(0,100)});
@@ -82,7 +83,7 @@ function buildPixelClient(pixel, token) {
     var cur=meta('product:price:currency',true);
     var out={content_name:name.slice(0,100)};
     if(id)out.content_id=String(id).slice(0,100);
-    if(isFinite(value)&&value>=0){out.value=value;out.price=value;out.content_type='product'}
+    if(raw!=null&&raw!==''&&isFinite(value)&&value>=0){out.value=value;out.price=value;out.content_type='product'}
     if(cur)out.currency=String(cur).toUpperCase().slice(0,3);
     return out
   }
@@ -112,7 +113,7 @@ function buildPixelClient(pixel, token) {
     try{fetch(API+'/api/px/event',{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify(body),keepalive:true}).catch(function(){})}catch(_){}
   }
   function beacon(name,id,props){
-    var body={px:TOKEN,vid:vid,events:[{n:name,id:id,properties:props}],url:location.href.slice(0,500),title:(document.title||'').slice(0,200),referrer:(document.referrer||'').slice(0,300),ttclid:ttclid,ttp:ck('_ttp')||null};
+    var body={px:TOKEN,vid:vid,events:[{n:name,id:id,time:Math.floor(Date.now()/1000),properties:props}],url:location.href.slice(0,500),title:(document.title||'').slice(0,200),referrer:(document.referrer||'').slice(0,300),ttclid:ttclid,ttp:ck('_ttp')||null};
     post(body,id,false)
   }
   function signals(extra){
@@ -208,7 +209,7 @@ function buildPixelClient(pixel, token) {
         var href=(a.getAttribute('href')||'').toLowerCase();
         var isPayLink=href.indexOf('kiwify')!==-1||href.indexOf('hotmart')!==-1||href.indexOf('eduzz')!==-1||href.indexOf('perfectpay')!==-1||href.indexOf('cakto')!==-1||href.indexOf('ticto')!==-1||href.indexOf('kirvano')!==-1||href.indexOf('monetizze')!==-1||href.indexOf('braip')!==-1||href.indexOf('yampi')!==-1||href.indexOf('cartx')!==-1||href.indexOf('doppus')!==-1||href.indexOf('pepper')!==-1||href.indexOf('/checkout')!==-1||href.indexOf('/pay')!==-1;
         if(isPayLink&&Object.keys(window.__roiNadosPixels||{}).length===1){
-          track('InitiateCheckout',{content_name:(a.textContent||'').trim().slice(0,60)||'Checkout',currency:'BRL'});
+          track('InitiateCheckout',{content_name:(a.textContent||'').trim().slice(0,60)||'Checkout'});
         }
       }
     }catch(_){}
@@ -231,7 +232,7 @@ function buildPixelClient(pixel, token) {
           order_id:el.getAttribute('data-order-id')||el.getAttribute('data-order')||el.getAttribute('data-id'),
           event_id:el.getAttribute('data-event-id'),
           value:el.getAttribute('data-value')||el.getAttribute('data-price')||el.getAttribute('data-amount'),
-          currency:el.getAttribute('data-currency')||el.getAttribute('data-cur')||'BRL',
+          currency:el.getAttribute('data-currency')||el.getAttribute('data-cur'),
           content_id:el.getAttribute('data-content-id')||el.getAttribute('data-id'),
           content_name:el.getAttribute('data-content-name')||el.getAttribute('data-name'),
           email:el.getAttribute('data-email'),phone:el.getAttribute('data-phone')

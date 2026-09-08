@@ -10,12 +10,12 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const n = { acc: 'a', event: 'CompletePayment', registerSale: true, gateway: 'g', orderId: 'o' };
   const rdb = {
     enabled: true, pushConversionLog: async (r) => { log.push(r); },
-    heartbeatConvWorker() {}, acquireLock: async () => true, releaseLock: async () => {},
+    heartbeatConvWorker() {}, acquireLease: async () => ({ acquired: true }), renewLease: async () => true, releaseLease: async () => {},
     reserveConversions: async () => [{ env: { n }, raw: 'pedido' }],
     ackConversion: async () => { ack++; },
   };
   const context = vm.createContext({
-    console: { error() {} }, rdb,
+    console: { error() {} }, rdb, setInterval: () => ({ unref() {} }), clearInterval() {},
     db: { markOrderProcessed: async () => {
       if (fail) throw Object.assign(new Error('banco fora'), { code: 'ORDER_PERSISTENCE_UNAVAILABLE' });
       return false;
@@ -40,6 +40,13 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   context.processConversion = async () => { throw Error('falha inesperada'); };
   await context.convWorkerTick();
   assert.strictEqual(ack, 1, 'exceção também não confirma o item');
+  let releases = 0, reservations = 0;
+  rdb.acquireLease = async () => ({ acquired: false });
+  rdb.releaseLease = async () => { releases++; };
+  rdb.reserveConversions = async () => { reservations++; return []; };
+  await context.convWorkerTick();
+  assert.equal(reservations, 0, 'sem posse não reserva eventos');
+  assert.equal(releases, 0, 'não libera o lease de outro worker');
   // Sem fila disponível, o caminho inline mantém uma nova tentativa em memória.
   const timers = [];
   rdb.enabled = false;

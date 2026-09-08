@@ -649,9 +649,9 @@ async function upsertGateway(g) {
 }
 
 async function deleteGateway(accountId, id) {
-  if (!enabled || !id) return;
-  try { await sql`DELETE FROM gateways WHERE id = ${id} AND account_id = ${accountId}`; }
-  catch (err) { console.error('[db] deleteGateway:', err.message); }
+  if (!enabled || !id) return false;
+  try { await sql`DELETE FROM gateways WHERE id = ${id} AND account_id = ${accountId}`; return true; }
+  catch (err) { console.error('[db] deleteGateway:', err.message); return false; }
 }
 
 async function loadGateways(accountId) {

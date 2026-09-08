@@ -148,3 +148,13 @@ assert.notStrictEqual(requests.at(-1).body.events[0].id, firstViewId, 'nova nave
 assert.strictEqual(requests.at(-1).body.events[0].id, 'ViewContent.ld_nova.navegacao.1', 'tracker e loader compartilham o id explícito da navegação');
 
 console.log('[PASS] pixel-client-runtime: duas instâncias reais em VM permanecem isoladas e enviam beacon absoluto.');
+
+assert.strictEqual(window.RoiNadosPixel.purchase('px_a', { order_id: 'sem-valor', currency: 'BRL' }), false, 'valor ausente não vira compra de valor zero');
+assert.strictEqual(window.RoiNadosPixel.purchase('px_a', { order_id: 'sem-moeda', value: 10 }), false, 'moeda ausente não vira BRL silenciosamente');
+const priorVid = window.RoiNadosPixel.getVisitorId();
+context.localStorage = { getItem() { throw Error('bloqueado'); }, setItem() { throw Error('bloqueado'); } };
+currentScript.src = 'https://dashboard.example/px/px_c.js';
+vm.runInContext(buildPixelClient(config('c', 'CODE_C'), 'px_c'), context);
+assert.equal(window.RoiNadosPixel.getVisitorId(), priorVid, 'armazenamento bloqueado mantém identidade compartilhada na sessão');
+assert.equal(typeof requests[requests.length - 1].body.events[0].time, 'number', 'evento preserva o horário original para reenvio');
+console.log('[PASS] pixel-client: compra exige valor/moeda, identidade em memória e horário original OK');

@@ -123,6 +123,20 @@ const tk = require('../tiktok-events');
   }, '*', ACC);
   assert.deepStrictEqual(firedCodes(), ['PXA'], 'AddPaymentInfo do gateway A só vai ao pixel A');
 
+  // Vínculos explícitos: vários gateways por pixel e vários pixels por gateway.
+  PIXEL_A.gatewayBindingMode = 'explicit'; PIXEL_A.gatewayIds = [GW_A, GW_B];
+  PIXEL_B.gatewayBindingMode = 'explicit'; PIXEL_B.gatewayIds = [GW_B];
+  PIXEL_LIVRE.gatewayBindingMode = 'explicit';
+  fetchCalls = [];
+  await tk.dispatchToAll('CompletePayment', { _trusted: true, gatewayId: GW_B, pixelSlug: PIXEL_A.slug, eventId: 'Purchase.shared', value: 1, currency: 'BRL' }, '*', ACC);
+  assert.deepStrictEqual(firedCodes(), ['PXA', 'PXB'], 'gateway compartilhado entrega a todos os vínculos explícitos');
+  fetchCalls = [];
+  await tk.dispatchToAll('CompletePayment', { _trusted: true, gatewayId: GW_A, eventId: 'Purchase.multi', value: 1, currency: 'BRL' }, '*', ACC);
+  assert.deepStrictEqual(firedCodes(), ['PXA'], 'pixel A também recebe seu outro gateway');
+  fetchCalls = [];
+  await tk.dispatchToAll('CompletePayment', { _trusted: true, eventId: 'Purchase.unbound', value: 1, currency: 'BRL' }, '*', ACC);
+  assert.deepStrictEqual(firedCodes(), [], 'limpar vínculos não transforma pixel em destino universal');
+
   console.log('[OK] vínculo pixel↔gateway: vendas isoladas por gateway; navegador livre; legado preservado.');
   process.exit(0);
 })().catch((e) => { console.error('[FALHOU]', e.message); process.exit(1); });

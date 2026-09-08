@@ -35,17 +35,24 @@ import {
   Link as LinkIcon,
   SlidersHorizontal,
 } from 'lucide-react'
-import { usePixels, useGateways, useConversionLog, apiSend } from '@/lib/api'
+import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend } from '@/lib/api'
+import { ErrorState } from '@/components/error-state'
 import { GlassCard } from '@/components/glass-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { timeAgo, fmtCurrency } from '@/lib/format'
+import { conversionStatus, conversionAmount, conversionEvent } from '@/lib/conversion-status'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import type { Pixel, Gateway, GatewayProvider, ConversionLogRow } from '@/lib/types'
 
 import { PixelCard } from './pixel-card'
 import { GatewayCard } from './gateway-card'
-import { RoutingMatrix } from './routing-matrix'
+import { PixelTestDialog } from './pixel-test-dialog'
+import { InstallCheck } from './install-check'
+import { EventDeliveryPanel } from './event-delivery-panel'
+import { QueueHealthPanel, QuarantinePanel } from '@/components/gateways/queue-health-panel'
+import { GatewaySelector } from './gateway-selector'
+import { DialogPortal } from '@/components/ui/dialog-portal'
 import { LinkGatewaysModal } from './link-gateways-modal'
 
 // Provedores de checkout suportados e cores de marca
@@ -89,25 +96,15 @@ const PROVIDER_HELP: Record<string, string> = {
   generic: 'Na sua plataforma: localize as configurações de Webhook ou Postback e cole o link abaixo para receber compras.',
 }
 
-function formatRowAmount(amount?: number | string | null): string {
-  if (amount == null) return '—'
-  const num = typeof amount === 'string' ? parseFloat(amount.replace(',', '.')) : amount
-  if (isNaN(num)) return '—'
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num)
-}
-
 type TabKey = 'pixels' | 'gateways' | 'logs'
 
 export function ConversionsView() {
   const { data: pxData, mutate: mutatePixels, isLoading: loadingPixels, error: pixelsError } = usePixels()
   const { data: gwData, mutate: mutateGateways, isLoading: loadingGateways, error: gatewaysError } = useGateways()
-  const { data: convLog, mutate: mutateLog, isLoading: loadingLog } = useConversionLog()
+  const { data: convLog, mutate: mutateLog, isLoading: loadingLog, error: logError } = useConversionLog()
 
+  const { data: pixelHealth } = usePixelHealth()
+  const [mutatingPixel, setMutatingPixel] = useState<string | null>(null)
   const pixels = pxData?.pixels ?? []
   const gateways = gwData?.gateways ?? []
   const providers = gwData?.providers ?? []
@@ -129,7 +126,8 @@ export function ConversionsView() {
   const [linkingPixel, setLinkingPixel] = useState<Pixel | null>(null)
 
   // Ações de teste e cópia
-  const [testingPixelSlug, setTestingPixelSlug] = useState<string | null>(null)
+  const [testingPixel, setTestingPixel] = useState<Pixel | null>(null)
+  const testingPixelSlug = testingPixel?.slug || null
   const [testingGwId, setTestingGwId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -162,14 +160,10 @@ export function ConversionsView() {
 
     const logs = convLog?.log ?? []
     for (const row of logs) {
-      const isErr =
-        row.status === 'erro' ||
-        row.status === 'falhou' ||
-        row.status === 'rejeitado' ||
-        (Array.isArray(row.capi) && row.capi.some((c) => !c.ok))
+      const isErr = conversionStatus(row).kind === 'error'
 
       if (isErr && !failedLogRow) failedLogRow = row
-      if (!isErr && !/ignorado|pendente|recebido/i.test(row.status || '') && row.at) {
+      if (conversionStatus(row).kind === 'success' && row.at) {
         const d = new Date(row.at)
         if (!isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
           lastSuccessDate = d
@@ -201,7 +195,7 @@ export function ConversionsView() {
       setCopiedId(id)
       toast.success(label)
       setTimeout(() => setCopiedId((curr) => (curr === id ? null : curr)), 2000)
-    })
+    }).catch(() => toast.error('Não foi possível copiar. Selecione o texto e copie manualmente.'))
   }
 
   const handleRefreshAll = useCallback(async () => {
@@ -217,6 +211,8 @@ export function ConversionsView() {
   }, [mutatePixels, mutateGateways, mutateLog])
 
   async function handleTogglePixelActive(px: Pixel) {
+    if (mutatingPixel) return
+    setMutatingPixel(px.slug)
     const nextState = !px.active
     try {
       await apiSend('/api/pixels', 'POST', {
@@ -224,38 +220,15 @@ export function ConversionsView() {
         active: nextState,
       })
       toast.success(nextState ? `Pixel ${px.name} ativado` : `Pixel ${px.name} pausado`)
-      mutatePixels()
+      await mutatePixels()
     } catch (e) {
       toast.error('Erro ao alterar status do pixel', {
         hint: e instanceof Error ? e.message : undefined,
       })
-    }
+    } finally { setMutatingPixel(null) }
   }
 
-  async function handleTestPixel(px: Pixel) {
-    if (testingPixelSlug) return
-    setTestingPixelSlug(px.slug)
-    try {
-      const res = await apiSend<{ ok: boolean; status?: string; message?: string }>('/api/pixels/test', 'POST', {
-        slug: px.slug,
-        event: 'ViewContent',
-      })
-      if (res.ok) {
-        toast.success(`Teste enviado com sucesso ao TikTok!`, {
-          hint: `Disparo confirmado para o pixel ${px.name}`,
-        })
-        handleRefreshAll()
-      } else {
-        toast.error(`Falha no envio ao TikTok: ${res.message || 'Verifique o código ou token'}`)
-      }
-    } catch (e) {
-      toast.error('Erro ao testar envio do pixel', {
-        hint: e instanceof Error ? e.message : undefined,
-      })
-    } finally {
-      setTestingPixelSlug(null)
-    }
-  }
+  function handleTestPixel(px: Pixel) { setTestingPixel(px) }
 
   async function handleTestGateway(gw: Gateway) {
     if (testingGwId) return
@@ -263,8 +236,8 @@ export function ConversionsView() {
     try {
       const res = await apiSend<{ ok: boolean; message?: string }>(`/api/gateways/${gw.id}/test`, 'POST', {})
       if (res.ok) {
-        toast.success(`Venda simulada com sucesso!`, {
-          hint: `Compra de teste recebida para o checkout ${gw.name}`,
+        toast.success(`Teste interno concluído`, {
+          hint: `O teste não envia ao TikTok nem contabiliza receita. Checkout: ${gw.name}`,
         })
         handleRefreshAll()
       } else {
@@ -339,18 +312,15 @@ export function ConversionsView() {
     const logs = convLog?.log ?? []
     if (logFilter === 'all') return logs
     return logs.filter((r) => {
-      const isErr =
-        r.status === 'erro' ||
-        r.status === 'falhou' ||
-        r.status === 'rejeitado' ||
-        (Array.isArray(r.capi) && r.capi.some((c) => !c.ok))
-      return logFilter === 'error' ? isErr : !isErr
+      return conversionStatus(r).kind === logFilter
     })
   }, [convLog, logFilter])
 
+  if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
+
   return (
     <div className="flex flex-col gap-5">
-      {(pixelsError || gatewaysError) && (
+      {(pixelsError || gatewaysError || logError) && (
         <button
           type="button"
           className="btn-ghost self-start text-xs text-warning"
@@ -556,6 +526,8 @@ export function ConversionsView() {
                 <PixelCard
                   key={px.slug}
                   pixel={px}
+                  busy={mutatingPixel === px.slug}
+                  coverage={pixelHealth?.coverage?.find(row => row.slug === px.slug)}
                   gatewaysById={gatewaysById}
                   copiedId={copiedId}
                   testingPixelSlug={testingPixelSlug}
@@ -656,7 +628,7 @@ export function ConversionsView() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              Histórico das compras recebidas pelos seus checkouts e enviadas diretamente para os pixels do TikTok.
+              Eventos recebidos dos checkouts. O envio só aparece confirmado após a resposta do TikTok.
             </p>
 
             <div className="flex items-center gap-1 rounded-xl bg-secondary/50 p-1 border border-border/60">
@@ -701,13 +673,9 @@ export function ConversionsView() {
           ) : (
             <div className="flex flex-col gap-2">
               {filteredLogs.map((row, idx) => {
-                const isErr =
-                  row.status === 'erro' ||
-                  row.status === 'falhou' ||
-                  row.status === 'rejeitado' ||
-                  (Array.isArray(row.capi) && row.capi.some((c) => !c.ok))
+                const outcome = conversionStatus(row)
+                const isErr = outcome.kind === 'error'
 
-                const amountVal = (row as any).value ?? row.amount
                 const eventDate = row.at ?? (row as any).createdAt
 
                 return (
@@ -718,11 +686,11 @@ export function ConversionsView() {
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <span
                         className={`status-dot ${
-                          isErr ? 'status-dot--err status-dot--pulse' : 'status-dot--ok'
+                          isErr ? 'status-dot--err' : outcome.kind === 'success' ? 'status-dot--ok' : ''
                         }`}
                       />
                       <span className="font-bold text-foreground">
-                        {row.event === 'Purchase' || !row.event ? 'Compra Aprovada' : row.event}
+                        {conversionEvent(row.event)}
                       </span>
                       <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
                         {row.gateway || 'Checkout'}
@@ -732,23 +700,24 @@ export function ConversionsView() {
                           #{row.orderId}
                         </span>
                       )}
-                      {amountVal != null && (
+                      {row.amount != null && (
                         <span className="font-mono font-bold text-brand-cyan">
-                          {formatRowAmount(amountVal)}
+                          {conversionAmount(row)}
                         </span>
                       )}
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
                           isErr
                             ? 'bg-destructive/15 text-destructive border border-destructive/30'
-                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : outcome.kind === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-secondary text-muted-foreground border border-border'
                         }`}
                       >
                         <ShieldCheck className="size-3" />
-                        {isErr ? 'TikTok: Falhou' : 'TikTok: Enviado'}
+                        {outcome.label}
                       </span>
                     </div>
 
+                    {Array.isArray(row.capi) && row.capi.some(result => !result.ok) && <p className="text-xs text-destructive">{row.capi.filter(result => !result.ok).map(result => `${result.pixel}: ${result.message || 'Envio não confirmado'}`).join(' · ')}</p>}
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground shrink-0">
                       <span>{eventDate ? timeAgo(String(eventDate)) : 'recentemente'}</span>
                     </div>
@@ -760,6 +729,9 @@ export function ConversionsView() {
         </div>
       )}
 
+      {activeTab === 'logs' && <><EventDeliveryPanel pixels={pixels} /><details className="rounded-xl border border-border p-4"><summary className="text-sm cursor-pointer">Fila e notificações recusadas</summary><div className="mt-4 flex flex-col gap-4"><QueueHealthPanel /><QuarantinePanel /></div></details></>}
+
+      {testingPixel && <PixelTestDialog pixel={testingPixel} onClose={() => setTestingPixel(null)} onSent={() => { void mutateLog(); void mutatePixels() }} />}
       {/* ── MODAL: CÓDIGO DO SITE ── */}
       {installingPixel && (
         <SimplifiedPixelInstallModal
@@ -860,11 +832,11 @@ function SimplifiedPixelInstallModal({
       setCopied(true)
       toast.success('Código copiado com sucesso!')
       setTimeout(() => setCopied(false), 2500)
-    })
+    }).catch(() => toast.error('Não foi possível copiar. Selecione o código e copie manualmente.'))
   }
 
   return (
-    <div
+    <DialogPortal><div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
@@ -942,9 +914,10 @@ function SimplifiedPixelInstallModal({
               Cole esta linha no início da sua página de vendas (dentro do bloco <code className="rounded bg-secondary/80 px-1 py-0.5 text-foreground font-mono">&lt;head&gt;</code>).
             </p>
             <p className="leading-relaxed">
-              O script rastreia as visitas da sua página e identifica os compradores automaticamente para enviar as compras ao TikTok.
+              O script registra a jornada no site. As compras são confirmadas pelo webhook dos checkouts vinculados.
             </p>
           </div>
+          <InstallCheck pixel={pixel} />
         </div>
 
         <div className="border-t border-border/50 bg-secondary/20 px-6 py-3.5 flex justify-end">
@@ -957,7 +930,7 @@ function SimplifiedPixelInstallModal({
           </button>
         </div>
       </GlassCard>
-    </div>
+    </div></DialogPortal>
   )
 }
 
@@ -986,24 +959,10 @@ function PixelEditorWithGatewaySync({
   const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
   const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
   const [showToken, setShowToken] = useState(false)
+  const [events, setEvents] = useState(pixel?.events || { ViewContent: true, AddToCart: true, InitiateCheckout: true, AddPaymentInfo: true, CompletePayment: true })
+  const [testEventCode, setTestEventCode] = useState(pixel?.testEventCode || '')
   const [active, setActive] = useState(pixel?.active ?? true)
   const [gatewayIds, setGatewayIds] = useState<string[]>(pixel?.gatewayIds ?? [])
-  const [isSpecificGateways, setIsSpecificGateways] = useState<boolean>(
-    Boolean(pixel?.gatewayIds && pixel.gatewayIds.length > 0)
-  )
-
-  function toggleGateway(id: string) {
-    setGatewayIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]))
-  }
-
-  function handleSelectAllGateways() {
-    setGatewayIds(gateways.map((g) => g.id))
-  }
-
-  function handleClearGateways() {
-    setGatewayIds([])
-  }
-
   async function handleSave() {
     const cleanName = name.trim()
     const cleanCode = pixelCode.trim()
@@ -1020,7 +979,7 @@ function PixelEditorWithGatewaySync({
     setError(null)
 
     try {
-      const finalGatewayIds = isSpecificGateways ? gatewayIds : []
+      const finalGatewayIds = gatewayIds
 
       await apiSend('/api/pixels', 'POST', {
         slug: pixel?.slug,
@@ -1029,13 +988,8 @@ function PixelEditorWithGatewaySync({
         accessToken: accessToken.trim() || undefined,
         active,
         gatewayIds: finalGatewayIds,
-        events: pixel?.events ?? {
-          ViewContent: true,
-          AddToCart: true,
-          InitiateCheckout: true,
-          AddPaymentInfo: true,
-          CompletePayment: true,
-        },
+        events,
+        testEventCode,
       })
       toast.success(pixel ? 'Pixel atualizado com sucesso!' : 'Pixel criado com sucesso!')
       onSaved()
@@ -1049,7 +1003,7 @@ function PixelEditorWithGatewaySync({
     'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/40 transition-all'
 
   return (
-    <div
+    <DialogPortal><div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
@@ -1115,14 +1069,14 @@ function PixelEditorWithGatewaySync({
             </span>
           </label>
 
-          {/* Token de Acesso do TikTok (opcional) */}
+          {/* Token de acesso do TikTok */}
           <label className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <ShieldCheck className="size-3.5 text-emerald-400" />
-                Token de Acesso do TikTok (opcional)
+                Token de acesso do TikTok
               </span>
-              <span className="text-[10px] text-muted-foreground">Recomendado</span>
+              <span className="text-[10px] text-muted-foreground">Necessário para enviar eventos</span>
             </div>
             <div className="relative">
               <input
@@ -1130,7 +1084,7 @@ function PixelEditorWithGatewaySync({
                 className={`${inputCls} pr-10 font-mono text-xs`}
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
-                placeholder={pixel?.hasToken ? '•••••••••••••••••••• (Salvo com sucesso)' : 'Cole o token de acesso (se tiver)'}
+                placeholder={pixel?.hasToken ? '•••••••••••••••••••• (Salvo com sucesso)' : 'Cole o token de acesso'}
               />
               <button
                 type="button"
@@ -1150,7 +1104,7 @@ function PixelEditorWithGatewaySync({
             <div className="flex flex-col">
               <span className="text-xs font-semibold text-foreground">Status do Rastreamento</span>
               <span className="text-[11px] text-muted-foreground">
-                {active ? 'Pixel ativo e recebendo conversões' : 'Pixel pausado (ignora disparos)'}
+                {active ? 'Envio habilitado para eventos reais' : 'Pixel pausado (ignora disparos)'}
               </span>
             </div>
             <input
@@ -1161,122 +1115,13 @@ function PixelEditorWithGatewaySync({
             />
           </label>
 
-          {/* ── SEÇÃO: VINCULAÇÃO COM CHECKOUTS (MULTI-GATEWAY) ── */}
-          <div className="flex flex-col gap-2.5 rounded-2xl border border-border/70 bg-black/40 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                <CreditCard className="size-3.5 text-emerald-400" />
-                Quais checkouts enviam vendas para este pixel?
-              </span>
-            </div>
-
-            {/* Alternância de Modo */}
-            <div className="grid grid-cols-2 gap-2 mt-1">
-              <button
-                type="button"
-                onClick={() => setIsSpecificGateways(false)}
-                className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all ${
-                  !isSpecificGateways
-                    ? 'border-brand-cyan/80 bg-brand-cyan/10 font-semibold text-foreground shadow-[0_0_10px_rgba(34,211,238,0.15)]'
-                    : 'border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="size-3 text-brand-cyan" />
-                  <span>Todos os Checkouts</span>
-                </div>
-                {!isSpecificGateways && <Check className="size-3.5 text-brand-cyan stroke-[3]" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsSpecificGateways(true)}
-                className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all ${
-                  isSpecificGateways
-                    ? 'border-emerald-500/80 bg-emerald-500/10 font-semibold text-foreground shadow-[0_0_10px_rgba(16,185,129,0.15)]'
-                    : 'border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="size-3 text-emerald-400" />
-                  <span>Checkouts Específicos</span>
-                </div>
-                {isSpecificGateways && <Check className="size-3.5 text-emerald-400 stroke-[3]" />}
-              </button>
-            </div>
-
-            {/* Lista com Checkboxes caso seja Específico */}
-            {isSpecificGateways && (
-              <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-border/40">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground font-medium">
-                    Selecione os checkouts ({gatewayIds.length} selecionado(s)):
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSelectAllGateways}
-                      className="text-[11px] font-semibold text-brand-cyan hover:underline"
-                    >
-                      Todos
-                    </button>
-                    <span className="text-border text-xs">·</span>
-                    <button
-                      type="button"
-                      onClick={handleClearGateways}
-                      className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                    >
-                      Nenhum
-                    </button>
-                  </div>
-                </div>
-
-                {gateways.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-2 text-center">
-                    Nenhum checkout conectado ainda. Salve o pixel e conecte os checkouts depois.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1">
-                    {gateways.map((gw) => {
-                      const isChecked = gatewayIds.includes(gw.id)
-                      const color = PROVIDER_COLORS[gw.provider] || '#94a3b8'
-
-                      return (
-                        <label
-                          key={gw.id}
-                          className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer select-none transition-all ${
-                            isChecked
-                              ? 'border-emerald-500/50 bg-emerald-500/10 text-foreground'
-                              : 'border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/40'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className="size-2 rounded-full shrink-0"
-                              style={{ backgroundColor: color }}
-                            />
-                            <span className="text-xs font-semibold text-foreground truncate">
-                              {gw.name}
-                            </span>
-                            <span className="rounded bg-secondary/80 px-1 py-0.2 text-[9px] font-mono uppercase text-muted-foreground">
-                              {gw.provider}
-                            </span>
-                          </div>
-
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleGateway(gw.id)}
-                            className="size-3.5 accent-emerald-500 rounded cursor-pointer shrink-0"
-                          />
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <details className="rounded-xl border border-border p-3"><summary className="text-sm cursor-pointer">Eventos e modo de teste</summary><div className="mt-3 flex flex-col gap-3">
+            {(['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'] as const).map(event => <label key={event} className="flex items-center gap-3 min-h-9 text-sm"><input type="checkbox" className="size-4 accent-brand-cyan" checked={events[event] !== false} onChange={e => setEvents(previous => ({ ...previous, [event]: e.target.checked }))} />{conversionEvent(event)}</label>)}
+            <p className="text-xs text-muted-foreground">Visitas vêm do script. Carrinho e checkout dependem da ação na página. Pagamento e compra vêm do webhook do checkout.</p>
+            <label className="text-xs flex flex-col gap-2">Código de teste do TikTok<input className={inputCls} value={testEventCode} onChange={e => setTestEventCode(e.target.value)} placeholder="Opcional · Test Event Code" /></label>
+            <p className="text-xs text-muted-foreground">Usado apenas nos testes do painel. Eventos reais continuam em produção.</p>
+          </div></details>
+          <GatewaySelector gateways={gateways} selected={gatewayIds} onChange={setGatewayIds} disabled={saving} />
 
           {error && (
             <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
@@ -1312,7 +1157,7 @@ function PixelEditorWithGatewaySync({
           </button>
         </div>
       </GlassCard>
-    </div>
+    </div></DialogPortal>
   )
 }
 
@@ -1343,25 +1188,6 @@ function DirectGatewayModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Seleção de quais pixels este checkout deve alimentar
-  const initialPixelSlugs = useMemo(() => {
-    if (!gateway) return pixels.map((p) => p.slug)
-    return pixels
-      .filter((p) => {
-        const b = Array.isArray(p.gatewayIds) ? p.gatewayIds : []
-        return b.includes(gateway.id)
-      })
-      .map((p) => p.slug)
-  }, [gateway, pixels])
-
-  const [selectedPixelSlugs, setSelectedPixelSlugs] = useState<string[]>(initialPixelSlugs)
-
-  function togglePixel(slug: string) {
-    setSelectedPixelSlugs((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
-    )
-  }
-
   async function handleSave() {
     setSaving(true)
     setError(null)
@@ -1373,29 +1199,7 @@ function DirectGatewayModal({
         secret: secret.trim() || undefined,
       })
 
-      const gwId = res.gateway?.id || gateway?.id
-
-      // Se temos o ID do gateway e temos pixels, sincronizamos o gatewayIds nos pixels selecionados
-      if (gwId && pixels.length > 0) {
-        for (const px of pixels) {
-          const isSelected = selectedPixelSlugs.includes(px.slug)
-          const currentBound = Array.isArray(px.gatewayIds) ? px.gatewayIds : []
-
-          if (isSelected && !currentBound.includes(gwId)) {
-            await apiSend('/api/pixels', 'POST', {
-              slug: px.slug,
-              gatewayIds: [...currentBound, gwId],
-            })
-          } else if (!isSelected && currentBound.includes(gwId)) {
-            await apiSend('/api/pixels', 'POST', {
-              slug: px.slug,
-              gatewayIds: currentBound.filter((id) => id !== gwId),
-            })
-          }
-        }
-      }
-
-      toast.success(gateway ? 'Checkout atualizado' : 'Checkout conectado com sucesso!')
+      toast.success(gateway ? 'Checkout atualizado' : 'Checkout cadastrado. Copie o webhook e configure no provedor.')
       onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar checkout')
@@ -1408,7 +1212,7 @@ function DirectGatewayModal({
     'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60'
 
   return (
-    <div
+    <DialogPortal><div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
@@ -1472,78 +1276,7 @@ function DirectGatewayModal({
           </label>
 
           {/* Pixels que recebem deste checkout */}
-          {pixels.length > 0 && (
-            <div className="flex flex-col gap-2 border-t border-border/40 pt-3">
-              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <Target className="size-3.5 text-brand-cyan" />
-                3. Quais Pixels devem receber compras deste Checkout?
-              </span>
-
-              <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-black/30 p-2.5 max-h-36 overflow-y-auto">
-                {pixels.map((px) => {
-                  const isChecked = selectedPixelSlugs.includes(px.slug)
-                  return (
-                    <label
-                      key={px.slug}
-                      className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer select-none transition-all ${
-                        isChecked
-                          ? 'border-brand-cyan/50 bg-brand-cyan/10 text-foreground'
-                          : 'border-border/40 bg-secondary/20 text-muted-foreground hover:bg-secondary/40'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-foreground truncate">{px.name}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">({px.pixelCode.slice(-4)})</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => togglePixel(px.slug)}
-                        className="size-3.5 accent-brand-cyan rounded cursor-pointer"
-                      />
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Opções Avançadas */}
-          <div className="flex flex-col gap-2 border-t border-border/40 pt-2">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced((v) => !v)}
-              className="flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-            >
-              <span>Opções Avançadas (Chave Secreta)</span>
-              {showAdvanced ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-            </button>
-
-            {showAdvanced && (
-              <label className="flex flex-col gap-1.5 pt-1">
-                <span className="text-xs font-medium text-foreground">Chave Secreta do Webhook (opcional)</span>
-                <div className="relative">
-                  <input
-                    type={showSecret ? 'text' : 'password'}
-                    className={`${inputCls} pr-10 font-mono text-xs`}
-                    value={secret}
-                    onChange={(e) => setSecret(e.target.value)}
-                    placeholder={gateway?.hasSecret ? 'Mantém a chave atual' : 'Apenas se exigido pela plataforma'}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret((v) => !v)}
-                    className="absolute inset-y-0 right-2 flex items-center p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    {showSecret ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </button>
-                </div>
-                <span className="text-[11px] text-muted-foreground">
-                  A maioria das plataformas não exige chave secreta. Deixe em branco se não tiver certeza.
-                </span>
-              </label>
-            )}
-          </div>
+          <p className="text-xs text-muted-foreground">Depois de cadastrar, escolha os checkouts no cartão de cada pixel.</p>
 
           {error && (
             <p className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 text-xs text-destructive">
@@ -1570,6 +1303,6 @@ function DirectGatewayModal({
           </div>
         </div>
       </GlassCard>
-    </div>
+    </div></DialogPortal>
   )
 }

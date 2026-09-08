@@ -12,8 +12,9 @@ import {
   Link as LinkIcon,
   Globe,
 } from 'lucide-react'
-import type { Pixel, Gateway } from '@/lib/types'
+import type { Pixel, Gateway, PixelCoverage } from '@/lib/types'
 import { toast } from '@/lib/toast'
+import { timeAgo } from '@/lib/format'
 
 const PROVIDER_COLORS: Record<string, string> = {
   kiwify: '#22c55e',
@@ -32,6 +33,8 @@ const PROVIDER_COLORS: Record<string, string> = {
 
 interface PixelCardProps {
   pixel: Pixel
+  coverage?: PixelCoverage
+  busy?: boolean
   gatewaysById: Map<string, Gateway>
   copiedId: string | null
   testingPixelSlug: string | null
@@ -45,7 +48,7 @@ interface PixelCardProps {
 }
 
 export function PixelCard({
-  pixel,
+  pixel, coverage, busy,
   gatewaysById,
   copiedId,
   testingPixelSlug,
@@ -111,9 +114,10 @@ export function PixelCard({
             <button
               type="button"
               onClick={() => onToggleActive(pixel)}
+              disabled={busy}
               className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-border/60 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-all"
             >
-              {pixel.active ? 'Pausar' : 'Ativar'}
+              {busy ? 'Salvando…' : pixel.active ? 'Pausar' : 'Ativar'}
             </button>
             <button
               type="button"
@@ -199,19 +203,21 @@ export function PixelCard({
               )
             ) : (
               <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-                <Globe className="size-3" />
-                Todos os checkouts
+
+                {pixel.gatewayBindingMode === 'explicit' ? 'Sem checkout vinculado' : 'Vínculo antigo · revisar'}
               </span>
             )}
           </div>
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 text-xs border-t border-border pt-3"><div><span className="text-muted-foreground">Última visita</span><p className="mt-1">{coverage?.lastBrowserAt ? timeAgo(coverage.lastBrowserAt) : 'Aguardando visita'}</p></div><div><span className="text-muted-foreground">Último envio</span><p className="mt-1">{coverage?.lastCapiAt ? `${coverage.lastCapiStatus === 'ok' ? 'Confirmado' : 'Ver histórico'} · ${timeAgo(coverage.lastCapiAt)}` : 'Sem envio recente'}</p></div></div>
+      {!pixel.hasToken && <p className="text-xs text-warning">Configure o token de acesso para enviar eventos pelo servidor.</p>}
       {/* Rodapé de Ações: Copiar Código e Testar */}
       <div className="flex items-center justify-between border-t border-border/40 pt-3">
         <button
           type="button"
-          onClick={handleQuickCopyScript}
+          onClick={() => onInstallPixel(pixel)}
           className="flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 transition-all"
         >
           {copiedSnippet ? (
@@ -222,7 +228,7 @@ export function PixelCard({
           ) : (
             <>
               <Code2 className="size-3.5" />
-              <span>Copiar Código do Site</span>
+              <span>Instalar no site</span>
             </>
           )}
         </button>

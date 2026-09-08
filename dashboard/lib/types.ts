@@ -374,6 +374,7 @@ export interface Pixel {
   events: PixelEvents
   /** Vínculo pixel↔gateway. Com múltiplos pixels, vazio não autoriza fan-out ambíguo. */
   gatewayIds?: string[]
+  gatewayBindingMode?: 'explicit' | 'legacy'
   scriptUrl: string | null
   scriptTag: string | null
   scriptTagTracker?: string | null

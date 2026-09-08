@@ -132,6 +132,7 @@ async function save(accountId, input) {
   const provider = String(input.provider || 'generic').toLowerCase();
   if (!PROVIDERS[provider]) throw new Error('provider inválido: ' + provider);
   const existing = input.id ? get(accountId, input.id) : null;
+  if (input.id && !existing) { const err = new Error('Checkout não encontrado. Atualize a lista.'); err.status = 404; throw err; }
   const g = {
     id: existing ? existing.id : newId(),
     accountId,
@@ -148,19 +149,32 @@ async function save(accountId, input) {
     lastEventStatus: existing ? existing.lastEventStatus : null,
     createdAt: existing ? existing.createdAt : new Date().toISOString()
   };
+  // Só publica no cache depois da confirmação da fonte durável.
+  if (db.enabled && !(await db.upsertGateway(g))) {
+    const err = new Error('Não foi possível salvar o checkout no banco. Tente novamente.');
+    err.status = 503; throw err;
+  }
+  const snapshotOk = await redis.saveGatewaySnapshot(accountId, g.id, g);
+  if (!db.enabled && ((redis.enabled && !snapshotOk) || (!redis.enabled && process.env.NODE_ENV === 'production'))) {
+    const err = new Error('Armazenamento indisponível. O checkout não foi alterado.');
+    err.status = 503; throw err;
+  }
   const idx = cache.findIndex((x) => x.id === g.id);
   if (idx >= 0) cache[idx] = g; else cache.push(g);
-  if (db.enabled) await db.upsertGateway(g);
-  await redis.saveGatewaySnapshot(accountId, g.id, g); // item 48: espelho durável
   return { ...g };
 }
 
 async function remove(accountId, id) {
   const g = get(accountId, id);
   if (!g) return false;
+  if (redis.enabled && !(await redis.deleteGatewaySnapshot(accountId, id))) {
+    const err = new Error('Não foi possível confirmar a exclusão no Redis.'); err.status = 503; throw err;
+  }
+  if (db.enabled && !(await db.deleteGateway(accountId, id))) {
+    if (redis.enabled) await redis.saveGatewaySnapshot(accountId, id, g);
+    const err = new Error('Não foi possível confirmar a exclusão no banco.'); err.status = 503; throw err;
+  }
   cache = cache.filter((x) => x.id !== id);
-  if (db.enabled) await db.deleteGateway(accountId, id);
-  await redis.deleteGatewaySnapshot(accountId, id); // item 48: espelho durável
   return true;
 }
 

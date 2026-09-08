@@ -4213,7 +4213,7 @@ async function processConversion(n) {
         quantity: 1
       }] : undefined
     }, '*', n.acc || (lead && lead.acc) || null);
-    const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
+    const errs = (r.results || []).filter((x) => x && (x.error || x.skipped || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
     // Detalhe POR PIXEL no recibo: qual pixel recebeu/falhou e o motivo do TikTok.
     // Sem isto, "erro em 1/2" obriga o operador a caçar o porquê no log da aba
@@ -4272,6 +4272,7 @@ function submitConversion(n) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
       if (!ok) processInline().catch(onProcErr('fallback-inline'));
+      else convWorkerTick().catch(onProcErr('fila-imediata'));
     }).catch((err) => {
       console.error('[server] enqueueConversion falhou, processando inline:', err && err.message,
         '| orderId=', n && n.orderId);
@@ -4289,10 +4290,18 @@ async function convWorkerTick() {
   if (!rdb.enabled || _convWorkerBusy) return;
   _convWorkerBusy = true;
   rdb.heartbeatConvWorker(); // item 197: prova de vida do drain worker
+  let lease = null, renewal = null, lost = false;
   try {
-    if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
+    lease = await rdb.acquireLease('convWorker', 45);
+    if (!lease.acquired) return;
+    renewal = setInterval(() => {
+      rdb.renewLease(lease, 45).then(ok => { if (!ok) lost = true; }).catch(() => { lost = true; });
+      rdb.heartbeatConvWorker();
+    }, 10000);
+    if (renewal.unref) renewal.unref();
     const batch = await rdb.reserveConversions(25);
     for (const item of batch) {
+      if (lost || !(await rdb.renewLease(lease, 45))) break;
       const n = item.env && item.env.n;
       if (!n) { await rdb.ackConversion(item.raw); continue; } // item corrompido → descarta
       try {
@@ -4305,8 +4314,9 @@ async function convWorkerTick() {
       }
     }
   } catch (_) {} finally {
+    if (renewal) clearInterval(renewal);
+    if (lease && lease.acquired) await rdb.releaseLease(lease).catch(() => {});
     _convWorkerBusy = false;
-    rdb.releaseLock('convWorker').catch(() => {});
   }
 }
 if (rdb.enabled) {
@@ -4542,10 +4552,15 @@ app.post('/api/gateways', dashboardAuth, async (req, res) => {
 });
 
 app.delete('/api/gateways/:id', dashboardAuth, async (req, res) => {
-  const ok = await gatewayStore.remove(req.account.id, String(req.params.id || ''));
-  if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
-  stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: req.params.id });
-  res.json({ ok: true });
+  try {
+    const id = String(req.params.id || '');
+    const linked = pixelStore.list(req.account.id).filter(px => (px.gatewayIds || []).includes(id));
+    if (linked.length) return res.status(409).json({ ok: false, error: 'Remova os vínculos deste checkout nos pixels antes de excluí-lo.', code: 'gateway_in_use' });
+    const ok = await gatewayStore.remove(req.account.id, id);
+    if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
+    stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: id });
+    res.json({ ok: true });
+  } catch (err) { res.status(err.status || 503).json({ ok: false, error: err.message }); }
 });
 
 // Rotaciona o webhook token (item 100): a URL antiga PARA de funcionar —
@@ -4819,6 +4834,7 @@ app.post('/api/px/event', async (req, res) => {
         const payload = {
           event: name,
           eventId: evId,
+          eventTime: Number.isFinite(Number(e.time)) && Number(e.time) > 0 ? Number(e.time) : undefined,
           leadId: vId || undefined,
           email: (leadPx && leadPx.email) || undefined,
           phone: (leadPx && leadPx.phone) || undefined,
@@ -4906,6 +4922,8 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
     const b = req.body || {};
+    const changesBindings = Object.prototype.hasOwnProperty.call(b, 'gatewayIds');
+    if (changesBindings && !Array.isArray(b.gatewayIds)) return res.status(400).json({ ok: false, error: 'Selecione os checkouts em uma lista válida.' });
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
     // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
     // payload preservam o valor atual (merge-patch). Permite toggles inline
@@ -4949,6 +4967,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         return res.status(400).json({ error: 'gateway(s) inválido(s) para esta conta: ' + invalid.join(', ') });
       }
     }
+    if (changesBindings || !b.slug || !pixelStore.get(req.account.id, pixelStore.slugify(b.slug))) b.gatewayBindingMode = 'explicit';
     const saved = await pixelStore.save(req.account.id, b);
     stats.logEvent(saved._durable ? 'info' : 'error', {
       acc: req.account.id,
@@ -4970,7 +4989,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 

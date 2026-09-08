@@ -162,3 +162,13 @@ const { catalogDisplayPrice } = load('lib/catalog-display.ts');
 assert.equal(catalogDisplayPrice('79.90 BRL', 'BRL').replace(/\s/g, ' '), 'R$ 79,90');
 assert(catalogDisplayPrice('10.00 EUR', 'BRL').includes('€'), 'moeda do feed não é trocada');
 assert.equal(catalogDisplayPrice(undefined, 'BRL'), '—');
+
+const { conversionStatus, conversionAmount } = load('lib/conversion-status.ts');
+for (const row of [{ status: 'recebido' }, { status: 'teste ok' }, { status: 'ok' }, { status: 'dedup' }, { status: 'ok (sem CAPI)' }]) assert.notEqual(conversionStatus(row).kind, 'success');
+assert.equal(conversionStatus({ status: 'ok', capi: [{ ok: true }] }).kind, 'success');
+assert.equal(conversionStatus({ capi: [{ ok: true }, { ok: false }] }).label, 'Envio parcial');
+assert.equal(conversionStatus({ status: 'sem pixel' }).kind, 'error');
+assert(conversionAmount({ amount: 12345, currency: 'BRL' }).includes('123,45'));
+assert(conversionAmount({ amount: 12345, currency: 'USD' }).includes('US$'));
+assert.equal(conversionAmount({ amount: 100 }), 'Moeda não informada');
+console.log('conversões: estados confirmados, simulação, parcial e moeda/centavos OK');

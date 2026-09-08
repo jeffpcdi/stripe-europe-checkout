@@ -74,8 +74,7 @@ export function GatewayCard({
   // Pixels que recebem deste checkout
   const listeningPixels = pixels.filter((p) => {
     const b = Array.isArray(p.gatewayIds) ? p.gatewayIds : []
-    if (b.length > 0) return b.includes(gateway.id)
-    return true
+    return p.active && b.includes(gateway.id)
   })
 
   return (
@@ -153,7 +152,7 @@ export function GatewayCard({
           </div>
           <div className="flex items-center gap-1 flex-wrap">
             {listeningPixels.length === 0 ? (
-              <span className="italic text-xs text-muted-foreground">Nenhum pixel ativo</span>
+              <span className="italic text-xs text-muted-foreground">Nenhum pixel ativo vinculado</span>
             ) : (
               listeningPixels.map((p) => (
                 <span
@@ -182,7 +181,7 @@ export function GatewayCard({
             </span>
           ) : (
             <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
-              <span className="size-1.5 rounded-full bg-emerald-400/80 animate-pulse" /> Pronto para receber
+              <span className="size-1.5 rounded-full bg-emerald-400/80 animate-pulse" /> Aguardando webhook
             </span>
           )}
         </div>
@@ -192,10 +191,10 @@ export function GatewayCard({
           onClick={() => onTestGateway(gateway)}
           disabled={isTesting}
           className="flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-all disabled:opacity-50 shrink-0"
-          title="Dispara uma compra de teste para verificar se o webhook e o envio para os pixels estão funcionando"
+          title="Valida o processamento interno, sem enviar ao TikTok e sem registrar receita."
         >
           <Zap className="size-3 text-amber-400" />
-          {isTesting ? 'Simulando…' : 'Simular Venda'}
+          {isTesting ? 'Simulando…' : 'Testar integração'}
         </button>
       </div>
     </div>

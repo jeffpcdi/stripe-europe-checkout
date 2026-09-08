@@ -324,7 +324,7 @@ export function QueueHealthPanel() {
         <div>
           <h2 className="section-head text-sm font-semibold text-foreground">Saúde da fila de conversões</h2>
           <p className="text-xs text-muted-foreground">
-            Nenhuma venda confirmada se perde — acompanhe o caminho do webhook até o TikTok
+            Acompanhe o processamento, as tentativas de envio e as falhas.
           </p>
         </div>
         <button

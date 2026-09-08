@@ -208,10 +208,20 @@ function validEventTime(t) {
 }
 
 // fetch com timeout: a API do TikTok nunca pode pendurar um webhook/checkout.
-function fetchWithTimeout(url, opts, ms) {
+async function fetchWithTimeout(url, opts, ms) {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), ms || 6000);
-  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => { ctl.abort(); reject(new Error('Tempo limite na resposta do TikTok')); }, ms || 6000);
+  });
+  try {
+    return await Promise.race([deadline, (async () => {
+      const response = await fetch(url, { ...opts, signal: ctl.signal });
+      // O prazo cobre o corpo, não apenas a chegada dos cabeçalhos.
+      const json = await response.json();
+      return { status: response.status, json: async () => json };
+    })()]);
+  } finally { clearTimeout(timer); }
 }
 
 // ── Fila de retry persistente ──────────────────────────────────────────────
@@ -243,7 +253,7 @@ function queueRetry(pixel, p, eventId) {
     slug: pixel.slug || pixel.pixelCode,
     eventId,
     p: {
-      event: p.event, eventId, leadId: p.leadId, email: p.email, phone: p.phone,
+      event: p.event, gatewayId: p.gatewayId, _trusted: p._trusted, eventId, leadId: p.leadId, email: p.email, phone: p.phone,
       externalId: p.externalId, ip: p.ip, userAgent: p.userAgent, ttclid: p.ttclid,
       ttp: p.ttp, url: p.url, value: p.value, currency: p.currency,
       contents: p.contents, eventTime: p.eventTime || Math.floor(Date.now() / 1000)
@@ -301,7 +311,12 @@ async function drainRetryQueue(opts) {
     // re-resolve o pixel: token/config podem ter mudado no painel.
     // Ordem: token (globalmente único) → get(acc, slug) → varredura por slug (legado).
     const pixel = resolvePixelForRetry(item);
-    if (!pixel || !pixel.active) { retryQueue = retryQueue.filter((x) => x !== item); continue; }
+    const configuredEvent = item.p.event === 'Purchase' ? 'CompletePayment' : item.p.event;
+    if (!pixel || !pixel.active || (pixel.events && pixel.events[configuredEvent] === false)
+      || (MONEY_EVENTS.has(item.p.event) && pixel.gatewayBindingMode === 'explicit' && !(item.p.gatewayId && (pixel.gatewayIds || []).includes(item.p.gatewayId)))) {
+      pushLog({ acc: item.acc, pixel: item.slug, event: item.p.event, eventId: item.eventId, status: 'descartado', response: { message: 'Reenvio cancelado: pixel pausado, removido ou vínculo/evento alterado.' } });
+      retryQueue = retryQueue.filter((x) => x !== item); continue;
+    }
     const json = await sendToPixel(pixel, { ...item.p, _fromRetryQueue: true });
     processed++;
     if (json && json.code === 0) {
@@ -440,9 +455,11 @@ async function sendToPixel(pixel, p) {
         body
       }, 6000);
       // 5xx = instabilidade do TikTok → vale retry; 4xx = erro nosso → não vale
-      if (resp.status >= 500 && attempt === 0) { lastErr = new Error('HTTP ' + resp.status); continue; }
-      const json = await resp.json().catch(() => ({}));
-      const ok = json && json.code === 0;
+      if (resp.status >= 500 || resp.status === 429) throw new Error('HTTP ' + resp.status);
+      const json = await resp.json();
+      if (!json || typeof json.code !== 'number') throw new Error('Resposta do TikTok sem confirmação válida');
+      const ok = (!resp.status || resp.status < 400) && json.code === 0;
+      if (!ok && json.code === 0) throw new Error('HTTP ' + resp.status);
       pushLog({
         acc: pixel.acc || null,
         pixel: pixel.slug || pixel.pixelCode,
@@ -470,12 +487,10 @@ async function sendToPixel(pixel, p) {
     emqFields: emq.fields,
     response: { message: (lastErr && lastErr.message) || 'falha desconhecida', retried: true }
   });
-  // Erro NÃO-retryável (TypeError = header/argumento inválido, não é rede): tentar
-  // de novo daria o mesmo erro e faria a fila crescer sem fim. Não re-enfileira.
-  const nonRetryable = lastErr instanceof TypeError;
-  // falha de rede/5xx persistente → entra na fila de retry de longo prazo
-  // (_fromRetryQueue evita re-enfileirar o que a própria fila disparou)
-  if (!nonRetryable && !p._fromRetryQueue) queueRetry(pixel, p, eventId);
+  // O fetch do Node também usa TypeError para falhas de rede. Credenciais
+  // inválidas já são rejeitadas antes da requisição; não perder erros de rede.
+  // Testes nunca entram na fila de produção.
+  if (!p._fromRetryQueue && !p._test) queueRetry(pixel, p, eventId);
   return { error: (lastErr && lastErr.message) || 'falha desconhecida', pixel: pixelId, pixelName };
 }
 
@@ -604,9 +619,16 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
   // também o consulta — antes era um ReferenceError silencioso no try/catch.
   const requestedSlug = cleanStr(p.pixelSlug, 40);
   if (MONEY_EVENTS.has(eventName)) {
-    const skipped = [];
+    // Configurações novas são explícitas: sem vínculo, nenhum evento do gateway.
+    const skipped = targets.filter(px => px.gatewayBindingMode === 'explicit' && !(p.gatewayId && (px.gatewayIds || []).includes(p.gatewayId)));
+    targets = targets.filter(px => !skipped.includes(px));
+    const explicitMatches = targets.filter(px => px.gatewayBindingMode === 'explicit' && p.gatewayId && (px.gatewayIds || []).includes(p.gatewayId));
     const requested = requestedSlug ? targets.find((px) => px.slug === requestedSlug) : null;
-    if (requested) {
+    if (explicitMatches.length) {
+      const boundMatches = targets.filter(px => p.gatewayId && (px.gatewayIds || []).includes(p.gatewayId));
+      skipped.push(...targets.filter(px => !boundMatches.includes(px)));
+      targets = boundMatches;
+    } else if (requested) {
       // A origem do lead/link é a evidência mais específica. Um vínculo de
       // gateway explícito ainda precisa casar; não ignoramos uma restrição que
       // o operador configurou de propósito.

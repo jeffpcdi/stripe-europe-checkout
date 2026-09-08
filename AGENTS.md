@@ -1227,3 +1227,32 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - **Resiliência e Banco:**
   - `ads-cache-store.js`, `ads-catalog-store.js`, `ads-ops-store.js` e `cloud-video-sync.js` detectam connection strings placeholder em `DATABASE_URL` (`USER:PASSWORD@HOST`, etc.) e ativam fallback gracefully.
   - `mock-db.js`: suporte aprimorado a `insertNotification` com deduplicação por chave (5 min) e filtragem multi-tenant por `account_id`.
+
+## 22. Conversões: vínculos e confirmação de entrega (2026-09-08)
+
+- A aba Conversões centraliza vínculos no pixel, com `GatewaySelector`: cada pixel aceita vários
+  gateways, e um gateway pode alimentar vários pixels explicitamente vinculados. O editor de gateway
+  salva apenas o gateway; não dispara uma sequência de alterações em pixels. `gatewayBindingMode='explicit'`
+  significa que `gatewayIds=[]` não recebe eventos monetários. Configurações antigas mantêm o fallback
+  legado até uma edição de vínculos, com aviso na UI. Em modo explícito, todos os vínculos do gateway
+  recebem o evento, sem o pixel do lead suprimir outro destino selecionado. Navegação segue escopada
+  pelo token da tag. Excluir gateway vinculado retorna 409 antes de qualquer remoção.
+- Neon é autoritativo para salvar pixels/gateways: falha não altera cache nem confirma por Redis apenas.
+  Sem Neon, Redis configurado precisa confirmar a gravação; produção sem ambos rejeita a escrita.
+  A exclusão de gateway confirma as camadas configuradas e preserva cache em falha.
+- `conversion-status.ts` só exibe envio confirmado quando existem recibos CAPI positivos; teste,
+  duplicata, ausência de destino, pendência e falha parcial são distintos. Valores do recibo são
+  centavos e mantêm a moeda. O histórico inclui envios por pixel, fila e quarentena recolhidas.
+- Uma tag `/px/:token.js` continua sendo a instalação recomendada. `InstallCheck` verifica HTML e
+  evidência de execução, sem confundir tag encontrada com envio confirmado. Mostra configuração de
+  carrinho/checkout e Purchase no navegador com pedido real. Compra/receita no servidor continuam
+  exclusivas do webhook. Eventos disponíveis: ViewContent, AddToCart, InitiateCheckout,
+  AddPaymentInfo e Purchase (CompletePayment internamente). O código de teste só acompanha testes.
+- Timeout da CAPI cobre cabeçalhos e corpo. HTTP 429/5xx e corpo inválido/lento entram em retry;
+  testes não entram na fila real. Retry revalida pixel ativo, evento e vínculos explícitos atuais.
+  O outbox do navegador mantém alternativa em memória se localStorage estiver indisponível.
+- Após enqueue confirmado, o worker de conversões é acionado imediatamente. O polling de 2s continua
+  como recuperação. O ciclo usa lease com token, renovação e liberação por proprietário; confirma
+  posse antes de cada item e deixa itens não concluídos para reclaim.
+- Regressões: `conversions-persistence`, `pixel-transport`, `pixel-gateway-binding`,
+  `conversion-database-retry` e `dashboard-ui-integrity`, todas incluídas em `npm test`.
