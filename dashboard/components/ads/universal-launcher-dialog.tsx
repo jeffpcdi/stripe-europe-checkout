@@ -1,5 +1,7 @@
 'use client'
 
+import { MarketSelector, defaultMarket } from './market-selector'
+
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -65,6 +67,7 @@ export function UniversalLauncherDialog({
 
   // 2 Campos Essenciais
   const [linkUrl, setLinkUrl] = useState('')
+  const [market, setMarket] = useState(() => defaultMarket())
   const [budget, setBudget] = useState(String(Math.max(TIKTOK_MIN_BUDGET, 60)))
   const [isDragging, setIsDragging] = useState(false)
 
@@ -133,7 +136,7 @@ export function UniversalLauncherDialog({
   const validationError: string | null = useMemo(() => {
     if (pixelLoading) return 'Conferindo vínculo do Pixel...'
     if (pixelError) return 'Falha temporária ao verificar Pixel da conta'
-    if (!pixelReady) return 'Vincule o Pixel da conta em Conversões antes de criar campanhas'
+    if (!pixelReady) return 'Escolha o Pixel da conta na aba TikTok Ads antes de criar campanhas'
     if (items.length === 0) return 'Selecione ou arraste pelo menos 1 arquivo de vídeo'
     if (uploadingCount > 0) return `Enviando vídeo(s)... (${uploadingCount} restante(s))`
     if (items.some((i) => !i.videoUrl)) return 'Upload falhou em um dos vídeos. Remova ou envie novamente.'
@@ -224,7 +227,8 @@ export function UniversalLauncherDialog({
             budgetAmount: budgetNum,
             budgetType: 'daily',
             linkUrl: cleanLink,
-            countries: ['BR'],
+            countries: market.countries,
+            languages: market.languages,
             body: cleanBody,
             callToAction: cta,
           },
@@ -269,7 +273,8 @@ export function UniversalLauncherDialog({
         budgetType: 'daily',
         budgetOptimization: 'campaign',
         bidStrategy: 'lowest_cost',
-        countries: ['BR'],
+        countries: market.countries,
+            languages: market.languages,
         videoUrl: singleItem.videoUrl,
         body: cleanBody,
         linkUrl: cleanLink,
@@ -448,6 +453,7 @@ export function UniversalLauncherDialog({
             </div>
           ) : (
             <>
+              <MarketSelector value={market} onChange={setMarket} disabled={submitting} />
               {/* 1. SELEÇÃO / UPLOAD DE VÍDEOS */}
               <div>
                 <label className="block text-xs font-semibold text-foreground mb-1.5">

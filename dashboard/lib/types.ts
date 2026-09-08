@@ -1763,6 +1763,7 @@ export interface AdsCatalogCapabilities {
   catalogCarouselMusic: boolean
   automaticVideoCover: boolean
   automaticPurchaseEvent: boolean
+  catalogLanguages?: boolean
   catalogCostCap: boolean
   catalogAcceleratedDelivery: boolean
   bidStrategies: ('lowest_cost' | 'cost_cap')[]

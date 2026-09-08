@@ -7,23 +7,23 @@ import { toast } from '@/lib/toast'
 
 export function PixelBindingCard({ active, advertiserId }: { active: boolean; advertiserId: string }) {
   const { data, error, isLoading, mutate } = useAdsTikTokPixels(active, advertiserId)
-  const [pixelSlug, setPixelSlug] = useState('')
+  const [pixelId, setPixelId] = useState('')
   const [saving, setSaving] = useState(false)
-  const choices = (data?.pixels ?? []).filter((pixel) => pixel.localSlug)
+  const choices = (data?.pixels ?? [])
 
   useEffect(() => {
-    if (!pixelSlug && choices.length === 1) setPixelSlug(choices[0].localSlug || '')
-  }, [choices, pixelSlug])
+    if (!pixelId && choices.length === 1) setPixelId(choices[0].id)
+  }, [choices, pixelId])
 
-  useEffect(() => setPixelSlug(''), [advertiserId])
+  useEffect(() => setPixelId(''), [advertiserId])
 
   if (!active || isLoading || (data?.ready && !error)) return null
 
   async function save() {
-    if (!pixelSlug) return
+    if (!pixelId) return
     setSaving(true)
     try {
-      await apiSend('/api/ads/pixels/default', 'PUT', { adAccountId: advertiserId, pixelSlug })
+      await apiSend('/api/ads/pixels/default', 'PUT', { adAccountId: advertiserId, pixelId })
       await mutate()
       toast.success('Pixel de campanhas configurado')
     } catch (saveError) {
@@ -41,27 +41,27 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
         <div className="flex min-w-0 items-start gap-2.5">
           <Link2 className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
           <div>
-            <p className="text-xs font-semibold text-foreground">Vincular pixel de vendas</p>
+            <p className="text-xs font-semibold text-foreground">Pixel da conta TikTok</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Um único pixel acompanha as compras de todas as campanhas.
+              Escolha uma vez. As próximas campanhas usam este Pixel.
             </p>
           </div>
         </div>
         {choices.length > 0 ? (
           <div className="flex min-w-0 flex-wrap gap-2">
-            <select aria-label="Pixel de vendas" className="input min-w-0 flex-1 text-xs" value={pixelSlug} onChange={(event) => setPixelSlug(event.target.value)}>
+            <select aria-label="Pixel de vendas" className="input min-w-0 flex-1 text-xs" value={pixelId} onChange={(event) => setPixelId(event.target.value)}>
               <option value="">Selecione o Pixel</option>
               {choices.map((pixel) => (
-                <option key={pixel.id} value={pixel.localSlug || ''}>{pixel.localName || pixel.name}</option>
+                <option key={pixel.id} value={pixel.id}>{pixel.name}</option>
               ))}
             </select>
-            <button type="button" className="btn-primary text-xs" disabled={!pixelSlug || saving} onClick={() => void save()}>
+            <button type="button" className="btn-primary text-xs" disabled={!pixelId || saving} onClick={() => void save()}>
               {saving && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
               Usar Pixel
             </button>
           </div>
         ) : (
-          <a className="btn-ghost shrink-0 text-xs" href="/dashboard/conversions">Abrir conversões</a>
+          <p className="text-xs text-muted-foreground">Compartilhe um Pixel com esta conta no TikTok Ads Manager.</p>
         )}
       </div>
       {error && <p className="mt-2 text-[10px] text-error">Não foi possível conferir os Pixels desta conta agora.</p>}

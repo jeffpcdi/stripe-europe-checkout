@@ -82,6 +82,11 @@ function throwsCode(fn, code, label) {
     videoUrl: 'https://cdn.test/catalogo.mp4',
   };
   const spec = domain.normalizeCampaignSpec(input, { name: 'Loja', country: 'BR' });
+  const market = domain.normalizeCampaignSpec({ ...input, countries: ['us', 'CA', 'us'], languages: ['EN'] }, {});
+  eq(market.countries.join(','), 'US,CA', 'países atravessam a normalização sem duplicatas');
+  eq(market.languages.join(','), 'en', 'idioma chega ao worker');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, countries: [] }, {}), 'CATALOG_COUNTRIES_INVALID', 'país vazio não vira Brasil silenciosamente');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, languages: ['invalid'] }, {}), 'CATALOG_LANGUAGES_INVALID', 'idioma inválido é bloqueado');
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
   eq(spec.creativeMode, 'SINGLE_VIDEO', 'spec usa vídeo de catálogo com áudio embutido');
   eq(spec.strategy, 'catalog_video_product_link', 'estratégia Product Link fica explícita');

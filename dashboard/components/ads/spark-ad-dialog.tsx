@@ -279,7 +279,7 @@ export function SparkAdDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
-              Conversão · compra · Pixel automático
+              Conversão · compra · Pixel da conta TikTok
             </div>
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-foreground">Países (ex.: BR, PT)</span>

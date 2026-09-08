@@ -186,10 +186,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   O produto é exclusivamente de **conversão**: criação comum, Smart+ e Spark usam TikTok placement,
   evento `ON_WEB_ORDER` e campanhas pausadas; objetivos de tráfego/alcance/leads/engajamento são
   rejeitados também no backend. O Pixel não é informado em cada formulário: `ads_pixel_bindings`
-  mantém um vínculo por `account_id + advertiser_id`; `GET /api/ads/pixels` cruza o `pixel_code`
-  alfanumérico salvo em Conversões com o `pixel_id` numérico lido do TikTok e
-  `PUT /api/ads/pixels/default` resolve apenas contas ambíguas. Campanhas comuns, Smart+, Spark,
-  wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
+  mantém um vínculo por `account_id + advertiser_id`. `GET /api/ads/pixels` consulta os Pixels
+  disponíveis no advertiser TikTok; cadastro em Conversões é opcional. Um único Pixel remoto é
+  vinculado diretamente; vários exigem escolha uma vez por conta em `PUT /api/ads/pixels/default`
+  (`pixelId`). O backend revalida o acesso remoto antes de criar campanhas; ausência revoga o vínculo,
+  falha de transporte preserva a configuração e bloqueia a criação. Vínculos remotos usam `pixel_slug`
+  vazio e não dependem do código alfanumérico ou da exclusão de um cadastro local. Campanhas comuns,
+  Smart+, Spark, wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
   “Vídeos em massa” também é exclusivamente conversão: o formulário não oferece objetivo, Pixel
   nem evento; bloqueia uploads enquanto o vínculo central não estiver pronto, exige destino HTTPS
   e usa orçamento mínimo real. `POST /api/ads/bulk` rejeita objetivos incompatíveis, resolve novamente
@@ -1289,3 +1292,13 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   e retorna do detalhe à lista antes de abrir; eventos globais instantâneos foram removidos porque
   perdiam ações quando o componente ainda não estava montado. O lote recebe um contador de abertura.
   `conversion-pii` cobre a prioridade de `ld_*`/`v_*` sobre códigos externos de checkout.
+
+### Mercados nos lançadores TikTok Ads (2026-09-08)
+- Lançador universal e campanhas rápidas de catálogo compartilham `market-selector.tsx`: país e
+  idioma do público aplicados a todos os vídeos do lote. Catálogo inicia no país do próprio feed;
+  orçamento e moeda continuam sendo os da conta. O seletor não traduz vídeo, texto ou página.
+- `catalog-domain.normalizeCampaignSpec` valida/preserva países e idiomas na fila durável. Idiomas
+  do catálogo exigem `catalogLanguages` no schema Pipeboard; rota e provider recusam antes da escrita
+  quando indisponível. Chaves de idempotência geradas pelo backend incluem o mercado.
+- `ads-remote-pixel.test.js` executa handlers isolados com revogação, falha de transporte, múltiplos
+  Pixels e origem remota sem cadastro local; normalização internacional coberta em `ads-catalog-v2`.

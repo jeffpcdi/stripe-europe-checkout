@@ -488,7 +488,7 @@ export function CreateAdPanel({
                       ['Estratégia', `${form.budgetOptimization === 'campaign' ? 'CBO' : 'ABO'} · ${currency} ${Number(form.budgetAmount).toLocaleString('pt-BR')} ${form.budgetType === 'daily' ? 'por dia' : 'total'}`],
                       ['Público', form.countries.toUpperCase()],
                       ['Objetivo', 'Conversão · compra'],
-                      ['Pixel', 'Selecionado automaticamente'],
+                      ['Pixel', 'Da conta TikTok'],
                       ['Destino', form.linkUrl.trim()],
                     ].map(([label, value]) => (
                       <div key={label} className="grid grid-cols-[110px_1fr] gap-3 py-3 text-xs">

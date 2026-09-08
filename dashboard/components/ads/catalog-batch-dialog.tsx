@@ -284,7 +284,7 @@ export function CatalogBatchDialog({
             {scheduleCampaigns && (
               <label className="rounded-lg border border-border bg-background/70 p-3">
                 <span className="flex items-center gap-2 font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo das campanhas</span>
-                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">Um MP4/MOV com áudio para todas as campanhas do arquivo. Pixel, Compra e capa são automáticos.</span>
+                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">Um MP4/MOV com áudio para todas as campanhas do arquivo. Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo.</span>
                 <span className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="btn-ghost cursor-pointer px-2 py-1 text-[10px]">
                     {uploadingVideo ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
@@ -357,7 +357,7 @@ export function CatalogBatchDialog({
                                 <li key={`${summary.name}-${index}`} className="grid gap-0.5 border-t border-border/50 pt-1.5 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
                                   <span className="truncate font-medium text-foreground">{summary.name}</span>
                                   <span className="text-muted-foreground sm:text-right">{summary.budget}</span>
-                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel de compra aplicado automaticamente</span>
+                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel da conta TikTok</span>
                                 </li>
                               )
                             })}

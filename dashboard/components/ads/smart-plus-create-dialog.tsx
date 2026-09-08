@@ -147,7 +147,7 @@ export function SmartPlusCreateDialog({
             </label>
 
             <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
-              Conversão · compra · Pixel selecionado automaticamente · criada pausada.
+              Conversão · compra · Pixel da conta TikTok · criada pausada.
             </p>
 
             <div className="grid grid-cols-2 gap-3">

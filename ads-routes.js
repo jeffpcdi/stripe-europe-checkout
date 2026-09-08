@@ -675,25 +675,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const matchFor = (local) => remotePixels.find((remote) => remote.code.toUpperCase() === local.code.toUpperCase());
     const matches = localPixels.map((local) => ({ local, remote: matchFor(local) })).filter((item) => item.remote);
     let binding = await adsOps.getPixelBinding(accountId, advertiserId);
-    if (binding) {
-      const local = localPixels.find((pixel) => pixel.slug === binding.pixelSlug);
-      const remote = remotePixels.find((pixel) => pixel.id === binding.pixelId && pixel.code.toUpperCase() === binding.pixelCode.toUpperCase());
-      if (!local || !remote || local.code.toUpperCase() !== remote.code.toUpperCase()) {
-        await adsOps.deletePixelBinding(accountId, advertiserId);
-        binding = null;
-      } else {
-        binding = await adsOps.savePixelBinding(accountId, advertiserId, {
-          pixelSlug: local.slug, pixelCode: remote.code, pixelId: remote.id,
-          pixelName: remote.name || local.name, remoteStatus: remote.status,
-        });
-      }
+    // O TikTok é a autoridade do vínculo; Conversões é apenas informação local.
+    const remote = remotePixels.find((pixel) => binding && pixel.id === binding.pixelId)
+      || (!binding && remotePixels.length === 1 ? remotePixels[0] : null);
+    if (binding && !remote) {
+      await adsOps.deletePixelBinding(accountId, advertiserId);
+      binding = null;
     }
-    // Única correspondência comprovada = configuração óbvia e idempotente.
-    if (!binding && matches.length === 1) {
-      const match = matches[0];
+    if (remote) {
       binding = await adsOps.savePixelBinding(accountId, advertiserId, {
-        pixelSlug: match.local.slug, pixelCode: match.remote.code, pixelId: match.remote.id,
-        pixelName: match.remote.name || match.local.name, remoteStatus: match.remote.status,
+        pixelSlug: '', pixelCode: remote.code, pixelId: remote.id,
+        pixelName: remote.name, remoteStatus: remote.status,
       });
     }
     return { localPixels, remotePixels, matches, binding };
@@ -702,9 +694,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function requireCampaignPixel(accountId, advertiserId) {
     const context = await pixelContext(accountId, advertiserId);
     if (context.binding) return context.binding;
-    const err = new Error(context.matches.length > 1
-      ? 'Há mais de um Pixel compatível. Escolha o Pixel padrão uma única vez em Conversões.'
-      : 'Nenhum Pixel de Conversões corresponde aos Pixels desta conta de anúncio. Faça o vínculo em Conversões.');
+    const err = new Error(context.remotePixels.length > 1
+      ? 'Escolha uma vez o Pixel desta conta na aba TikTok Ads.'
+      : 'Nenhum Pixel disponível nesta conta TikTok. Compartilhe um Pixel com a conta no TikTok Ads Manager.');
     err.status = 409;
     err.code = 'PIXEL_BINDING_REQUIRED';
     err.userMessage = err.message;
@@ -724,7 +716,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         }),
         binding: context.binding,
         ready: Boolean(context.binding),
-        needsChoice: !context.binding && context.matches.length > 1,
+        needsChoice: !context.binding && context.remotePixels.length > 1,
       });
     } catch (err) { fail(res, err); }
   });
@@ -734,16 +726,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const selected = await requireAdvertiser(req.account.id, null, (req.body || {}).adAccountId, null);
       const context = await pixelContext(req.account.id, selected.advertiserId);
       const slug = String((req.body || {}).pixelSlug || '').trim();
-      const match = context.matches.find((item) => item.local.slug === slug);
-      if (!match) {
-        const err = new Error('Escolha um Pixel de Conversões que pertença a esta conta TikTok Ads');
+      const pixelId = String((req.body || {}).pixelId || '').trim();
+      const remote = pixelId ? context.remotePixels.find((pixel) => pixel.id === pixelId)
+        : context.matches.find((item) => item.local.slug === slug)?.remote;
+      if (!remote) {
+        const err = new Error('Escolha um Pixel disponível nesta conta TikTok Ads');
         err.status = 400;
         err.code = 'PIXEL_NOT_IN_ADVERTISER';
         throw err;
       }
       const binding = await adsOps.savePixelBinding(req.account.id, selected.advertiserId, {
-        pixelSlug: match.local.slug, pixelCode: match.remote.code, pixelId: match.remote.id,
-        pixelName: match.remote.name || match.local.name, remoteStatus: match.remote.status,
+        pixelSlug: '', pixelCode: remote.code, pixelId: remote.id,
+        pixelName: remote.name, remoteStatus: remote.status,
       });
       res.json({ ok: true, binding });
     } catch (err) { fail(res, err); }
@@ -4171,6 +4165,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       pixelId: pixel.pixelId,
       pixelEvent,
     }), catalog);
+    if (normalized.languages.length && capabilities.catalogLanguages !== true) {
+      throw catalogDomain.catalogError('CATALOG_LANGUAGES_UNSUPPORTED', 'O conector ainda não permite filtrar idiomas neste catálogo. Escolha Todos os idiomas.', { status: 409 });
+    }
     // Escopo ALL pertence ao catálogo remoto: o TikTok usa somente os itens
     // aprovados que ele confirma no overview. Não reconstrua esse conjunto a
     // partir das linhas locais, pois uma cópia ainda não sincronizada não pode
@@ -4230,6 +4227,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           'catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name,
           prepared.spec.budgetAmount, prepared.spec.bidStrategy, prepared.spec.bidAmount || '',
           prepared.spec.deliveryMode, prepared.spec.identityId || '', prepared.spec.videoUrl,
+          JSON.stringify(prepared.spec.countries), JSON.stringify(prepared.spec.languages),
         ].join(':'),
       );
       const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
@@ -4305,6 +4303,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         prepared.spec.budgetAmount, prepared.spec.pixelId,
         prepared.spec.bidStrategy, prepared.spec.bidAmount || '', prepared.spec.deliveryMode,
         prepared.spec.identityId || '', videoUrls.join(','), namePrefix,
+        JSON.stringify(prepared.spec.countries), JSON.stringify(prepared.spec.languages),
       ].join(':');
       const runs = [];
       for (let i = 0; i < names.length; i += 1) {

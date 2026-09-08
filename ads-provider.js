@@ -3221,6 +3221,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     catalogCarouselMusic: false,
     automaticVideoCover: false,
     automaticPurchaseEvent: false,
+    catalogLanguages: false,
     catalogCostCap: false,
     catalogAcceleratedDelivery: false,
     bidStrategies: ['lowest_cost'],
@@ -3426,6 +3427,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogCarouselMusic,
       automaticVideoCover,
       automaticPurchaseEvent,
+      catalogLanguages: hasNestedFields('create_tiktok_adgroup', 'targeting', ['languages']),
       catalogCostCap,
       catalogAcceleratedDelivery,
       bidStrategies: catalogCostCap ? ['lowest_cost', 'cost_cap'] : ['lowest_cost'],
@@ -4252,6 +4254,9 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     err.code = 'CATALOG_ACCELERATED_DELIVERY_CONNECTOR_UNSUPPORTED';
     throw err;
   }
+  if (Array.isArray(s.languages) && s.languages.length && capabilities.catalogLanguages !== true) {
+    throw badRequest('O conector ainda não permite filtrar idiomas em campanhas de catálogo.', 409);
+  }
   const pixelEvent = await resolveCatalogPurchaseEvent(adv, pixelId, requestedPixelEvent);
   if (Array.isArray(capabilities.optimizationEvents)
     && !capabilities.optimizationEvents.includes(pixelEvent)) {
@@ -4428,7 +4433,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       placement_type: 'PLACEMENT_TYPE_NORMAL',
       placements: ['PLACEMENT_TIKTOK'],
       schedule_start_time: advertiserLocalTime(info && (info.deliveryTimezone || info.timezone)),
-      targeting: { location_ids: regions.locationIds },
+      targeting: { location_ids: regions.locationIds, ...(Array.isArray(s.languages) && s.languages.length ? { languages: s.languages } : {}) },
       operation_status: 'DISABLE',
     };
     agArgs.pixel_id = pixelId;

@@ -36,6 +36,7 @@ function harness(upload, create = async () => ({ count: 5 })) {
   const props = { open: true, catalog: { id: 'cat', name: 'Loja' }, advertiserId: 'adv', advertiserCurrency: 'BRL', capabilities: {}, onClose() {}, onCreated() {} };
   const context = { module: { exports: {} }, exports: {}, crypto: { randomUUID: () => 'key-' + (++serial) },
     require: (name) => {
+      if (name === './market-selector') return { MarketSelector: 'MarketSelector', defaultMarket: (country = 'BR') => ({ countries: [country], languages: [] }) };
       if (name === 'react') return react;
       if (name === 'react/jsx-runtime') return jsx;
       if (name === 'lucide-react') return new Proxy({}, { get: (_o, key) => String(key) });

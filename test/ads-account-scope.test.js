@@ -61,7 +61,7 @@ assert.match(api, /params\.set\('adAccountId', adAccountId\)/);
 
 // Todas as leituras/ações sensíveis da UI levam a conta que está visível.
 assert.match(view, /tree\/refresh\?adAccountId=/);
-assert.match(view, /PixelBindingCard active=\{treeActive\} advertiserId=\{concreteAdvertiser\}/);
+assert.match(view, /PixelBindingCard active=\{Boolean\(concreteAdvertiser\)\} advertiserId=\{concreteAdvertiser\}/);
 assert.match(drawer, /useAdsCampaignAnalytics\(id, advertiserId, cur\)/);
 assert.match(campaignTree, /budget: \{ amount, type \}, adAccountId/);
 assert.match(campaignTree, /'DELETE', \{ adAccountId:/);

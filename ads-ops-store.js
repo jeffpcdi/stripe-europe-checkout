@@ -1024,7 +1024,7 @@ async function savePixelBinding(accountId, advertiserId, input) {
   const acc = cleanAccountId(accountId);
   const adv = cleanAdvertiserId(advertiserId);
   const value = mapPixelBinding({ advertiserId: adv, ...(input || {}) });
-  if (!value.pixelSlug || !value.pixelCode || !/^\d{5,30}$/.test(value.pixelId)) {
+  if (!/^\d{5,30}$/.test(value.pixelId)) {
     throw new Error('Vínculo de Pixel inválido');
   }
   const key = pixelBindingKey(acc, adv);

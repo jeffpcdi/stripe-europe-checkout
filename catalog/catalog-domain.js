@@ -274,6 +274,14 @@ function normalizeCampaignSpec(input, catalog) {
       { status: 400, retryable: false },
     );
   }
+  const countries = value.countries === undefined ? [value.country || cat.country || 'BR'] : value.countries;
+  const languages = value.languages === undefined ? [] : value.languages;
+  if (!Array.isArray(countries) || !countries.length || countries.length > 30 || countries.some((code) => !/^[a-z]{2}$/i.test(String(code)))) {
+    throw catalogError('CATALOG_COUNTRIES_INVALID', 'Escolha ao menos um país válido.');
+  }
+  if (!Array.isArray(languages) || languages.length > 10 || languages.some((code) => !/^[a-z]{2}$/i.test(String(code)))) {
+    throw catalogError('CATALOG_LANGUAGES_INVALID', 'Escolha um idioma válido.');
+  }
   const autoActivate = value.autoActivate === true;
   return {
     name, budgetAmount, budgetType, endDate: value.endDate || undefined,
@@ -281,7 +289,9 @@ function normalizeCampaignSpec(input, catalog) {
     bidStrategy,
     bidAmount: bidStrategy === 'cost_cap' ? bidAmount : undefined,
     deliveryMode: requestedDeliveryMode,
-    country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
+    country: String(countries[0]).toUpperCase(),
+    countries: [...new Set(countries.map((code) => String(code).toUpperCase()))],
+    languages: [...new Set(languages.map((code) => String(code).toLowerCase()))],
     productScope, itemGroupIds, productIds: itemGroupIds, productSetId: productSetId || undefined,
     videoUrl,
     identityId: identityId || undefined, identityType: identityType || undefined,

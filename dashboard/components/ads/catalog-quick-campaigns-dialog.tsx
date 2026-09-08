@@ -1,5 +1,7 @@
 'use client'
 
+import { MarketSelector, defaultMarket } from './market-selector'
+
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 // Fluxo único: vários criativos, quantidade e orçamento. Pixel, evento de Compra,
@@ -52,6 +54,7 @@ export function CatalogQuickCampaignsDialog({
 }) {
   const [customCount, setCustomCount] = useState(1)
   const [onePerCreative, setOnePerCreative] = useState(true)
+  const [market, setMarket] = useState(() => defaultMarket(catalog.country || 'BR'))
   const [budget, setBudget] = useState('50')
   const [namePrefix, setNamePrefix] = useState('')
   const [creatives, setCreatives] = useState<Creative[]>([])
@@ -89,6 +92,7 @@ export function CatalogQuickCampaignsDialog({
   }, [costCapAvailable])
   useEffect(() => {
     if (!open) return
+    setMarket(defaultMarket(catalog.country || 'BR'))
     setCustomCount(1)
     setOnePerCreative(true)
     setBudget(String(TIKTOK_MIN_BUDGET))
@@ -162,6 +166,8 @@ export function CatalogQuickCampaignsDialog({
         budgetAmount: budgetNumber,
         budgetType: 'daily',
         budgetOptimization: 'adgroup',
+        countries: market.countries,
+        languages: market.languages,
         bidStrategy,
         bidAmount: bidStrategy === 'cost_cap' ? bidAmountNumber : undefined,
         deliveryMode: acceleratedDelivery && bidStrategy === 'cost_cap' ? 'accelerated' : 'standard',
@@ -258,6 +264,7 @@ export function CatalogQuickCampaignsDialog({
         </header>
 
         <fieldset disabled={busy} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-5">
+        <MarketSelector value={market} onChange={(value) => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
         <div className="flex flex-col gap-1.5">
           <label className="flex items-center gap-2 text-xs font-medium text-foreground">
             <input type="checkbox" className="accent-primary" checked={onePerCreative} onChange={(event) => {
@@ -346,7 +353,7 @@ export function CatalogQuickCampaignsDialog({
               </ol>
             </details>
           )}
-          Pixel, Compra e capa são automáticos. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
+          Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
         </div>
 
         <div className="rounded-lg border border-border px-3 py-2">

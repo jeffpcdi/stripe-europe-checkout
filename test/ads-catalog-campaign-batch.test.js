@@ -72,7 +72,7 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/estrutura nasce pausada, é conferida e depois ativada/.test(dialog), 'resumo explica validação segura antes da ativação');
   ok(!/<textarea/.test(dialog) && !/buildCatalogBatchPlan/.test(dialog), 'nenhum CSV/colagem é exigido no Modo Turbo');
   ok(/productScope: 'all'/.test(dialog), 'escopo automático: todos os produtos do catálogo');
-  ok(/Pixel, Compra e capa são automáticos/.test(dialog), 'Pixel, evento e capa são explicados sem virar campos repetidos');
+  ok(/Pixel da conta TikTok/.test(dialog), 'Pixel, evento e capa são explicados sem virar campos repetidos');
   ok(/adsUpload\(file, 'video'\)/.test(dialog) && /videoUrl/.test(dialog), 'lote recebe um vídeo sem etapa manual no Ads Manager');
   ok(!/useAdsTikTokPixels|pixelId|pixelEvent|TIKTOK_PIXEL_EVENTS/.test(dialog), 'dialog não pede Pixel nem evento manualmente');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');

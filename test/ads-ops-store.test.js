@@ -62,6 +62,8 @@ assert.strictEqual(workspace.governance.requiredApprovals, 1);
 assert.strictEqual(workspace.governance.maxTargetsPerAction, 100, 'limite de alvos é clampado');
 
 async function testPixelBindings() {
+  const remote = await ops.savePixelBinding('remote', 'remote', { pixelId: '12345678' });
+  assert.strictEqual(remote.pixelId, '12345678', 'Pixel remoto não exige cadastro local');
   const first = await ops.savePixelBinding('acc_1', 'adv_1', {
     pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: '12345678', pixelName: 'Pixel A', remoteStatus: 'ACTIVE',
   });

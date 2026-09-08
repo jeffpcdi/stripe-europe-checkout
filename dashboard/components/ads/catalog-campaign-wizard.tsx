@@ -241,7 +241,7 @@ export function CatalogCampaignWizard({
       {connectorReady && (
         <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
           <p className="font-semibold text-foreground">Pronto para vídeo de catálogo</p>
-          <p className="mt-1">Todos os produtos aprovados usam o próprio Link. Pixel, Compra, identidade e capa são automáticos; o áudio vem do vídeo.</p>
+          <p className="mt-1">Todos os produtos aprovados usam o próprio Link. Pixel da conta TikTok, otimização para Compra, perfil e capa já configurados; o áudio vem do vídeo.</p>
         </div>
       )}
       {capabilities !== null && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">A dashboard ainda está validando catálogo, Pixel e conta. O botão será liberado quando tudo estiver pronto.</p>}

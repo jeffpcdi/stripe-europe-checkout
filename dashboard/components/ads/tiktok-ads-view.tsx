@@ -349,7 +349,7 @@ export function TikTokAdsView() {
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
 
-      <PixelBindingCard active={treeActive} advertiserId={concreteAdvertiser} />
+      <PixelBindingCard active={Boolean(concreteAdvertiser)} advertiserId={concreteAdvertiser} />
 
       {!effectiveAdvertiser ? (
         <GlassCard className="flex flex-col items-center gap-2 p-6 text-center">

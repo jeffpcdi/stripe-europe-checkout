@@ -35,7 +35,7 @@ console.log('Interface — uma entrada, três áreas e configuração automátic
   ok(/const STEPS = \['Configuração', 'Criativo', 'Revisão'\]/.test(create), 'criador regular usa três etapas');
   ok(!/interestIds|gender|placementMode|pixelId|customEventType/.test(create), 'criador não expõe segmentação e Pixel técnicos');
   ok(/goal: 'conversions'/.test(create), 'criador envia somente conversão');
-  ok(/Pixel.*selecionado automaticamente/i.test(create), 'revisão informa o vínculo automático');
+  ok(/Pixel.*Da conta TikTok/i.test(create), 'revisão informa origem na conta TikTok');
   ok(!/GOALS|setGoal|Pixel ID \(numérico\)/.test(spark), 'Spark não oferece objetivos incompatíveis nem Pixel manual');
   ok(/goal: 'conversions'/.test(spark), 'Spark envia conversão');
   ok(!/setGoal|Pixel ID \(numérico\)|TIKTOK_PIXEL_EVENTS/.test(smart), 'Smart+ não oferece tráfego nem Pixel manual');
