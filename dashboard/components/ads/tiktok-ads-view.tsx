@@ -7,7 +7,8 @@
 import { AudiencesDialog } from './audiences-dialog'
 import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
-import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -356,18 +357,112 @@ export function TikTokAdsView() {
         <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
                     : item.value === 'campaigns' && tree?.syncError ? 1 : 0
+
+                  if (item.value === 'catalog') {
+                    return (
+                      <DropdownMenu.Root key={item.value}>
+                        <div className="relative flex items-center justify-center">
+                          <Tabs.Trigger
+                            key={item.value}
+                            value={item.value}
+                            className="tiktok-section-tab flex-1 pr-7 sm:pr-8 touch-manipulation"
+                            onClick={() => changeTab('catalog')}
+                          >
+                            <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
+                            <span className="truncate sm:hidden">{item.compactLabel}</span>
+                            <span className="hidden sm:inline">{item.label}</span>
+                            {attentionCount > 0 && (
+                              <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
+                                {attentionCount}
+                              </span>
+                            )}
+                          </Tabs.Trigger>
+                          <DropdownMenu.Trigger asChild>
+                            <button
+                              type="button"
+                              className="absolute right-1 flex size-8 sm:size-7 items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground hover:bg-white/10 active:scale-95 transition-all cursor-pointer touch-manipulation"
+                              aria-label="Opções do Catálogo"
+                              title="Opções do catálogo"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ChevronDown className="size-3.5" aria-hidden="true" />
+                            </button>
+                          </DropdownMenu.Trigger>
+                        </div>
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content
+                            align="center"
+                            sideOffset={8}
+                            className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-xl border border-white/10 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl text-xs"
+                          >
+                            <DropdownMenu.Item
+                              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                              onSelect={() => changeTab('catalog')}
+                            >
+                              <ShoppingBag className="size-4 text-primary" />
+                              <div className="flex flex-col">
+                                <span className="font-semibold">Ver Catálogos</span>
+                                <span className="text-[10px] text-muted-foreground">Listar produtos e feeds</span>
+                              </div>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Separator className="my-1 h-px bg-border/40" />
+                            <DropdownMenu.Item
+                              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                              onSelect={() => {
+                                changeTab('catalog')
+                                window.dispatchEvent(new CustomEvent('open-catalog-create'))
+                              }}
+                            >
+                              <Plus className="size-4 text-emerald-400" />
+                              <div className="flex flex-col">
+                                <span className="font-semibold">Novo Catálogo</span>
+                                <span className="text-[10px] text-muted-foreground">Criar catálogo manual</span>
+                              </div>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item
+                              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                              onSelect={() => {
+                                changeTab('catalog')
+                                window.dispatchEvent(new CustomEvent('open-catalog-magic'))
+                              }}
+                            >
+                              <Sparkles className="size-4 text-indigo-400" />
+                              <div className="flex flex-col">
+                                <span className="font-semibold">Importar por Link</span>
+                                <span className="text-[10px] text-muted-foreground">Extrair produtos via URL</span>
+                              </div>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item
+                              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                              onSelect={() => {
+                                changeTab('catalog')
+                                window.dispatchEvent(new CustomEvent('open-catalog-batch'))
+                              }}
+                            >
+                              <UploadCloud className="size-4 text-brand-cyan" />
+                              <div className="flex flex-col">
+                                <span className="font-semibold">Catálogos em Massa</span>
+                                <span className="text-[10px] text-muted-foreground">Importação via planilha</span>
+                              </div>
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu.Root>
+                    )
+                  }
+
                   return (
                     <Tabs.Trigger
                       key={item.value}
                       value={item.value}
-                      className="tiktok-section-tab"
+                      className="tiktok-section-tab touch-manipulation"
                     >
                       <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
                       <span className="truncate sm:hidden">{item.compactLabel}</span>
@@ -384,17 +479,90 @@ export function TikTokAdsView() {
             </div>
 
             {tab === 'campaigns' && (
-              <div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary" onClick={() => setAudiencesOpen(true)}>Públicos</button>
-              <button
-                type="button"
-                className="btn-primary shrink-0 justify-center px-4 py-2 text-sm font-semibold"
-                onClick={() => openWriteFlow(() => setLauncherOpen(true))}
-                aria-label="Criar campanha"
-                title="Criar campanhas de venda com um ou vários vídeos"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                Criar campanha
-              </button></div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary px-3.5 py-2 text-xs font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation"
+                  onClick={() => setAudiencesOpen(true)}
+                >
+                  Públicos
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary shrink-0 justify-center px-4 py-2 text-sm font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation"
+                  onClick={() => openWriteFlow(() => setLauncherOpen(true))}
+                  aria-label="Criar campanha"
+                  title="Criar campanhas de venda com um ou vários vídeos"
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  Criar campanha
+                </button>
+              </div>
+            )}
+
+            {tab === 'catalog' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation cursor-pointer"
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-catalog-batch'))}
+                  title="Importar múltiplos catálogos por planilha"
+                >
+                  <UploadCloud className="size-3.5" />
+                  <span>Em massa</span>
+                </button>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className="btn-primary shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation shadow-xs cursor-pointer"
+                      aria-label="Ações do catálogo"
+                    >
+                      <Plus className="size-4" />
+                      <span>Novo catálogo</span>
+                      <ChevronDown className="size-3.5 opacity-80" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="end"
+                      sideOffset={8}
+                      className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-xl border border-white/10 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl text-xs"
+                    >
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-create'))}
+                      >
+                        <Plus className="size-4 text-emerald-400" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Criar manual</span>
+                          <span className="text-[10px] text-muted-foreground">Nome, moeda e país</span>
+                        </div>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-magic'))}
+                      >
+                        <Sparkles className="size-4 text-indigo-400" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Importar por link</span>
+                          <span className="text-[10px] text-muted-foreground">Extrair de loja ou produto</span>
+                        </div>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+                        onSelect={() => window.dispatchEvent(new CustomEvent('open-catalog-batch'))}
+                      >
+                        <UploadCloud className="size-4 text-brand-cyan" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Catálogos em massa</span>
+                          <span className="text-[10px] text-muted-foreground">Planilha CSV com produtos</span>
+                        </div>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
             )}
           </div>
 

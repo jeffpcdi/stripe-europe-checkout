@@ -1280,18 +1280,19 @@ a:active,
 
 /* Logo da sidebar */
 .brand-logo--lg {
-  width: 68px;
-  height: 68px;
+  width: 92px;
+  height: 92px;
 }
 .brand-logo--lg .brand-logo__ring {
-  inset: -3.5px;
-  padding: 2.5px;
-  filter: drop-shadow(0 0 14px rgba(37, 244, 238, 0.5));
+  inset: -4.5px;
+  padding: 3.5px;
+  filter: drop-shadow(0 0 18px rgba(37, 244, 238, 0.75));
 }
 .brand-logo--lg .brand-logo__img {
-  width: 62px;
-  height: 62px;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  width: 86px;
+  height: 86px;
+  filter: contrast(1.22) brightness(1.1) saturate(1.15);
+  box-shadow: 0 0 28px rgba(0, 0, 0, 0.9), 0 0 0 1.5px rgba(255, 255, 255, 0.2);
 }
 
 /* ============================================================
@@ -1696,6 +1697,10 @@ a:active,
 .stagger-fade {
   animation: fadeRise var(--dur-slow, 420ms) var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
   animation-delay: calc(var(--i, var(--stagger-index, 0)) * 55ms);
+}
+
+.anim-fade-rise {
+  animation: fadeRise var(--dur-slow, 420ms) var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 
 .stagger-fade > * {
@@ -3103,9 +3108,28 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 /* TikTok Ads: ações persistentes e indicadores comparáveis por campanha. */
 .ads-account-context { background: var(--lg-tint-thick); border-color: var(--border-strong); padding-top: 14px; padding-bottom: 14px; }
 .ads-account-context select { min-height: 40px; font-size: 13px; }
-.tiktok-section-tab { min-height: 44px; padding: 8px 17px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9px; font-size: 13px; font-weight: 500; color: var(--text-muted); transition: color 180ms, background 180ms; }
+.tiktok-section-tab {
+  min-height: 44px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  touch-action: manipulation;
+  user-select: none;
+  cursor: pointer;
+  transition: color 180ms, background 180ms, box-shadow 180ms, border-color 180ms;
+}
 .tiktok-section-tab:hover { color: var(--text); background: var(--hover); }
-.tiktok-section-tab[data-state='active'] { color: var(--accent); background: var(--accent-light); box-shadow: inset 0 0 0 1px rgba(37,244,238,.2); }
+.tiktok-section-tab[data-state='active'] {
+  color: var(--accent);
+  background: var(--accent-light);
+  box-shadow: inset 0 0 0 1px rgba(37,244,238,.3), 0 2px 10px rgba(0,0,0,0.25);
+}
 .ads-account-result { background: linear-gradient(135deg, var(--lg-tint-thick), var(--card)); }
 .ads-account-result > p:first-child { color: var(--text-sub); }
 .campaign-workspace { background: var(--bg) !important; border-color: var(--border-strong); }
@@ -3161,7 +3185,7 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 @keyframes campaign-card-enter { from { opacity: 0; translate: 0 5px; } to { opacity: 1; translate: 0 0; } }
 @media (max-width: 1399px) { .campaign-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } .campaign-metric-cell:nth-child(-n+3) { grid-column: span 2; } .campaign-metric-cell { border-bottom: 1px solid var(--border); } }
 @media (max-width: 767px) {
-  .tiktok-section-tab { padding: 8px; font-size: 12px; }
+  .tiktok-section-tab { min-height: 44px; padding: 10px 12px; font-size: 12.5px; gap: 6px; }
   .campaign-toolbar { padding: 16px; gap: 14px; }
   .campaign-status-filters { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
   .campaign-status-filters button { padding: 9px 7px; font-size: 12px; }

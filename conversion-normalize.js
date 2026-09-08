@@ -272,6 +272,29 @@ function operationalWebhook(body) {
   return null;
 }
 
+// Identificador do lead (vid) ecoado pelo gateway.
+// Gateways usam parâmetros distintos (src, sck, s1, client_reference_id).
+// Se múltiplos campos vierem preenchidos (ex.: Kiwify com sck de checkout e src com o vid),
+// prioriza aquele que bate no formato canônico de lead (ld_* ou v_*).
+const CANONICAL_LEAD_RE = /^(ld|v)_[a-z0-9]{6,30}$/i;
+function pickLeadId(b) {
+  if (!b || typeof b !== 'object') return null;
+  const candidates = [
+    b.leadId, b.lead_id, b.visitor_id, b.visitorId,
+    b.client_reference_id, b.clientReferenceId, b.reference, b.external_id,
+    b.src, b.sck, b.s1
+  ].map(str).filter(Boolean);
+
+  if (!candidates.length) return null;
+
+  // 1. Prioridade absoluta: formato canônico de lead do app (ld_... ou v_...)
+  const canonical = candidates.find((c) => CANONICAL_LEAD_RE.test(c));
+  if (canonical) return canonical;
+
+  // 2. Fallback: mantém a ordem prioritária segura com src à frente de sck/s1
+  return candidates[0];
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
   const operational = operationalWebhook(body);
@@ -322,8 +345,9 @@ function normalizeConversion(body, query) {
     taxCents,
     netAmountCents,
     productCostCents,
-    // vid ecoado: raiz OU containers de rastreio (src/sck/s1) já achatados acima
-    leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || b.s1 || b.sck || b.src),
+    // vid ecoado: raiz OU containers de rastreio (src/sck/s1) já achatados acima.
+    // Detecção inteligente: prioriza ld_*/v_* para não ser sequestrado por tokens alheios de checkout.
+    leadId: pickLeadId(b),
     ttclid: ttclidRaw, // Risco 3: 1ª tentativa de match (antes do leadId)
     // Advanced Matching: busca recursiva (raiz vence) — e-mail/telefone do
     // comprador sobem o EMQ do CompletePayment mesmo aninhados fundo.
@@ -343,5 +367,6 @@ module.exports = {
   operationalWebhook,
   normalizeConversion,
   pickOptionalMoneyCents,
+  pickLeadId,
   str
 };

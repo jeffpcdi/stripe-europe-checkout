@@ -38,13 +38,13 @@ export function CloakView() {
           </Tabs.Trigger>
         </Tabs.List>
 
-        <Tabs.Content value="overview" className="focus:outline-none outline-none">
+        <Tabs.Content value="overview" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div data-tour="cloak-stats">
             <CloakStatsPanel />
           </div>
         </Tabs.Content>
 
-        <Tabs.Content value="rules" className="focus:outline-none outline-none">
+        <Tabs.Content value="rules" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
             <div data-tour="cloak-config">
               <CloakConfigPanel />
@@ -55,7 +55,7 @@ export function CloakView() {
           </div>
         </Tabs.Content>
 
-        <Tabs.Content value="traffic" className="focus:outline-none outline-none">
+        <Tabs.Content value="traffic" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
           <CloakEntriesPanel />
         </Tabs.Content>
       </Tabs.Root>

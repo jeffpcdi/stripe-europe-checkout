@@ -78,7 +78,7 @@ export function GatewayCard({
   })
 
   return (
-    <div className="flex flex-col justify-between rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-border hover:bg-card/85 transition-all gap-3.5 shadow-sm">
+    <div className="flex flex-col justify-between rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-brand-cyan/30 hover:bg-card/90 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300 gap-3.5 shadow-sm">
       <div className="flex flex-col gap-3">
         {/* Topo: Nome, Provedor e Ações */}
         <div className="flex items-center justify-between">

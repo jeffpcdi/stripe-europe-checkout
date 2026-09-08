@@ -42,7 +42,7 @@ export default function DashboardLayout({
         <Sidebar />
       </div>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 flex flex-col transition-colors duration-200">
         {/* Barra superior — apenas mobile (logo + menu) */}
         <div data-tv-hide className="contents">
           <TopNav />

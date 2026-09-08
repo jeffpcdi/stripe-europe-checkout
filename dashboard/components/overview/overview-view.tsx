@@ -389,24 +389,25 @@ export function OverviewView() {
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
         {/* Campanhas em destaque */}
-        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/80">
-          <div className="flex items-center justify-between">
+        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
+          <div className="flex items-center justify-between pb-0.5">
             <div className="flex items-center gap-2">
               <span
                 data-tooltip="Campanhas com mais compras convertidas no período selecionado."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1 cursor-help"
+                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5 cursor-help"
               >
+                <TrendingUp className="size-3.5 text-brand-cyan" />
                 Campanhas em destaque
               </span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
-                <div className="flex items-center rounded-lg border border-border/80 bg-secondary/40 p-0.5 text-[10px] font-medium">
+                <div className="flex items-center rounded-lg border border-border/70 bg-secondary/50 p-0.5 text-[10px] font-medium shadow-inner">
                   <button
                     type="button"
                     onClick={() => setCampaignTab('tiktok')}
                     data-tooltip="Métricas oficiais lidas da API do TikTok Ads (gasto, compras e ROAS)."
-                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
+                    className={`rounded-md px-2 py-0.5 transition-all cursor-pointer ${
                       campaignTab === 'tiktok'
-                        ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
+                        ? 'bg-brand-cyan/20 text-brand-cyan font-bold shadow-[0_0_8px_rgba(37,244,238,0.2)]'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -416,9 +417,9 @@ export function OverviewView() {
                     type="button"
                     onClick={() => setCampaignTab('utm')}
                     data-tooltip="Métricas rastreadas pelo parâmetro de link utm_campaign."
-                    className={`rounded-md px-2 py-0.5 transition-colors cursor-pointer ${
+                    className={`rounded-md px-2 py-0.5 transition-all cursor-pointer ${
                       campaignTab === 'utm'
-                        ? 'bg-brand-cyan/20 text-brand-cyan font-semibold'
+                        ? 'bg-brand-cyan/20 text-brand-cyan font-bold shadow-[0_0_8px_rgba(37,244,238,0.2)]'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -430,9 +431,9 @@ export function OverviewView() {
             <Link
               href="/ads/tiktok"
               data-tooltip="Abrir gerenciador e listagem de anúncios."
-              className="text-xs font-medium text-brand-cyan transition-colors hover:underline flex items-center gap-1"
+              className="group text-xs font-semibold text-brand-cyan transition-colors hover:underline flex items-center gap-1"
             >
-              Ver anúncios <ArrowUpRight className="size-3" />
+              Ver anúncios <ArrowUpRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>
           </div>
 
@@ -441,18 +442,18 @@ export function OverviewView() {
               {tikTokCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.id || c.name}
-                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
+                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-secondary/20 px-3 py-2.5 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <span
-                      className={`flex size-5 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold ${
+                      className={`flex size-5.5 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ${
                         i === 0
-                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
                           : i === 1
                           ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
                           : i === 2
                           ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
-                          : 'bg-secondary text-muted-foreground'
+                          : 'bg-secondary text-muted-foreground border border-border/40'
                       }`}
                     >
                       {i + 1}
@@ -468,7 +469,7 @@ export function OverviewView() {
                               ? 'Campanha ativa veiculando anúncios.'
                               : 'Campanha pausada no TikTok.'
                           }
-                          className={`inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-medium cursor-help ${
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium cursor-help ${
                             c.status === 'active' || c.status === 'ENABLE'
                               ? 'border border-success/30 bg-success/15 text-success font-semibold shadow-[0_0_6px_rgba(34,197,94,0.15)]'
                               : 'bg-secondary text-muted-foreground'
@@ -479,7 +480,7 @@ export function OverviewView() {
                       </div>
                       <span
                         data-tooltip="Valor total consumido por esta campanha no período."
-                        className="text-[10px] text-muted-foreground cursor-help"
+                        className="text-[10px] text-muted-foreground cursor-help font-mono"
                       >
                         {fmtAdsMoney(c.spend, roas?.currency || 'BRL')} investidos
                       </span>
@@ -495,7 +496,7 @@ export function OverviewView() {
                     {c.roas !== null && c.roas > 0 && (
                       <span
                         data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
-                        className="rounded border border-brand-cyan/30 bg-brand-cyan/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-brand-cyan cursor-help shadow-[0_0_8px_rgba(37,244,238,0.2)]"
+                        className="rounded-lg border border-brand-cyan/35 bg-brand-cyan/15 px-2 py-0.5 font-mono text-[10px] font-bold text-brand-cyan cursor-help shadow-[0_0_10px_rgba(37,244,238,0.2)]"
                       >
                         {c.roas.toFixed(2).replace('.', ',')}x
                       </span>
@@ -509,18 +510,18 @@ export function OverviewView() {
               {cur.topCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.name}
-                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
+                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-secondary/20 px-3 py-2.5 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <span
-                      className={`flex size-5 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold ${
+                      className={`flex size-5.5 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ${
                         i === 0
-                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
                           : i === 1
                           ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
                           : i === 2
                           ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
-                          : 'bg-secondary text-muted-foreground'
+                          : 'bg-secondary text-muted-foreground border border-border/40'
                       }`}
                     >
                       {i + 1}
@@ -554,8 +555,8 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Distribuição Global Interativa */}
-        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/80">
-          <div className="flex items-center justify-between">
+        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
+          <div className="flex items-center justify-between pb-0.5">
             <span
               data-tooltip="Países com maior volume de acessos. Clique em qualquer país para centralizar o globo 3D."
               className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
@@ -586,19 +587,19 @@ export function OverviewView() {
                     data-tooltip={`Focar no globo: ${c.name || c.code} (${c.count} visitas, ${c.purchased} compras)`}
                     className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-brand-cyan/70 bg-brand-cyan/20 shadow-[0_0_16px_rgba(37,244,238,0.25)] ring-1 ring-brand-cyan/50'
-                        : 'border-border/60 bg-secondary/20 hover:border-brand-cyan/30 hover:bg-secondary/40'
+                        ? 'border-brand-cyan/80 bg-brand-cyan/20 shadow-[0_0_16px_rgba(37,244,238,0.25)] ring-1 ring-brand-cyan/50 translate-x-0.5'
+                        : 'border-border/50 bg-secondary/20 hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5'
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="text-base leading-none transition-transform hover:scale-110">
                         {countryFlag(c.code)}
                       </span>
-                      <span className="truncate text-xs font-medium text-foreground">
+                      <span className="truncate text-xs font-semibold text-foreground">
                         {c.name || c.code}
                       </span>
                       {c.purchased > 0 && (
-                        <span className="rounded border border-success/30 bg-success/15 px-1.5 py-0.2 font-mono text-[9px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
+                        <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-[9px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
                           {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
                         </span>
                       )}
@@ -627,8 +628,8 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Dados de conversão */}
-        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/80">
-          <div className="flex items-center justify-between">
+        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
+          <div className="flex items-center justify-between pb-0.5">
             <span
               data-tooltip="Completude dos dados enviados ao TikTok. Consulte os pixels para ver erros de envio."
               className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
@@ -636,7 +637,6 @@ export function OverviewView() {
               <ShieldCheck className="size-3.5 text-brand-cyan" />
               Dados de conversão
             </span>
-
           </div>
 
           <div className="my-auto py-2">

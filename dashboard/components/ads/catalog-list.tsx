@@ -144,6 +144,23 @@ export function CatalogList({
     } catch {}
   }, [])
 
+  useEffect(() => {
+    const handleOpenCreate = () => {
+      setCreating(true)
+      setShowMagicImport(false)
+    }
+    const handleOpenMagic = () => {
+      setShowMagicImport(true)
+      setCreating(false)
+    }
+    window.addEventListener('open-catalog-create', handleOpenCreate)
+    window.addEventListener('open-catalog-magic', handleOpenMagic)
+    return () => {
+      window.removeEventListener('open-catalog-create', handleOpenCreate)
+      window.removeEventListener('open-catalog-magic', handleOpenMagic)
+    }
+  }, [])
+
   const handleViewModeChange = (mode: 'table' | 'cards') => {
     setViewMode(mode)
     try {

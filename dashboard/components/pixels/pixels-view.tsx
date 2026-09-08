@@ -353,7 +353,14 @@ export function PixelsView() {
                   && /access token|unauthori[sz]ed|revoked/.test(latestApiMessage)
                 const tokenValidated = latestApiRow?.status === 'ok'
                 return (
-                <li key={p.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn("rounded-xl border bg-secondary/30 p-4.5 transition-all duration-200 hover:border-border hover:bg-secondary/40", p.active ? "border-border/80" : "border-border/50 opacity-75")}>
+                <li
+                  key={p.slug}
+                  style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }}
+                  className={cn(
+                    "rounded-xl border bg-secondary/30 p-4.5 transition-all duration-300 hover:border-brand-cyan/30 hover:bg-secondary/50 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] animate-in fade-in slide-in-from-bottom-3 fill-mode-both",
+                    p.active ? "border-border/80" : "border-border/50 opacity-75"
+                  )}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       {/* A6.1: anel SVG de saúde (verde/âmbar/vermelho) em volta

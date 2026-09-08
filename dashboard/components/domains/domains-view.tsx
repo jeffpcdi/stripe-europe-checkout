@@ -76,32 +76,83 @@ export function DomainsView() {
     catch (err) { toast.error('Não foi possível remover', { hint: err instanceof Error ? err.message : undefined }) }
     finally { setDeleteBusy(false) }
   }
-  return <div className="space-y-4">
-    <GlassCard className="p-4 sm:p-5">
-      <h2 className="flex items-center gap-2 text-sm font-semibold"><Globe className="size-4 text-primary" />Usar seu domínio</h2>
-      <p className="mt-1 text-xs text-muted-foreground">Cadastre o endereço e configure a conexão no seu provedor.</p>
-      <form className="mt-4 flex max-w-2xl flex-col items-start gap-3 sm:flex-row sm:items-end" onSubmit={event => { event.preventDefault(); void add() }}>
-        <label className="w-full flex-1 text-xs text-muted-foreground">Endereço<input className="input mt-1 w-full" value={host} onChange={event => setHost(event.target.value)} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} /></label>
-        <button type="submit" className="btn-primary shrink-0 text-sm" disabled={adding || !host.trim()}>{adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{adding ? 'Cadastrando…' : 'Adicionar domínio'}</button>
-      </form>
-      {error && <p role="alert" className="mt-3 text-xs text-error">{error}</p>}
-    </GlassCard>
-    {loadError && <ErrorState title="Não foi possível atualizar os domínios" onRetry={() => mutate()} />}
-    {isLoading && !data ? <Skeleton className="h-28" /> : data?.domains.length === 0 ? <p className="p-6 text-center text-sm text-muted-foreground">Seus domínios aparecerão aqui.</p> : (data?.domains ?? []).map(domain => {
-      const check = checks[domain.host]
-      const ready = domain.verificado
-      const dns = check?.dnsRecords || domain.dns || addedDns[domain.host]
-      return <GlassCard key={domain.host} className="p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0"><h3 className="break-all text-sm font-semibold">{domain.host}</h3><p className={`mt-1 text-xs ${ready ? 'text-primary' : 'text-warning'}`}>{ready ? 'Pronto para usar' : domain.status === 'pending_ssl' ? 'Aguardando certificado de segurança' : domain.status === 'error' ? 'A conexão precisa de ajuste' : 'Aguardando conexão'}</p></div>
-          <div className="flex items-center gap-2"><button type="button" className="btn-secondary text-xs" disabled={!!verifying} onClick={() => void verify(domain.host)}><RefreshCw className={`size-3.5 ${verifying === domain.host ? 'animate-spin' : ''}`} />{verifying === domain.host ? 'Verificando…' : 'Verificar'}</button><button type="button" className="btn-ghost p-2" aria-label={`Remover domínio ${domain.host}`} onClick={() => setDeleting(domain.host)}><Trash2 className="size-4" /></button></div>
-        </div>
-        {!ready && domain.lastError && <p className="mt-3 text-xs text-warning">{domain.lastError}</p>}
-        <details className="mt-3 border-t border-border pt-3" open={!ready}>
-          <summary className="cursor-pointer text-xs text-muted-foreground">Como conectar</summary><div className="mt-3"><DnsInstructions dns={dns} /></div>
-        </details>
+  return (
+    <div className="space-y-4">
+      <GlassCard variant="thick" className="p-4 sm:p-6 border border-border/70 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Globe className="size-4 text-primary" />
+          Usar seu domínio
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">Cadastre o endereço e configure a conexão no seu provedor.</p>
+        <form className="mt-4 flex max-w-2xl flex-col items-start gap-3 sm:flex-row sm:items-end" onSubmit={event => { event.preventDefault(); void add() }}>
+          <label className="w-full flex-1 text-xs text-muted-foreground">
+            Endereço
+            <input className="input mt-1 w-full rounded-xl border border-border/80 bg-secondary/40 py-2 px-3 text-xs text-foreground focus:border-primary/50 transition-all" value={host} onChange={event => setHost(event.target.value)} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+          </label>
+          <button type="submit" className="btn-primary shrink-0 text-sm font-semibold active:scale-95 transition-transform" disabled={adding || !host.trim()}>
+            {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            {adding ? 'Cadastrando…' : 'Adicionar domínio'}
+          </button>
+        </form>
+        {error && <p role="alert" className="mt-3 text-xs text-error">{error}</p>}
       </GlassCard>
-    })}
-    <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Os links que usam este domínio poderão parar de funcionar. O domínio continuará registrado no seu provedor." confirmLabel="Remover domínio" confirmText={data?.domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
-  </div>
+
+      {loadError && <ErrorState title="Não foi possível atualizar os domínios" onRetry={() => mutate()} />}
+      {isLoading && !data ? (
+        <Skeleton className="h-28 rounded-2xl" />
+      ) : data?.domains.length === 0 ? (
+        <p className="p-6 text-center text-sm text-muted-foreground">Seus domínios aparecerão aqui.</p>
+      ) : (
+        (data?.domains ?? []).map((domain, index) => {
+          const check = checks[domain.host]
+          const ready = domain.verificado
+          const dns = check?.dnsRecords || domain.dns || addedDns[domain.host]
+          return (
+            <GlassCard
+              key={domain.host}
+              className="p-4 sm:p-5 border border-border/70 hover:border-primary/40 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.3)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-3 fill-mode-both"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full shrink-0 ${ready ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-warning animate-pulse'}`} />
+                    <h3 className="break-all text-sm font-semibold text-foreground">{domain.host}</h3>
+                  </div>
+                  <p className={`mt-1 text-xs ${ready ? 'text-primary' : 'text-warning'}`}>
+                    {ready ? 'Pronto para usar' : domain.status === 'pending_ssl' ? 'Aguardando certificado de segurança' : domain.status === 'error' ? 'A conexão precisa de ajuste' : 'Aguardando conexão'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs active:scale-95 transition-transform"
+                    disabled={!!verifying}
+                    onClick={() => void verify(domain.host)}
+                  >
+                    <RefreshCw className={`size-3.5 ${verifying === domain.host ? 'animate-spin text-primary' : ''}`} />
+                    {verifying === domain.host ? 'Verificando…' : 'Verificar'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost p-2 text-muted-foreground hover:text-destructive transition-colors"
+                    aria-label={`Remover domínio ${domain.host}`}
+                    onClick={() => setDeleting(domain.host)}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              </div>
+              {!ready && domain.lastError && <p className="mt-3 text-xs text-warning">{domain.lastError}</p>}
+              <details className="mt-3 border-t border-border/50 pt-3" open={!ready}>
+                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">Como conectar</summary>
+                <div className="mt-3"><DnsInstructions dns={dns} /></div>
+              </details>
+            </GlassCard>
+          )
+        })
+      )}
+      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Os links que usam este domínio poderão parar de funcionar. O domínio continuará registrado no seu provedor." confirmLabel="Remover domínio" confirmText={data?.domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
+    </div>
+  )
 }

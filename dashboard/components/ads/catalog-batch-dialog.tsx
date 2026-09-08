@@ -1,7 +1,7 @@
 'use client'
 
 import { Modal } from '@/components/ui/modal'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Download, FileUp, Loader2, PackageOpen, Rocket, Upload, UploadCloud, Video } from 'lucide-react'
 import { adsCreateCatalogBatch, adsPreviewCatalogBatch, adsUpload } from '@/lib/api'
 import { buildCatalogBatchPlan } from '@/lib/catalog-batch-plan'
@@ -43,6 +43,12 @@ export function CatalogBatchDialog({
   onCreated: () => void
 }) {
   const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const handleOpen = () => setOpen(true)
+    window.addEventListener('open-catalog-batch', handleOpen)
+    return () => window.removeEventListener('open-catalog-batch', handleOpen)
+  }, [])
   const [source, setSource] = useState('')
   const [currency, setCurrency] = useState('BRL')
   const [syncToTikTok, setSyncToTikTok] = useState(true)

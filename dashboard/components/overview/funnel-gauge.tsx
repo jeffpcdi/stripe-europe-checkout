@@ -43,39 +43,45 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
   const convRate = visits > 0 ? (purchased / visits) * 100 : 0
 
   return (
-    <section className="journey-funnel" aria-label="Funil de vendas">
-      <header className="overview-section-heading">
-        <h2>
-          <Funnel size={16} className="text-brand-cyan" aria-hidden="true" />
-          Funil de vendas
+    <section className="journey-funnel group/funnel" aria-label="Funil de vendas">
+      <header className="overview-section-heading mb-4">
+        <h2 className="flex items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-brand-cyan/10 text-brand-cyan ring-1 ring-brand-cyan/20 shadow-[0_0_12px_rgba(37,244,238,0.12)]">
+            <Funnel size={14} className="text-brand-cyan" aria-hidden="true" />
+          </span>
+          <span className="text-sm font-semibold text-foreground">Funil de vendas</span>
         </h2>
         <span title="Compras divididas por visitas" className="font-medium text-foreground">
           {visits > 0 ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-xs font-bold text-success shadow-[0_0_10px_rgba(34,197,94,0.15)]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/15 px-2.5 py-0.5 font-mono text-xs font-bold text-success shadow-[0_0_10px_rgba(34,197,94,0.15)]">
               {percent(convRate)}
             </span>
           ) : (
             '—'
           )}{' '}
-          <span className="text-muted-foreground text-xs">conversão</span>
+          <span className="text-muted-foreground text-xs font-medium">conversão</span>
         </span>
       </header>
-      <ol className="flex flex-col gap-4">
+      <ol className="flex flex-col gap-2.5">
         {steps.map((step, index) => {
           const previous = index > 0 ? steps[index - 1].value : 0
           const width = visits > 0 ? Math.min(100, Math.max(0, (step.value / visits) * 100)) : 0
           const style = STEP_STYLES[index]
 
           return (
-            <li key={step.label} className="journey-step" data-final={index === 3}>
+            <li
+              key={step.label}
+              className="journey-step group relative rounded-xl border border-border/40 bg-secondary/15 p-2.5 sm:p-3 transition-all duration-200 hover:border-brand-cyan/35 hover:bg-secondary/30"
+              data-final={index === 3}
+            >
               <div className="journey-step-head">
                 <span
-                  className="journey-step-number flex size-5 items-center justify-center rounded-md font-mono text-[10px] font-bold"
+                  className="journey-step-number flex size-5.5 items-center justify-center rounded-lg font-mono text-[10px] font-bold shadow-sm ring-1 ring-white/5"
                   style={{ backgroundColor: style.badgeBg, color: style.badgeText }}
                   aria-hidden="true"
                 >
                   {index === 3 && step.value > 0 ? (
-                    <CheckCircle2 size={12} className="text-success" />
+                    <CheckCircle2 size={13} className="text-success" />
                   ) : (
                     `0${index + 1}`
                   )}
@@ -83,7 +89,7 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
                 <span title={step.detail} className="font-medium text-foreground text-xs">
                   {step.label}
                 </span>
-                <strong className="font-mono text-sm font-bold text-foreground">
+                <strong className="font-mono text-sm sm:text-base font-bold text-foreground">
                   <CountUp value={step.value} />
                 </strong>
                 <span
@@ -94,8 +100,9 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
                   {index === 0 ? 'Base' : previous > 0 ? percent((step.value / previous) * 100) : '—'}
                 </span>
               </div>
-              <div className="journey-step-track relative overflow-hidden" aria-hidden="true">
+              <div className="journey-step-track relative h-1.5 overflow-hidden rounded-full bg-secondary/70 mt-2 ml-7" aria-hidden="true">
                 <span
+                  className="block h-full rounded-full transition-all duration-700"
                   style={{
                     width: `${width}%`,
                     background: style.gradient,

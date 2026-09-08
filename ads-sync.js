@@ -134,10 +134,13 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     full = !lastFull || (Date.now() - lastFull) > FULL_EVERY_MS;
   }
 
-  await cache.upsertSyncState(accountId, advertiserId, { status: 'syncing' }).catch(() => {});
+  const previousState = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+  await cache.upsertSyncState(accountId, advertiserId, {
+    status: 'syncing',
+    advertiserTimezone: previousState && previousState.advertiser_timezone,
+  }).catch(() => {});
   try {
     const today = new Date();
-    const previousState = await cache.getSyncState(accountId, advertiserId).catch(() => null);
     // getDashboardTree também consulta advertiser_info; esta leitura aquece o
     // mesmo cache e nos dá o calendário civil correto antes de montar o range.
     const advertiserInfo = typeof provider.getAdvertiserInfo === 'function'
@@ -210,7 +213,12 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     // vez de repetir o mesmo erro a cada 3 minutos no log.
     const unauthorized = !blocked && /not one of the accounts this TikTok connection is allowed to access/i.test(String(err.message || ''));
     const status = blocked ? 'blocked' : unauthorized ? 'unauthorized' : 'error';
-    await cache.upsertSyncState(accountId, advertiserId, { status, lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
+    await cache.upsertSyncState(accountId, advertiserId, {
+      status,
+      lastError: String(err.message || err).slice(0, 500),
+      lastDurationMs: Date.now() - start,
+      advertiserTimezone: previousState && previousState.advertiser_timezone,
+    }).catch(() => {});
     console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : unauthorized ? ' SEM ACESSO (backoff 30min):' : ' ERRO:'), err.message);
     return { ok: false, error: err.message, blocked, unauthorized };
   }

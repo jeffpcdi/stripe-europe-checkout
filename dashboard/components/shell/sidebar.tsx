@@ -29,10 +29,10 @@ export function Sidebar() {
       aria-label="Navegação principal"
     >
       {/* Logo & Brand Header */}
-      <div className="flex flex-col items-center justify-center px-4 pb-3 pt-5 border-b border-white/[0.04]">
+      <div className="flex flex-col items-center justify-center px-4 py-5 border-b border-white/[0.04]">
         <Link
           href="/"
-          className="group flex flex-col items-center gap-2.5 text-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
+          className="group flex flex-col items-center text-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
           aria-label="ROI-NADOS — Visão geral"
         >
           <span className="brand-logo brand-logo--lg" aria-hidden="true">
@@ -40,21 +40,13 @@ export function Sidebar() {
             <Image
               src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
-              width={64}
-              height={64}
+              width={88}
+              height={88}
               unoptimized
               className="brand-logo__img transition-transform duration-300 group-hover:scale-105"
               priority
             />
           </span>
-          <div className="flex flex-col items-center">
-            <span className="text-sm font-extrabold tracking-wider bg-gradient-to-r from-brand-cyan via-white to-brand-pink bg-clip-text text-transparent group-hover:brightness-110 transition-all">
-              ROI-NADOS
-            </span>
-            <span className="text-[11px] font-mono tracking-widest text-muted-foreground uppercase">
-              Gestão de anúncios
-            </span>
-          </div>
         </Link>
       </div>
 

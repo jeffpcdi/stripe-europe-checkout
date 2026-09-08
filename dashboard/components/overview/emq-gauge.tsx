@@ -29,9 +29,9 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
     <Link
       href="/conversions?tab=pixels"
       data-tooltip={tooltipText}
-      className="group flex items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-all duration-200 hover:border-white/15 hover:bg-white/[0.05] cursor-help"
+      className="group flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/25 p-3.5 transition-all duration-200 hover:border-brand-cyan/40 hover:bg-secondary/45 cursor-help"
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3.5">
         {/* Mostrador circular SVG */}
         <div className="relative flex size-14 shrink-0 items-center justify-center">
           <svg className="size-full -rotate-90" viewBox="0 0 80 80">
@@ -62,7 +62,7 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
             )}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="font-mono text-sm font-bold tabular-nums text-white">
+            <span className="font-mono text-sm font-bold tabular-nums text-foreground">
               {available ? normalized.toFixed(1).replace('.', ',') : '—'}
             </span>
           </div>
@@ -71,7 +71,7 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
         {/* Textos informativos concisos */}
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold text-white group-hover:text-cyan-400 transition-colors">
+            <span className="text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
               Dados enviados
             </span>
             {alerts > 0 && (
@@ -84,14 +84,14 @@ export function EmqGauge({ score, dir = 'flat', alerts = 0 }: EmqGaugeProps) {
             <span className="text-[11px] font-medium" style={{ color }}>
               {statusLabel}
             </span>
-            <span className="text-[10px] text-white/40">
+            <span className="text-[10px] text-muted-foreground">
               {available ? (dir === 'up' ? '↑ Subindo' : dir === 'down' ? '↓ Caindo' : '→ Estável') : 'Aguardando eventos'}
             </span>
           </div>
         </div>
       </div>
 
-      <span className="shrink-0 text-muted-foreground" aria-hidden="true">→</span>
+      <span className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-brand-cyan" aria-hidden="true">→</span>
     </Link>
   )
 }

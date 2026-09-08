@@ -37,15 +37,21 @@ async function atest(name, fn) {
     assert.equal(r.email, 'a@b.com');
   });
 
-  test('ACHADO: precedencia sck>src no leadId (bug potencial de atribuicao)', () => {
-    // Kiwify pode mandar sck (checkout key) E src (vid). O normalizer atual
-    // usa `... || b.s1 || b.sck || b.src` -> sck vence src. Se o app injeta o
-    // vid em src, um sck preenchido pela Kiwify sequestra a atribuicao.
+  test('Atribuição: src tem precedência sobre sck e detecção canônica prioriza formato ld_/v_', () => {
+    // Kiwify pode mandar sck (checkout key) E src (vid).
+    // O src tem precedência sobre sck para não sequestrar o vid.
     const r = cn.normalizeConversion({
       order_status: 'paid', order_id: 'K2', Commissions: { charge_amount: 100 },
       trackingParameters: { src: 'vid_correto', sck: 'ref_kiwify' }
     }, {});
-    assert.equal(r.leadId, 'ref_kiwify', 'comportamento ATUAL: sck ganha de src');
+    assert.equal(r.leadId, 'vid_correto', 'src deve vencer sck');
+
+    // Se o vid canônico ld_* estiver presente, ele é detectado com prioridade máxima
+    const r2 = cn.normalizeConversion({
+      order_status: 'paid', order_id: 'K3', Commissions: { charge_amount: 100 },
+      trackingParameters: { src: 'afiliado_promo', sck: 'ld_123456789abc' }
+    }, {});
+    assert.equal(r2.leadId, 'ld_123456789abc', 'ld_* canônico tem prioridade máxima');
   });
 
   test('Stripe: envelope passa por adaptPayload antes do normalizer (fluxo /hook)', () => {
