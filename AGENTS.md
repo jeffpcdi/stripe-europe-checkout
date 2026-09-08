@@ -1117,7 +1117,7 @@ gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.j
 Link → Pixel → Gateway → Domínio → Cloaker); item 54: badge de uso no card de domínio; item 57:
 overflow horizontal da aba Gateways em mobile corrigido (grid precisa de `minmax(0,·)` +
 `flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items); item 58: ritmo vertical
-unificado (`gap-5` na raiz das 5 abas). Próxima fila: Leva 4 (141–200) — refinos por aba/microcopy.
+unificado (`gap-5` na raiz das 5 abas). Aba Conversões reestruturada com suporte completo a múltiplos pixels do TikTok vinculados a múltiplos checkouts independentes (Kiwify, Hotmart, PerfectPay, Cakto, Stripe, etc.), matriz visual de roteamento (`routing-matrix.tsx`), modal de vínculos por pixel (`link-gateways-modal.tsx`), cartões modulares (`pixel-card.tsx`, `gateway-card.tsx`) e abas internas de navegação. Próxima fila: Leva 4 (141–200) — refinos por aba/microcopy.
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
