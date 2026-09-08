@@ -490,8 +490,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   No wizard dedicado há uma única ação “Criar campanhas”; o fluxo principal pede somente quantidade,
   orçamento e criativos, começa em uma campanha por criativo e aceita até 50. “Entrega e perfil” concentra Máxima
   entrega/Cost Cap, CPA alvo, entrega acelerada (quando elegível) e o perfil mostrado no anúncio;
-  o resumo fechado expõe a configuração atual sem poluir o formulário. Reabrir o modal sempre restaura
-  os padrões automáticos, e o rodapé fixo mantém a única ação de criação visível. A identidade automática
+  o resumo fechado expõe a configuração atual sem poluir o formulário. Reabrir o modal mantém orçamento e mercado na mesma sessão/conta/catálogo;
+  os criativos iniciam um novo lote, e o rodapé fixo mantém a única ação de criação visível. A identidade automática
   continua sendo o padrão. Todos os produtos aprovados, nomes ordenados, Pixel,
   Compra, capa e Product Link são resolvidos automaticamente; o áudio vem do vídeo.
   O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
@@ -1302,3 +1302,22 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   quando indisponível. Chaves de idempotência geradas pelo backend incluem o mercado.
 - `ads-remote-pixel.test.js` executa handlers isolados com revogação, falha de transporte, múltiplos
   Pixels e origem remota sem cadastro local; normalização internacional coberta em `ads-catalog-v2`.
+
+### Redução de preenchimento e recuperação de uploads (2026-09-08)
+- `saved-videos.tsx` reutiliza a biblioteca da conta nos lançadores comum, catálogo e Smart+,
+  sem excluir assets ou reenviar o mesmo vídeo. Falha de leitura oferece retry, não lista vazia.
+- `ads-upload.ts` valida extensão/tamanho/arquivo vazio, repete no máximo três vezes falhas
+  transitórias e aceita cancelamento. Timeout inclui leitura da resposta. Não repete criação de
+  campanha. `ads-storage.saveCreative` usa hash do conteúdo + nome e rename atômico; retry do
+  mesmo arquivo não duplica cópias, e temporários não aparecem na biblioteca.
+- Lançador comum reserva a seleção inteira, bloqueia seleções concorrentes, preserva arquivo em
+  erro e oferece retry sem nova seleção. Fechamento cancela envio e invalida resultados tardios;
+  catálogo usa o mesmo cancelamento. MP4/MOV e limites de 500 MB são validados antes do upload.
+- Smart+ usa capa do TikTok por padrão; capa personalizada fica opcional/recolhida. Vídeo e capa
+  são preparados antes de criar a campanha, evitando hierarquia parcial por erro de capa. Nome
+  pode vir do vídeo; Spark deriva do post e público semelhante deriva da origem. Países no Spark
+  e Smart+ usam nomes legíveis. Filtro de idioma continua restrito ao suporte real de cada formato.
+- Configuração comum (destino/orçamento/texto) permanece em memória na sessão do advertiser;
+  catálogo preserva orçamento/mercado na sessão do catálogo. Não usa localStorage para esses dados.
+- Regressões: `ads-upload-ease` (concorrência, isolamento, cancelamento, retry), `ads-smart-cover`
+  (capa automática antes da campanha) e `catalog-multiple-creatives-ui`.

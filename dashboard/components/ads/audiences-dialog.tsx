@@ -92,7 +92,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
   async function handleCreateLookalike(e: React.FormEvent) {
     e.preventDefault()
-    if (!sourceAudienceId || !lookalikeName.trim()) {
+    if (!sourceAudienceId) {
       toast.error('Selecione um público semente e informe um nome')
       return
     }
@@ -101,13 +101,13 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
     try {
       const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences/lookalike', 'POST', {
         adAccountId: advertiserId,
-        name: lookalikeName.trim(),
+        name: lookalikeName.trim() || ('Semelhante — ' + (availableSources.find((audience) => audience.id === sourceAudienceId)?.name || 'Público')).slice(0, 100),
         sourceAudienceId,
         lookalikeType,
       })
 
       if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
-      toast.success(`Público Semelhante "${lookalikeName}" criado com sucesso!`)
+      toast.success('Público semelhante criado')
       setShowLookalikeForm(false)
       setLookalikeName('')
       setSourceAudienceId('')
@@ -281,7 +281,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">Nome do público</label>
+                  <label className="text-[11px] font-medium text-muted-foreground">Nome do público (opcional)</label>
                   <input
                     type="text"
                     aria-label="Nome do público"
@@ -289,7 +289,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                     value={lookalikeName}
                     onChange={(e) => setLookalikeName(e.target.value)}
                     className="w-full text-xs rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-                    required
+
                   />
                 </div>
               </div>

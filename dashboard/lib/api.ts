@@ -1,5 +1,7 @@
 'use client'
 
+import { uploadWithRetry } from './ads-upload'
+
 import useSWR from 'swr'
 import type {
   StatsResponse,
@@ -938,19 +940,14 @@ export async function adsCatalogImportCsv(catalogId: string, adAccountId: string
 
 // Upload de criativo (vídeo/imagem) → volume do Railway. Binário puro no corpo,
 // metadados na querystring (o Express usa express.raw nesta rota).
-export async function adsUpload(file: File, kind: 'video' | 'image'): Promise<{ ok: boolean; url: string }> {
-  const qs = new URLSearchParams({ kind, filename: file.name }).toString()
-  const res = await fetch(`/api/ads/upload?${qs}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/octet-stream' },
-    body: file,
-  })
+export async function adsUpload(file: File, kind: 'video' | 'image', options: { signal?: AbortSignal } = {}): Promise<{ ok: boolean; url: string }> {
+  const res = await uploadWithRetry(file, kind, options)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized()
     throw parseApiError(res.status, data)
   }
+  if (data.ok !== true || !/^https:\/\/[^\s]+$/.test(String(data.url || ''))) throw new Error('O servidor não confirmou o arquivo enviado. Tente novamente.')
   return data as { ok: boolean; url: string }
 }
 

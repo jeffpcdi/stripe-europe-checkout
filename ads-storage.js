@@ -70,7 +70,10 @@ function safeSegment(s) {
 
 // Nome de arquivo seguro em minúsculas (mantém extensão).
 function safeName(name) {
-  return String(name || '').toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 80);
+  const safe = String(name || '').toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+  if (safe.length <= 80) return safe;
+  const extension = path.extname(safe).slice(0, 10);
+  return safe.slice(0, Math.max(1, 80 - extension.length - 1)).replace(/\.[^.]*$/, '') + extension;
 }
 
 // Garante o diretório da conta (mkdir -p) e devolve o caminho.
@@ -80,7 +83,26 @@ async function ensureAccountDir(accountId) {
   return dir;
 }
 
+// O nome determinístico torna seguro repetir uploads após timeout. O rename
+// publica somente arquivos completos; a biblioteca nunca enxerga o temporário.
+async function saveCreative(accountId, name, body) {
+  const hash = require('crypto').createHash('sha256').update(body).digest('hex');
+  const filename = hash + '-' + safeName(name);
+  const dir = await ensureAccountDir(accountId);
+  const target = path.join(dir, filename);
+  try { await fs.promises.access(target); return filename; } catch (_) {}
+  const temporary = path.join(dir, '.' + require('crypto').randomUUID() + '.part');
+  try {
+    await fs.promises.writeFile(temporary, body, { flag: 'wx' });
+    await fs.promises.rename(temporary, target);
+  } finally {
+    await fs.promises.unlink(temporary).catch(() => {});
+  }
+  return filename;
+}
+
 module.exports = {
+  saveCreative,
   UPLOAD_DIR,
   publicOrigin,
   accountDir,

@@ -21,7 +21,7 @@ console.log('Provider — validação antes da rede');
 (async () => {
   const futureDate = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
   const baseCreate = {
-    name: 'x', goal: 'conversions', videoUrl: 'https://a/v.mp4', coverUrl: 'https://a/c.jpg',
+    name: 'x', goal: 'conversions', videoUrl: 'https://a/v.mp4', coverUrl: 'https://cdn.example/c.jpg',
     linkUrl: 'https://a.example/offer', budgetAmount: 50, endDate: futureDate,
     pixelId: '12345678', customEventType: 'ON_WEB_ORDER',
   };
@@ -33,7 +33,7 @@ console.log('Provider — validação antes da rede');
   console.log('Criação Smart+ — validação antes da rede');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, goal: undefined }), 400, 'objetivo inválido reprova');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, videoUrl: 'ftp://x' }), 400, 'vídeo não-https reprova');
-  await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, coverUrl: '' }), 400, 'Smart+ exige capa de vídeo');
+  await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, coverUrl: 'http://private/c.jpg' }), 400, 'Smart+ valida capa personalizada');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, linkUrl: '' }), 400, 'Smart+ exige destino');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, budgetAmount: 49.99 }), 400, 'Smart+ exige orçamento mínimo de 50');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, endDate: '' }), 400, 'Smart+ exige data de término (orçamento total)');
@@ -50,7 +50,7 @@ console.log('Provider — validação antes da rede');
   ok(/requireCampaignPixel/.test(createBody) && /customEventType = 'ON_WEB_ORDER'/.test(createBody), 'rota usa o Pixel central e o evento Compra');
   const providerSource = fs.readFileSync(path.join(__dirname, '..', 'ads-provider.js'), 'utf8');
   const providerCreate = (providerSource.match(/async function createSmartPlusCampaign[\s\S]*?\n}\n/) || [''])[0];
-  ok(/uploadImage\(adv, String\(s\.coverUrl\)/.test(providerCreate), 'capa é enviada ao TikTok');
+  ok(/uploadImage\(adv, s\.coverUrl \|\| videoAsset.coverUrl/.test(providerCreate), 'capa é enviada ao TikTok');
   ok(/image_info: \[\{ web_uri: coverId }\]/.test(providerCreate), 'asset Smart+ recebe image_info obrigatório');
   // isola o corpo de cada rota até a próxima registrada (não conta em outra rota)
   const statusBody = (routes.match(/app\.post\('\/api\/ads\/smart-plus\/:campaignId\/status'[\s\S]*?app\.post\('\/api\/ads\/smart-plus\/ads/) || [''])[0];

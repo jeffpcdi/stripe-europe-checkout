@@ -1,5 +1,8 @@
 'use client'
 
+import { SavedVideos } from './saved-videos'
+import { creativeFileError } from '@/lib/ads-upload'
+
 import { MarketSelector, defaultMarket } from './market-selector'
 
 import { DialogPortal } from '@/components/ui/dialog-portal'
@@ -36,6 +39,8 @@ interface VideoItem {
   uploading: boolean
   fileName: string
   sizeMb?: string
+  file?: File
+  error?: string
 }
 
 export function UniversalLauncherDialog({
@@ -61,6 +66,9 @@ export function UniversalLauncherDialog({
     onSuccess?.()
     onFinished?.()
   }
+  const uploadController = useRef<AbortController | null>(null)
+  const uploadGeneration = useRef(0)
+  const uploadLock = useRef(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const idempotencyRef = useRef<{ signature: string; key: string } | null>(null)
@@ -99,18 +107,18 @@ export function UniversalLauncherDialog({
 
   useEffect(() => {
     if (open) {
-      setLinkUrl('')
-      setBudget(String(Math.max(TIKTOK_MIN_BUDGET, 60)))
       setShowAdvanced(false)
-      setCampaignPrefix('')
-      setBodyText('')
-      setCta('SHOP_NOW')
       setItems([])
       setJobId(null)
       idempotencyRef.current = null
       notifiedRef.current = false
     }
-  }, [open])
+    return () => {
+      uploadGeneration.current += 1
+      uploadController.current?.abort()
+      uploadLock.current = false
+    }
+  }, [open, advertiserId])
 
   // Notificação de conclusão de lote
   useEffect(() => {
@@ -148,60 +156,44 @@ export function UniversalLauncherDialog({
     return null
   }, [pixelLoading, pixelError, pixelReady, items, uploadingCount, linkUrl, budget, currency, isBulk])
 
-  // Upload de arquivos
+  // Reserva o lote inteiro antes do primeiro envio e mantém o arquivo em falha.
+  async function uploadItems(batch: VideoItem[]) {
+    if (uploadLock.current || submitting) return
+    uploadLock.current = true
+    const generation = uploadGeneration.current
+    const controller = new AbortController()
+    uploadController.current = controller
+    try {
+      for (const item of batch) {
+        if (generation !== uploadGeneration.current) return
+        setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, uploading: true, error: undefined } : entry))
+        try {
+          const { url } = await adsUpload(item.file!, 'video', { signal: controller.signal })
+          if (generation !== uploadGeneration.current) return
+          setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, videoUrl: url, uploading: false } : entry))
+        } catch (error) {
+          if (generation !== uploadGeneration.current) return
+          setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, uploading: false, error: error instanceof Error ? error.message : 'Falha no envio' } : entry))
+        }
+      }
+    } finally {
+      if (generation === uploadGeneration.current) uploadLock.current = false
+    }
+  }
+
   async function handleFiles(files: FileList | File[]) {
-    if (!pixelReady) {
-      toast.error('Vincule o Pixel da conta antes de enviar vídeos', {
-        hint: 'O Pixel é configurado uma única vez e garante o evento de Compra.',
-      })
-      return
-    }
-
-    const availableSlots = 20 - items.length
-    if (availableSlots <= 0) {
-      toast.info('Limite máximo de 20 vídeos por lote atingido')
-      return
-    }
-
-    const list = Array.from(files).slice(0, availableSlots)
-    for (const file of list) {
-      if (!file.type.startsWith('video/')) {
-        toast.error(`"${file.name}" não é um arquivo de vídeo válido`)
-        continue
-      }
-      if (file.size > 500 * 1024 * 1024) {
-        toast.error(`"${file.name}" ultrapassa o limite de 500 MB`)
-        continue
-      }
-
-      const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const baseName = file.name.replace(/\.[^.]+$/, '').slice(0, 80)
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1)
-
-      setItems((prev) => [
-        ...prev,
-        {
-          key,
-          name: baseName,
-          videoUrl: '',
-          uploading: true,
-          fileName: file.name,
-          sizeMb,
-        },
-      ])
-
-      try {
-        const { url } = await adsUpload(file, 'video')
-        setItems((prev) =>
-          prev.map((it) => (it.key === key ? { ...it, videoUrl: url, uploading: false } : it))
-        )
-      } catch (e) {
-        setItems((prev) => prev.map((it) => (it.key === key ? { ...it, uploading: false } : it)))
-        toast.error(`Falha no upload de "${file.name}"`, {
-          hint: e instanceof Error ? e.message : undefined,
-        })
-      }
-    }
+    if (uploadLock.current || submitting) return
+    if (!pixelReady) return toast.error('Escolha o Pixel da conta antes de enviar vídeos')
+    const incoming = Array.from(files)
+    if (incoming.length + items.length > 20) return toast.error('Selecione no máximo 20 vídeos por lote')
+    const invalid = incoming.find((file) => creativeFileError(file, 'video'))
+    if (invalid) return toast.error(invalid.name, { hint: creativeFileError(invalid, 'video')! })
+    const batch: VideoItem[] = incoming.filter((file) => !items.some((item) => item.file && item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified)).map((file) => ({
+      key: crypto.randomUUID(), name: file.name.replace(/\.[^.]+$/, '').slice(0, 80),
+      file, fileName: file.name, sizeMb: (file.size / (1024 * 1024)).toFixed(1), videoUrl: '', uploading: true,
+    }))
+    setItems((current) => [...current, ...batch])
+    await uploadItems(batch)
   }
 
   function removeItem(key: string) {
@@ -496,7 +488,7 @@ export function UniversalLauncherDialog({
                     ref={fileInputRef}
                     aria-label="Selecionar vídeos para as campanhas"
                     type="file"
-                    accept="video/mp4,video/quicktime,video/webm"
+                    accept=".mp4,.mov,video/mp4,video/quicktime"
                     multiple
                     className="sr-only"
                     onChange={(e) => {
@@ -511,15 +503,16 @@ export function UniversalLauncherDialog({
                     Selecionar vídeos
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    MP4, MOV ou WebM · até 500 MB cada · uma campanha por vídeo
+                    MP4 ou MOV · até 500 MB cada · uma campanha por vídeo
                   </p>
                 </div>
 
+                <div className="mt-3"><SavedVideos selectedUrls={items.map((item) => item.videoUrl)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={(item) => setItems((current) => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 80), fileName: item.name, videoUrl: item.url, uploading: false }])} /></div>
                 {/* Lista de vídeos adicionados */}
                 {items.length > 0 && (
                   <div className="mt-3 space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
-                      <span>{items.length} vídeo(s) pronto(s)</span>
+                      <span>{items.filter((item) => item.videoUrl).length} de {items.length} vídeos prontos</span>
                       {items.length > 1 && (
                         <span className="text-primary font-semibold">Uma campanha por vídeo</span>
                       )}
@@ -547,10 +540,12 @@ export function UniversalLauncherDialog({
                               className="btn-ghost p-1 text-muted-foreground hover:text-error shrink-0"
                               onClick={() => removeItem(it.key)}
                               aria-label="Remover vídeo"
+                              disabled={uploadingCount > 0 || submitting}
                             >
                               <Trash2 className="size-3.5" />
                             </button>
                           </div>
+                          {it.error && <div className="flex items-center justify-between gap-2 text-error"><span>{it.error}</span><button type="button" className="btn-secondary text-xs" disabled={uploadingCount > 0} onClick={() => void uploadItems([it])}>Tentar novamente</button></div>}
                           {items.length === 1 && (
                             <div className="border-t border-border/30 pt-2">
                               <label className="block text-[10px] uppercase font-semibold tracking-wider text-muted-foreground mb-1">

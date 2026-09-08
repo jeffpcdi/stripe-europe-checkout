@@ -4082,7 +4082,7 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   const g = SMART_PLUS_GOALS[s.goal];
   if (!g) throw badRequest('Smart+ no ROI-NADOS aceita somente conversão');
   if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
-  if (!/^https:\/\/[^\s]+/.test(String(s.coverUrl || ''))) throw badRequest('Capa do vídeo (URL https) é obrigatória para Smart+');
+  if (s.coverUrl && !normalizePublicImageUrl(s.coverUrl)) throw badRequest('A capa personalizada precisa ser uma URL HTTPS pública');
   if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Link de destino (URL https) é obrigatório para Smart+');
   const budget = Number(s.budgetAmount);
   if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total');
@@ -4107,6 +4107,13 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   const warnings = [];
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
   const createdIds = {};
+
+  // Prepara vídeo e capa antes da campanha: falha do asset não cria campanha órfã.
+  const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+  createdIds.videoId = videoId;
+  const videoAsset = s.coverUrl ? null : await getUploadedVideoAsset(adv, videoId, createdIds);
+  const coverId = await uploadImage(adv, s.coverUrl || videoAsset.coverUrl, createdIds, { tikTokGenerated: !s.coverUrl });
+  createdIds.coverId = coverId;
 
   // 1) Campanha Smart+ (DISABLE)
   const campArgs = {
@@ -4151,12 +4158,6 @@ async function createSmartPlusCampaign(advertiserId, spec) {
     if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id', createdIds);
     createdIds.adGroupId = adGroupId;
 
-    // 3) Vídeo + capa. O schema Smart+ exige image_info mesmo para vídeo.
-    const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
-    createdIds.videoId = videoId;
-    const coverId = await uploadImage(adv, String(s.coverUrl), createdIds);
-    createdIds.coverId = coverId;
-
     // 4) Asset group (anúncio) — identidade DENTRO do creative_info (schema real)
     const creativeInfo = {
       ad_format: 'SINGLE_VIDEO',
@@ -4184,7 +4185,7 @@ async function createSmartPlusCampaign(advertiserId, spec) {
     if (!adId) throw stepError('ad', 'create_tiktok_smart_plus_ad não retornou o ID do anúncio', createdIds);
     createdIds.adId = adId;
 
-    warnings.push('Criado PAUSADO — ative na aba Smart+ quando estiver pronto');
+    warnings.push('Criado PAUSADO — ative em Campanhas quando estiver pronto');
     cacheBust('tree:');
     return { ...createdIds, name: s.name, warnings };
   } catch (err) {

@@ -385,7 +385,7 @@ function completeSchemas() {
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
     const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
     ok(/Todos os produtos aprovados usam o próprio Link/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
-    ok(/adsUpload\(file, 'video'\)/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
+    ok(/adsUpload\(file, 'video',/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
     ok(/O áudio é mantido e a capa é automática/.test(dialog), 'interface explica que o áudio vem do criativo');
     ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
     ok(!/CatalogPresetCampaignButton|catalog_campaign_preset|Lançar Smart\+/.test(wizard) && /Criar campanhas/.test(wizard) && /<CatalogQuickCampaignsDialog/.test(wizard), 'wizard concentra o lançamento no formulário validado de catálogo');

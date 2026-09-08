@@ -34,8 +34,10 @@ function harness(upload, create = async () => ({ count: 5 })) {
   const requests = [], messages = [];
   class ApiError extends Error {}
   const props = { open: true, catalog: { id: 'cat', name: 'Loja' }, advertiserId: 'adv', advertiserCurrency: 'BRL', capabilities: {}, onClose() {}, onCreated() {} };
-  const context = { module: { exports: {} }, exports: {}, crypto: { randomUUID: () => 'key-' + (++serial) },
+  const context = { AbortController, module: { exports: {} }, exports: {}, crypto: { randomUUID: () => 'key-' + (++serial) },
     require: (name) => {
+      if (name === './saved-videos') return { SavedVideos: 'SavedVideos' };
+      if (name === '@/lib/ads-upload') return { creativeFileError: (file) => /\.(mp4|mov)$/i.test(file.name) ? null : 'Formato inválido' };
       if (name === './market-selector') return { MarketSelector: 'MarketSelector', defaultMarket: (country = 'BR') => ({ countries: [country], languages: [] }) };
       if (name === 'react') return react;
       if (name === 'react/jsx-runtime') return jsx;

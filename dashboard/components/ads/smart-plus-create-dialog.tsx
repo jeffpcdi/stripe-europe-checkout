@@ -1,5 +1,8 @@
 'use client'
 
+import { SavedVideos } from './saved-videos'
+import { MarketSelector, defaultMarket } from './market-selector'
+
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 // Criação de campanha Smart+ — formulário único e enxuto (não um wizard). O
@@ -36,7 +39,7 @@ export function SmartPlusCreateDialog({
   const [name, setName] = useState('')
   const [budget, setBudget] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [countries, setCountries] = useState('BR')
+  const [market, setMarket] = useState(() => defaultMarket())
   const [videoUrl, setVideoUrl] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
@@ -53,11 +56,10 @@ export function SmartPlusCreateDialog({
   const endDateInFuture = /^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= tomorrow
 
   const error =
-    !name.trim() ? 'Dê um nome à campanha'
-      : !(Number(budget) >= TIKTOK_MIN_BUDGET) ? tiktokMinimumBudgetMessage(currency, ' no total')
+    !(Number(budget) >= TIKTOK_MIN_BUDGET) ? tiktokMinimumBudgetMessage(currency, ' no total')
         : !endDateInFuture ? 'Escolha uma data de término a partir de amanhã'
           : !/^https:\/\/\S+/.test(videoUrl.trim()) ? 'Adicione o vídeo (URL https ou upload)'
-            : !/^https:\/\/\S+/.test(coverUrl.trim()) ? 'Adicione a capa do vídeo (JPG, PNG ou WebP)'
+            : coverUrl.trim() && !/^https:\/\/\S+/.test(coverUrl.trim()) ? 'Use HTTPS na capa personalizada'
               : !/^https:\/\/\S+/.test(linkUrl.trim()) ? 'Informe o link de destino'
                 : null
 
@@ -68,6 +70,7 @@ export function SmartPlusCreateDialog({
     try {
       const { url } = await adsUpload(file, 'video')
       setVideoUrl(url)
+      if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, '').slice(0, 120))
       toast.success('Vídeo enviado')
     } catch (e) {
       toast.error('Falha no upload', { hint: e instanceof Error ? e.message : undefined })
@@ -95,14 +98,13 @@ export function SmartPlusCreateDialog({
     if (error) return
     setSubmitting(true)
     try {
-      const parsedCountries = countries.split(/[,\s]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c))
       const res = await apiSend<{ dryRun?: boolean; warnings?: string[] }>('/api/ads/smart-plus', 'POST', {
         adAccountId: advertiserId,
-        name: name.trim(),
+        name: name.trim() || 'Smart+ — ' + market.countries[0],
         goal: 'conversions',
         budgetAmount: Number(budget),
         endDate,
-        countries: parsedCountries,
+        countries: market.countries,
         videoUrl: videoUrl.trim(),
         coverUrl: coverUrl.trim(),
         linkUrl: linkUrl.trim() || undefined,
@@ -112,7 +114,7 @@ export function SmartPlusCreateDialog({
       if (res.dryRun) toast.info('Modo simulação: nada foi criado no TikTok')
       else toast.success('Campanha Smart+ criada (pausada)', { hint: 'Revise e ative em Campanhas.' })
       onCreated()
-      setName(''); setBudget(''); setEndDate(''); setCountries('BR'); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW')
+      setName(''); setBudget(''); setEndDate(''); setMarket(defaultMarket()); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW')
       onClose()
     } catch (e) {
       toast.error('Falha ao criar Smart+', { hint: e instanceof Error ? e.message : undefined })
@@ -142,7 +144,7 @@ export function SmartPlusCreateDialog({
 
           <div className="flex flex-col gap-3 overflow-y-auto pr-1">
             <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Nome da campanha</span>
+              <span className="font-medium text-foreground">Nome da campanha <span className="text-muted-foreground">(opcional)</span></span>
               <input autoFocus className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Smart+ Verão — Conversões" maxLength={120} />
             </label>
 
@@ -162,10 +164,7 @@ export function SmartPlusCreateDialog({
               </label>
             </div>
 
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Países</span>
-              <input className={field} value={countries} onChange={(e) => setCountries(e.target.value)} placeholder="BR, PT" />
-            </label>
+            <MarketSelector value={market} onChange={setMarket} languageAvailable={false} />
 
             <div className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Vídeo do anúncio</span>
@@ -179,7 +178,8 @@ export function SmartPlusCreateDialog({
               </div>
             </div>
 
-            <div className="flex flex-col gap-1 text-xs">
+            <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">Personalizar capa (opcional)</summary>
+            <div className="mt-2 flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Capa do vídeo</span>
               <div className="flex gap-2">
                 <input className={field} value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)} placeholder="https://… (JPG/PNG) ou envie" />
@@ -189,9 +189,10 @@ export function SmartPlusCreateDialog({
                   <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCoverUpload(f) }} />
                 </label>
               </div>
-              <span className="text-[10px] text-muted-foreground">Obrigatória pelo TikTok para criativos Smart+ em vídeo.</span>
-            </div>
+              <span className="text-[10px] text-muted-foreground">Sem imagem personalizada, usamos a capa gerada pelo TikTok.</span>
+            </div></details>
 
+            <SavedVideos selectedUrls={[videoUrl]} disabled={uploading || submitting} onPick={(item) => { setVideoUrl(item.url); if (!name.trim()) setName(item.name.replace(/\.[^.]+$/, '').slice(0, 120)) }} />
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Link de destino</span>
               <input className={field} value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://seusite.com/oferta" />

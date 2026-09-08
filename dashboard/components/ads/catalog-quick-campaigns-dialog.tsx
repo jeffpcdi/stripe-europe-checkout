@@ -1,5 +1,8 @@
 'use client'
 
+import { SavedVideos } from './saved-videos'
+import { creativeFileError } from '@/lib/ads-upload'
+
 import { MarketSelector, defaultMarket } from './market-selector'
 
 import { DialogPortal } from '@/components/ui/dialog-portal'
@@ -52,6 +55,7 @@ export function CatalogQuickCampaignsDialog({
   onClose: () => void
   onCreated: () => void
 }) {
+  const uploadController = useRef<AbortController | null>(null)
   const [customCount, setCustomCount] = useState(1)
   const [onePerCreative, setOnePerCreative] = useState(true)
   const [market, setMarket] = useState(() => defaultMarket(catalog.country || 'BR'))
@@ -91,12 +95,15 @@ export function CatalogQuickCampaignsDialog({
     setAcceleratedDelivery(false)
   }, [costCapAvailable])
   useEffect(() => {
-    if (!open) return
     setMarket(defaultMarket(catalog.country || 'BR'))
-    setCustomCount(1)
-    setOnePerCreative(true)
     setBudget(String(TIKTOK_MIN_BUDGET))
     setNamePrefix('')
+  }, [catalog.id, advertiserId])
+
+  useEffect(() => {
+    if (!open) return
+    setCustomCount(1)
+    setOnePerCreative(true)
     setCreatives(initialVideoUrl ? [{ id: randomKey(), name: 'Vídeo já enviado', url: initialVideoUrl, status: 'ready' }] : [])
     setBidStrategy('lowest_cost')
     setBidAmount('')
@@ -107,7 +114,7 @@ export function CatalogQuickCampaignsDialog({
     setBusy(false)
     idempotencyKeyRef.current = null
     uploadLock.current = false
-    return () => { uploadGeneration.current += 1; uploadLock.current = false }
+    return () => { uploadController.current?.abort(); uploadGeneration.current += 1; uploadLock.current = false }
   }, [open, advertiserId, catalog.id, initialVideoUrl])
 
   function update<T>(setter: (value: T) => void, value: T) {
@@ -203,6 +210,8 @@ export function CatalogQuickCampaignsDialog({
     setUploading(true)
     idempotencyKeyRef.current = null
     const generation = uploadGeneration.current
+    const controller = new AbortController()
+    uploadController.current = controller
     try {
       // Concorrência de um upload evita saturar a conexão com vídeos grandes.
       // A ordem da seleção é mantida mesmo quando um arquivo precisa de retry.
@@ -211,7 +220,7 @@ export function CatalogQuickCampaignsDialog({
         setCreatives((current) => current.map((c) => c.id === item.id ? { ...c, status: 'uploading', error: undefined } : c))
         try {
           const file = item.file!
-          const result = await adsUpload(file, 'video')
+          const result = await adsUpload(file, 'video', { signal: controller.signal })
           if (generation !== uploadGeneration.current) return
           if (!result.url) throw new Error('O envio não retornou o vídeo. Tente novamente.')
           setCreatives((current) => current.map((c) => c.id === item.id ? { ...c, status: 'ready', url: result.url } : c))
@@ -231,7 +240,8 @@ export function CatalogQuickCampaignsDialog({
   function addVideos(files: File[]) {
     if (!files.length || uploadLock.current || busy) return
     if (creatives.length + files.length > MAX_COUNT) return toast.error('Envie no máximo 50 criativos por lote')
-    if (files.some((file) => !/\.(mp4|mov)$/i.test(file.name))) return toast.error('Selecione apenas vídeos MP4 ou MOV')
+    const invalid = files.find((file) => creativeFileError(file, 'video'))
+    if (invalid) return toast.error(invalid.name, { hint: creativeFileError(invalid, 'video')! })
     const items: Creative[] = files.map((file) => ({ id: randomKey(), name: file.name, file, status: 'queued' }))
     update(setCreatives, [...creatives, ...items])
     void uploadItems(items)
@@ -264,6 +274,7 @@ export function CatalogQuickCampaignsDialog({
         </header>
 
         <fieldset disabled={busy} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-5">
+        <SavedVideos selectedUrls={creatives.map((item) => item.url || '')} disabled={busy || uploading || creatives.length >= MAX_COUNT} onPick={(item) => update(setCreatives, [...creatives, { id: randomKey(), name: item.name, url: item.url, status: 'ready' }])} />
         <MarketSelector value={market} onChange={(value) => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
         <div className="flex flex-col gap-1.5">
           <label className="flex items-center gap-2 text-xs font-medium text-foreground">

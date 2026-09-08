@@ -1505,9 +1505,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (req.body.length > max) return res.status(413).json({ error: 'Arquivo excede o limite de ' + (kind === 'image' ? '5 MB' : '500 MB') });
       const origin = adsStorage.publicOrigin(req);
       if (!origin) return res.status(503).json({ error: 'Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o arquivo' });
-      const dir = await adsStorage.ensureAccountDir(req.account.id);
-      const fname = Date.now().toString(36) + '-' + safe;
-      await require('fs').promises.writeFile(require('path').join(dir, fname), req.body);
+      const fname = await adsStorage.saveCreative(req.account.id, safe, req.body);
       const url = origin + '/uploads/' + adsStorage.safeSegment(req.account.id) + '/' + fname;
       res.json({ ok: true, url });
     } catch (err) { fail(res, err); }
@@ -2987,7 +2985,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
       if (!/^https:\/\/[^\s]+/.test(String(b.videoUrl || ''))) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4)' });
-      if (!/^https:\/\/[^\s]+/.test(String(b.coverUrl || ''))) return res.status(400).json({ error: 'A capa do vídeo é obrigatória (JPG, PNG ou WebP em URL https)' });
+      if (b.coverUrl && !/^https:\/\/[^\s]+/.test(String(b.coverUrl))) return res.status(400).json({ error: 'A capa personalizada precisa usar HTTPS' });
       if (!/^https:\/\/[^\s]+/.test(String(b.linkUrl || ''))) return res.status(400).json({ error: 'O link de destino é obrigatório (URL https)' });
       const budgetAmount = Number(b.budgetAmount);
       if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return res.status(400).json({ error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total' });
@@ -2997,7 +2995,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.status(400).json({ error: 'A data de término da Smart+ precisa estar no futuro' });
       }
       const spec = {
-        name, goal, videoUrl: String(b.videoUrl).trim(), coverUrl: String(b.coverUrl).trim(),
+        name, goal, videoUrl: String(b.videoUrl).trim(), coverUrl: String(b.coverUrl || '').trim(),
         budgetAmount, endDate: String(b.endDate).slice(0, 10),
         body: String(b.body || '').trim().slice(0, 100) || undefined,
         linkUrl: withAdsTracking(String(b.linkUrl).trim().slice(0, 500)),
@@ -3026,7 +3024,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) {
       if (err && err.step) {
         stats.logEvent('warn', { acc: req.account.id, title: '[smart+] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
-        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada veicula. Revise e exclua na aba Smart+ se não quiser mantê-la.' : undefined });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada veicula. Revise e exclua em Campanhas se não quiser mantê-la.' : undefined });
       }
       fail(res, err);
     }

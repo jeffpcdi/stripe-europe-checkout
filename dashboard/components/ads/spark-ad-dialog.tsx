@@ -1,5 +1,7 @@
 'use client'
 
+import { MarketSelector, defaultMarket } from './market-selector'
+
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 // Spark Ads — impulsiona um post orgânico do TikTok como anúncio (F5, via
@@ -58,7 +60,7 @@ export function SparkAdDialog({
   const [budget, setBudget] = useState('')
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily')
   const [endDate, setEndDate] = useState('')
-  const [countries, setCountries] = useState('BR')
+  const [market, setMarket] = useState(() => defaultMarket())
   const [linkUrl, setLinkUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -72,7 +74,7 @@ export function SparkAdDialog({
       setBudget('')
       setBudgetType('daily')
       setEndDate('')
-      setCountries('BR')
+      setMarket(defaultMarket())
       setLinkUrl('')
     }
   }, [open])
@@ -101,7 +103,6 @@ export function SparkAdDialog({
   }, [identityKey])
 
   const error: string | null = useMemo(() => {
-    if (!name.trim()) return 'Dê um nome à campanha'
     if (!identity) return 'Selecione a identidade (conta ou criador autorizado)'
     if (!itemId) return 'Selecione o post a impulsionar'
     if (!/^https:\/\/\S+/.test(linkUrl.trim())) return 'Informe a página HTTPS de destino'
@@ -119,13 +120,9 @@ export function SparkAdDialog({
     if (!identity) return
     setSubmitting(true)
     try {
-      const countryList = countries
-        .split(/[,\s]+/)
-        .map((c) => c.trim().toUpperCase())
-        .filter((c) => /^[A-Z]{2}$/.test(c))
       const payload: Record<string, unknown> = {
         adAccountId: advertiserId,
-        name: name.trim(),
+        name: name.trim() || ('Spark — ' + (videos.find((video) => video.itemId === itemId)?.text || itemId)).slice(0, 120),
         goal: 'conversions',
         budget: { amount: Number(budget), type: budgetType },
         identityId: identity.identityId,
@@ -134,7 +131,7 @@ export function SparkAdDialog({
       }
       if (identity.bcId) payload.bcId = identity.bcId
       if (budgetType === 'lifetime') payload.endDate = endDate
-      if (countryList.length) payload.countries = countryList
+      payload.countries = market.countries
       payload.linkUrl = linkUrl.trim()
 
       const result = await apiSend<{ dryRun?: boolean }>('/api/ads/boost', 'POST', payload)
@@ -267,7 +264,7 @@ export function SparkAdDialog({
           )}
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-foreground">Nome da campanha</span>
+            <span className="text-xs font-medium text-foreground">Nome da campanha (opcional)</span>
             <input
               className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
               value={name}
@@ -277,19 +274,11 @@ export function SparkAdDialog({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
               Conversão · compra · Pixel da conta TikTok
             </div>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Países (ex.: BR, PT)</span>
-              <input
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={countries}
-                onChange={(e) => setCountries(e.target.value)}
-                placeholder="BR"
-              />
-            </label>
+            <MarketSelector value={market} onChange={setMarket} languageAvailable={false} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
