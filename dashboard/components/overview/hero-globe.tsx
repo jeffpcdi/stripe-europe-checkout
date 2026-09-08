@@ -7,6 +7,7 @@ import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
 import { countryFlag } from '@/lib/format'
+import { GlobeBoundary } from '@/components/geo/globe-boundary'
 
 interface LatestLeadInfo {
   code: string
@@ -89,6 +90,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
 
   return (
     <div className="presence-panel">
+      <GlobeBoundary>
       <GlobePanel
         countries={live.countries}
         focusCode={selected || focusCode}
@@ -186,6 +188,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
           )}
         </div>
       </GlobePanel>
+      </GlobeBoundary>
     </div>
   )
 }

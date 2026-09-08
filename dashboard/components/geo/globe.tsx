@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
-import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap } from 'lucide-react'
+import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap, RefreshCw } from 'lucide-react'
 import { useReducedMotion } from '@/lib/motion'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 import { countryName } from '@/lib/countries'
@@ -31,8 +31,16 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [ready, setReady] = useState(false)
-  const material = useMemo(() => new THREE.MeshPhongMaterial({ shininess: 20, specular: '#1d384d' }), [])
+  const [textureFailed, setTextureFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const material = useMemo(() => new THREE.MeshPhongMaterial({ shininess: 20, specular: '#1d384d' }), [attempt])
   useEffect(() => () => { material.map?.dispose(); material.bumpMap?.dispose(); material.dispose() }, [material])
+  useEffect(() => {
+    if (textureFailed && !material.map) {
+      material.color = new THREE.Color('#173f52')
+      material.needsUpdate = true
+    }
+  }, [textureFailed, material])
   const [paused, setPaused] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [fullscreenError, setFullscreenError] = useState(false)
@@ -44,6 +52,14 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   const cameraInitialized = useRef(false)
   const dragging = useRef(false)
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // A biblioteca não emite onGlobeReady quando a imagem falha. Libera uma
+  // esfera simples após o prazo, mantendo a presença e os controles utilizáveis.
+  useEffect(() => {
+    if (!size.width || ready) return
+    const timer = setTimeout(() => setTextureFailed(true), 10_000)
+    return () => clearTimeout(timer)
+  }, [size.width, ready])
 
   const maxCount = useMemo(() => {
     return countries.reduce((max, c) => Math.max(max, c.count), 1)
@@ -299,12 +315,8 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     if (coords) globeRef.current?.pointOfView({ lat: coords[0], lng: coords[1], altitude: ALT_DEFAULT }, reduced ? 0 : 700)
   }, [focusCode, focusRevision, ready, reduced])
 
-  // Captura o renderer antes que o React remova a ref ao desmontar.
-  useEffect(() => {
-    if (!ready) return
-    const renderer = globeRef.current?.renderer()
-    return () => { renderer?.dispose(); renderer?.forceContextLoss() }
-  }, [ready])
+  // react-globe.gl já libera o renderer ao desmontar. Forçar a perda de
+  // contexto aqui também destrói o canvas durante a repetição dos efeitos.
 
   function moveCamera(delta?: number) {
     const globe = globeRef.current
@@ -328,10 +340,11 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       <div className="presence-orbit presence-orbit-outer" aria-hidden="true" />
       <div className="presence-orbit presence-orbit-inner" aria-hidden="true" />
       <div className="presence-canvas">
-        {size.width > 0 && <GlobeGL ref={globeRef} width={size.width} height={Math.max(120, size.height - 214)}
+        {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(120, size.height - 214)}
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"
-          globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
-          bumpImageUrl="/dashboard/textures/earth-topology.png"
+          globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
+          bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
+          showGraticules={textureFailed}
           showAtmosphere atmosphereColor="#25f4ee" atmosphereAltitude={0.18}
           htmlElementsData={htmlMarkers}
           htmlLat="lat"
@@ -385,6 +398,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
         {fullscreenSupported && <><span className="presence-control-divider" aria-hidden="true" /><button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-pressed={fullscreen}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></>}
       </div>
       {fullscreenError && <p className="presence-control-error" role="status">Tela cheia indisponível neste navegador.</p>}
+      {textureFailed && <p className="presence-control-error" role="status">Mapa simplificado · imagem indisponível <button type="button" className="presence-retry" onClick={() => { cameraInitialized.current = false; setReady(false); setTextureFailed(false); setAttempt(value => value + 1) }}><RefreshCw size={13} />Recarregar imagem</button></p>}
     </div>
   )
 }

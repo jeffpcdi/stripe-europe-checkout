@@ -1028,6 +1028,11 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   países permanecem na tela cheia. Movimento reduzido desliga giro e pulsos; render pausa fora
   da tela. O funil usa linhas e taxas com denominador válido; o histórico mostra quatro visitas
   com nomes de países em pt-BR e nunca indica presença online.
+  As duas texturas de `dashboard/public/textures` são servidas pelo Express por allowlist pública
+  exata, antes de `pageAuth`, sem depender do Next. Se a imagem não carregar em 10 segundos,
+  o globo libera uma esfera simplificada com controles e opção de recarregar; não fica invisível
+  esperando `onGlobeReady`. `GlobeBoundary` isola falhas de WebGL da Visão geral. O descarte do
+  renderer pertence à biblioteca; não chamar `forceContextLoss` no cleanup dos efeitos React.
 - Cards de anúncios usam somente o total oficial da conta, preservam a moeda da receita e mostram
   falhas de atualização. `overview-metrics.tsx` organiza os quatro indicadores da Visão geral.
   “Gasto em ADS” mostra somente `spend` de `/api/ads/roas` com escopo `advertiser_all_campaigns`,

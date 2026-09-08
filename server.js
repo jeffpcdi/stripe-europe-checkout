@@ -5576,6 +5576,12 @@ function sendLegacyDashboard(res, reason) {
   res.send(html);
 }
 
+// Texturas sem dados privados: não dependem de sessão nem do proxy Next.
+// Allowlist exata para manter as demais rotas da dashboard autenticadas.
+app.get(['/dashboard/textures/earth-blue-marble.jpg', '/dashboard/textures/earth-topology.png'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'dashboard', 'public', 'textures', path.basename(req.path)), { maxAge: '7d' });
+});
+
 // Assets públicos do PWA — o navegador busca manifest/ícones SEM cookies
 // (fetch sem credenciais), então não podem exigir login. São estáticos e
 // não contêm nada sensível. O sw.js também: iOS revalida o worker em
