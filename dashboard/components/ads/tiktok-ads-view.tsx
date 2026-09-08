@@ -80,7 +80,7 @@ export function TikTokAdsView() {
     error: treeError,
   } = useAdsTree(treeActive, {
     adAccountId: effectiveAdvertiser || undefined,
-    status: statusFilter || undefined,
+    // A árvore completa mantém os contadores e filtros locais coerentes.
     sort,
     page,
     fromDate,

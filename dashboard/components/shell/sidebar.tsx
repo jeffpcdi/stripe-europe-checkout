@@ -32,7 +32,7 @@ export function Sidebar() {
       <div className="flex flex-col items-center justify-center px-4 pb-3 pt-5 border-b border-white/[0.04]">
         <Link
           href="/"
-          className="group flex flex-col items-center gap-2.5 text-center focus-visible:outline-none"
+          className="group flex flex-col items-center gap-2.5 text-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
           aria-label="ROI-NADOS — Visão geral"
         >
           <span className="brand-logo brand-logo--lg" aria-hidden="true">
@@ -51,8 +51,8 @@ export function Sidebar() {
             <span className="text-sm font-extrabold tracking-wider bg-gradient-to-r from-brand-cyan via-white to-brand-pink bg-clip-text text-transparent group-hover:brightness-110 transition-all">
               ROI-NADOS
             </span>
-            <span className="text-[9px] font-mono tracking-widest text-muted-foreground/50 uppercase">
-              TIKTOK ADS TRACKER
+            <span className="text-[11px] font-mono tracking-widest text-muted-foreground uppercase">
+              Gestão de anúncios
             </span>
           </div>
         </Link>
@@ -62,7 +62,7 @@ export function Sidebar() {
       <nav className="flex flex-col gap-4 px-3 pt-2 pb-6" aria-label="Seções" data-tour="nav">
         {NAV_SECTIONS.map((section, sIdx) => (
           <div key={section.title} className={cn(sIdx > 0 && 'border-t border-white/[0.04] pt-3')}>
-            <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/50">
+            <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
               {section.title}
             </p>
             <ul className="flex flex-col gap-0.5">

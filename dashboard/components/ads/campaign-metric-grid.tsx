@@ -11,7 +11,7 @@ export function CampaignMetricGrid({
 }: {
   campaign: AdsTreeCampaign
   currency: string
-  attribution?: { revenueCents: number; sales: number }
+  attribution?: { revenueCents: number; sales: number; currency?: string | null }
 }) {
   const metrics = campaignMetrics(campaign.metrics)
   const budget = campaignBudget(campaign)
@@ -20,7 +20,7 @@ export function CampaignMetricGrid({
   const spend = metrics.spend ?? 0
   const realSales = attribution?.sales ?? 0
   const realRevenue = (attribution?.revenueCents ?? 0) / 100
-  const realRoas = realSales > 0 && spend > 0 ? realRevenue / spend : null
+  const realRoas = attribution?.currency === (campaign.currency || currency) && realSales > 0 && spend > 0 ? realRevenue / spend : null
   const realCpa = realSales > 0 && spend > 0 ? spend / realSales : null
 
   const items = [
@@ -29,7 +29,7 @@ export function CampaignMetricGrid({
     ...(realSales > 0
       ? [
           { label: 'Vendas Reais', value: realSales, format: number, detail: 'Atribuídas pelo ROI-NADOS', highlight: true, real: true },
-          { label: 'Receita Real', value: realRevenue, format: money, detail: 'Faturamento rastreado', highlight: true, real: true },
+          { label: 'Receita Real', value: attribution?.currency ? realRevenue : null, format: (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: attribution!.currency! }), detail: attribution?.currency ? 'Faturamento rastreado' : 'Sem moeda única confirmada', highlight: true, real: true },
           { label: 'ROAS Real', value: realRoas, format: (v: number) => `${v.toFixed(2)}×`, detail: 'Receita ÷ Gasto', highlight: true, real: true },
           { label: 'CPA Real', value: realCpa, format: money, detail: 'Gasto ÷ Vendas reais', highlight: false, real: true },
         ]

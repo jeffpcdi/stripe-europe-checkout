@@ -19,6 +19,7 @@ import {
   useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
   adsCatalogApiUrl, apiSend, ApiError,
 } from '@/lib/api'
+import { catalogProductCount } from '@/lib/catalog-display'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -43,7 +44,7 @@ export function catalogStatusMeta(catalog: AdsCatalog) {
     if (pending > 0) {
       return { label: 'Em análise', summary: `${pending} produto(s) em análise`, className: 'bg-warning/15 text-warning' }
     }
-    if (catalog.productCount === 0) {
+    if (catalogProductCount(catalog).count === 0) {
       return { label: 'Sem produtos', summary: 'adicione o primeiro produto', className: 'bg-warning/15 text-warning' }
     }
     return { label: 'Vinculado', summary: 'vínculo TikTok verificado', className: 'bg-success/15 text-success' }
@@ -69,6 +70,7 @@ function formatTimestamp(isoString: string | null | undefined): string {
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'America/Sao_Paulo',
     }).format(d)
   } catch {
     return '—'
@@ -150,7 +152,7 @@ export function CatalogList({
   }
 
   async function handleCreate() {
-    if (!name.trim()) return
+    if (!name.trim() || busy) return
     setBusy(true)
     try {
       const res = await apiSend<{ catalog: AdsCatalog }>(adsCatalogApiUrl('/api/ads/catalogs', advertiserId), 'POST', {
@@ -251,8 +253,8 @@ export function CatalogList({
       })
       .sort((a, b) => {
         if (sort === 'products') {
-          const countA = Math.max(a.productCount, Number(a.audit?.total) || 0)
-          const countB = Math.max(b.productCount, Number(b.audit?.total) || 0)
+          const countA = catalogProductCount(a).count
+          const countB = catalogProductCount(b).count
           return countB - countA
         }
         if (sort === 'name') {
@@ -271,7 +273,7 @@ export function CatalogList({
         <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2>Seus catálogos</h2>
-            <p>Catálogos de produtos sincronizados com o TikTok</p>
+            <p>Produtos, vínculos e envios ao TikTok</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
@@ -325,7 +327,7 @@ export function CatalogList({
               >
                 <span>{filter.label}</span>
                 <span
-                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors ${
+                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition-colors ${
                     isSelected ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                   }`}
                 >
@@ -423,6 +425,8 @@ export function CatalogList({
               </div>
               <button
                 type="button"
+                disabled={magicBusy}
+                aria-label="Fechar importação"
                 onClick={() => setShowMagicImport(false)}
                 className="text-muted-foreground hover:text-foreground text-xs p-1 cursor-pointer"
               >
@@ -430,7 +434,7 @@ export function CatalogList({
               </button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Cole a URL de qualquer produto (Shopify, Yampi, WooCommerce, Nuvemshop, etc.). Nós extraímos título, imagens, preço e criamos o catálogo automaticamente.
+              Cole o link HTTPS de um produto ou loja. A importação depende dos dados públicos disponíveis na página; confira os produtos antes de anunciar.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row mt-1">
               <input
@@ -467,6 +471,8 @@ export function CatalogList({
               <span className="font-semibold text-foreground text-xs">Novo catálogo manual</span>
               <button
                 type="button"
+                disabled={busy}
+                aria-label="Fechar criação de catálogo"
                 onClick={() => setCreating(false)}
                 className="text-muted-foreground hover:text-foreground text-xs p-1 cursor-pointer"
               >
@@ -581,7 +587,7 @@ export function CatalogList({
         </div>
       ) : viewMode === 'table' ? (
         /* MODO TABELA: ALTA DENSIDADE */
-        <div className="campaign-table-container overflow-x-auto">
+        <div className="campaign-table-container overflow-x-auto" style={{ overflowX: 'auto' }}>
           <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '920px' }}>
             <thead className="bg-secondary/40 text-muted-foreground border-b border-border/70 sticky top-0 z-10 select-none backdrop-blur-xs">
               <tr>
@@ -597,7 +603,8 @@ export function CatalogList({
               {filteredCatalogs.map((c) => {
                 const status = catalogStatusMeta(c)
                 const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
-                const displayCount = remoteCount > 0 ? remoteCount : c.productCount
+                const productSummary = catalogProductCount(c)
+                const displayCount = productSummary.count
                 const isCloning = cloningId === c.id
 
                 return (
@@ -621,14 +628,14 @@ export function CatalogList({
                         </span>
                         <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
                           {c.tiktokCatalogId ? (
-                            <span className="inline-flex items-center gap-1 font-mono text-[10px] text-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
+                            <span className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
                               <span className="text-muted-foreground">TT:</span> {c.tiktokCatalogId}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-warning font-medium">Sem ID TikTok</span>
+                            <span className="text-[11px] text-warning font-medium">Sem ID TikTok</span>
                           )}
                           <span className="text-border">·</span>
-                          <span className="font-mono text-[10px] text-muted-foreground/75" title={`ID local: ${c.id}`}>
+                          <span className="font-mono text-[11px] text-muted-foreground/75" title={`ID local: ${c.id}`}>
                             ID: {c.id.slice(0, 8)}…
                           </span>
                         </div>
@@ -640,16 +647,16 @@ export function CatalogList({
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 text-xs">
                           <span className="font-semibold text-foreground tabular-nums">
-                            {displayCount} produto{displayCount === 1 ? '' : 's'}
+                            {displayCount} produto{displayCount === 1 ? '' : 's'} · {productSummary.source}
                           </span>
-                          {remoteCount > 0 && remoteCount !== c.productCount && (
-                            <span className="text-[10px] text-muted-foreground">
+                          {productSummary.hasRemoteCount && remoteCount !== c.productCount && (
+                            <span className="text-[11px] text-muted-foreground">
                               ({c.productCount} local)
                             </span>
                           )}
                         </div>
                         {c.audit ? (
-                          <div className="flex items-center gap-1 text-[10px] tabular-nums">
+                          <div className="flex items-center gap-1 text-[11px] tabular-nums">
                             {Number(c.audit.approved) > 0 && (
                               <span
                                 className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-success/15 text-success border border-success/20"
@@ -704,7 +711,7 @@ export function CatalogList({
                           <span className="text-muted-foreground text-[11px]">Não sincronizado</span>
                         )}
                         {c.audit?.at && (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             Auditado: {formatTimestamp(c.audit.at)}
                           </span>
                         )}
@@ -727,7 +734,8 @@ export function CatalogList({
                         <button
                           type="button"
                           title="Clonar catálogo"
-                          disabled={isCloning}
+                          aria-label={`Clonar ${c.name}`}
+                          disabled={Boolean(cloningId)}
                           onClick={(e) => {
                             e.stopPropagation()
                             handleCloneFromList(c.id)
@@ -750,7 +758,8 @@ export function CatalogList({
           {filteredCatalogs.map((c) => {
             const status = catalogStatusMeta(c)
             const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
-            const displayCount = remoteCount > 0 ? remoteCount : c.productCount
+            const productSummary = catalogProductCount(c)
+                const displayCount = productSummary.count
             const isCloning = cloningId === c.id
 
             return (
@@ -781,7 +790,7 @@ export function CatalogList({
                       {c.name}
                     </h3>
                   </button>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-muted-foreground font-mono">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground font-mono">
                     {c.tiktokCatalogId ? (
                       <span className="text-foreground bg-secondary px-1.5 py-0.5 rounded border border-border/50">
                         TT: {c.tiktokCatalogId}
@@ -794,22 +803,22 @@ export function CatalogList({
                   </div>
 
                   {/* Product Audit Breakdown */}
-                  <div className="mt-3.5 grid grid-cols-4 gap-1.5 rounded-lg border border-border/50 bg-secondary/30 p-2 text-center text-[10px]">
+                  <div className="mt-3.5 grid grid-cols-4 gap-1.5 rounded-lg border border-border/50 bg-secondary/30 p-2 text-center text-[11px]">
                     <div>
-                      <span className="block text-muted-foreground text-[9px] uppercase">Total</span>
+                      <span className="block text-muted-foreground text-[11px] uppercase">{productSummary.source}</span>
                       <span className="font-bold text-foreground text-xs tabular-nums">{displayCount}</span>
                     </div>
                     <div>
-                      <span className="block text-success text-[9px] uppercase">Aprovados</span>
-                      <span className="font-bold text-success text-xs tabular-nums">{Number(c.audit?.approved) || 0}</span>
+                      <span className="block text-success text-[11px] uppercase">Aprovados</span>
+                      <span className="font-bold text-success text-xs tabular-nums">{c.audit?.approved ?? '—'}</span>
                     </div>
                     <div>
-                      <span className="block text-warning text-[9px] uppercase">Análise</span>
-                      <span className="font-bold text-warning text-xs tabular-nums">{Number(c.audit?.pending) || 0}</span>
+                      <span className="block text-warning text-[11px] uppercase">Análise</span>
+                      <span className="font-bold text-warning text-xs tabular-nums">{c.audit?.pending ?? '—'}</span>
                     </div>
                     <div>
-                      <span className="block text-error text-[9px] uppercase">Erros</span>
-                      <span className="font-bold text-error text-xs tabular-nums">{Number(c.audit?.rejected) || 0}</span>
+                      <span className="block text-error text-[11px] uppercase">Erros</span>
+                      <span className="font-bold text-error text-xs tabular-nums">{c.audit?.rejected ?? '—'}</span>
                     </div>
                   </div>
 
@@ -842,7 +851,8 @@ export function CatalogList({
                   <button
                     type="button"
                     title="Clonar catálogo"
-                    disabled={isCloning}
+                          aria-label={`Clonar ${c.name}`}
+                    disabled={Boolean(cloningId)}
                     onClick={(e) => {
                       e.stopPropagation()
                       handleCloneFromList(c.id)
@@ -952,7 +962,7 @@ export function BusinessCenterBar({
           </button>
         </div>
         <details className="mt-2 border-t border-warning/20 pt-2">
-          <summary className="cursor-pointer text-[10px] font-medium text-muted-foreground">Detalhes da conexão</summary>
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Detalhes da conexão</summary>
           <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => { setValue(''); setEditing(true) }}>
             Informar ID do Business Center
           </button>

@@ -2198,7 +2198,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || ''))
         ? q.toDate
         : defaultWindow.toDate;
-      const data = computeAttribution(req.account.id, fromDate, toDate, timeZone);
+      const data = computeAttribution(req.account.id, fromDate, toDate, timeZone, true);
       res.json({
         fromDate,
         toDate,

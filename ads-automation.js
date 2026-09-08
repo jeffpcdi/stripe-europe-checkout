@@ -749,7 +749,7 @@ function getBreakerState(accId, policy, advertiserId) {
 // ── Atribuição por campanha (vendas reais × campanha) ───────────────────────
 // Movida do ads-routes.js — leads comprados com utm_campaign=<id numérico>
 // viram receita/vendas POR campanha (base do roas_min e do roas_scale).
-function computeAttribution(accId, fromDate, toDate, timeZone) {
+function computeAttribution(accId, fromDate, toDate, timeZone, includeCurrency = false) {
   const byCampaign = {};
   const unattributed = { revenueCents: 0, sales: 0 };
   if (typeof stats.getStats !== 'function') return { byCampaign, unattributed };
@@ -765,11 +765,20 @@ function computeAttribution(accId, fromDate, toDate, timeZone) {
     if (!isTikTok) return;
     const cents = Number(l.reportedAmount) || 0;
     const camp = String((l.utm || {}).campaign || '').trim();
+    const recordCurrency = (entry) => {
+      if (!includeCurrency) return;
+      const currency = String(l.reportedCurrency || l.currency || '').toUpperCase();
+      const validCurrency = /^[A-Z]{3}$/.test(currency) ? currency : null;
+      if (!Object.prototype.hasOwnProperty.call(entry, 'currency')) entry.currency = validCurrency;
+      else if (entry.currency !== validCurrency) entry.currency = null;
+    };
     if (/^\d{5,30}$/.test(camp)) {
       if (!byCampaign[camp]) byCampaign[camp] = { revenueCents: 0, sales: 0 };
+      recordCurrency(byCampaign[camp]);
       byCampaign[camp].revenueCents += cents;
       byCampaign[camp].sales += 1;
     } else {
+      recordCurrency(unattributed);
       unattributed.revenueCents += cents;
       unattributed.sales += 1;
     }

@@ -172,3 +172,18 @@ assert(conversionAmount({ amount: 12345, currency: 'BRL' }).includes('123,45'));
 assert(conversionAmount({ amount: 12345, currency: 'USD' }).includes('US$'));
 assert.equal(conversionAmount({ amount: 100 }), 'Moeda não informada');
 console.log('conversões: estados confirmados, simulação, parcial e moeda/centavos OK');
+
+const { campaignMatchesStatus, campaignStatusCounts } = load('lib/campaign-list.ts');
+const statusRows = [{ status: 'active', reviewStatus: 'approved' }, { status: 'paused', reviewStatus: 'approved' }, { status: 'error' }, { status: 'rejected' }];
+const counts = campaignStatusCounts(statusRows);
+assert.equal(counts.all, 4);
+assert.equal(counts.approved, 2);
+assert.equal(counts.rejected, 1);
+assert.equal(statusRows.filter(c => campaignMatchesStatus(c, 'active')).length, 1);
+assert.equal(statusRows.filter(c => campaignMatchesStatus(c, 'approved')).length, 2);
+const { catalogProductCount } = load('lib/catalog-display.ts');
+assert.equal(catalogProductCount({ productCount: 20, audit: { total: 0 } }).count, 0);
+assert.equal(catalogProductCount({ productCount: 20, audit: { total: 0 } }).source, 'TikTok');
+assert.equal(catalogProductCount({ productCount: 20 }).source, 'local');
+assert.equal(catalogProductCount({ productCount: 20, audit: { total: 4 } }).count, 4);
+console.log('listas: filtros completos, aprovação independente e zero remoto preservado OK');

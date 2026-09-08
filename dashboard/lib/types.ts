@@ -1200,6 +1200,7 @@ export interface AdsAlertCheckResponse {
 // ── GET /api/ads/attribution — vendas reais POR CAMPANHA ──
 // utm_campaign=__CAMPAIGN_ID__ (macro do TikTok) liga o lead à campanha.
 export interface AdsAttributionEntry {
+  currency?: string | null
   revenueCents: number
   sales: number
 }

@@ -138,6 +138,11 @@ function configureRules(accountId) {
   );
   assert.strictEqual(inSaoPaulo.byCampaign['1234567890123'].sales, 1, 'atribuição respeita o dia civil do advertiser');
   assert.strictEqual(inUtc.byCampaign['1234567890123'], undefined, 'o mesmo evento não cai artificialmente no dia UTC anterior');
+  leads[0].reportedCurrency = 'EUR';
+  const moneyAttribution = () => automation.computeAttribution('acc_attribution_zone', '2026-07-27', '2026-07-27', 'America/Sao_Paulo', true).byCampaign['1234567890123'];
+  assert.strictEqual(moneyAttribution().currency, 'EUR', 'receita preserva moeda real');
+  leads.push({ ...leads[0], reportedCurrency: 'USD' });
+  assert.strictEqual(moneyAttribution().currency, null, 'moedas diferentes não recebem rótulo de moeda única');
   leads = [];
 
   const accountId = 'acc_rule_windows';

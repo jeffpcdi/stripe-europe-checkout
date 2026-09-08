@@ -1256,7 +1256,7 @@ a:active,
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: orbitSpin 5s linear infinite;
+  animation: brandLogoSpin 5s linear infinite;
   filter: drop-shadow(0 0 8px rgba(37, 244, 238, 0.45));
   opacity: 0.95;
   pointer-events: none;
@@ -3214,3 +3214,10 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
   .tiktok-view [role='tabpanel'], .ads-dialog [role='dialog'] { animation: none !important; }
 }
 html[data-anim='off'] .tiktok-view [role='tabpanel'], html[data-anim='off'] .ads-dialog [role='dialog'] { animation: none !important; }
+
+/* A marca gira no próprio centro; as órbitas do globo têm outra origem. */
+@keyframes brandLogoSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.campaign-status-filters button[aria-pressed="true"] > span:last-child { color: inherit; background: rgb(0 0 0 / 10%); }

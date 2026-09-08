@@ -1256,3 +1256,25 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   posse antes de cada item e deixa itens não concluídos para reclaim.
 - Regressões: `conversions-persistence`, `pixel-transport`, `pixel-gateway-binding`,
   `conversion-database-retry` e `dashboard-ui-integrity`, todas incluídas em `npm test`.
+
+## 23. Revisão das listas após atualização visual (2026-09-08)
+
+- A árvore TikTok carrega todos os status; `campaign-list.ts` aplica o filtro local e calcula os
+  contadores sobre a conta inteira. Aprovação e entrega permanecem dimensões independentes.
+  A seleção em lote é descartada quando os filtros ou as campanhas visíveis mudam, inclusive por polling.
+- A tabela mantém Compras e CPA exclusivamente do relatório TikTok, além de Gasto, CPC, CPM e CTR.
+  Ausência de métrica não vira zero; orçamento ABO usa a soma validada dos conjuntos. As vendas
+  rastreadas ficam nos detalhes com origem explícita. A API de atribuição informa a moeda das vendas;
+  receita sem moeda única não é exibida como moeda da conta, e ROAS só aparece com moedas iguais.
+  Essa metainformação é opt-in em `computeAttribution`, preservando o contrato do motor de regras.
+- Catálogos distinguem quantidade local e remota: zero confirmado no TikTok é autoritativo.
+  Ausência de auditoria não simula zero aprovados/reprovados. Datas seguem Brasília.
+- As tabelas preservam rolagem horizontal, controles de orçamento têm espaço para edição,
+  ações de cópia aguardam confirmação do navegador e filtros rápidos são limpos junto com a busca.
+- Validação: testes de regressão em `dashboard-ui-integrity` e `ads-automation-consistency`.
+  A prévia compilada abriu no navegador com APIs locais isoladas; o dev server foi substituído
+  pelo build de produção para a revisão. A animação do logo usa `brandLogoSpin`, sem herdar
+  o deslocamento das órbitas do globo.
+
+- Conferência interativa local: filtros Ativas/Pausadas e contadores, menu de ações, lista de
+  catálogos e formulário de criação abertos no navegador, sem escrita externa.

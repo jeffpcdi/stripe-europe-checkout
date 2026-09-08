@@ -36,6 +36,7 @@ import {
   ArrowDown,
   MoreHorizontal,
 } from 'lucide-react'
+import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus } from '@/lib/types'
@@ -48,7 +49,7 @@ import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contract
 import { fmtCompact, cleanCampaignName } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
 import { CampaignMetricGrid } from './campaign-metric-grid'
-import { campaignBudget, campaignStatusOutcome, type CampaignStatusResult } from '@/lib/campaign-metrics'
+import { campaignMetrics, campaignBudget, campaignStatusOutcome, type CampaignStatusResult } from '@/lib/campaign-metrics'
 import { actionFeedback } from '@/lib/action-feedback'
 
 function fmtMoney(v: number | undefined, currency: string): string {
@@ -179,7 +180,7 @@ export function CampaignQuickActionsDropdown({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
+          className="flex size-11 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
           aria-label={`Ações rápidas da campanha ${c.campaignName || id}`}
           title="Ações rápidas e status"
         >
@@ -236,6 +237,7 @@ export function CampaignQuickActionsDropdown({
           {onDuplicate && (
             <DropdownMenu.Item
               className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+              disabled={disabled || busy}
               onSelect={() => onDuplicate(c)}
             >
               <Copy className="size-3.5 text-muted-foreground" />
@@ -271,8 +273,10 @@ export function CampaignQuickActionsDropdown({
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-foreground transition-colors"
             onSelect={() => {
-              void navigator.clipboard.writeText(id)
-              toast.success('ID da campanha copiado')
+              void navigator.clipboard.writeText(id).then(
+                () => toast.success('ID da campanha copiado'),
+                () => toast.error('Não foi possível copiar o ID'),
+              )
             }}
           >
             <Copy className="size-3.5" />
@@ -314,6 +318,7 @@ function BudgetControl({
   const [value, setValue] = useState(String(currentAmount || ''))
   const [busy, setBusy] = useState(false)
   async function save(nextValue = value) {
+    if (busy) return
     const next = Number(String(nextValue).replace(',', '.'))
     if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) return toast.error(tiktokMinimumBudgetMessage(currency))
     if (Math.abs(next - currentAmount) < 0.005) { setEditing(false); return }
@@ -347,14 +352,14 @@ function BudgetControl({
               onChange={(event) => setValue(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void save()
-                if (event.key === 'Escape') setEditing(false)
+                if (event.key === 'Escape' && !busy) setEditing(false)
               }}
-              className="w-16 rounded border border-border bg-background px-1 py-0.5 text-[10px] font-mono tabular-nums text-foreground"
+              className="w-20 min-h-8 rounded border border-border bg-background px-1 py-0.5 text-[10px] font-mono tabular-nums text-foreground"
               aria-label={`Novo orçamento de ${label}`}
             />
             <button
               type="button"
-              className="p-0.5 rounded text-success hover:bg-success/15"
+              className="size-8 inline-flex items-center justify-center rounded text-success hover:bg-success/15"
               onClick={() => void save()}
               disabled={busy}
               aria-label="Salvar"
@@ -363,7 +368,7 @@ function BudgetControl({
             </button>
             <button
               type="button"
-              className="p-0.5 rounded text-muted-foreground hover:bg-secondary"
+              className="size-8 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-secondary"
               onClick={() => setEditing(false)}
               disabled={busy}
               aria-label="Cancelar"
@@ -399,7 +404,7 @@ function BudgetControl({
             <input
               autoFocus type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={value}
               disabled={busy} onChange={(event) => setValue(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void save(); if (event.key === 'Escape') setEditing(false) }}
+              onKeyDown={(event) => { if (event.key === 'Enter') void save(); if (event.key === 'Escape' && !busy) setEditing(false) }}
               className="input-neon w-24 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums"
               aria-label={`Novo orçamento de ${label}`}
             />
@@ -504,7 +509,7 @@ export function CampaignTree({
   // Abre o dialog de duplicação durável na mesma conta de anúncio.
   onDuplicate?: (c: AdsTreeCampaign) => void
   // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
-  attribution?: Record<string, { revenueCents: number; sales: number }>
+  attribution?: Record<string, { revenueCents: number; sales: number; currency?: string | null }>
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -554,9 +559,9 @@ export function CampaignTree({
       setShowFilters(true)
       const parsed = parseNaturalCampaignFilter(value)
       if (parsed.status && parsed.status !== statusFilter) onStatusFilter(parsed.status)
-      localStorage.removeItem('roi_ads_natural_filter')
+      try { localStorage.removeItem('roi_ads_natural_filter') } catch {}
     }
-    apply(localStorage.getItem('roi_ads_natural_filter') || '')
+    try { apply(localStorage.getItem('roi_ads_natural_filter') || '') } catch {}
     const onFilter = (event: Event) => apply(String((event as CustomEvent).detail || ''))
     window.addEventListener('roi:ads-filter', onFilter)
     return () => window.removeEventListener('roi:ads-filter', onFilter)
@@ -568,7 +573,7 @@ export function CampaignTree({
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
   useEffect(() => {
     setSelected(new Set())
-  }, [page, statusFilter, sort, selectionScope, query, onlyWithSpend])
+  }, [page, statusFilter, sort, selectionScope, query, onlyWithSpend, quickFilter])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -720,28 +725,13 @@ export function CampaignTree({
   const campaigns = tree?.campaigns ?? []
   const pagination = tree?.pagination
 
-  // Contagem em tempo real de campanhas por status na conta
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      active: 0,
-      paused: 0,
-      pending_review: 0,
-      rejected: 0,
-      all: campaigns.length,
-    }
-    for (const c of campaigns) {
-      if (c.status === 'active') counts.active++
-      else if (c.status === 'paused') counts.paused++
-      else if (c.status === 'pending_review') counts.pending_review++
-      else if (c.status === 'rejected' || c.status === 'error') counts.rejected++
-    }
-    return counts
-  }, [campaigns])
+  const statusCounts = useMemo(() => campaignStatusCounts(campaigns), [campaigns])
 
   // Aplica busca + "só com gasto" sobre a lista carregada
   const q = normalizeSearch(query.trim())
   const natural = parseNaturalCampaignFilter(query)
   const visible = campaigns.filter((c) => {
+    if (!campaignMatchesStatus(c, statusFilter)) return false
     // Busca bate no nome cru E no limpo — o usuário vê o limpo na tela
     if (
       q && !natural.structured &&
@@ -753,23 +743,26 @@ export function CampaignTree({
     const spend = Number(c.metrics?.spend) || 0
     const attr = attribution?.[c.platformCampaignId]
     const sales = Number(attr?.sales) || 0
-    const roas = spend > 0 ? (Number(attr?.revenueCents) || 0) / 100 / spend : 0
+    const roas = attr?.currency && attr.currency === (c.currency || currency) && spend > 0 ? (Number(attr.revenueCents) || 0) / 100 / spend : null
     const ctr = Number(c.metrics?.ctr) || 0
 
     // Filtros rápidos
     if (quickFilter === 'with_sales' && sales <= 0) return false
-    if (quickFilter === 'high_roas' && roas < 2.0) return false
+    if (quickFilter === 'high_roas' && (roas === null || roas < 2.0)) return false
     if (quickFilter === 'no_sales' && (sales > 0 || spend <= 0)) return false
 
     if (natural.spendAbove != null && !(spend > natural.spendAbove)) return false
     if (natural.spendBelow != null && !(spend < natural.spendBelow)) return false
-    if (natural.roasAbove != null && !(roas > natural.roasAbove)) return false
-    if (natural.roasBelow != null && !(roas < natural.roasBelow)) return false
+    if (natural.roasAbove != null && !(roas !== null && roas > natural.roasAbove)) return false
+    if (natural.roasBelow != null && !(roas !== null && roas < natural.roasBelow)) return false
     if (natural.ctrBelow != null && !(ctr < natural.ctrBelow)) return false
     if (natural.noSales && sales !== 0) return false
     if (natural.withSales && sales <= 0) return false
     return true
   })
+
+  const visibleSelectionScope = visible.map(c => c.platformCampaignId).sort().join('|')
+  useEffect(() => { setSelected(new Set()) }, [visibleSelectionScope])
 
   // Resumo do que está visível: contagem por status + gasto total — dá o
   // panorama sem precisar rolar 100 linhas.
@@ -876,7 +869,7 @@ export function CampaignTree({
     if (viewMode === 'table') {
       return (
         <div
-          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1225px]"
+          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1305px]"
           style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
         >
           <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
@@ -904,7 +897,7 @@ export function CampaignTree({
     const spend = Number(c.metrics?.spend) || 0
     const sales = Number(attr?.sales) || 0
     const realRevenue = (Number(attr?.revenueCents) || 0) / 100
-    const roas = sales > 0 && spend > 0 ? realRevenue / spend : null
+    const roas = attr?.currency === (c.currency || currency) && sales > 0 && spend > 0 ? realRevenue / spend : null
 
     return (
       <div id={`campaign-details-${id}`} className="anim-content-in border-t border-border/50 bg-secondary/15 px-4 py-4 sm:px-5">
@@ -940,7 +933,7 @@ export function CampaignTree({
             </span>
             {attr && attr.sales > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-success/15 border border-success/30 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-success">
-                {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {fmtMoney(attr.revenueCents / 100, currency)}
+                {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {attr.currency ? fmtMoney(attr.revenueCents / 100, attr.currency) : 'Receita sem moeda única'}
                 {roas !== null && ` · ROAS ${roas.toFixed(2)}×`}
               </span>
             )}
@@ -1113,16 +1106,10 @@ export function CampaignTree({
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
-    const attr = attribution?.[id]
-    const spend = Number(c.metrics?.spend) || 0
-    const sales = Number(attr?.sales) || 0
-    const conversions = Number(c.metrics?.conversions) || 0
-    const realRevenue = (Number(attr?.revenueCents) || 0) / 100
-    const roas = sales > 0 && spend > 0 ? realRevenue / spend : null
-    const realCpa = sales > 0 && spend > 0 ? spend / sales : null
-    const metricsCpa = Number(c.metrics?.cpa) || null
-    const ctr = Number(c.metrics?.ctr) || 0
-    const clicks = Number(c.metrics?.clicks) || 0
+    const metrics = campaignMetrics(c.metrics)
+    const budget = campaignBudget(c)
+    const money = (value: number | null) => value === null ? '—' : fmtMoney(value, c.currency || currency)
+    const number = (value: number | null) => value === null ? '—' : value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
     const adSetCount = c.adSetCount ?? c.adSets?.length ?? 0
     const adCount = c.adCount ?? 0
@@ -1163,7 +1150,7 @@ export function CampaignTree({
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
         {/* Linha compacta: 12 colunas com alinhamento rigoroso */}
-        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_110px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1225px]">
+        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1305px]">
           {/* 1. Checkbox */}
           <div className="flex items-center justify-center">
             <input
@@ -1194,13 +1181,15 @@ export function CampaignTree({
           {/* 3. Campanha: Nome, ID, Badges */}
           <div className="min-w-0 pr-3">
             <div className="flex items-center gap-1.5">
-              <span
-                className="font-semibold text-foreground truncate cursor-pointer hover:text-primary transition-colors text-sm"
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                className="font-semibold text-left text-foreground truncate cursor-pointer hover:text-primary transition-colors text-sm"
                 onClick={() => toggle(id)}
                 title={c.campaignName || id}
               >
                 {cleanCampaignName(c.campaignName || id)}
-              </span>
+              </button>
               {c.campaignKind === 'smart_plus' && (
                 <span className="shrink-0 rounded bg-secondary px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground border border-border/50">
                   Smart+
@@ -1240,72 +1229,20 @@ export function CampaignTree({
               />
             ) : (
               <span className="text-[11px] text-muted-foreground" title="Orçamento definido no nível dos conjuntos (ABO)">
-                Conjuntos
+                {budget.amount === null ? 'Conjuntos' : money(budget.amount)}
+                <span className="block text-[11px]">{budget.detail}</span>
               </span>
             )}
           </div>
 
-          {/* 5. Gasto */}
-          <div className="text-right font-mono font-semibold text-foreground tabular-nums pr-2">
-            {fmtMoney(spend, currency)}
-          </div>
-
-          {/* 6. Vendas */}
-          <div className="text-right pr-2">
-            {sales > 0 ? (
-              <span className="inline-flex items-center rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-bold text-emerald-400 tabular-nums" title={`${sales} venda(s) real(is) rastreada(s)`}>
-                {sales}
-              </span>
-            ) : conversions > 0 ? (
-              <span className="text-[11px] font-mono text-muted-foreground tabular-nums" title={`${conversions} conversão(ões) reportada(s) pelo TikTok`}>
-                {conversions}
-              </span>
-            ) : (
-              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
-            )}
-          </div>
-
-          {/* 7. Receita */}
-          <div className="text-right font-mono text-xs tabular-nums pr-2">
-            {realRevenue > 0 ? (
-              <span className="font-semibold text-foreground">{fmtMoney(realRevenue, currency)}</span>
-            ) : (
-              <span className="text-muted-foreground/40">—</span>
-            )}
-          </div>
-
-          {/* 8. ROAS */}
-          <div className="text-right pr-2">
-            {roas !== null ? (
-              <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
-                roas >= 2.0
-                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
-                  : roas >= 1.0
-                    ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25'
-                    : 'bg-secondary text-muted-foreground'
-              }`}>
-                {roas.toFixed(2)}×
-              </span>
-            ) : (
-              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
-            )}
-          </div>
-
-          {/* 9. CPA */}
-          <div className="text-right font-mono text-xs tabular-nums pr-2">
-            {realCpa !== null ? (
-              <span className="font-medium text-foreground">{fmtMoney(realCpa, currency)}</span>
-            ) : metricsCpa ? (
-              <span className="text-muted-foreground">{fmtMoney(metricsCpa, currency)}</span>
-            ) : (
-              <span className="text-muted-foreground/40">—</span>
-            )}
-          </div>
-
-          {/* 10. CTR / Cliques */}
-          <div className="text-right font-mono text-[11px] tabular-nums pr-2">
-            <div className="font-medium text-foreground">{ctr ? `${ctr.toFixed(2)}%` : '0,00%'}</div>
-            <div className="text-[10px] text-muted-foreground">{clicks} cliq.</div>
+          <div className="text-right font-mono tabular-nums pr-2">{money(metrics.spend)}</div>
+          <div className="text-right font-mono tabular-nums pr-2" title="Compras informadas pelo TikTok">{number(metrics.conversions)}</div>
+          <div className="text-right font-mono tabular-nums pr-2" title="Custo por clique">{money(metrics.cpc)}</div>
+          <div className="text-right font-mono tabular-nums pr-2" title="Custo por mil exibições">{money(metrics.cpm)}</div>
+          <div className="text-right font-mono tabular-nums pr-2" title="Custo por compra informada pelo TikTok">{money(metrics.cpa)}</div>
+          <div className="text-right font-mono tabular-nums pr-2">
+            <div>{metrics.ctr === null ? '—' : number(metrics.ctr) + '%'}</div>
+            <div className="text-[11px] text-muted-foreground">{number(metrics.clicks)} cliques</div>
           </div>
 
           {/* 11. Estrutura (Conjuntos e Anúncios) */}
@@ -1349,7 +1286,7 @@ export function CampaignTree({
 
         {/* Banner de erro quando houver problema */}
         {detailedError && (
-          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1225px]">
+          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1305px]">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>{detailedError}</span>
           </div>
@@ -1484,7 +1421,7 @@ export function CampaignTree({
 
   function TableHeader() {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_110px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1225px] shadow-xs">
+      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1305px] shadow-xs">
         {/* 1. Checkbox Select All */}
         <div className="flex items-center justify-center">
           <input
@@ -1529,13 +1466,13 @@ export function CampaignTree({
         </div>
 
         {/* 6. Vendas */}
-        <div className="text-right pr-2">Vendas</div>
+        <div className="text-right pr-2" title="Compras informadas pelo TikTok">Compras</div>
 
         {/* 7. Receita */}
-        <div className="text-right pr-2">Receita</div>
+        <div className="text-right pr-2">CPC</div>
 
         {/* 8. ROAS */}
-        <div className="text-right pr-2">ROAS</div>
+        <div className="text-right pr-2">CPM</div>
 
         {/* 9. CPA */}
         <div className="text-right pr-2">CPA</div>
@@ -1717,6 +1654,7 @@ export function CampaignTree({
               type="button"
               onClick={() => {
                 setOnlyWithSpend(false)
+                  setQuickFilter('all')
                 setQuickFilter('all')
               }}
               className="ml-auto text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
@@ -1776,11 +1714,12 @@ export function CampaignTree({
               </label>
             </div>
 
-            {(onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) && (
+            {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) && (
               <button
                 type="button"
                 onClick={() => {
                   setOnlyWithSpend(false)
+                  setQuickFilter('all')
                   onSort('newest')
                   onStatusFilter('active')
                   setQuery('')
@@ -1877,7 +1816,9 @@ export function CampaignTree({
             className="btn-ghost text-xs"
             onClick={() => {
               setQuery('')
+              onStatusFilter('')
               setOnlyWithSpend(false)
+                  setQuickFilter('all')
             }}
           >
             Limpar busca e filtros
@@ -1915,6 +1856,7 @@ export function CampaignTree({
       ) : (
         <div
           ref={scrollRef}
+          style={{ overflow: 'auto' }}
           className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} overflow-auto ${
             viewMode === 'table' ? 'campaign-table-container' : ''
           }`}
@@ -1925,7 +1867,7 @@ export function CampaignTree({
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: viewMode === 'table' ? '1225px' : undefined,
+                minWidth: viewMode === 'table' ? '1305px' : undefined,
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1951,7 +1893,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: viewMode === 'table' ? '1225px' : undefined }}
+              style={{ minWidth: viewMode === 'table' ? '1305px' : undefined }}
             >
               {flatRows.map((row, index) => (
                 <div
