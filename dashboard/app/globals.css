@@ -1242,8 +1242,9 @@ a:active,
 
 .brand-logo__ring {
   position: absolute;
-  inset: -3px;
+  inset: -2.5px;
   border-radius: 50%;
+  padding: 2px;
   background: conic-gradient(
     from 0deg,
     var(--accent),
@@ -1252,18 +1253,13 @@ a:active,
     var(--pink),
     var(--accent)
   );
-  animation: orbitSpin 6s linear infinite;
-  filter: blur(1px);
-  opacity: 0.9;
-}
-
-/* Máscara para virar apenas um anel (recorte central) */
-.brand-logo__ring::after {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: var(--bg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: orbitSpin 5s linear infinite;
+  filter: drop-shadow(0 0 8px rgba(37, 244, 238, 0.45));
+  opacity: 0.95;
+  pointer-events: none;
 }
 
 .brand-logo__img {
@@ -1273,30 +1269,29 @@ a:active,
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
-  box-shadow: 0 0 14px rgba(37, 244, 238, 0.35);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .group:hover .brand-logo__ring {
-  animation-duration: 2.4s;
+  animation-duration: 2.2s;
   opacity: 1;
+  filter: drop-shadow(0 0 12px rgba(37, 244, 238, 0.7));
 }
 
-/* Logo grande da sidebar — como no legado */
+/* Logo da sidebar */
 .brand-logo--lg {
-  width: 112px;
-  height: 112px;
+  width: 68px;
+  height: 68px;
 }
 .brand-logo--lg .brand-logo__ring {
-  inset: -4px;
-  filter: blur(1.5px);
-}
-.brand-logo--lg .brand-logo__ring::after {
-  inset: 4px;
+  inset: -3.5px;
+  padding: 2.5px;
+  filter: drop-shadow(0 0 14px rgba(37, 244, 238, 0.5));
 }
 .brand-logo--lg .brand-logo__img {
-  width: 104px;
-  height: 104px;
-  box-shadow: 0 0 28px rgba(37, 244, 238, 0.3);
+  width: 62px;
+  height: 62px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 /* ============================================================
@@ -3157,6 +3152,9 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 .campaign-expand-action { width: 100%; display: flex; align-items: center; gap: 7px; min-height: 44px; padding: 10px 18px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; text-align: left; transition: background 180ms; }
 .campaign-expand-action span { margin-left: auto; color: var(--accent); }
 .campaign-expand-action:hover { background: var(--hover); }
+.campaign-table-container { border: 1px solid var(--border); border-radius: 14px; background: var(--card); overflow: hidden; }
+.campaign-table-row { transition: background-color 150ms ease, border-color 150ms ease; }
+.campaign-table-row:last-child { border-bottom: 0; }
 .campaign-expand-action svg { flex-shrink: 0; transition: transform 200ms; }
 .campaign-operation-error { display: flex; align-items: flex-start; gap: 8px; padding: 12px 18px; color: var(--error); background: var(--error-light); font-size: 12px; line-height: 1.5; }
 .campaign-operation-error svg { flex-shrink: 0; margin-top: 2px; }

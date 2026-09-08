@@ -996,7 +996,7 @@ colunas fixas e cada linha mantém status e ações visíveis; detalhes só apar
 painéis Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
 Pixel e evento não aparecem nos formulários: o banner `PixelBindingCard` só é exibido enquanto o
 vínculo central do advertiser estiver pendente. Em Catálogo, conexão verificada, feed e históricos
-técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável. Em Automações,
+técnicos ficam recolhidos; a lista de catálogos suporta alternância entre Tabela de alta densidade (padrão, ideal para 100+ catálogos) e Cards, filtros por status com contadores em tempo real, busca rápida (nome, ID TikTok, ID local, país, moeda), ordenação e ações rápidas (importação mágica via link, criação em lote e novo catálogo). Em Automações,
 `RejectionInbox` mostra no máximo cinco grupos reprovados antes de “Ver mais”, permite recurso manual
 Smart+ com `ConfirmDialog` e liga/desliga o recurso automático no mesmo controle de autonomia; o badge
 da aba soma incidentes abertos sem multiplicar notificações por anúncio. A faixa compacta da aba usa o
@@ -1117,7 +1117,7 @@ gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.j
 Link → Pixel → Gateway → Domínio → Cloaker); item 54: badge de uso no card de domínio; item 57:
 overflow horizontal da aba Gateways em mobile corrigido (grid precisa de `minmax(0,·)` +
 `flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items); item 58: ritmo vertical
-unificado (`gap-5` na raiz das 5 abas). Aba Conversões reestruturada com suporte completo a múltiplos pixels do TikTok vinculados a múltiplos checkouts independentes (Kiwify, Hotmart, PerfectPay, Cakto, Stripe, etc.), matriz visual de roteamento (`routing-matrix.tsx`), modal de vínculos por pixel (`link-gateways-modal.tsx`), cartões modulares (`pixel-card.tsx`, `gateway-card.tsx`) e abas internas de navegação. Próxima fila: Leva 4 (141–200) — refinos por aba/microcopy.
+unificado (`gap-5` na raiz das 5 abas). Aba Conversões reestruturada com suporte completo a múltiplos pixels do TikTok vinculados a múltiplos checkouts independentes (Kiwify, Hotmart, PerfectPay, Cakto, Stripe, etc.), matriz visual de roteamento (`routing-matrix.tsx`), modal de vínculos por pixel (`link-gateways-modal.tsx`), cartões modulares (`pixel-card.tsx`, `gateway-card.tsx`) e abas internas de navegação. Aba Campanhas: suporte a visualização em Tabela (`viewMode='table'`) de alta densidade para 100+ campanhas com colunas tabulares alinhadas, alternador Tabela / Cards na barra de ferramentas, persistência em localStorage (`roi:ads:viewMode`) e virtualização dinâmica com altura adaptável. Consolidação de ações: botões de ação e status secundários reunidos no dropdown `CampaignQuickActionsDropdown` (`@radix-ui/react-dropdown-menu`), mantendo apenas o toggle principal `CampaignActivationToggle` visível na linha da campanha para reduzir poluição visual; logo atualizado com máscara cônica limpa e asset de alta fidelidade. Próxima fila: Leva 4 (141–200) — refinos por aba/microcopy.
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
