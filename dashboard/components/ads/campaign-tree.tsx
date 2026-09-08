@@ -7,8 +7,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ChevronRight,
+  ChevronDown,
   Play,
   Pause,
   Copy,
@@ -27,6 +29,12 @@ import {
   Search,
   SlidersHorizontal,
   DollarSign,
+  LayoutList,
+  LayoutGrid,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  MoreHorizontal,
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -84,6 +92,198 @@ export function StatusPill({ status }: { status?: AdsNodeStatus }) {
   )
 }
 
+export function CampaignActivationToggle({
+  status,
+  busy,
+  disabled,
+  onToggle,
+  name,
+}: {
+  status?: AdsNodeStatus
+  busy?: boolean
+  disabled?: boolean
+  onToggle: () => void
+  name?: string
+}) {
+  const isActive = status === 'active'
+  const isPaused = status === 'paused'
+
+  if (!isActive && !isPaused) {
+    return <StatusPill status={status} />
+  }
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isActive}
+      disabled={disabled || busy}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle()
+      }}
+      title={isActive ? 'Campanha ativa — Clique para pausar' : 'Campanha pausada — Clique para ativar'}
+      aria-label={`${isActive ? 'Pausar' : 'Ativar'} campanha ${name || ''}`}
+      className={`group relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
+        isActive
+          ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.35)]'
+          : 'bg-muted-foreground/30 hover:bg-muted-foreground/45'
+      }`}
+    >
+      <span
+        className={`pointer-events-none absolute left-0.5 top-1/2 -translate-y-1/2 flex size-4 items-center justify-center rounded-full bg-white shadow-xs transition-transform duration-200 ${
+          isActive ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      >
+        {busy ? (
+          <Loader2 className="size-2.5 animate-spin text-muted-foreground" />
+        ) : isActive ? (
+          <span className="size-1.5 rounded-full bg-emerald-600" />
+        ) : (
+          <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+        )}
+      </span>
+    </button>
+  )
+}
+
+export function CampaignQuickActionsDropdown({
+  campaign,
+  currency,
+  busy,
+  disabled,
+  isOpen,
+  onToggleExpand,
+  onDuplicate,
+  onOpenDetail,
+  onToggleStatus,
+}: {
+  campaign: AdsTreeCampaign
+  currency: string
+  busy?: boolean
+  disabled?: boolean
+  isOpen?: boolean
+  onToggleExpand?: () => void
+  onDuplicate?: (c: AdsTreeCampaign) => void
+  onOpenDetail?: (c: AdsTreeCampaign) => void
+  onToggleStatus?: () => void
+}) {
+  const c = campaign
+  const id = c.platformCampaignId
+  const isActive = c.status === 'active'
+  const isPaused = c.status === 'paused'
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
+          aria-label={`Ações rápidas da campanha ${c.campaignName || id}`}
+          title="Ações rápidas e status"
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-xl border border-white/10 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl text-xs"
+        >
+          {/* Status info header */}
+          <div className="px-2 py-1.5 border-b border-border/40 mb-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Status</span>
+              <StatusPill status={c.status} />
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span>{c.campaignKind === 'smart_plus' ? 'Smart+' : 'Campanha padrão'}</span>
+              {c.reviewStatus === 'approved' && (
+                <span className="inline-flex items-center gap-0.5 text-emerald-400 font-medium">
+                  <BadgeCheck className="size-3 text-emerald-400" /> Aprovada
+                </span>
+              )}
+              {c.childStatus && c.childStatus !== c.status && (
+                <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || c.childStatus}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Toggle status action */}
+          {(isActive || isPaused) && onToggleStatus && (
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+              onSelect={() => onToggleStatus()}
+              disabled={disabled || busy}
+            >
+              {isActive ? (
+                <>
+                  <Pause className="size-3.5 text-warning" />
+                  <span>Pausar campanha</span>
+                </>
+              ) : (
+                <>
+                  <Play className="size-3.5 text-emerald-400" />
+                  <span>Ativar campanha</span>
+                </>
+              )}
+            </DropdownMenu.Item>
+          )}
+
+          {/* Duplicar campanha */}
+          {onDuplicate && (
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+              onSelect={() => onDuplicate(c)}
+            >
+              <Copy className="size-3.5 text-muted-foreground" />
+              <span>Duplicar campanha</span>
+            </DropdownMenu.Item>
+          )}
+
+          {/* Métricas e gráficos */}
+          {onOpenDetail && (
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+              onSelect={() => onOpenDetail(c)}
+            >
+              <BarChart3 className="size-3.5 text-muted-foreground" />
+              <span>Métricas e gráficos</span>
+            </DropdownMenu.Item>
+          )}
+
+          {/* Expandir / Recolher Estrutura */}
+          {onToggleExpand && (
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
+              onSelect={() => onToggleExpand()}
+            >
+              <Layers className="size-3.5 text-muted-foreground" />
+              <span>{isOpen ? 'Recolher conjuntos/anúncios' : 'Ver conjuntos e anúncios'}</span>
+            </DropdownMenu.Item>
+          )}
+
+          <DropdownMenu.Separator className="my-1 h-px bg-border/40" />
+
+          {/* Copiar ID */}
+          <DropdownMenu.Item
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-foreground transition-colors"
+            onSelect={() => {
+              void navigator.clipboard.writeText(id)
+              toast.success('ID da campanha copiado')
+            }}
+          >
+            <Copy className="size-3.5" />
+            <span className="font-mono">Copiar ID ({id})</span>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  )
+}
+
 function isProductLinkAd(ad: AdsTreeAd): boolean {
   return Boolean(ad.catalogId) && (
     String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
@@ -99,6 +299,7 @@ function BudgetControl({
   currency,
   label,
   onSaved,
+  compact = false,
 }: {
   entityId: string
   amount: number
@@ -107,6 +308,7 @@ function BudgetControl({
   currency: string
   label: string
   onSaved: () => void
+  compact?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(currentAmount || ''))
@@ -129,6 +331,65 @@ function BudgetControl({
       setValue(String(currentAmount || ''))
     } finally { setBusy(false) }
   }
+
+  if (compact) {
+    return (
+      <div className="inline-flex items-center justify-end">
+        {editing ? (
+          <span className="inline-flex items-center gap-1">
+            <input
+              autoFocus
+              type="number"
+              min={TIKTOK_MIN_BUDGET}
+              step="0.01"
+              value={value}
+              disabled={busy}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void save()
+                if (event.key === 'Escape') setEditing(false)
+              }}
+              className="w-16 rounded border border-border bg-background px-1 py-0.5 text-[10px] font-mono tabular-nums text-foreground"
+              aria-label={`Novo orçamento de ${label}`}
+            />
+            <button
+              type="button"
+              className="p-0.5 rounded text-success hover:bg-success/15"
+              onClick={() => void save()}
+              disabled={busy}
+              aria-label="Salvar"
+            >
+              {busy ? <Loader2 className="size-2.5 animate-spin" /> : <Check className="size-2.5" />}
+            </button>
+            <button
+              type="button"
+              className="p-0.5 rounded text-muted-foreground hover:bg-secondary"
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              aria-label="Cancelar"
+            >
+              <X className="size-2.5" />
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="group inline-flex items-center gap-1 text-[11px] font-mono font-medium text-foreground hover:text-primary transition-colors cursor-pointer"
+            onClick={() => {
+              setValue(String(currentAmount))
+              setEditing(true)
+            }}
+            title="Clique para editar orçamento"
+          >
+            <span>{fmtMoney(currentAmount, currency)}</span>
+            <span className="text-[10px] text-muted-foreground">/{type === 'lifetime' ? 'tot' : 'd'}</span>
+            <Pencil className="size-2.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+          </button>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="campaign-budget-editor">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -270,6 +531,21 @@ export function CampaignTree({
   const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('roi_campaigns_view_mode')
+      if (saved === 'cards' || saved === 'table') setViewMode(saved)
+    } catch {}
+  }, [])
+
+  const handleViewModeChange = (mode: 'table' | 'cards') => {
+    setViewMode(mode)
+    try {
+      localStorage.setItem('roi_campaigns_view_mode', mode)
+    } catch {}
+  }
 
   useEffect(() => {
     const apply = (value: string) => {
@@ -572,13 +848,45 @@ export function CampaignTree({
   const rowVirtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: index => flatRows[index]?.kind === 'group' ? 36 : 285,
-    overscan: 10,
+    estimateSize: (index) => {
+      const row = flatRows[index]
+      if (row?.kind === 'group') return 34
+      const isExp = row?.c ? expanded.has(row.c.platformCampaignId) : false
+      if (viewMode === 'table') {
+        return isExp ? 460 : 50
+      }
+      return isExp ? 580 : 285
+    },
+    overscan: 8,
     getItemKey: (i) => flatRows[i].key,
   })
 
-  // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
+  const allExpanded = visible.length > 0 && visible.every((c) => expanded.has(c.platformCampaignId))
+
+  function toggleAllExpanded() {
+    if (allExpanded) {
+      setExpanded(new Set())
+    } else {
+      setExpanded(new Set(visible.map((c) => c.platformCampaignId)))
+    }
+  }
+
+  // Cabeçalho de grupo (Ativas/Pausadas/…), adaptado para tabela ou cards
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, index?: number) {
+    if (viewMode === 'table') {
+      return (
+        <div
+          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1225px]"
+          style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
+        >
+          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+          <span>{GROUP_LABELS[row.groupIdx] ?? 'Outras'}</span>
+          <span className="rounded-full bg-secondary/80 px-2 py-0.5 text-[10px] font-bold tabular-nums text-foreground border border-border/40">
+            {row.count}
+          </span>
+        </div>
+      )
+    }
     return (
       <p
         className="stagger-fade flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
@@ -589,16 +897,236 @@ export function CampaignTree({
     )
   }
 
-  // Uma linha de campanha (compacta ~40px) + bloco expandido (grupos/anúncios).
-  function renderCampaignRow(c: AdsTreeCampaign, index?: number) {
+  // Bloco expandido: métricas completas + grupos/anúncios (compartilhado entre Tabela e Cards)
+  function renderExpandedContent(c: AdsTreeCampaign) {
+    const id = c.platformCampaignId
+    const attr = attribution?.[id]
+    const spend = Number(c.metrics?.spend) || 0
+    const sales = Number(attr?.sales) || 0
+    const realRevenue = (Number(attr?.revenueCents) || 0) / 100
+    const roas = sales > 0 && spend > 0 ? realRevenue / spend : null
+
+    return (
+      <div id={`campaign-details-${id}`} className="anim-content-in border-t border-border/50 bg-secondary/15 px-4 py-4 sm:px-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {onOpenDetail && (
+              <button
+                type="button"
+                className="btn-ghost !px-2.5 !py-1 text-xs"
+                onClick={() => onOpenDetail(c)}
+                aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
+              >
+                <BarChart3 className="size-3.5 mr-1" aria-hidden="true" />
+                Métricas detalhadas e gráficos
+              </button>
+            )}
+            {onDuplicate && (
+              <button
+                type="button"
+                className="btn-ghost !px-2.5 !py-1 text-xs"
+                onClick={() => onDuplicate(c)}
+                aria-label={`Duplicar campanha ${c.campaignName || id}`}
+              >
+                <Copy className="size-3.5 mr-1" aria-hidden="true" />
+                Duplicar
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
+              {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
+            </span>
+            {attr && attr.sales > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success/15 border border-success/30 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-success">
+                {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {fmtMoney(attr.revenueCents / 100, currency)}
+                {roas !== null && ` · ROAS ${roas.toFixed(2)}×`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {c.budgetOwner === 'campaign' && c.budget?.amount != null && (
+          <div className="mb-4 max-w-sm">
+            <BudgetControl
+              entityId={id}
+              amount={Number(c.budget.amount)}
+              type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+              adAccountId={c.platformAdAccountId || ''}
+              currency={c.currency || currency}
+              label="Orçamento da campanha (CBO)"
+              onSaved={onMutate}
+            />
+          </div>
+        )}
+
+        {/* Grade detalhada de métricas */}
+        <div className="mb-4 rounded-xl border border-border/60 bg-card/60 overflow-hidden shadow-xs">
+          <CampaignMetricGrid
+            campaign={c}
+            currency={currency}
+            attribution={attribution?.[id] || attribution?.[c.platformCampaignId]}
+          />
+        </div>
+
+        {/* Grupos e Anúncios */}
+        {(c.adSets ?? []).length === 0 ? (
+          <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
+        ) : (
+          (c.adSets ?? []).map((s, si) => (
+            <div key={s.platformAdSetId ?? si} className="py-3">
+              <div className="flex flex-wrap items-center gap-2 border-b border-border/30 pb-2">
+                <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="text-sm font-semibold text-foreground tracking-tight">
+                  {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
+                </span>
+                <StatusPill status={s.status} />
+                {c.budgetOwner !== 'campaign' && s.platformAdSetId && s.budget?.amount != null && (
+                  <BudgetControl
+                    entityId={s.platformAdSetId}
+                    amount={Number(s.budget.amount)}
+                    type={s.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                    adAccountId={c.platformAdAccountId || ''}
+                    currency={c.currency || currency}
+                    label="Orçamento do conjunto"
+                    onSaved={onMutate}
+                  />
+                )}
+              </div>
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-fade">
+                {(s.ads ?? []).map((ad, ai) => {
+                  const adKey = ad.platformAdId || ad._id || String(ai)
+                  return (
+                    <li
+                      key={adKey}
+                      onMouseEnter={() => setHoveredVideo(String(adKey))}
+                      onMouseLeave={() => setHoveredVideo(null)}
+                      className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background stagger-fade"
+                      style={{ '--i': Math.min(ai, 15), '--stagger-index': Math.min(ai, 15) } as React.CSSProperties}
+                    >
+                      {(ad.creative?.imageUrl || /^https:\/\//i.test(ad.creative?.videoUrl || '')) && (
+                        <div className="relative aspect-video overflow-hidden rounded-lg border border-border/50 bg-black">
+                          {hoveredVideo === String(adKey) && /^https:\/\//i.test(ad.creative?.videoUrl || '') ? (
+                            <video
+                              src={ad.creative?.videoUrl}
+                              poster={ad.creative?.imageUrl}
+                              autoPlay muted loop playsInline preload="metadata"
+                              className="h-full w-full object-cover"
+                              aria-label={`Prévia do anúncio ${ad.name || adKey}`}
+                            />
+                          ) : ad.creative?.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={ad.creative.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">Passe o mouse para reproduzir</div>
+                          )}
+                          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/80">sem som</span>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2">
+                        <Clapperboard className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate text-[13px] font-semibold text-foreground" title={ad.name || adKey}>{ad.name || adKey}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            <StatusPill status={ad.status} />
+                            {ad.adType === 'boost' && (
+                              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                Spark
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {ad.rejectionReason && (
+                        <div className="rounded-md bg-error/10 p-1.5">
+                          <span className="line-clamp-2 text-[10px] text-error" title={ad.rejectionReason}>
+                            {ad.rejectionReason}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-2">
+                        <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                          {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
+                        </span>
+                        
+                        {isProductLinkAd(ad) ? (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary" title="O destino vem do campo Link dos produtos deste catálogo">
+                            Link Catálogo
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Hover Actions Bar */}
+                      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/50 bg-background/80 p-0.5 opacity-100 backdrop-blur-sm transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 shadow-sm">
+                        {ad.creative?.linkUrl && !isProductLinkAd(ad) && (
+                          <a
+                            href={ad.creative.linkUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                            aria-label="Abrir página de destino do anúncio"
+                            title="Página de destino"
+                          >
+                            <ExternalLink className="size-3.5" aria-hidden="true" />
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                          onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
+                          aria-label={`Editar anúncio ${ad.name || adKey}`}
+                          title={isProductLinkAd(ad) ? 'Editar texto e botão' : 'Editar texto, botão e link'}
+                        >
+                          <Pencil className="size-3.5" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-error/15 hover:text-error"
+                          onClick={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}
+                          aria-label={`Excluir anúncio ${ad.name || adKey}`}
+                          title="Excluir anúncio"
+                        >
+                          <Trash2 className="size-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+                {(s.ads ?? []).length === 0 && (
+                  <li className="col-span-full rounded-xl border border-dashed border-border/60 p-4 text-center text-[11px] text-muted-foreground">
+                    Sem anúncios neste grupo.
+                  </li>
+                )}
+              </ul>
+            </div>
+          ))
+        )}
+      </div>
+    )
+  }
+
+  // Linha em formato Tabela: alta densidade, perfeita para dezenas/centenas de campanhas
+  function renderCampaignTableRow(c: AdsTreeCampaign, index?: number) {
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
-    const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
+    const sales = Number(attr?.sales) || 0
+    const conversions = Number(c.metrics?.conversions) || 0
+    const realRevenue = (Number(attr?.revenueCents) || 0) / 100
+    const roas = sales > 0 && spend > 0 ? realRevenue / spend : null
+    const realCpa = sales > 0 && spend > 0 ? spend / sales : null
+    const metricsCpa = Number(c.metrics?.cpa) || null
+    const ctr = Number(c.metrics?.ctr) || 0
+    const clicks = Number(c.metrics?.clicks) || 0
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
-    
+    const adSetCount = c.adSetCount ?? c.adSets?.length ?? 0
+    const adCount = c.adCount ?? 0
+
     let baseError =
       c.reviewStatus === 'rejected'
         ? 'Revisão rejeitada pelo TikTok'
@@ -627,7 +1155,248 @@ export function CampaignTree({
     }
 
     return (
-      <div className="campaign-row-wrap">
+      <div
+        key={id}
+        className={`campaign-table-row border-b border-border/50 transition-colors ${
+          selected.has(id) ? 'bg-primary/5' : isOpen ? 'bg-secondary/15' : 'hover:bg-muted/20'
+        } ${isError ? 'border-l-2 border-l-error' : ''}`}
+        style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
+      >
+        {/* Linha compacta: 12 colunas com alinhamento rigoroso */}
+        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_110px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1225px]">
+          {/* 1. Checkbox */}
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={selected.has(id)}
+              onChange={() => toggleSelect(id)}
+              disabled={Boolean(busyId) || bulkBusy}
+              className="size-3.5 rounded accent-primary cursor-pointer"
+              aria-label={`Selecionar ${c.campaignName || id}`}
+            />
+          </div>
+
+          {/* 2. Status & Quick Toggle */}
+          <div className="flex items-center">
+            <CampaignActivationToggle
+              status={c.status}
+              busy={busy}
+              disabled={Boolean(busyId) || bulkBusy}
+              onToggle={() =>
+                c.status === 'active'
+                  ? void setCampaignStatus(c, 'paused')
+                  : setActivation({ kind: 'single', campaign: c })
+              }
+              name={c.campaignName || id}
+            />
+          </div>
+
+          {/* 3. Campanha: Nome, ID, Badges */}
+          <div className="min-w-0 pr-3">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="font-semibold text-foreground truncate cursor-pointer hover:text-primary transition-colors text-sm"
+                onClick={() => toggle(id)}
+                title={c.campaignName || id}
+              >
+                {cleanCampaignName(c.campaignName || id)}
+              </span>
+              {c.campaignKind === 'smart_plus' && (
+                <span className="shrink-0 rounded bg-secondary px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground border border-border/50">
+                  Smart+
+                </span>
+              )}
+              {c.reviewStatus === 'approved' && (
+                <span title="Aprovada pelo TikTok" className="inline-flex">
+                  <BadgeCheck className="size-3.5 shrink-0 text-success" />
+                </span>
+              )}
+              {isError && (
+                <span title={detailedError || 'Problema na campanha'} className="inline-flex">
+                  <AlertTriangle className="size-3.5 shrink-0 text-error" />
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+              <span className="font-mono">ID: {id}</span>
+              {c.childStatus && c.childStatus !== c.status && (
+                <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>
+              )}
+            </div>
+          </div>
+
+          {/* 4. Orçamento */}
+          <div className="text-right pr-2">
+            {c.budgetOwner === 'campaign' && c.budget?.amount != null ? (
+              <BudgetControl
+                entityId={id}
+                amount={Number(c.budget.amount)}
+                type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                adAccountId={c.platformAdAccountId || ''}
+                currency={c.currency || currency}
+                label="Orçamento"
+                onSaved={onMutate}
+                compact
+              />
+            ) : (
+              <span className="text-[11px] text-muted-foreground" title="Orçamento definido no nível dos conjuntos (ABO)">
+                Conjuntos
+              </span>
+            )}
+          </div>
+
+          {/* 5. Gasto */}
+          <div className="text-right font-mono font-semibold text-foreground tabular-nums pr-2">
+            {fmtMoney(spend, currency)}
+          </div>
+
+          {/* 6. Vendas */}
+          <div className="text-right pr-2">
+            {sales > 0 ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-bold text-emerald-400 tabular-nums" title={`${sales} venda(s) real(is) rastreada(s)`}>
+                {sales}
+              </span>
+            ) : conversions > 0 ? (
+              <span className="text-[11px] font-mono text-muted-foreground tabular-nums" title={`${conversions} conversão(ões) reportada(s) pelo TikTok`}>
+                {conversions}
+              </span>
+            ) : (
+              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
+            )}
+          </div>
+
+          {/* 7. Receita */}
+          <div className="text-right font-mono text-xs tabular-nums pr-2">
+            {realRevenue > 0 ? (
+              <span className="font-semibold text-foreground">{fmtMoney(realRevenue, currency)}</span>
+            ) : (
+              <span className="text-muted-foreground/40">—</span>
+            )}
+          </div>
+
+          {/* 8. ROAS */}
+          <div className="text-right pr-2">
+            {roas !== null ? (
+              <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+                roas >= 2.0
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                  : roas >= 1.0
+                    ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25'
+                    : 'bg-secondary text-muted-foreground'
+              }`}>
+                {roas.toFixed(2)}×
+              </span>
+            ) : (
+              <span className="text-muted-foreground/40 font-mono text-xs">—</span>
+            )}
+          </div>
+
+          {/* 9. CPA */}
+          <div className="text-right font-mono text-xs tabular-nums pr-2">
+            {realCpa !== null ? (
+              <span className="font-medium text-foreground">{fmtMoney(realCpa, currency)}</span>
+            ) : metricsCpa ? (
+              <span className="text-muted-foreground">{fmtMoney(metricsCpa, currency)}</span>
+            ) : (
+              <span className="text-muted-foreground/40">—</span>
+            )}
+          </div>
+
+          {/* 10. CTR / Cliques */}
+          <div className="text-right font-mono text-[11px] tabular-nums pr-2">
+            <div className="font-medium text-foreground">{ctr ? `${ctr.toFixed(2)}%` : '0,00%'}</div>
+            <div className="text-[10px] text-muted-foreground">{clicks} cliq.</div>
+          </div>
+
+          {/* 11. Estrutura (Conjuntos e Anúncios) */}
+          <div className="text-center px-1">
+            <button
+              type="button"
+              onClick={() => toggle(id)}
+              className={`inline-flex items-center justify-center gap-1 w-full py-1 px-2 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                isOpen
+                  ? 'bg-primary/20 text-primary border border-primary/30 font-semibold'
+                  : 'bg-secondary/60 text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/40'
+              }`}
+              title={isOpen ? 'Recolher estrutura' : 'Ver conjuntos e anúncios'}
+              aria-expanded={isOpen}
+            >
+              <Layers className="size-3 shrink-0" />
+              <span className="truncate">{adSetCount} grp · {adCount} ad</span>
+              <ChevronRight className={`size-3 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          </div>
+
+          {/* 12. Ações rápidas */}
+          <div className="flex items-center justify-end">
+            <CampaignQuickActionsDropdown
+              campaign={c}
+              currency={currency}
+              busy={busy}
+              disabled={Boolean(busyId) || bulkBusy}
+              isOpen={isOpen}
+              onToggleExpand={() => toggle(id)}
+              onDuplicate={onDuplicate}
+              onOpenDetail={onOpenDetail}
+              onToggleStatus={() =>
+                c.status === 'active'
+                  ? void setCampaignStatus(c, 'paused')
+                  : setActivation({ kind: 'single', campaign: c })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Banner de erro quando houver problema */}
+        {detailedError && (
+          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1225px]">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span>{detailedError}</span>
+          </div>
+        )}
+
+        {/* Accordion Expandido */}
+        {isOpen && renderExpandedContent(c)}
+      </div>
+    )
+  }
+
+  // Linha em formato Card (modo clássico em blocos)
+  function renderCampaignCardRow(c: AdsTreeCampaign, index?: number) {
+    const id = c.platformCampaignId
+    const isOpen = expanded.has(id)
+    const busy = busyId === id
+    const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
+
+    let baseError =
+      c.reviewStatus === 'rejected'
+        ? 'Revisão rejeitada pelo TikTok'
+        : c.status === 'error'
+          ? 'Erro na campanha'
+          : c.status === 'rejected'
+            ? 'Campanha rejeitada'
+            : null
+
+    const rejectionReasons = new Set<string>()
+    if (c.adSets) {
+      for (const s of c.adSets) {
+        if (s.ads) {
+          for (const ad of s.ads) {
+            if (ad.rejectionReason) rejectionReasons.add(ad.rejectionReason)
+          }
+        }
+      }
+    }
+
+    let detailedError = baseError
+    if (rejectionReasons.size > 0) {
+      detailedError = Array.from(rejectionReasons).join(' • ')
+    } else if (isError && !detailedError) {
+      detailedError = 'Problema na conta ou orçamento (Verifique o TikTok Ads)'
+    }
+
+    return (
+      <div className="campaign-row-wrap" key={id}>
         <article
           className="campaign-operation-card stagger-fade"
           style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
@@ -636,218 +1405,211 @@ export function CampaignTree({
           aria-label={c.campaignName || id}
         >
           <div className="campaign-operation-heading">
-            <input type="checkbox" checked={selected.has(id)} onChange={() => toggleSelect(id)} disabled={Boolean(busyId) || bulkBusy} aria-label={`Selecionar campanha ${c.campaignName || id}`} />
+            <input
+              type="checkbox"
+              checked={selected.has(id)}
+              onChange={() => toggleSelect(id)}
+              disabled={Boolean(busyId) || bulkBusy}
+              aria-label={`Selecionar campanha ${c.campaignName || id}`}
+            />
             <div className="campaign-operation-identity">
               <h3 title={c.campaignName || id}>{cleanCampaignName(c.campaignName || id)}</h3>
-              <div className="campaign-operation-meta"><StatusPill status={c.status} />
+              <div className="campaign-operation-meta">
+                <span className="font-mono text-[11px] text-muted-foreground">ID: {id}</span>
+                <span>·</span>
                 <span>{c.campaignKind === 'smart_plus' ? 'Smart+' : 'Campanha padrão'}</span>
-                {c.reviewStatus === 'approved' && <span className="campaign-approved" title="Anúncios aprovados pelo TikTok"><BadgeCheck size={13} aria-hidden="true" />Aprovada</span>}
-                {c.childStatus && c.childStatus !== c.status && <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>}
+                {c.reviewStatus === 'approved' && (
+                  <span className="campaign-approved" title="Anúncios aprovados pelo TikTok">
+                    <BadgeCheck size={13} aria-hidden="true" />
+                    Aprovada
+                  </span>
+                )}
               </div>
             </div>
             <div className="campaign-operation-actions">
-              {(c.status === 'active' || c.status === 'paused') && <button type="button" className="campaign-status-action" data-activate={c.status === 'paused'} disabled={Boolean(busyId) || bulkBusy}
-                onClick={() => c.status === 'active' ? void setCampaignStatus(c, 'paused') : setActivation({ kind: 'single', campaign: c })}
-                aria-label={`${c.status === 'active' ? 'Pausar' : 'Ativar'} campanha ${c.campaignName || id}`}>
-                {busy ? <Loader2 className="size-4 animate-spin" /> : c.status === 'active' ? <Pause size={15} /> : <Play size={15} />}{busy ? 'Enviando…' : c.status === 'active' ? 'Pausar' : 'Ativar'}
-              </button>}
-              {onDuplicate && <button type="button" className="campaign-secondary-action" onClick={() => onDuplicate(c)} aria-label={`Duplicar campanha ${c.campaignName || id}`} title="Duplicar campanha"><Copy size={15} /><span>Duplicar</span></button>}
+              <CampaignActivationToggle
+                status={c.status}
+                busy={busy}
+                disabled={Boolean(busyId) || bulkBusy}
+                onToggle={() =>
+                  c.status === 'active'
+                    ? void setCampaignStatus(c, 'paused')
+                    : setActivation({ kind: 'single', campaign: c })
+                }
+                name={c.campaignName || id}
+              />
+              <CampaignQuickActionsDropdown
+                campaign={c}
+                currency={currency}
+                busy={busy}
+                disabled={Boolean(busyId) || bulkBusy}
+                isOpen={isOpen}
+                onToggleExpand={() => toggle(id)}
+                onDuplicate={onDuplicate}
+                onOpenDetail={onOpenDetail}
+                onToggleStatus={() =>
+                  c.status === 'active'
+                    ? void setCampaignStatus(c, 'paused')
+                    : setActivation({ kind: 'single', campaign: c })
+                }
+              />
             </div>
           </div>
-          {detailedError && <p className="campaign-operation-error"><AlertTriangle size={14} aria-hidden="true" />{detailedError}</p>}
+          {detailedError && (
+            <p className="campaign-operation-error">
+              <AlertTriangle size={14} aria-hidden="true" />
+              {detailedError}
+            </p>
+          )}
           <CampaignMetricGrid campaign={c} currency={currency} attribution={attribution?.[id] || attribution?.[c.platformCampaignId]} />
-          <button type="button" className="campaign-expand-action" onClick={() => toggle(id)} aria-expanded={isOpen} aria-controls={`campaign-details-${id}`}>
-            <Layers size={14} aria-hidden="true" />{c.adSetCount ?? c.adSets?.length ?? 0} {(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? 'conjunto' : 'conjuntos'} · {c.adCount ?? 0} {c.adCount === 1 ? 'anúncio' : 'anúncios'}
-            <span>{isOpen ? 'Recolher' : 'Ver conjuntos e anúncios'}</span><ChevronRight size={15} className={isOpen ? 'rotate-90' : ''} aria-hidden="true" />
+          <button
+            type="button"
+            className="campaign-expand-action"
+            onClick={() => toggle(id)}
+            aria-expanded={isOpen}
+            aria-controls={`campaign-details-${id}`}
+          >
+            <Layers size={14} aria-hidden="true" />
+            {c.adSetCount ?? c.adSets?.length ?? 0} {(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? 'conjunto' : 'conjuntos'} · {c.adCount ?? 0}{' '}
+            {c.adCount === 1 ? 'anúncio' : 'anúncios'}
+            <span>{isOpen ? 'Recolher' : 'Ver conjuntos e anúncios'}</span>
+            <ChevronRight size={15} className={isOpen ? 'rotate-90' : ''} aria-hidden="true" />
           </button>
 
-        {/* Bloco expandido: métricas secundárias + grupos/anúncios */}
-        {isOpen && (
-          <div id={`campaign-details-${id}`} className="anim-content-in border-t border-border/50 bg-secondary/10 px-4 py-4 sm:px-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              {onOpenDetail && (
-                <button
-                  type="button"
-                  className="btn-ghost !px-2 !py-1 text-[11px]"
-                  onClick={() => onOpenDetail(c)}
-                  aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
-                >
-                  <BarChart3 className="size-3.5" aria-hidden="true" />
-                  Métricas e gráficos
-                </button>
-              )}
-              <span className="text-[11px] text-muted-foreground">
-                {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
-                {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
-              </span>
-              {attr && attr.sales > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-success">
-                  {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {fmtMoney(attr.revenueCents / 100, currency)}
-                  {roas !== null && ` · ROAS ${roas.toFixed(2)}`}
-                </span>
-              )}
-            </div>
-            {c.budgetOwner === 'campaign' && c.budget?.amount != null && (
-              <div className="mb-3 max-w-sm">
-                <BudgetControl
-                  entityId={id}
-                  amount={Number(c.budget.amount)}
-                  type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
-                  adAccountId={c.platformAdAccountId || ''}
-                  currency={c.currency || currency}
-                  label="Orçamento da campanha"
-                  onSaved={onMutate}
-                />
-              </div>
-            )}
-            {(c.adSets ?? []).length === 0 ? (
-              <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
-            ) : (
-              (c.adSets ?? []).map((s, si) => (
-                <div key={s.platformAdSetId ?? si} className="py-3">
-                  <div className="flex flex-wrap items-center gap-2 border-b border-border/30 pb-2">
-                    <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="text-sm font-semibold text-foreground tracking-tight">
-                      {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
-                    </span>
-                    <StatusPill status={s.status} />
-                    {c.budgetOwner !== 'campaign' && s.platformAdSetId && s.budget?.amount != null && (
-                      <BudgetControl
-                        entityId={s.platformAdSetId}
-                        amount={Number(s.budget.amount)}
-                        type={s.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
-                        adAccountId={c.platformAdAccountId || ''}
-                        currency={c.currency || currency}
-                        label="Orçamento do conjunto"
-                        onSaved={onMutate}
-                      />
-                    )}
-                  </div>
-                  <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-fade">
-                    {(s.ads ?? []).map((ad, ai) => {
-                      const adKey = ad.platformAdId || ad._id || String(ai)
-                      return (
-                        <li
-                          key={adKey}
-                          onMouseEnter={() => setHoveredVideo(String(adKey))}
-                          onMouseLeave={() => setHoveredVideo(null)}
-                          className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background stagger-fade"
-                          style={{ '--i': Math.min(ai, 15), '--stagger-index': Math.min(ai, 15) } as React.CSSProperties}
-                        >
-                          {(ad.creative?.imageUrl || /^https:\/\//i.test(ad.creative?.videoUrl || '')) && (
-                            <div className="relative aspect-video overflow-hidden rounded-lg border border-border/50 bg-black">
-                              {hoveredVideo === String(adKey) && /^https:\/\//i.test(ad.creative?.videoUrl || '') ? (
-                                <video
-                                  src={ad.creative?.videoUrl}
-                                  poster={ad.creative?.imageUrl}
-                                  autoPlay muted loop playsInline preload="metadata"
-                                  className="h-full w-full object-cover"
-                                  aria-label={`Prévia do anúncio ${ad.name || adKey}`}
-                                />
-                              ) : ad.creative?.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={ad.creative.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">Passe o mouse para reproduzir</div>
-                              )}
-                              <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/80">sem som</span>
-                            </div>
-                          )}
-                          <div className="flex items-start gap-2">
-                            <Clapperboard className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
-                            <div className="flex flex-col min-w-0">
-                              <span className="truncate text-[13px] font-semibold text-foreground" title={ad.name || adKey}>{ad.name || adKey}</span>
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                                <StatusPill status={ad.status} />
-                                {ad.adType === 'boost' && (
-                                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                    Spark
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {ad.rejectionReason && (
-                            <div className="rounded-md bg-error/10 p-1.5">
-                              <span className="line-clamp-2 text-[10px] text-error" title={ad.rejectionReason}>
-                                {ad.rejectionReason}
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-2">
-                            <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                              {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
-                            </span>
-                            
-                            {isProductLinkAd(ad) ? (
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary" title="O destino vem do campo Link dos produtos deste catálogo">
-                                Link Catálogo
-                              </span>
-                            ) : null}
-                          </div>
-
-                          {/* Hover Actions Bar */}
-                          <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/50 bg-background/80 p-0.5 opacity-100 backdrop-blur-sm transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 shadow-sm">
-                            {ad.creative?.linkUrl && !isProductLinkAd(ad) && (
-                            <a
-                              href={ad.creative.linkUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                              aria-label="Abrir página de destino do anúncio"
-                              title="Página de destino"
-                            >
-                              <ExternalLink className="size-3.5" aria-hidden="true" />
-                            </a>
-                          )}
-                          <button
-                            type="button"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                            onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
-                            aria-label={`Editar anúncio ${ad.name || adKey}`}
-                            title={isProductLinkAd(ad) ? 'Editar texto e botão' : 'Editar texto, botão e link'}
-                          >
-                            <Pencil className="size-3.5" aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-error/15 hover:text-error"
-                            onClick={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}
-                            aria-label={`Excluir anúncio ${ad.name || adKey}`}
-                            title="Excluir anúncio"
-                          >
-                            <Trash2 className="size-3.5" aria-hidden="true" />
-                          </button>
-                          </div>
-                        </li>
-                      )
-                    })}
-                    {(s.ads ?? []).length === 0 && (
-                      <li className="col-span-full rounded-xl border border-dashed border-border/60 p-4 text-center text-[11px] text-muted-foreground">
-                        Sem anúncios neste grupo.
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+          {isOpen && renderExpandedContent(c)}
         </article>
       </div>
     )
   }
 
+  function TableHeader() {
+    return (
+      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_110px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1225px] shadow-xs">
+        {/* 1. Checkbox Select All */}
+        <div className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleSelectAll}
+            aria-label="Selecionar todas as campanhas visíveis"
+            className="size-3.5 rounded accent-primary cursor-pointer"
+          />
+        </div>
+
+        {/* 2. Status */}
+        <div>Status</div>
+
+        {/* 3. Campanha */}
+        <div
+          className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors pr-3"
+          onClick={() => onSort(sort === 'newest' ? 'oldest' : 'newest')}
+          title="Clique para alternar ordenação por data"
+        >
+          <span>Campanha</span>
+          <ArrowUpDown className="size-3" />
+        </div>
+
+        {/* 4. Orçamento */}
+        <div className="text-right pr-2">Orçamento</div>
+
+        {/* 5. Gasto */}
+        <div
+          className="flex items-center justify-end gap-1 cursor-pointer hover:text-foreground transition-colors pr-2"
+          onClick={() => onSort(sort === 'spend_desc' ? 'spend_asc' : 'spend_desc')}
+          title="Clique para ordenar por gasto (maior / menor)"
+        >
+          <span>Gasto</span>
+          {sort === 'spend_desc' ? (
+            <ArrowDown className="size-3 text-primary" />
+          ) : sort === 'spend_asc' ? (
+            <ArrowUp className="size-3 text-primary" />
+          ) : (
+            <ArrowUpDown className="size-3" />
+          )}
+        </div>
+
+        {/* 6. Vendas */}
+        <div className="text-right pr-2">Vendas</div>
+
+        {/* 7. Receita */}
+        <div className="text-right pr-2">Receita</div>
+
+        {/* 8. ROAS */}
+        <div className="text-right pr-2">ROAS</div>
+
+        {/* 9. CPA */}
+        <div className="text-right pr-2">CPA</div>
+
+        {/* 10. CTR / Cliq. */}
+        <div className="text-right pr-2">CTR / Cliq.</div>
+
+        {/* 11. Estrutura */}
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={toggleAllExpanded}
+            className="text-[10px] lowercase text-muted-foreground hover:text-foreground hover:underline transition-colors cursor-pointer"
+            title={allExpanded ? 'Recolher todas as campanhas' : 'Expandir todas as campanhas'}
+          >
+            {allExpanded ? 'recolher tudo' : 'expandir tudo'}
+          </button>
+        </div>
+
+        {/* 12. Ações */}
+        <div className="text-right">Ações</div>
+      </div>
+    )
+  }
+
   function renderFlatRow(row: FlatRow, index?: number) {
-    return row.kind === 'group' ? renderGroupHeader(row, index) : renderCampaignRow(row.c, index)
+    if (row.kind === 'group') return renderGroupHeader(row, index)
+    return viewMode === 'table' ? renderCampaignTableRow(row.c, index) : renderCampaignCardRow(row.c, index)
   }
 
   return (
     <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
       <div className="campaign-toolbar">
-        <div className="campaign-toolbar-title"><div><h2>Suas campanhas</h2><p>Métricas do TikTok no período selecionado</p></div><span>{visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}</span></div>
+        <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2>Suas campanhas</h2>
+            <p>Métricas do TikTok no período selecionado</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
+              <button
+                type="button"
+                onClick={() => handleViewModeChange('table')}
+                aria-pressed={viewMode === 'table'}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-background text-foreground shadow-xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Modo Tabela: visualização compacta de alta densidade (ideal para 100+ campanhas)"
+              >
+                <LayoutList className="size-3.5" />
+                <span>Tabela</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleViewModeChange('cards')}
+                aria-pressed={viewMode === 'cards'}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                  viewMode === 'cards'
+                    ? 'bg-background text-foreground shadow-xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Modo Cards: visualização em blocos"
+              >
+                <LayoutGrid className="size-3.5" />
+                <span>Cards</span>
+              </button>
+            </div>
+            <span className="rounded-full bg-secondary/80 border border-border/50 px-2.5 py-1 text-xs font-medium text-foreground tabular-nums">
+              {visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}
+            </span>
+          </div>
+        </div>
         <div className="campaign-status-filters" role="group" aria-label="Filtrar por status">
           {STATUS_FILTERS.map(filter => {
             const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
@@ -1151,9 +1913,21 @@ export function CampaignTree({
           </div>
         )
       ) : (
-        <div ref={scrollRef} className={virtualize ? 'h-[70vh] overflow-auto' : 'max-h-[70vh] overflow-auto'}>
+        <div
+          ref={scrollRef}
+          className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} overflow-auto ${
+            viewMode === 'table' ? 'campaign-table-container' : ''
+          }`}
+        >
+          {viewMode === 'table' && <TableHeader />}
           {virtualize ? (
-            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+            <div
+              style={{
+                height: rowVirtualizer.getTotalSize(),
+                position: 'relative',
+                minWidth: viewMode === 'table' ? '1225px' : undefined,
+              }}
+            >
               {rowVirtualizer.getVirtualItems().map((vi) => {
                 const row = flatRows[vi.index]
                 return (
@@ -1161,7 +1935,13 @@ export function CampaignTree({
                     key={vi.key}
                     data-index={vi.index}
                     ref={rowVirtualizer.measureElement}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${vi.start}px)`,
+                    }}
                   >
                     {renderFlatRow(row, vi.index)}
                   </div>
@@ -1169,7 +1949,10 @@ export function CampaignTree({
               })}
             </div>
           ) : (
-            <div className="stagger-fade">
+            <div
+              className="stagger-fade"
+              style={{ minWidth: viewMode === 'table' ? '1225px' : undefined }}
+            >
               {flatRows.map((row, index) => (
                 <div
                   key={row.key}

@@ -15,7 +15,7 @@ export function TopNav() {
     <header className="header-hairline sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
       <div className="flex h-16 items-center justify-between gap-3 px-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
         {/* Logo */}
-        <Link href="/" className="group flex items-center" aria-label="ROI-NADOS">
+        <Link href="/" className="group flex items-center gap-2.5" aria-label="ROI-NADOS">
           <span className="brand-logo" aria-hidden="true">
             <span className="brand-logo__ring" />
             <Image
@@ -23,9 +23,13 @@ export function TopNav() {
               alt="ROI-NADOS"
               width={40}
               height={40}
+              unoptimized
               className="brand-logo__img"
               priority
             />
+          </span>
+          <span className="text-sm font-extrabold tracking-wider bg-gradient-to-r from-brand-cyan via-white to-brand-pink bg-clip-text text-transparent">
+            ROI-NADOS
           </span>
         </Link>
 
