@@ -4,6 +4,7 @@
 // prontidão e criação de campanha ficam em componentes próprios; esta tela
 // concentra produtos, importação e histórico.
 
+import { catalogDisplayPrice } from '@/lib/catalog-display'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -539,30 +540,7 @@ export function CatalogDetail({
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-bold text-foreground truncate">{catalog?.name || 'Catálogo'}</h2>
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    catalog?.linkStatus === 'verified' && (catalog.audit?.approved ?? 0) > 0
-                      ? 'bg-success/15 text-success border border-success/30'
-                      : catalog?.linkStatus === 'verified' && (catalog.audit?.pending ?? 0) > 0
-                      ? 'bg-warning/15 text-warning border border-warning/30'
-                      : hasUnpublishedChanges
-                      ? 'bg-warning/15 text-warning border border-warning/30'
-                      : 'bg-secondary text-muted-foreground border border-border'
-                  }`}>
-                    <span className={`size-1.5 rounded-full ${
-                      catalog?.linkStatus === 'verified' && (catalog.audit?.approved ?? 0) > 0
-                        ? 'bg-success'
-                        : catalog?.linkStatus === 'verified' && (catalog.audit?.pending ?? 0) > 0
-                        ? 'bg-warning animate-pulse'
-                        : 'bg-muted-foreground'
-                    }`} />
-                    {catalog?.linkStatus === 'verified' && (catalog.audit?.approved ?? 0) > 0
-                      ? 'Saudável'
-                      : catalog?.linkStatus === 'verified' && (catalog.audit?.pending ?? 0) > 0
-                      ? 'Sincronizando'
-                      : hasUnpublishedChanges
-                      ? 'Aguardando sincronização'
-                      : 'Vinculado'}
-                  </span>
+                  {catalog && <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${hasUnpublishedChanges ? 'bg-warning/15 text-warning' : catalogStatusMeta(catalog).className}`}>{hasUnpublishedChanges ? 'Alterações por enviar' : catalogStatusMeta(catalog).label}</span>}
                 </div>
                 <p className="text-xs text-muted">
                   Moeda: <strong className="text-foreground">{catalog?.currency || 'BRL'}</strong>
@@ -584,18 +562,18 @@ export function CatalogDetail({
                   title="Sincroniza os produtos com o TikTok"
                 >
                   {syncing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4 text-primary" aria-hidden="true" />}
-                  Sincronizar Feed
+                  Sincronizar produtos
                 </button>
 
                 <button
                   type="button"
                   className="btn-primary gap-2 text-xs font-semibold px-4 py-2"
                   onClick={() => setQuickCampaignsOpen(true)}
-                  disabled={!catalog || validCount === 0}
+                  disabled={!catalog || !readinessData?.readiness?.readyForCampaign || catalogCapabilities?.catalogSingleVideoCampaign !== true}
                   title="Cria campanhas de conversão em lote para este catálogo"
                 >
                   <Rocket className="size-4" aria-hidden="true" />
-                  Criar Campanhas em Massa
+                  Criar campanhas
                 </button>
               </div>
             </div>
@@ -618,19 +596,19 @@ export function CatalogDetail({
 
             {/* Métricas de Saúde Objetivas */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {/* Produtos ativos */}
-              <div className="flex items-center gap-3 rounded-xl border border-success/20 bg-success/5 p-3.5">
+              {/* Produtos válidos */}
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
                   <Check className="size-5" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-foreground">{validCount}</div>
-                  <div className="text-xs font-medium text-success">Produtos ativos</div>
+                  <div className="text-xs font-medium text-muted-foreground">Produtos válidos</div>
                 </div>
               </div>
 
               {/* Sincronizados */}
-              <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3.5">
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
                   <UploadCloud className="size-5" aria-hidden="true" />
                 </div>
@@ -638,21 +616,21 @@ export function CatalogDetail({
                   <div className="text-lg font-bold text-foreground">
                     {remoteProductCount > 0 ? remoteProductCount : catalog?.audit?.approved ?? 0}
                   </div>
-                  <div className="text-xs font-medium text-primary">Sincronizados no TikTok</div>
+                  <div className="text-xs font-medium text-primary">Produtos no TikTok</div>
                 </div>
               </div>
 
               {/* Pendentes / Erros */}
-              <div className="flex items-center gap-3 rounded-xl border border-warning/20 bg-warning/5 p-3.5">
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
                   <AlertCircle className="size-5" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-foreground">
-                    {localOnlyCount + (products.length - validCount)}
+                    {(catalog?.audit?.pending ?? 0) + (catalog?.audit?.rejected ?? 0)}
                   </div>
                   <div className="text-xs font-medium text-warning">
-                    Pendentes / Com Erros
+                    Pendentes ou reprovados
                   </div>
                 </div>
               </div>
@@ -803,7 +781,7 @@ export function CatalogDetail({
                             </div>
                           </td>
                           <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
-                            {price ? `${catalog?.currency || 'BRL'} ${price}` : <span className="text-muted-foreground">—</span>}
+                            {catalogDisplayPrice(price, catalog?.currency || 'BRL')}
                           </td>
                           <td className="px-3 py-2.5 text-muted-foreground hidden md:table-cell whitespace-nowrap">
                             {p.data.availability === 'in stock' ? 'Em estoque' : p.data.availability || 'Em estoque'}
@@ -836,7 +814,8 @@ export function CatalogDetail({
               catalog={catalog}
               advertiserId={advertiserId}
               advertiserCurrency={advertiserCurrency}
-              ready={Boolean(readinessData?.readiness.readyForCampaign)}
+              hideLaunchButton
+              ready={Boolean(readinessData?.readiness?.readyForCampaign)}
               capabilities={catalogCapabilities}
             />
           )}
@@ -854,7 +833,7 @@ export function CatalogDetail({
               <CatalogReadinessCard
                 readiness={readinessData?.readiness}
                 loading={readinessLoading}
-                onAction={readinessData?.readiness.nextAction === 'create_campaign'
+                onAction={readinessData?.readiness?.nextAction === 'create_campaign'
                   ? undefined
                   : handleReadinessAction}
               />

@@ -281,7 +281,7 @@ export function DuplicatePanel({
                   className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                   value={varBudget}
                   onChange={(e) => setVarBudget(e.target.value)}
-                  placeholder="Herda da origem"
+                  placeholder="Mantém o original"
                 />
               </label>
               <label className="flex flex-col gap-1.5">
@@ -291,7 +291,7 @@ export function DuplicatePanel({
                   value={varText}
                   maxLength={100}
                   onChange={(e) => setVarText(e.target.value)}
-                  placeholder="Herda da origem"
+                  placeholder="Mantém o original"
                 />
               </label>
             </div>
@@ -300,7 +300,7 @@ export function DuplicatePanel({
           {!crossAccount && (
             <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
               {mode === 'variations'
-                ? 'Cada variação recria a campanha completa a partir do template, com os overrides acima aplicados. O mínimo de orçamento é 50. Tudo chega pausado — revise e ative.'
+                ? 'Cada cópia usa os ajustes acima e mantém a estrutura da campanha. Orçamento mínimo: 50 na moeda da conta. As cópias ficam pausadas para revisão.'
                 : 'Cópia completa (campanha → grupos → anúncios) na mesma conta. Orçamentos antigos abaixo do mínimo atual são ajustados para 50. As cópias chegam pausadas — revise e ative.'}
             </p>
           )}

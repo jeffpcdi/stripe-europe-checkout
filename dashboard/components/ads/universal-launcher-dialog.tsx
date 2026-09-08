@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   X,
@@ -277,7 +279,8 @@ export function UniversalLauncherDialog({
       if (idempotencyRef.current?.signature !== signature) idempotencyRef.current = { signature, key: `quick:${advertiserId}:${crypto.randomUUID()}` }
       const request = { ...payload, idempotencyKey: idempotencyRef.current.key }
       await apiSend('/api/ads/create/preflight', 'POST', request)
-      await apiSend('/api/ads/create', 'POST', request)
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/create', 'POST', request)
+      if (result.dryRun) { toast.info('Simulação concluída. Nenhuma campanha foi criada.'); return }
 
       toast.success('Campanha criada e pausada', {
         hint: 'Revise a campanha antes de ativar.',
@@ -311,8 +314,8 @@ export function UniversalLauncherDialog({
   if (!open) return null
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-3 sm:p-5 backdrop-blur-md"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-3 sm:p-5 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting && !jobId) onClose()
       }}
@@ -680,6 +683,6 @@ export function UniversalLauncherDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

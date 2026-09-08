@@ -4,6 +4,7 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio e Spark Ads) vivem em componentes próprios.
 
+import { AudiencesDialog } from './audiences-dialog'
 import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag } from 'lucide-react'
@@ -131,11 +132,13 @@ export function TikTokAdsView() {
   function changeTab(value: TabKey) {
     setTab(value)
     const url = new URL(window.location.href)
+    url.searchParams.delete('view')
     if (value === 'campaigns') url.searchParams.delete('tab')
     else url.searchParams.set('tab', value)
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
   }
 
+  const [audiencesOpen, setAudiencesOpen] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [smartPlusOpen, setSmartPlusOpen] = useState(false)
@@ -171,6 +174,7 @@ export function TikTokAdsView() {
   const selectedSyncState = syncStatus?.advertisers?.find((state) => state.advertiserId === concreteAdvertiser)
 
   useEffect(() => {
+    setAudiencesOpen(false)
     setLauncherOpen(false)
     setSmartPlusOpen(false)
     setSparkOpen(false)
@@ -282,7 +286,7 @@ export function TikTokAdsView() {
   const advertisers = accounts?.accounts ?? []
 
   return (
-    <div className="min-w-0 flex flex-col gap-4">
+    <div className="tiktok-view min-w-0 flex flex-col gap-4">
       {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
           acima do contexto da conta. */}
       {hasAccountAlert && (
@@ -293,10 +297,10 @@ export function TikTokAdsView() {
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
               onClick={() => openOps('safety')}
-              title="Tudo pausado: nenhuma ação automática ou manual é publicada. Clique para gerenciar."
+              title="Novas ações estão bloqueadas. Campanhas já ativas continuam veiculando."
             >
               <OctagonAlert className="size-3" aria-hidden="true" />
-              Tudo pausado
+              Ações bloqueadas
             </button>
           ) : dryRunActive ? (
             <button
@@ -402,6 +406,7 @@ export function TikTokAdsView() {
             </div>
 
             {tab === 'campaigns' && (
+              <div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary" onClick={() => setAudiencesOpen(true)}>Públicos</button>
               <button
                 type="button"
                 className="btn-primary shrink-0 justify-center px-4 py-2 text-sm font-semibold"
@@ -411,7 +416,7 @@ export function TikTokAdsView() {
               >
                 <Plus className="size-4" aria-hidden="true" />
                 Criar campanha
-              </button>
+              </button></div>
             )}
           </div>
 
@@ -510,7 +515,7 @@ export function TikTokAdsView() {
               Antes era página própria no menu; agora vive onde é usado. ── */}
           {tab === 'catalog' && (
             <Tabs.Content value="catalog" className="min-w-0 outline-none" aria-label="Catálogos">
-              <CatalogManager
+              <CatalogManager key={`CatalogManager:${concreteAdvertiser}`}
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
                 advertiserCurrency={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.currency || currency}
@@ -521,8 +526,8 @@ export function TikTokAdsView() {
           {/* Aprovações, estado e regras; ferramentas extras sob demanda. */}
           {tab === 'automation' && (
             <Tabs.Content value="automation" className="flex flex-col gap-4 outline-none">
-              <NeedsYouInbox active={treeActive} adAccountId={concreteAdvertiser} onOpenOps={() => openOps()} onOpenHealth={() => setHealthOpen(true)} onGoAutomations={() => openOps('safety')} />
-              <AutomationPanel
+              <NeedsYouInbox key={`NeedsYouInbox:${concreteAdvertiser}`} active={treeActive} adAccountId={concreteAdvertiser} onOpenOps={() => openOps()} onOpenHealth={() => setHealthOpen(true)} onGoAutomations={() => openOps('safety')} />
+              <AutomationPanel key={`AutomationPanel:${concreteAdvertiser}`}
                 active={treeActive}
                 currency={currency}
                 adAccountId={concreteAdvertiser}
@@ -530,15 +535,16 @@ export function TikTokAdsView() {
               />
               <details className="rounded-xl border border-border p-4" onToggle={event => setToolsExpanded(event.currentTarget.open)}>
                 <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
-                {toolsExpanded && <div className="mt-4"><MagicOpsPanel active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} /></div>}
+                {toolsExpanded && <div className="mt-4"><MagicOpsPanel key={`MagicOpsPanel:${concreteAdvertiser}`} active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} /></div>}
               </details>
             </Tabs.Content>
           )}
         </Tabs.Root>
       )}
 
+      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} />
       {/* Fluxos de escrita */}
-      <UniversalLauncherDialog
+      <UniversalLauncherDialog key={`UniversalLauncherDialog:${concreteAdvertiser}`}
         open={launcherOpen}
         onClose={() => setLauncherOpen(false)}
         advertiserId={concreteAdvertiser}
@@ -547,7 +553,7 @@ export function TikTokAdsView() {
         onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}
         onSpark={() => { setLauncherOpen(false); setSparkOpen(true) }}
       />
-      <SparkAdDialog key={concreteAdvertiser}
+      <SparkAdDialog key={`SparkAdDialog:${concreteAdvertiser}`}
         open={sparkOpen}
         onClose={() => setSparkOpen(false)}
         advertiserId={concreteAdvertiser}
@@ -557,7 +563,7 @@ export function TikTokAdsView() {
           mutateTree()
         }}
       />
-      <SmartPlusCreateDialog key={concreteAdvertiser}
+      <SmartPlusCreateDialog key={`SmartPlusCreateDialog:${concreteAdvertiser}`}
         open={smartPlusOpen}
         onClose={() => setSmartPlusOpen(false)}
         advertiserId={concreteAdvertiser}
@@ -567,7 +573,7 @@ export function TikTokAdsView() {
           mutateTree()
         }}
       />
-      <OpsDialog
+      <OpsDialog key={`OpsDialog:${concreteAdvertiser}`}
         open={opsOpen}
         onClose={() => setOpsOpen(false)}
         advertiserId={concreteAdvertiser}
@@ -584,11 +590,14 @@ export function TikTokAdsView() {
         onFinished={() => mutateTree()}
       />
       <CampaignDrawer
+        key={`${concreteAdvertiser}:${detailCampaign?.platformCampaignId}:${fromDate}:${toDate}`}
+        fromDate={fromDate}
+        toDate={toDate}
+        timeZone={advertiserTimeZone}
         campaign={detailCampaign}
         advertiserId={detailCampaign?.platformAdAccountId || concreteAdvertiser}
         currency={currency}
         onClose={() => setDetailCampaign(null)}
-        attribution={detailCampaign ? attribution?.byCampaign?.[detailCampaign.platformCampaignId] : undefined}
       />
       <ConfirmDialog
         open={confirmDisconnect}

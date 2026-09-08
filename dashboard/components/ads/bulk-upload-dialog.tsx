@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Criação em massa com vídeos TikTok — até 20 vídeos de uma vez.
 // Fluxo: solta N vídeos → cada um vira um item (upload → URL) → configurações
 // comuns de conversão → POST /api/ads/bulk enfileira tudo
@@ -215,8 +217,8 @@ export function BulkUploadDialog({
   const progressPct = job && job.total > 0 ? Math.round(((job.done + job.failed) / job.total) * 100) : 0
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
@@ -488,6 +490,6 @@ export function BulkUploadDialog({
           )}
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

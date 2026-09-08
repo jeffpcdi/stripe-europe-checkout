@@ -1,5 +1,8 @@
 'use client'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 import { useRef, useState } from 'react'
 import {
   Users,
@@ -27,10 +30,12 @@ interface AudiencesDialogProps {
 
 export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const { data, isLoading, mutate } = useAdsCustomAudiences(open, advertiserId)
+  const { data, isLoading, mutate, error } = useAdsCustomAudiences(open, advertiserId)
   const audiences = data?.audiences || []
+  const availableSources = audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE'))
 
   const [creatingPreset, setCreatingPreset] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [showLookalikeForm, setShowLookalikeForm] = useState(false)
   const [sourceAudienceId, setSourceAudienceId] = useState('')
@@ -38,7 +43,8 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   const [lookalikeType, setLookalikeType] = useState<'BALANCE' | 'SIMILARITY' | 'REACH'>('BALANCE')
   const [creatingLookalike, setCreatingLookalike] = useState(false)
 
-  useModalA11y(open, ref, onClose)
+  const busy = creatingPreset !== null || deletingId !== null || creatingLookalike
+  useModalA11y(open, ref, busy ? () => {} : onClose)
 
   if (!open) return null
 
@@ -58,18 +64,19 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
         event = 'InitiateCheckout'
         retentionDays = 7
       } else if (type === 'viewers') {
-        name = 'Visitantes da LP (14 dias)'
+        name = 'Visitantes da página (14 dias)'
         event = 'ViewContent'
         retentionDays = 14
       }
 
-      await apiSend('/api/ads/audiences', 'POST', {
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'POST', {
         adAccountId: advertiserId,
         name,
         event,
         retentionDays,
       })
 
+      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
       toast.success(`Público "${name}" criado com sucesso!`, {
         hint: 'O TikTok está sincronizando e processando os dados.',
       })
@@ -92,13 +99,14 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
     setCreatingLookalike(true)
     try {
-      await apiSend('/api/ads/audiences/lookalike', 'POST', {
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences/lookalike', 'POST', {
         adAccountId: advertiserId,
         name: lookalikeName.trim(),
         sourceAudienceId,
         lookalikeType,
       })
 
+      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
       toast.success(`Público Semelhante "${lookalikeName}" criado com sucesso!`)
       setShowLookalikeForm(false)
       setLookalikeName('')
@@ -114,14 +122,16 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Deseja excluir este público do TikTok Ads?')) return
+    if (busy) return
     setDeletingId(id)
     try {
-      await apiSend('/api/ads/audiences', 'DELETE', {
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'DELETE', {
         adAccountId: advertiserId,
         audienceId: id,
       })
-      toast.success('Público removido com sucesso')
+      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
+      setConfirmDelete(null)
+      toast.success('Público removido')
       await mutate()
     } catch (err) {
       toast.error('Erro ao remover público', {
@@ -133,14 +143,12 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="audiences-dialog-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
     >
       <div
         ref={ref}
+        role="dialog" aria-modal="true" aria-labelledby="audiences-dialog-title"
         tabIndex={-1}
         className="relative flex flex-col w-full max-w-2xl max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
       >
@@ -152,16 +160,16 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
             </div>
             <div>
               <h2 id="audiences-dialog-title" className="text-base font-semibold tracking-tight text-foreground">
-                Públicos Personalizados & Remarketing
+                Públicos
               </h2>
               <p className="text-xs text-muted-foreground">
-                Crie públicos de remarketing e semelhantes (Lookalike) direto no TikTok Ads
+                Alcance quem já visitou e encontre pessoas semelhantes.
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={onClose} disabled={busy}
             className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
             aria-label="Fechar"
           >
@@ -175,12 +183,12 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
           <div className="space-y-2.5">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Sparkles className="size-3.5 text-primary" />
-              Criar Público com 1 Clique (Recomendados)
+              Criar a partir de uma ação
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
-                disabled={creatingPreset !== null}
+                disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('purchasers')}
                 className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
@@ -193,18 +201,18 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                   )}
                 </div>
                 <span className="text-[11px] text-muted-foreground leading-tight">
-                  Últimos 30 dias. Ideal para excluir em campanhas de escala.
+                  Pessoas que compraram nos últimos 30 dias.
                 </span>
               </button>
 
               <button
                 type="button"
-                disabled={creatingPreset !== null}
+                disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('checkout')}
                 className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Abandono Checkout</span>
+                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Abriu o checkout</span>
                   {creatingPreset === 'checkout' ? (
                     <Loader2 className="size-3.5 animate-spin text-primary" />
                   ) : (
@@ -212,18 +220,18 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                   )}
                 </div>
                 <span className="text-[11px] text-muted-foreground leading-tight">
-                  Últimos 7 dias. O público mais quente para remarketing.
+                  Pessoas que abriram o checkout nos últimos 7 dias.
                 </span>
               </button>
 
               <button
                 type="button"
-                disabled={creatingPreset !== null}
+                disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('viewers')}
                 className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Visitantes LP</span>
+                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Visitou a página</span>
                   {creatingPreset === 'viewers' ? (
                     <Loader2 className="size-3.5 animate-spin text-primary" />
                   ) : (
@@ -256,15 +264,15 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">Público Semente</label>
-                  <select
+                  <label className="text-[11px] font-medium text-muted-foreground">Público de origem</label>
+                  <select aria-label="Público de origem"
                     className="w-full text-xs rounded-lg border border-border bg-background px-3 py-2 text-foreground"
                     value={sourceAudienceId}
                     onChange={(e) => setSourceAudienceId(e.target.value)}
                     required
                   >
                     <option value="">Selecione o público de origem...</option>
-                    {audiences.map((aud) => (
+                    {availableSources.map((aud) => (
                       <option key={aud.id} value={aud.id}>
                         {aud.name} ({aud.size.toLocaleString('pt-BR')} pessoas)
                       </option>
@@ -273,10 +281,11 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">Nome do Lookalike</label>
+                  <label className="text-[11px] font-medium text-muted-foreground">Nome do público</label>
                   <input
                     type="text"
-                    placeholder="Ex: LAL Compradores BR 1%"
+                    aria-label="Nome do público"
+                    placeholder="Ex.: Pessoas parecidas com compradores"
                     value={lookalikeName}
                     onChange={(e) => setLookalikeName(e.target.value)}
                     className="w-full text-xs rounded-lg border border-border bg-background px-3 py-2 text-foreground"
@@ -290,36 +299,36 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setLookalikeType('SIMILARITY')}
+                    aria-pressed={lookalikeType === 'SIMILARITY'} onClick={() => setLookalikeType('SIMILARITY')}
                     className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
                       lookalikeType === 'SIMILARITY'
                         ? 'border-primary bg-primary/10 text-primary font-medium'
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Similaridade (Estrito)
+                    Mais parecido
                   </button>
                   <button
                     type="button"
-                    onClick={() => setLookalikeType('BALANCE')}
+                    aria-pressed={lookalikeType === 'BALANCE'} onClick={() => setLookalikeType('BALANCE')}
                     className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
                       lookalikeType === 'BALANCE'
                         ? 'border-primary bg-primary/10 text-primary font-medium'
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Equilibrado (Recomendado)
+                    Equilibrado
                   </button>
                   <button
                     type="button"
-                    onClick={() => setLookalikeType('REACH')}
+                    aria-pressed={lookalikeType === 'REACH'} onClick={() => setLookalikeType('REACH')}
                     className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
                       lookalikeType === 'REACH'
                         ? 'border-primary bg-primary/10 text-primary font-medium'
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Alcance (Mais amplo)
+                    Mais amplo
                   </button>
                 </div>
               </div>
@@ -327,7 +336,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
               <div className="flex justify-end pt-1">
                 <button
                   type="submit"
-                  disabled={creatingLookalike}
+                  disabled={busy || !!error}
                   className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5"
                 >
                   {creatingLookalike && <Loader2 className="size-3.5 animate-spin" />}
@@ -336,7 +345,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
               </div>
             </form>
           ) : (
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap gap-3 justify-between items-center">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Públicos no TikTok Ads ({audiences.length})
               </span>
@@ -344,7 +353,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                 <button
                   type="button"
                   onClick={() => setShowLookalikeForm(true)}
-                  disabled={audiences.length === 0}
+                  disabled={availableSources.length === 0 || !!error}
                   className="btn-ghost text-xs text-primary flex items-center gap-1 py-1 px-2.5"
                 >
                   <Sparkles className="size-3.5" />
@@ -369,7 +378,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                 <Loader2 className="size-5 animate-spin text-primary" />
                 <span className="text-xs">Consultando públicos no TikTok Ads...</span>
               </div>
-            ) : audiences.length === 0 ? (
+            ) : error ? (<p role="alert" className="text-sm text-warning">Não foi possível carregar os públicos. Use Atualizar lista para tentar novamente.</p>) : audiences.length === 0 ? (
               <div className="py-8 text-center border border-dashed border-border rounded-xl p-6 space-y-1">
                 <Users className="size-8 text-muted-foreground/50 mx-auto mb-2" />
                 <p className="text-xs font-medium text-foreground">Nenhum público personalizado encontrado</p>
@@ -398,7 +407,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                           <span>
                             {aud.size > 0
                               ? `${aud.size.toLocaleString('pt-BR')} pessoas estimadas`
-                              : 'Sincronizando tamanho...'}
+                              : 'Tamanho não informado'}
                           </span>
                         </div>
                       </div>
@@ -417,8 +426,8 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                       </span>
                       <button
                         type="button"
-                        disabled={deletingId === aud.id}
-                        onClick={() => handleDelete(aud.id)}
+                        disabled={busy}
+                        onClick={() => setConfirmDelete(aud.id)}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-error hover:bg-error/10 transition-colors"
                         aria-label="Excluir público"
                       >
@@ -437,16 +446,16 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-border bg-muted/20 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap gap-3 items-center justify-between px-6 py-3.5 border-t border-border bg-muted/20 text-[11px] text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="size-3.5 text-success" />
-            <span>Públicos atualizados automaticamente pelo TikTok a cada 24h</span>
+            <span>O TikTok confirma o tamanho e a disponibilidade de cada público.</span>
           </div>
-          <button type="button" onClick={onClose} className="btn-secondary text-xs px-3 py-1.5">
+          <button type="button" onClick={onClose} disabled={busy} className="btn-secondary text-xs px-3 py-1.5">
             Fechar
           </button>
         </div>
       </div>
-    </div>
+    </div><ConfirmDialog open={!!confirmDelete} title="Excluir público?" description="O público será removido do TikTok Ads. Confira se ele ainda é usado em alguma campanha." confirmLabel="Excluir público" busy={!!deletingId} onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete) }} onClose={() => setConfirmDelete(null)} /></DialogPortal>
   )
 }

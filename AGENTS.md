@@ -1007,6 +1007,16 @@ mostra revisão/ID no fluxo normal, atualiza a cada 60s e nunca transforma falha
 ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
 
 ### 19.3.1 Revisão de interface e integridade visual (2026-09-07)
+- Auditoria TikTok Ads de 08/09: `ui/dialog-portal.tsx` mantém popups fora dos cards;
+  cada popup irmão usa chave com tipo + advertiser (nunca somente o advertiser, que duplica
+  chaves). O editor de anúncios usa chave por anúncio. Rascunhos de novas regras ficam fora
+  do cache SWR até salvar. Os indicadores TikTok usam as classes `overview-metric`.
+  `CampaignDrawer` recebe o intervalo selecionado, compara dias civis via `ads-time.ts` e não
+  reutiliza atribuição de outro período. `catalog-display.ts` formata preço/moeda do feed.
+  O preset legado de catálogo foi removido; o formulário validado é o único lançamento.
+  Públicos respeitam política, bloqueio e simulação nas três rotas de escrita; públicos de site
+  exigem o Pixel central validado. Listagem pagina tudo e disponibilidade não é presumida.
+  Evidências e limites: `docs/AUDITORIA-TIKTOK-ADS-2026-09-08.md`.
 - A presença ao vivo aparece somente no globo da Visão geral. `lib/live-globe.ts` aceita respostas
   `/api/live` com até 20 segundos (tolerância futura de 5 segundos), agrega países e remove todos os
   pontos em erro/expiração. Não usa histórico de vendas, visitantes inventados ou arcos decorativos.

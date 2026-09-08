@@ -1,7 +1,9 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Painel de Operações do TikTok Ads — duas seções:
-// 1. Jobs duráveis (bulk/duplicação) persistidos no Neon: histórico com
+// 1. Tarefas (bulk/duplicação) persistidos no Neon: histórico com
 //    progresso, tentativas e erro por job (sobrevive a reinícios do servidor).
 // 2. Política de segurança (guardrails): dry-run, bloqueio de ações, teto de gasto
 //    diário e % máxima de mudança de orçamento — vale para TODA ação de
@@ -78,9 +80,10 @@ export function OpsDialog({
   onPolicyChanged?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const { data: jobsData, mutate: mutateJobs } = useAdsOpsJobs(open, advertiserId)
-  const { data: policyData, mutate: mutatePolicy } = useAdsSafetyPolicy(open)
+  const { data: jobsData, mutate: mutateJobs, error: jobsError, isLoading: jobsLoading } = useAdsOpsJobs(open, advertiserId)
+  const { data: policyData, mutate: mutatePolicy, error: policyError } = useAdsSafetyPolicy(open)
 
+  const dirty = useRef(false)
   const [tab, setTab] = useState<'jobs' | 'safety'>('jobs')
   const [draft, setDraft] = useState<AdsSafetyPolicy | null>(null)
   const [saving, setSaving] = useState(false)
@@ -88,11 +91,11 @@ export function OpsDialog({
 
   // Sincroniza o rascunho quando a política salva chega
   useEffect(() => {
-    if (policyData?.policy) setDraft(policyData.policy)
+    if (!dirty.current && policyData?.policy) setDraft(policyData.policy)
   }, [policyData])
 
   useEffect(() => {
-    if (open) setTab(initialTab)
+    if (open) { setTab(initialTab); dirty.current = false; setDraft(policyData?.policy ?? null) }
   }, [open, initialTab])
 
   if (!open) return null
@@ -104,7 +107,7 @@ export function OpsDialog({
     .includes(String(advertiserId))
 
   async function handleSavePolicy() {
-    if (!draft) return
+    if (!draft || saving || policyError) return
     if (draft.enabled && !draft.killSwitch && !(draft.maxActionsPerHour > 0)) {
       toast.error('O anti-loop precisa estar ativo', {
         hint: 'Defina entre 1 e 1.000 ações por hora antes de salvar.',
@@ -115,10 +118,12 @@ export function OpsDialog({
     try {
       const r = await apiSend<{ policy: AdsSafetyPolicy }>('/api/ads/ops/safety-policy', 'PUT', draft)
       mutatePolicy({ enabled: true, policy: r.policy }, { revalidate: false })
+      dirty.current = false
+      setDraft(r.policy)
       onPolicyChanged?.()
       toast.success('Política de segurança salva', {
         hint: r.policy.killSwitch
-          ? 'Tudo pausado: nenhuma ação é publicada no TikTok.'
+          ? 'Novas ações bloqueadas. Campanhas já ativas continuam veiculando.'
           : r.policy.dryRun
             ? 'Modo teste ativo: nada é publicado no TikTok.'
             : 'Ações liberadas dentro dos limites definidos.',
@@ -131,6 +136,7 @@ export function OpsDialog({
   }
 
   function patch(p: Partial<AdsSafetyPolicy>) {
+    dirty.current = true
     setDraft((prev) => (prev ? { ...prev, ...p } : prev))
   }
 
@@ -144,8 +150,8 @@ export function OpsDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
     >
       <button
         type="button"
@@ -156,7 +162,7 @@ export function OpsDialog({
         tabIndex={-1}
       />
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="ads-ops-title" tabIndex={-1} className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl outline-none">
-        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
               <ListChecks className="size-4 text-primary" aria-hidden="true" />
@@ -166,24 +172,22 @@ export function OpsDialog({
                 Operações
               </h2>
               <p className="text-[11px] text-muted-foreground">
-                Jobs duráveis e guardrails de segurança da conta
+                Histórico de tarefas e limites da conta
               </p>
             </div>
           </div>
-          <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Seções">
+          <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="group" aria-label="Seções">
             <button
               type="button"
-              role="tab"
-              aria-selected={tab === 'jobs'}
+              aria-pressed={tab === 'jobs'}
               onClick={() => setTab('jobs')}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${tab === 'jobs' ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground'}`}
             >
-              Jobs{jobs.length > 0 && ` (${jobs.length})`}
+              Tarefas{jobs.length > 0 && ` (${jobs.length})`}
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={tab === 'safety'}
+              aria-pressed={tab === 'safety'}
               onClick={() => setTab('safety')}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${tab === 'safety' ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground'}`}
             >
@@ -200,17 +204,17 @@ export function OpsDialog({
             <div className="flex flex-col gap-2">
               {!durable && (
                 <p className="rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-pretty text-[11px] leading-relaxed text-warning">
-                  Persistência durável indisponível (banco não configurado). Os jobs abaixo vivem só em
+                  Persistência durável indisponível (banco não configurado). As tarefas abaixo ficam apenas em
                   memória e são perdidos ao reiniciar o servidor.
                 </p>
               )}
-              {jobs.length === 0 ? (
+              {jobsError ? <p role="alert" className="text-sm text-warning">Não foi possível carregar as tarefas. Tente atualizar.</p> : jobsLoading ? <p className="py-6 text-sm text-muted-foreground">Carregando tarefas…</p> : jobs.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-xs leading-relaxed text-muted-foreground">
-                  Nenhum job ainda. Criações em massa e duplicações aparecem aqui com progresso e erros —
+                  Nenhuma tarefa por aqui. Criações em massa e duplicações aparecem aqui com progresso e erros —
                   mesmo depois de reiniciar o servidor.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-1.5" aria-label="Jobs duráveis">
+                <ul className="flex flex-col gap-1.5" aria-label="Tarefas">
                   {jobs.map((j) => {
                     const meta = STATUS_META[j.status] ?? STATUS_META.queued
                     const total = Number(j.progress?.total) || 0
@@ -249,6 +253,8 @@ export function OpsDialog({
                 Atualizar
               </button>
             </div>
+          ) : policyError ? (
+            <div role="alert" className="space-y-3 text-sm text-warning"><p>Não foi possível carregar os limites de segurança.</p><button type="button" className="btn-secondary" onClick={() => mutatePolicy()}>Tentar novamente</button></div>
           ) : !draft ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -267,7 +273,7 @@ export function OpsDialog({
                   <span className="flex flex-col gap-0.5">
                     <span className="text-xs font-semibold text-foreground">Proteção ativa</span>
                     <span className="text-[11px] leading-relaxed text-muted-foreground">
-                      Obrigatória para o robô agir.
+                      Necessária para aplicar automações.
                     </span>
                   </span>
                 </label>
@@ -283,7 +289,7 @@ export function OpsDialog({
                     <span className="flex flex-col gap-0.5">
                       <span className="text-xs font-semibold text-foreground">Bloquear esta conta</span>
                       <span className="text-[11px] leading-relaxed text-muted-foreground">
-                        Impede ações só neste advertiser.
+                        Bloqueia novos ajustes nesta conta.
                       </span>
                     </span>
                   </label>
@@ -299,16 +305,15 @@ export function OpsDialog({
                   checked={draft.killSwitch}
                   onChange={(e) => patch({ killSwitch: e.target.checked })}
                   className="mt-0.5 size-4 accent-[color:var(--error)]"
-                  aria-label="Pausar tudo"
+                  aria-label="Bloquear novas ações"
                 />
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     <OctagonAlert className="size-3.5 text-error" aria-hidden="true" />
-                    Pausar tudo (emergência)
+                    Bloquear novas ações
                   </span>
                   <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    Bloqueia TODAS as ações (criar, duplicar, pausar, orçamento) — manuais, do robô e da
-                    IA. Use em emergência.
+                    Impede novos ajustes pelo painel e pelas automações. Campanhas já ativas continuam veiculando.
                   </span>
                 </span>
               </label>
@@ -327,8 +332,7 @@ export function OpsDialog({
                 <span className="flex flex-col gap-0.5">
                   <span className="text-xs font-semibold text-foreground">Modo teste — nada é publicado no TikTok</span>
                   <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    O robô roda de ponta a ponta mas NADA é publicado no TikTok. Ideal para testar pilotos
-                    e lotes antes de liberar de verdade.
+                    Simula os ajustes sem alterar campanhas no TikTok.
                   </span>
                 </span>
               </label>
@@ -397,6 +401,6 @@ export function OpsDialog({
           )}
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

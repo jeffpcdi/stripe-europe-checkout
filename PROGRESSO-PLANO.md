@@ -539,3 +539,9 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 - Grade com orçamento, gasto, compras, CPA, CPM, CPC, CTR, cliques e exibições.
 - Edição explícita de orçamento; distinção CBO/ABO e simulação/solicitação/erro.
 - Validação local de desktop/celular, testes e build; sem operação em campanhas reais.
+
+## Auditoria TikTok Ads — 08/09/2026
+
+Interface, popups, métricas, rascunhos de automação e proteção das rotas de Públicos revisados.
+Build e suíte completa aprovados; navegação local desktop/celular sem operações reais.
+Relatório: `docs/AUDITORIA-TIKTOK-ADS-2026-09-08.md`. Publicação não realizada.

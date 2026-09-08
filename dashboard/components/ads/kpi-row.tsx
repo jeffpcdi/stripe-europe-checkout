@@ -1,7 +1,7 @@
 'use client'
 
 import { useAdsKpis, useAdsRoas } from '@/lib/api'
-import { GlassCard } from '@/components/glass-card'
+import { ChartNoAxesCombined, ReceiptText, Wallet, Target } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
 import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
@@ -23,10 +23,10 @@ export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZo
   const unavailable = !!kpisError || !!salesError
   const revenue = salesData ? salesData.revenueCents / 100 : null
   const cards = [
-    { label: 'Investimento', value: cur?.spend ?? null, money, detail: 'Todas as campanhas da conta' },
-    { label: 'Receita', value: revenue, money: revenueMoney, detail: salesData ? `${salesData.sales} ${salesData.sales === 1 ? 'venda atribuída' : 'vendas atribuídas'}` : 'Vendas atribuídas aos anúncios' },
-    { label: 'Retorno', value: salesData?.currencyMismatch ? null : salesData?.roas ?? null, money: '', detail: 'Receita ÷ investimento (ROAS)' },
-    { label: 'Custo por venda', value: salesData?.currencyMismatch ? null : salesData?.cpa ?? null, money, detail: 'Investimento ÷ vendas' },
+    { icon: Wallet, label: 'Gasto em ADS', value: cur?.spend ?? null, money, detail: 'Todas as campanhas da conta' },
+    { icon: ReceiptText, label: 'Receita', value: revenue, money: revenueMoney, detail: salesData ? `${salesData.sales} ${salesData.sales === 1 ? 'venda atribuída' : 'vendas atribuídas'}` : 'Vendas atribuídas aos anúncios' },
+    { icon: ChartNoAxesCombined, label: 'Retorno', value: salesData?.currencyMismatch ? null : salesData?.roas ?? null, money: '', detail: 'Receita ÷ investimento (ROAS)' },
+    { icon: Target, label: 'Custo por venda', value: salesData?.currencyMismatch ? null : salesData?.cpa ?? null, money, detail: 'Investimento ÷ vendas' },
   ]
   return (
     <section className="ads-account-results space-y-3" aria-label="Resultados da conta de anúncios">
@@ -35,17 +35,15 @@ export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZo
         {unavailable && <button type="button" className="text-warning underline underline-offset-4" onClick={() => void Promise.all([refreshKpis(), refreshSales()])}>Dados não atualizados · tentar novamente</button>}
       </div>
       {isLoading && !kpis ? <Skeleton className="h-28 rounded-2xl" /> : (
-        <GlassCard className="p-0">
-          <div className="grid grid-cols-2 gap-px bg-border lg:grid-cols-4">
-            {cards.map((card, index) => <div key={card.label} className="ads-account-result min-w-0 p-4 sm:p-5">
-              <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-              <p className={`mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl ${index === 1 ? 'text-success' : 'text-foreground'}`} data-sensitive>
+          <div className="overview-metrics">
+            {cards.map((card, index) => <article key={card.label} aria-label={card.label} className="overview-metric" style={{ '--metric-index': index } as React.CSSProperties}>
+              <div className="overview-metric-heading"><h2>{card.label}</h2><span className="overview-metric-icon"><card.icon className="size-5" aria-hidden="true" /></span></div>
+              <div className="overview-metric-main"><p className="overview-metric-value" data-sensitive>
                 {card.value === null || !Number.isFinite(card.value) ? '—' : <CountUp value={card.value} format={value => card.money ? fmtSpend(value, card.money) : `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`} />}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
-            </div>)}
+              </p></div>
+              <p className="overview-metric-footer">{card.detail}</p>
+            </article>)}
           </div>
-        </GlassCard>
       )}
       {cur && <details className="group text-xs text-muted-foreground">
         <summary className="w-fit cursor-pointer rounded-md py-1 hover:text-foreground">Mais métricas</summary>

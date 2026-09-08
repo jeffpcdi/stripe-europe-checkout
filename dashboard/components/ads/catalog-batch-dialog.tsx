@@ -1,5 +1,6 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
 import { useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Download, FileUp, Loader2, PackageOpen, Rocket, Upload, UploadCloud, Video } from 'lucide-react'
 import { adsCreateCatalogBatch, adsPreviewCatalogBatch, adsUpload } from '@/lib/api'
@@ -213,22 +214,12 @@ export function CatalogBatchDialog({
       <button type="button" className="btn-ghost shrink-0 self-start text-xs sm:self-auto" onClick={() => setOpen((value) => !value)}>
         <UploadCloud className="size-3.5" aria-hidden="true" /> Catálogos em massa
       </button>
-      {open && (
-        <section className="mt-3 w-full rounded-xl border border-primary/30 bg-background p-4 text-left shadow-xl sm:absolute sm:right-0 sm:z-20 sm:mt-2 sm:w-[min(760px,calc(100vw-2rem))]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Catálogos em massa</h3>
-              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-                O <strong className="text-foreground">Link do produto</strong> é o único destino usado; não existe campo de URL no nível do anúncio.
-              </p>
-            </div>
-            <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)}>Fechar</button>
-          </div>
-
+      <Modal isOpen={open} onClose={() => { if (!busy && !uploadingVideo) setOpen(false) }} title="Catálogos em massa" description="Importe uma planilha para organizar produtos e preparar campanhas." maxWidth="max-w-3xl">
+        <div className="ads-dialog">
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
             <div className="text-[11px] text-muted-foreground">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <label htmlFor="catalog-batch-source">Cole TSV do Excel/Sheets ou CSV (vírgula ou ponto e vírgula)</label>
+                <label htmlFor="catalog-batch-source">Cole as linhas da planilha ou importe um arquivo CSV/TSV</label>
                 <div className="flex flex-wrap gap-1.5">
                   <input
                     ref={fileInputRef}
@@ -278,7 +269,7 @@ export function CatalogBatchDialog({
           <div className="mt-3 grid gap-2 rounded-lg border border-border bg-secondary/20 p-3 text-[11px]">
             <label className="flex items-start gap-2 text-muted-foreground">
               <input className="mt-0.5 accent-primary" type="checkbox" checked={syncToTikTok} onChange={(event) => { setSyncToTikTok(event.target.checked); invalidatePlan() }} />
-              <span><strong className="text-foreground">Sincronizar automaticamente com o TikTok</strong><br />{preview?.automation.catalogCreationNote || 'Publica o feed e cria o job durável de catálogo. Tudo fica sem veiculação até revisão.'}</span>
+              <span><strong className="text-foreground">Sincronizar automaticamente com o TikTok</strong><br />{preview?.automation.catalogCreationNote || 'Envia os produtos e acompanha o processamento. As campanhas continuam pausadas.'}</span>
             </label>
             <label className="flex items-start gap-2 text-muted-foreground">
               <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
@@ -375,7 +366,7 @@ export function CatalogBatchDialog({
           )}
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)} disabled={Boolean(busy)}>Cancelar</button>
+            <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)} disabled={Boolean(busy) || uploadingVideo}>Cancelar</button>
             <button type="button" className="btn-ghost text-xs" onClick={validate} disabled={!canSubmit}>
               {busy === 'preview' ? <Loader2 className="size-3.5 animate-spin" /> : <PackageOpen className="size-3.5" />} Validar lote
             </button>
@@ -396,8 +387,8 @@ export function CatalogBatchDialog({
             </button>
           </div>
           {campaignCount > 0 && <p className="mt-2 text-[10px] text-muted-foreground">As campanhas do lote usam todos os produtos do catálogo e sempre nascem pausadas.</p>}
-        </section>
-      )}
+        </div>
+      </Modal>
     </div>
   )
 }

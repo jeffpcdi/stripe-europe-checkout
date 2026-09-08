@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Wrapper fino de modal sobre o DuplicatePanel — preserva a ação por-campanha
 // do CampaignTree (onDuplicate). O fluxo inteiro vive em duplicate-panel.tsx,
 // que também alimenta a aba "Duplicação" do TikTok Ads.
@@ -33,8 +35,8 @@ export function DuplicateDialog({
   if (!open || !campaign) return null
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
@@ -60,6 +62,6 @@ export function DuplicateDialog({
           />
         </GlassCard>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

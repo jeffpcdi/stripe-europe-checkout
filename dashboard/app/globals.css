@@ -3021,3 +3021,32 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 .campaign-budget-editor button { min-height: 36px; }
 .campaign-toolbar-title > span { flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 639px) { .campaign-bulk-actions { max-width: calc(100vw - 20px); flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px; } .campaign-toolbar-title { align-items: flex-start; } }
+
+/* TikTok Ads compartilha a superfície e a hierarquia da Visão geral. */
+.tiktok-view .glass {
+  background: linear-gradient(145deg, var(--lg-tint-thick), var(--card));
+  border-color: var(--border);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 var(--lg-rim-side), var(--shadow-sm);
+  backdrop-filter: none;
+  transition: border-color 200ms, box-shadow 200ms;
+}
+.tiktok-view .glass:focus-within { border-color: var(--border-strong); }
+.tiktok-view :is(.text-faint, .text-muted), .ads-dialog :is(.text-faint, .text-muted) { color: var(--text-muted); }
+.tiktok-view :is(.text-\[9px\], .text-\[10px\]), .ads-dialog :is(.text-\[9px\], .text-\[10px\]) { font-size: 11px; }
+.tiktok-view :is(.btn-primary, .btn-secondary, .btn-ghost), .ads-dialog button { min-height: 40px; }
+.ads-dialog button[aria-label='Fechar'], .ads-dialog button[aria-label='Excluir público'], .ads-dialog button[aria-label='Atualizar lista'] { min-width: 44px; min-height: 44px; }
+.tiktok-view :is(input:not([type='checkbox']):not([type='radio']), select), .ads-dialog :is(input:not([type='checkbox']):not([type='radio']), select) { min-height: 42px; }
+.ads-dialog [role='dialog'] { max-height: calc(100dvh - 2rem); overscroll-behavior: contain; }
+.ads-dialog [role='dialog']:not(.anim-drawer-in) { border-radius: 18px; background: var(--card); box-shadow: inset 0 1px 0 var(--lg-rim-side), var(--shadow-lg); animation: dialog-enter 180ms var(--ease) both; }
+.ads-dialog [role='dialog'] > div { min-width: 0; }
+.ads-dialog :is(button, input, select, textarea):focus-visible, .tiktok-view summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.tiktok-view [data-state='active'][role='tabpanel'] { animation: dialog-enter 200ms var(--ease); }
+@media (max-width: 640px) {
+  .ads-dialog button, .tiktok-view :is(.btn-primary, .btn-secondary, .btn-ghost) { min-height: 44px; }
+  .ads-dialog [role='dialog'] { max-height: calc(100dvh - 1rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tiktok-view [role='tabpanel'], .ads-dialog [role='dialog'] { animation: none !important; }
+}
+html[data-anim='off'] .tiktok-view [role='tabpanel'], html[data-anim='off'] .ads-dialog [role='dialog'] { animation: none !important; }

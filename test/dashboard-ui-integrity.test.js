@@ -146,3 +146,19 @@ html = renderToStaticMarkup(React.createElement(CampaignMetricGrid, { campaign: 
 assert(html.includes('US$') && html.includes('CPA') && html.includes('CPM') && html.includes('CPC'));
 assert(html.includes('soma dos conjuntos'));
 console.log('campaign-metrics: custos, orçamento CBO/ABO e respostas de status OK');
+
+// A comparação mantém dias civis e o período selecionado, sem deslocamento por DST.
+const { adsDateRange, previousAdsRange, shiftAdsDay } = load('lib/ads-time.ts');
+const current = adsDateRange(7, 'America/New_York', new Date('2026-03-09T02:30:00Z'));
+assert.equal(current.fromDate, '2026-03-02');
+assert.equal(current.toDate, '2026-03-08');
+const previous = previousAdsRange(current);
+assert.equal(previous.fromDate, '2026-02-23');
+assert.equal(previous.toDate, '2026-03-01');
+assert.equal(previousAdsRange({fromDate:'2026-01-01',toDate:'2026-01-01'}).fromDate, '2025-12-31');
+assert.equal(shiftAdsDay('2026-03-08', -7), '2026-03-01');
+
+const { catalogDisplayPrice } = load('lib/catalog-display.ts');
+assert.equal(catalogDisplayPrice('79.90 BRL', 'BRL').replace(/\s/g, ' '), 'R$ 79,90');
+assert(catalogDisplayPrice('10.00 EUR', 'BRL').includes('€'), 'moeda do feed não é trocada');
+assert.equal(catalogDisplayPrice(undefined, 'BRL'), '—');

@@ -1,12 +1,14 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Item 184: confirmação destrutiva padronizada (excluir link/pixel/gateway/
 // domínio/entry) num único componente. Quando `confirmText` é passado, exige
 // digitar exatamente aquele texto (nome do item) para habilitar o botão —
 // usado em itens com tráfego, como já fazia a exclusão de links (item 76).
 // A11y via useModalA11y (foco preso, ESC, retorno de foco) — item 189.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -36,6 +38,7 @@ export function ConfirmDialog({
   onConfirm: () => void
   onClose: () => void
 }) {
+  const id = useId()
   const ref = useRef<HTMLDivElement>(null)
   const [typed, setTyped] = useState('')
   useModalA11y(open, ref, busy ? () => {} : onClose)
@@ -52,13 +55,13 @@ export function ConfirmDialog({
   const canConfirm = matched && !busy
 
   return (
-    <div
+    <DialogPortal><div
       className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
-      <div ref={ref} role="alertdialog" aria-modal="true" aria-label={title} tabIndex={-1} className="w-full max-w-md outline-none">
+      <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl outline-none">
         <GlassCard variant="thick" className={cn(
           "p-6 border shadow-2xl transition-all",
           tone === 'danger' 
@@ -72,8 +75,8 @@ export function ConfirmDialog({
               </span>
             )}
             <div className="min-w-0 flex-1">
-              <h2 className="text-base font-semibold text-foreground text-balance">{title}</h2>
-              <div className="mt-1.5 text-sm leading-relaxed text-muted-foreground text-pretty">{description}</div>
+              <h2 id={`${id}-title`} className="text-base font-semibold text-foreground text-balance">{title}</h2>
+              <div id={`${id}-description`} className="mt-1.5 text-sm leading-relaxed text-muted-foreground text-pretty">{description}</div>
             </div>
           </div>
 
@@ -98,7 +101,7 @@ export function ConfirmDialog({
               type="button"
               onClick={onClose}
               disabled={busy}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+              className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
             >
               {cancelLabel}
             </button>
@@ -106,7 +109,7 @@ export function ConfirmDialog({
               type="button"
               onClick={onConfirm}
               disabled={!canConfirm}
-              className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex items-center gap-1.5 min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
                 tone === 'danger'
                   ? 'bg-destructive text-destructive-foreground hover:brightness-110'
                   : 'bg-brand-cyan text-black hover:brightness-105'
@@ -118,6 +121,6 @@ export function ConfirmDialog({
           </div>
         </GlassCard>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

@@ -161,7 +161,7 @@ export function ProductEditor({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:overflow-y-auto sm:p-4"
+      className="ads-dialog fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}

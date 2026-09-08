@@ -49,7 +49,7 @@ function RuleSummary({ rule, currency, preview }: { rule: AdsRule; currency: str
 export function PilotsPanel({ currency, rules, autonomy, saving, onSetPilot, onSetAutonomy, automaticBlockedReason, onOpenLimits }: {
   currency: string; rules: AdsRule[]; autonomy: AdsAutomationAutonomy | 'custom'; saving: boolean
   onSetPilot: (pilot: PilotId, opts: { enabled: boolean; intensity: Intensity; toggleOnly?: boolean }) => Promise<void>
-  onSetAutonomy: (autonomy: AdsAutomationAutonomy) => Promise<void>
+  onSetAutonomy: (autonomy: AdsAutomationAutonomy) => Promise<boolean>
   automaticBlockedReason?: string | null; onOpenLimits?: () => void
 }) {
   const [confirmAuto, setConfirmAuto] = useState(false)
@@ -105,6 +105,6 @@ export function PilotsPanel({ currency, rules, autonomy, saving, onSetPilot, onS
         <div className="flex flex-wrap gap-2">{INTENSITIES.map(i => <button key={i.value} type="button" disabled={saving} className="btn-secondary text-xs" onClick={() => void onSetPilot('schedule', { enabled: true, intensity: i.value })}>{i.label}</button>)}</div>
       </div>
     </details>
-    <ConfirmDialog open={confirmAuto} title="Aplicar ações automaticamente?" description="As regras poderão pausar campanhas e alterar orçamentos dentro dos limites definidos. Você pode voltar a pedir aprovação a qualquer momento." confirmLabel="Aplicar sozinho" busy={saving} onConfirm={async () => { await onSetAutonomy('auto'); setConfirmAuto(false) }} onClose={() => setConfirmAuto(false)} />
+    <ConfirmDialog tone="default" open={confirmAuto} title="Aplicar ações automaticamente?" description="As regras poderão pausar campanhas e alterar orçamentos dentro dos limites definidos. Você pode voltar a pedir aprovação a qualquer momento." confirmLabel="Aplicar sozinho" busy={saving} onConfirm={async () => { if (await onSetAutonomy('auto')) setConfirmAuto(false) }} onClose={() => setConfirmAuto(false)} />
   </div>
 }

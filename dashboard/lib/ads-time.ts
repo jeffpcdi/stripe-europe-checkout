@@ -35,3 +35,18 @@ export function adsDateRange(days: number, timeZone?: string | null, now = new D
   const from = new Date(Date.UTC(year, month - 1, day - (count - 1), 12))
   return { fromDate: adsDateKey(from, 'UTC'), toDate }
 }
+
+/** Janela anterior com o mesmo número de dias civis, inclusive em mudanças de fuso. */
+export function previousAdsRange(range: { fromDate: string; toDate: string }) {
+  const from = Date.parse(`${range.fromDate}T12:00:00Z`)
+  const to = Date.parse(`${range.toDate}T12:00:00Z`)
+  const length = Math.round((to - from) / 864e5) + 1
+  return {
+    fromDate: adsDateKey(new Date(from - length * 864e5), 'UTC'),
+    toDate: adsDateKey(new Date(from - 864e5), 'UTC'),
+  }
+}
+
+export function shiftAdsDay(day: string, days: number) {
+  return adsDateKey(new Date(Date.parse(`${day.slice(0, 10)}T12:00:00Z`) + days * 864e5), 'UTC')
+}

@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Spark Ads — impulsiona um post orgânico do TikTok como anúncio (F5, via
 // Pipeboard). Fluxo: seleciona a IDENTIDADE autorizada (TT_USER = conta
 // vinculada; AUTH_CODE = criador cujo Spark Code já foi resgatado no Ads
@@ -135,7 +137,8 @@ export function SparkAdDialog({
       if (countryList.length) payload.countries = countryList
       payload.linkUrl = linkUrl.trim()
 
-      await apiSend('/api/ads/boost', 'POST', payload)
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/boost', 'POST', payload)
+      if (result.dryRun) { toast.info('Simulação concluída. Nenhum anúncio foi criado.'); return }
       toast.success('Spark Ad criado (pausado)', { hint: 'Revise na dashboard e ative — o TikTok ainda revisa antes de veicular.' })
       onCreated()
     } catch (e) {
@@ -148,8 +151,8 @@ export function SparkAdDialog({
   if (!open) return null
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
@@ -357,6 +360,6 @@ export function SparkAdDialog({
           </div>
         </GlassCard>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

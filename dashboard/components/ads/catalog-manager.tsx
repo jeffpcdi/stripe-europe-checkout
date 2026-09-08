@@ -42,7 +42,7 @@ export function CatalogManager({
 }) {
   const { data: list, mutate: mutateList, isLoading: listLoading, error: listError } = useAdsCatalogs(true, advertiserId)
   const { data: spec } = useAdsCatalogSpec(true, advertiserId)
-  const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true, advertiserId)
+  const { data: bc, mutate: mutateBc, error: bcError } = useAdsCatalogBusinessCenter(true, advertiserId)
   const { data: capabilitiesData } = useAdsCatalogCapabilities(true, advertiserId)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -83,14 +83,14 @@ export function CatalogManager({
           bcId={bc?.bcId ?? ''}
           fromEnv={Boolean(bc?.fromEnv)}
           autoDetected={Boolean(bc?.autoDetected)}
-          discoveryError={Boolean(bc?.discoveryError)}
+          discoveryError={Boolean(bcError || bc?.discoveryError)}
           candidates={bc?.candidates ?? []}
-          loading={bc === undefined}
+          loading={!bcError && bc === undefined}
           onChanged={mutateBc}
         />
       )}
       {selectedId ? (
-        <CatalogDetail
+        <CatalogDetail key={selectedId}
           catalogId={selectedId}
           spec={spec ?? null}
           advertiserId={advertiserId}

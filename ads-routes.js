@@ -767,11 +767,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const body = req.body || {};
       const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
-      let pixelId = body.pixelId;
-      if (!pixelId) {
-        const context = await pixelContext(req.account.id, selected.advertiserId).catch(() => null);
-        if (context && context.binding) pixelId = context.binding.pixelId;
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
       }
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, { action: 'audience.change', targetType: 'audience', advertiserId: selected.advertiserId });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
+      const pixel = await requireCampaignPixel(req.account.id, selected.advertiserId);
+      const pixelId = pixel.pixelId;
       const result = await pipeboard.createCustomAudience(selected.advertiserId, {
         ...body,
         pixelId,
@@ -784,6 +790,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const body = req.body || {};
       const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, { action: 'audience.change', targetType: 'audience', advertiserId: selected.advertiserId });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
       const result = await pipeboard.createLookalikeAudience(selected.advertiserId, body);
       res.json({ ok: true, result });
     } catch (err) { fail(res, err); }
@@ -793,6 +808,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const body = req.body || {};
       const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, { action: 'audience.change', targetType: 'audience', advertiserId: selected.advertiserId });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
       const audienceIds = Array.isArray(body.audienceIds) ? body.audienceIds : [body.audienceId];
       const result = await pipeboard.deleteCustomAudiences(selected.advertiserId, audienceIds);
       res.json({ ok: true, result });

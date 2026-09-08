@@ -4591,24 +4591,23 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
 async function listCustomAudiences(advertiserId, opts = {}) {
   const adv = String(advertiserId || '').trim();
   if (!adv) return [];
-  const ck = 'audiences:' + adv + ':' + (opts.page || 1);
+  const pageSize = Math.max(1, Math.min(100, Number(opts.pageSize) || 50));
+  const ck = 'audiences:' + adv + ':' + (opts.page || 'all') + ':' + pageSize;
   if (!opts.fresh) {
     const hit = cacheGet(ck);
     if (hit) return hit;
   }
-  const out = await pipeboard.callTool('list_tiktok_custom_audiences', {
-    advertiser_id: adv,
-    page: Number(opts.page || 1),
-    page_size: Number(opts.pageSize || 50),
-  });
-  const list = firstArray(out, ['custom_audiences', 'list', 'audiences', 'data']) || [];
+  const keys = ['custom_audiences', 'list', 'audiences', 'data'];
+  const list = opts.page
+    ? firstArray(await pipeboard.callTool('list_tiktok_custom_audiences', { advertiser_id: adv, page: Math.max(1, Number(opts.page) || 1), page_size: pageSize }), keys)
+    : await listAllPages('list_tiktok_custom_audiences', { advertiser_id: adv }, keys, { pageSize });
   const mapped = list.map((item) => ({
     id: String(item.custom_audience_id || item.id || ''),
     name: String(item.name || item.custom_audience_name || 'Público'),
     type: String(item.audience_type || item.type || 'PIXEL'),
     size: Number(item.cover_num || item.audience_size || item.size || 0),
     status: String(item.status || (item.is_valid ? 'ready' : 'processing')),
-    isValid: Boolean(item.is_valid ?? true),
+    isValid: item.is_valid === true || item.is_valid === 1 || item.is_valid === 'true',
     createTime: item.create_time || item.created_at || null,
   }));
   return cacheSet(ck, mapped, 60 * 1000);
@@ -4682,7 +4681,7 @@ async function createLookalikeAudience(advertiserId, data = {}) {
 
 async function deleteCustomAudiences(advertiserId, audienceIds) {
   const adv = String(advertiserId || '').trim();
-  const ids = Array.isArray(audienceIds) ? audienceIds.map(String) : [String(audienceIds)];
+  const ids = [...new Set((Array.isArray(audienceIds) ? audienceIds : [audienceIds]).filter(id => id != null).map(id => String(id).trim()).filter(Boolean))];
   if (!adv || !ids.length) throw badRequest('advertiserId e IDs são obrigatórios');
   const out = await pipeboard.callTool('delete_tiktok_custom_audiences', {
     advertiser_id: adv,

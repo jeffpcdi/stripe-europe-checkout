@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { Bot, Cloud, GripVertical, Loader2, RefreshCw, ShieldAlert, Sparkles, Wallet } from 'lucide-react'
 import { apiSend } from '@/lib/api'
@@ -42,6 +42,10 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
   const { data: cloud, error: cloudError, mutate: mutateCloud } = useSWR<CloudStatus>(active ? '/api/ads/cloud-video' : null, fetcher, { refreshInterval: 30_000 })
   const { data: queue, error: queueError, mutate: mutateQueue } = useSWR<QueueStatus>(active ? '/api/ads/bulk/status' : null, fetcher, { refreshInterval: 10_000 })
   const { data: blocks, error: blocksError, mutate: mutateBlocks } = useSWR<BotBlocks>(active ? '/api/cloak/blocks' : null, fetcher, { refreshInterval: 30_000 })
+  const cloudDirty = useRef({ googleDrive: false, dropbox: false })
+  const profitDirty = useRef(false)
+  const [savingProfit, setSavingProfit] = useState(false)
+  const [unblocking, setUnblocking] = useState<string | null>(null)
   const [runningAnomaly, setRunningAnomaly] = useState(false)
   const [profitDraft, setProfitDraft] = useState<ProfitConfig>({ gatewayFeePct: 0, gatewayFixedFeeCents: 0, taxPct: 0, productCostPct: 0, productCostFixedCents: 0 })
   const [syncingCloud, setSyncingCloud] = useState<string | null>(null)
@@ -52,21 +56,21 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('roi_ads_widget_order') || '[]') as WidgetId[]
-      if (saved.length === DEFAULT_WIDGETS.length && DEFAULT_WIDGETS.every((id) => saved.includes(id))) setOrder(saved)
+      if (Array.isArray(saved) && saved.length === DEFAULT_WIDGETS.length && DEFAULT_WIDGETS.every((id) => saved.includes(id))) setOrder(saved)
     } catch { /* preferência inválida volta ao padrão */ }
   }, [])
   useEffect(() => {
     if (!cloud) return
-    setDriveFolder(cloud.providers.googleDrive.folderId || '')
-    setDropboxFolder(cloud.providers.dropbox.folderPath || '')
+    if (!cloudDirty.current.googleDrive) setDriveFolder(cloud.providers?.googleDrive?.folderId || '')
+    if (!cloudDirty.current.dropbox) setDropboxFolder(cloud.providers?.dropbox?.folderPath || '')
   }, [cloud])
-  useEffect(() => { if (profitConfigData?.config) setProfitDraft(profitConfigData.config) }, [profitConfigData])
+  useEffect(() => { if (!profitDirty.current && profitConfigData?.config) setProfitDraft(profitConfigData.config) }, [profitConfigData])
   function moveWidget(target: WidgetId) {
     if (!dragging || dragging === target) return
     const next = order.filter((id) => id !== dragging)
     next.splice(next.indexOf(target), 0, dragging)
     setOrder(next)
-    localStorage.setItem('roi_ads_widget_order', JSON.stringify(next))
+    try { localStorage.setItem('roi_ads_widget_order', JSON.stringify(next)) } catch { /* ordem mantida nesta sessão */ }
     setDragging(null)
   }
   async function runAnomaly() {
@@ -79,11 +83,17 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
     finally { setRunningAnomaly(false) }
   }
   async function saveProfitConfig() {
+    if (savingProfit) return
+    const invalid = Object.values(profitDraft).some(value => !Number.isFinite(value) || value < 0) || [profitDraft.gatewayFeePct, profitDraft.taxPct, profitDraft.productCostPct].some(value => value > 100)
+    if (invalid) { toast.error('Revise os custos: use valores positivos e percentuais até 100%.'); return }
+    setSavingProfit(true)
     try {
       await apiSend('/api/ads/profitability/config', 'PUT', { config: profitDraft })
+      profitDirty.current = false
       await Promise.all([mutateProfitConfig(), mutateProfit()])
       toast.success('Custos do lucro atualizados')
     } catch (error) { toast.error('Falha ao salvar custos', { hint: error instanceof Error ? error.message : undefined }) }
+    finally { setSavingProfit(false) }
   }
   async function connectCloud(provider: 'googleDrive' | 'dropbox') {
     try {
@@ -92,17 +102,31 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
     } catch (error) { toast.error('Conexão indisponível', { hint: error instanceof Error ? error.message : undefined }) }
   }
   async function syncCloud(provider: 'googleDrive' | 'dropbox') {
+    if (syncingCloud) return
     setSyncingCloud(provider)
     try {
       await apiSend(`/api/ads/cloud-video/${provider}`, 'PUT', {
         enabled: true, advertiserId,
         ...(provider === 'googleDrive' ? { folderId: driveFolder.trim() } : { folderPath: dropboxFolder.trim() }),
       })
-      const result = await apiSend<{ files?: { ok: boolean }[] }>(`/api/ads/cloud-video/${provider}/sync`, 'POST', { advertiserId })
-      toast.success('Pasta sincronizada', { hint: `${result.files?.filter((file) => file.ok).length || 0} vídeo(s) enviado(s) ao TikTok.` })
+      const result = await apiSend<{ skipped?: boolean; files?: { ok: boolean }[] }>(`/api/ads/cloud-video/${provider}/sync`, 'POST', { advertiserId })
+      const uploaded = result.files?.filter(file => file.ok).length || 0
+      const failed = result.files?.filter(file => !file.ok).length || 0
+      if (result.skipped) toast.info('Sincronização não iniciada. Confira a conexão e a pasta.')
+      else if (failed) toast.error('Alguns vídeos não foram enviados', { hint: `${uploaded} enviados · ${failed} com falha.` })
+      else toast.success(uploaded ? `${uploaded} vídeo(s) enviado(s)` : 'Nenhum vídeo novo para enviar')
+      cloudDirty.current[provider] = false
       await mutateCloud()
     } catch (error) { toast.error('Falha na sincronização', { hint: error instanceof Error ? error.message : undefined }) }
     finally { setSyncingCloud(null) }
+  }
+
+  async function unblock(ipHash: string) {
+    if (unblocking) return
+    setUnblocking(ipHash)
+    try { await apiSend(`/api/cloak/blocks/${encodeURIComponent(ipHash)}`, 'DELETE'); await mutateBlocks(); toast.success('Bloqueio removido') }
+    catch (error) { toast.error('Não foi possível remover o bloqueio', { hint: error instanceof Error ? error.message : undefined }) }
+    finally { setUnblocking(null) }
   }
 
   const loadFailed = profitError || profitConfigDataError || anomalyDataError || cloudError || blocksError || queueError
@@ -129,18 +153,18 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {([
               ['gatewayFeePct', 'Taxa gateway %'], ['taxPct', 'Impostos %'], ['productCostPct', 'Produto %'],
-            ] as const).map(([key, label]) => <label key={key}>{label}<input type="number" min="0" max="100" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft[key]} onChange={(event) => setProfitDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /></label>)}
-            <label>Taxa fixa ({currency})<input type="number" min="0" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft.gatewayFixedFeeCents / 100} onChange={(event) => setProfitDraft((current) => ({ ...current, gatewayFixedFeeCents: Math.round(Number(event.target.value) * 100) }))} /></label>
-            <label>Custo fixo ({currency})<input type="number" min="0" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft.productCostFixedCents / 100} onChange={(event) => setProfitDraft((current) => ({ ...current, productCostFixedCents: Math.round(Number(event.target.value) * 100) }))} /></label>
+            ] as const).map(([key, label]) => <label key={key}>{label}<input type="number" min="0" max="100" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft[key]} onChange={(event) => { profitDirty.current = true; setProfitDraft((current) => ({ ...current, [key]: Number(event.target.value) })) }} /></label>)}
+            <label>Taxa fixa ({currency})<input type="number" min="0" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft.gatewayFixedFeeCents / 100} onChange={(event) => { profitDirty.current = true; setProfitDraft((current) => ({ ...current, gatewayFixedFeeCents: Math.round(Number(event.target.value) * 100) })) }} /></label>
+            <label>Custo fixo ({currency})<input type="number" min="0" step="0.01" className="input mt-1 w-full text-[10px]" value={profitDraft.productCostFixedCents / 100} onChange={(event) => { profitDirty.current = true; setProfitDraft((current) => ({ ...current, productCostFixedCents: Math.round(Number(event.target.value) * 100) })) }} /></label>
           </div>
-          <button type="button" className="btn-ghost mt-2 text-[10px]" onClick={saveProfitConfig} disabled={!profitConfigData || !!profitConfigDataError}>Salvar custos</button>
+          <button type="button" className="btn-ghost mt-2 text-[10px]" onClick={saveProfitConfig} disabled={savingProfit || !profitConfigData || !!profitConfigDataError}>Salvar custos</button>
         </details>
       </div>
     ),
     anomalies: (
       <div className="space-y-3">
         <div className="flex items-center gap-2"><Sparkles className="size-4 text-primary" /><h3 className="text-sm font-semibold">Análise de desempenho</h3></div>
-        <p className="min-h-12 text-xs leading-relaxed text-muted">{latestAnomaly?.content || 'O primeiro snapshot será comparado com a próxima janela. A IA só recebe anomalias já calculadas.'}</p>
+        <p className="min-h-12 text-xs leading-relaxed text-muted">{latestAnomaly?.content || 'As próximas leituras serão comparadas para identificar mudanças no desempenho.'}</p>
         <button type="button" className="btn-ghost text-[10px]" onClick={runAnomaly} disabled={runningAnomaly}>{runningAnomaly ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Analisar agora</button>
       </div>
     ),
@@ -150,11 +174,11 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
         {(['googleDrive', 'dropbox'] as const).map((provider) => {
           const item = cloud?.providers?.[provider]
           const label = provider === 'googleDrive' ? 'Google Drive' : 'Dropbox'
-          return <div key={provider} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2 text-[11px]"><span>{label}<small className={`ml-2 ${item?.connected ? 'text-success' : 'text-muted'}`}>{item?.connected ? 'conectado' : item?.configured ? 'pronto' : 'configuração pendente'}</small></span>{item?.connected ? <button type="button" className="btn-ghost text-[10px]" onClick={() => void syncCloud(provider)} disabled={syncingCloud === provider}>{syncingCloud === provider ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Sincronizar</button> : <button type="button" className="btn-ghost text-[10px]" onClick={() => void connectCloud(provider)} disabled={!item?.configured}>Conectar</button>}</div>
+          return <div key={provider} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 p-2 text-[11px]"><span>{label}<small className={`ml-2 ${item?.connected ? 'text-success' : 'text-muted'}`}>{item?.connected ? 'conectado' : item?.configured ? 'pronto' : 'configuração pendente'}</small></span>{item?.connected ? <button type="button" className="btn-ghost text-[10px]" onClick={() => void syncCloud(provider)} disabled={syncingCloud !== null}>{syncingCloud === provider ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Sincronizar</button> : <button type="button" className="btn-ghost text-[10px]" onClick={() => void connectCloud(provider)} disabled={!item?.configured}>Conectar</button>}</div>
         })}
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-[10px] text-faint">ID da pasta no Google Drive<input className="input mt-1 w-full text-[10px]" value={driveFolder} onChange={(event) => setDriveFolder(event.target.value)} placeholder="vazio = todos os vídeos" /></label>
-          <label className="text-[10px] text-faint">Caminho no Dropbox<input className="input mt-1 w-full text-[10px]" value={dropboxFolder} onChange={(event) => setDropboxFolder(event.target.value)} placeholder="/Criativos" /></label>
+          <label className="text-[10px] text-faint">ID da pasta no Google Drive<input className="input mt-1 w-full text-[10px]" value={driveFolder} onChange={(event) => { cloudDirty.current.googleDrive = true; setDriveFolder(event.target.value) }} placeholder="vazio = todos os vídeos" /></label>
+          <label className="text-[10px] text-faint">Caminho no Dropbox<input className="input mt-1 w-full text-[10px]" value={dropboxFolder} onChange={(event) => { cloudDirty.current.dropbox = true; setDropboxFolder(event.target.value) }} placeholder="/Criativos" /></label>
         </div>
         <p className="text-[10px] text-faint">Importa vídeos para usar depois nas campanhas.</p>
       </div>
@@ -166,8 +190,8 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
           <span>IPs bloqueados <b className="block text-foreground">{blocks && !blocksError ? blocks.blocks.filter(block => block.active).length : '—'}</b></span>
           <span>Fila de edições <b className={`block ${queue?.paused ? 'text-warning' : 'text-success'}`}>{!queue || queueError ? 'não disponível' : queue.paused ? 'pausada' : 'operando'}</b></span>
         </div>
-        {queue?.paused && <p className="text-[10px] text-warning">Rate limit detectado. Retomada automática {queue.pausedUntil ? new Date(queue.pausedUntil).toLocaleTimeString('pt-BR') : 'em breve'}.</p>}
-        {(blocks?.blocks || []).filter((block) => block.active).slice(0, 2).map((block) => <div key={block.ipHash} className="flex items-center justify-between text-[10px]"><span className="font-mono text-faint">{block.ipHash.slice(0, 12)}… · {block.count} sinais</span><button type="button" className="text-error" onClick={async () => { await apiSend(`/api/cloak/blocks/${encodeURIComponent(block.ipHash)}`, 'DELETE'); await mutateBlocks() }}>desbloquear</button></div>)}
+        {queue?.paused && <p className="text-[10px] text-warning">O TikTok limitou os envios. Retomada automática {queue.pausedUntil ? new Date(queue.pausedUntil).toLocaleTimeString('pt-BR') : 'em breve'}.</p>}
+        {(blocks?.blocks || []).filter((block) => block.active).slice(0, 2).map((block) => <div key={block.ipHash} className="flex items-center justify-between text-[10px]"><span className="font-mono text-faint">{block.ipHash.slice(0, 12)}… · {block.count} sinais</span><button type="button" className="text-error" disabled={unblocking !== null} onClick={() => unblock(block.ipHash)}>desbloquear</button></div>)}
       </div>
     ),
   }

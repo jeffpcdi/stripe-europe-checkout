@@ -1,11 +1,13 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Drawer de detalhe da campanha TikTok Ads — série temporal com recharts,
 // toggle de métrica (gasto/conversões/CTR), seletor de período e comparação
 // com o período anterior (curva fantasma + deltas nos KPIs), no mesmo padrão
 // visual do RevenueChart da Visão geral.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -17,12 +19,14 @@ import {
 } from 'recharts'
 import { X, TrendingDown, TrendingUp, History } from 'lucide-react'
 import { useAdsAudit, useAdsCampaignAnalytics } from '@/lib/api'
-import { fmtCompact } from '@/lib/format'
+import { fmtCompact, fmtSpend } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/skeleton'
 import { StatusPill } from '@/components/ads/campaign-tree'
 import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
-import { toLocalIsoDate } from './tiktok-contracts'
+import { adsDateRange, previousAdsRange, shiftAdsDay } from '@/lib/ads-time'
+import { useModalA11y } from '@/lib/use-modal-a11y'
+import { useReducedMotion } from '@/lib/motion'
 
 type Metric = 'spend' | 'conversions' | 'ctr'
 
@@ -38,19 +42,13 @@ const RANGES = [
   { days: 30, label: '30d' },
 ] as const
 
-function rangeDates(days: number, offsetPeriods = 0) {
-  const to = new Date(Date.now() - offsetPeriods * days * 864e5)
-  const from = new Date(to.getTime() - (days - 1) * 864e5)
-  return { fromDate: toLocalIsoDate(from), toDate: toLocalIsoDate(to) }
-}
-
 function fmtDay(day: unknown) {
   const [, m, d] = String(day ?? '').split('-')
   return d && m ? `${d}/${m}` : String(day ?? '')
 }
 
 function fmtMetric(metric: Metric, v: number, currency: string) {
-  if (metric === 'spend') return `${v.toFixed(2).replace('.', ',')} ${currency}`
+  if (metric === 'spend') return fmtSpend(v, currency)
   if (metric === 'ctr') return `${v.toFixed(2).replace('.', ',')}%`
   return fmtCompact(v)
 }
@@ -138,37 +136,33 @@ export function CampaignDrawer({
   advertiserId,
   currency,
   onClose,
-  attribution,
+  fromDate,
+  toDate,
+  timeZone,
 }: {
   campaign: AdsTreeCampaign | null
   advertiserId: string
   currency: string
   onClose: () => void
-  // vendas reais desta campanha (leads convertidos com utm_campaign = ID)
-  attribution?: { revenueCents: number; sales: number }
+  fromDate: string
+  toDate: string
+  timeZone?: string
 }) {
   const [metric, setMetric] = useState<Metric>('spend')
-  const [days, setDays] = useState<number>(7)
+  const [days, setDays] = useState<number | null>(null)
+  const reducedMotion = useReducedMotion()
   const panelRef = useRef<HTMLDivElement>(null)
 
   const id = campaign?.platformCampaignId ?? null
-  const cur = useMemo(() => rangeDates(days), [days])
-  const prev = useMemo(() => rangeDates(days, 1), [days])
+  const cur = useMemo(() => days ? adsDateRange(days, timeZone) : { fromDate, toDate }, [days, timeZone, fromDate, toDate])
+  const prev = useMemo(() => previousAdsRange(cur), [cur])
 
   const { data, isLoading, error } = useAdsCampaignAnalytics(id, advertiserId, cur)
   // comparação: mesmo tamanho de janela, imediatamente anterior
-  const { data: prevData } = useAdsCampaignAnalytics(id, advertiserId, prev)
-  const { data: audit } = useAdsAudit(Boolean(id))
+  const { data: prevData, error: prevError } = useAdsCampaignAnalytics(id, advertiserId, prev)
+  const { data: audit, error: auditError, isLoading: auditLoading } = useAdsAudit(Boolean(id))
 
-  useEffect(() => {
-    if (!id) return
-    panelRef.current?.focus()
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [id, onClose])
+  useModalA11y(Boolean(id), panelRef, onClose)
 
   if (!campaign || !id) return null
 
@@ -176,12 +170,14 @@ export function CampaignDrawer({
   const ccy = campaign.currency || currency
 
   // séries alinhadas por índice (dia N atual × dia N anterior)
-  const daily = data?.daily || []
-  const prevDaily = prevData?.daily || []
-  const rows: Row[] = daily.map((d, i) => {
+  const daily = [...(data?.daily || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  const prevDaily = !prevError && !prevData?.backfillPending ? prevData?.daily || [] : []
+  const previousByDate = new Map(prevDaily.map(day => [String(day.date).slice(0, 10), day]))
+  const offsetDays = Math.round((Date.parse(prev.fromDate) - Date.parse(cur.fromDate)) / 864e5)
+  const rows: Row[] = daily.map((d) => {
     const clicks = Number(d.clicks) || 0
     const imp = Number(d.impressions) || 0
-    const p = prevDaily[i]
+    const p = d.date ? previousByDate.get(shiftAdsDay(String(d.date), offsetDays)) : undefined
     const pClicks = Number(p?.clicks) || 0
     const pImp = Number(p?.impressions) || 0
     const ghost =
@@ -220,7 +216,7 @@ export function CampaignDrawer({
   }).slice(0, 20)
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Detalhe da campanha">
+    <DialogPortal><div className="ads-dialog fixed inset-0 z-50">
       <button
         type="button"
         aria-label="Fechar painel"
@@ -229,6 +225,7 @@ export function CampaignDrawer({
       />
       <div
         ref={panelRef}
+        role="dialog" aria-modal="true" aria-label="Detalhe da campanha"
         tabIndex={-1}
         className="anim-drawer-in absolute inset-y-0 right-0 flex w-full max-w-lg flex-col overflow-y-auto border-l border-border/60 bg-card shadow-2xl outline-none"
       >
@@ -250,16 +247,16 @@ export function CampaignDrawer({
         <div className="flex flex-col gap-4 px-5 py-4">
           {/* período + métrica */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Período">
+            <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="group" aria-label="Período">
+              <button type="button" aria-pressed={days === null} onClick={() => setDays(null)} className={cn("min-h-11 rounded-full px-3 text-xs", days === null ? "bg-[var(--active)] text-foreground" : "text-muted-foreground")}>Selecionado</button>
               {RANGES.map((r) => (
                 <button
                   key={r.days}
                   type="button"
-                  role="tab"
-                  aria-selected={days === r.days}
+                  aria-pressed={days === r.days}
                   onClick={() => setDays(r.days)}
                   className={cn(
-                    'rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150',
+                    'min-h-11 rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150',
                     days === r.days ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground hover:text-sub',
                   )}
                 >
@@ -267,16 +264,15 @@ export function CampaignDrawer({
                 </button>
               ))}
             </div>
-            <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Métrica">
+            <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="group" aria-label="Métrica">
               {METRICS.map((m) => (
                 <button
                   key={m.id}
                   type="button"
-                  role="tab"
-                  aria-selected={metric === m.id}
+                  aria-pressed={metric === m.id}
                   onClick={() => setMetric(m.id)}
                   className={cn(
-                    'rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150',
+                    'min-h-11 rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150',
                     metric === m.id ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground hover:text-sub',
                   )}
                 >
@@ -286,6 +282,8 @@ export function CampaignDrawer({
             </div>
           </div>
 
+          <p className="text-xs text-muted-foreground">{fmtDay(cur.fromDate)} a {fmtDay(cur.toDate)} · fuso {timeZone}</p>
+          {prevError && <p className="text-xs text-warning">Comparação anterior indisponível.</p>}
           {isLoading && !data ? (
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-2">
@@ -301,51 +299,28 @@ export function CampaignDrawer({
             </p>
           ) : (
             <>
-              {/* Vendas REAIS atribuídas (gateways → utm_campaign) */}
-              {attribution && attribution.sales > 0 && (
-                <div className="flex items-center justify-between gap-3 rounded-[10px] border border-success/25 bg-success/10 px-4 py-3">
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-success">
-                      Vendas reais atribuídas
-                    </p>
-                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">
-                      {attribution.sales} venda{attribution.sales === 1 ? '' : 's'} ·{' '}
-                      {(attribution.revenueCents / 100).toFixed(2).replace('.', ',')} {ccy}
-                    </p>
-                  </div>
-                  {tot.spend > 0 && (
-                    <div className="text-right">
-                      <p className="text-[11px] text-muted-foreground">ROAS real</p>
-                      <p className="text-lg font-bold tabular-nums text-success">
-                        {(attribution.revenueCents / 100 / tot.spend).toFixed(2).replace('.', ',')}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* KPIs com delta vs. período anterior */}
               <div className="grid grid-cols-2 gap-2">
                 <DeltaKpi
                   label="Gasto"
-                  value={`${tot.spend.toFixed(2).replace('.', ',')} ${ccy}`}
+                  value={data?.backfillPending ? '—' : fmtSpend(tot.spend, ccy)}
                   prev={pctDelta(tot.spend, pTot.spend)}
                   invert
                 />
                 <DeltaKpi
                   label="Conversões"
-                  value={fmtCompact(tot.conversions)}
+                  value={data?.backfillPending ? '—' : fmtCompact(tot.conversions)}
                   prev={pctDelta(tot.conversions, pTot.conversions)}
                 />
                 <DeltaKpi
                   label="CTR"
-                  value={`${ctrCur.toFixed(2).replace('.', ',')}%`}
+                  value={tot.impressions > 0 && !data?.backfillPending ? `${ctrCur.toFixed(2).replace('.', ',')}%` : '—'}
                   prev={pctDelta(ctrCur, ctrPrev)}
                 />
                 <DeltaKpi
                   label="CPA"
-                  value={cpaCur > 0 ? `${cpaCur.toFixed(2).replace('.', ',')} ${ccy}` : '—'}
-                  prev={cpaCur > 0 && cpaPrev > 0 ? pctDelta(cpaCur, cpaPrev) : null}
+                  value={tot.conversions > 0 && !data?.backfillPending ? fmtSpend(cpaCur, ccy) : '—'}
+                  prev={tot.conversions > 0 && cpaPrev > 0 ? pctDelta(cpaCur, cpaPrev) : null}
                   invert
                 />
               </div>
@@ -397,7 +372,7 @@ export function CampaignDrawer({
                           fill="none"
                           dot={false}
                           activeDot={false}
-                          animationDuration={500}
+                          isAnimationActive={!reducedMotion} animationDuration={500}
                         />
                       )}
                       <Area
@@ -407,7 +382,7 @@ export function CampaignDrawer({
                         stroke={conf.color}
                         strokeWidth={2}
                         fill={`url(#ads-grad-${metric})`}
-                        animationDuration={700}
+                        isAnimationActive={!reducedMotion} animationDuration={700}
                         style={{ filter: `drop-shadow(0 0 6px ${conf.color}66)` }}
                         activeDot={{ r: 4, strokeWidth: 0, fill: conf.color }}
                       />
@@ -430,17 +405,17 @@ export function CampaignDrawer({
           <section className="rounded-[10px] border border-border bg-secondary/15 p-4" aria-label="Linha do tempo de alterações">
             <div className="mb-3 flex items-center gap-2">
               <History className="size-4 text-primary" aria-hidden="true" />
-              <h3 className="text-xs font-semibold text-foreground">Time Machine</h3>
-              <span className="text-[10px] text-muted-foreground">histórico auditável</span>
+              <h3 className="text-xs font-semibold text-foreground">Histórico de alterações</h3>
+              <span className="text-[10px] text-muted-foreground"></span>
             </div>
-            {timeline.length ? (
+            {auditError ? <p role="alert" className="text-xs text-warning">Não foi possível carregar o histórico.</p> : auditLoading ? <p className="text-xs text-muted-foreground">Carregando histórico…</p> : timeline.length ? (
               <ol className="relative ml-1 border-l border-border pl-4">
                 {timeline.map((event) => (
                   <li key={event.id} className="relative pb-4 last:pb-0">
                     <span className="absolute -left-[1.22rem] top-1 size-2 rounded-full bg-primary shadow-[0_0_8px_rgba(37,244,238,.55)]" />
                     <p className="text-[11px] font-medium text-foreground">{event.reason || event.action.replace(/[._]/g, ' ')}</p>
                     <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
-                      {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(event.created_at))}
+                      {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone }).format(new Date(event.created_at))}
                       {' · '}{event.action}
                     </p>
                   </li>
@@ -452,6 +427,6 @@ export function CampaignDrawer({
           </section>
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

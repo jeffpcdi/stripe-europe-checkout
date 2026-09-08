@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Fluxo único: vários criativos, quantidade e orçamento. Pixel, evento de Compra,
 // catálogo, público, capa e Product Link vêm do backend.
 
@@ -232,7 +234,7 @@ export function CatalogQuickCampaignsDialog({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4" role="presentation">
+    <DialogPortal><div className="ads-dialog fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4" role="presentation">
       <div
         ref={dialogRef}
         role="dialog"
@@ -499,6 +501,6 @@ export function CatalogQuickCampaignsDialog({
           </button>
         </footer>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

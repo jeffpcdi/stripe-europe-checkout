@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, Rocket, UploadCloud, X, Sparkles, Wand2 } from 'lucide-react'
 import { adsUpload, apiSend } from '@/lib/api'
@@ -185,8 +187,8 @@ export function CreateAdPanel({
   if (!open) return null
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex justify-center bg-[radial-gradient(circle_at_top,rgba(37,244,238,.08),#050506_55%)] p-0 backdrop-blur-3xl sm:p-6"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex justify-center bg-[radial-gradient(circle_at_top,rgba(37,244,238,.08),#050506_55%)] p-0 backdrop-blur-3xl sm:p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget && !submitting) onClose()
       }}
@@ -540,6 +542,6 @@ export function CreateAdPanel({
           </div>
         </footer>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

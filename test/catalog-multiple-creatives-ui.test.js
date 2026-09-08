@@ -45,6 +45,7 @@ function harness(upload, create = async () => ({ count: 5 })) {
       };
       if (name === './tiktok-contracts') return { TIKTOK_MIN_BUDGET: 50, tiktokMinimumBudgetMessage: () => 'Mínimo 50' };
       if (name === '@/lib/toast') return { toast: new Proxy({}, { get: () => (...args) => messages.push(args) }) };
+      if (name === '@/components/ui/dialog-portal') return { DialogPortal: 'DialogPortal' };
       if (name === '@/lib/use-modal-a11y') return { useModalA11y() {} };
       throw Error(name);
     },

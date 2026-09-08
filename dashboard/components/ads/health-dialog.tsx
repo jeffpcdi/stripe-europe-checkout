@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Saúde das contas de anúncio + tickets de desbanimento (semi-automático).
 // O TikTok NÃO tem API de appeal: quando o painel detecta um banimento, o
 // backend abre um ticket com texto de recurso pré-gerado e link pro
@@ -198,7 +200,7 @@ function TicketCard({
 
 export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
-  const { data, mutate, isLoading } = useAdsHealth(open)
+  const { data, mutate, isLoading, error } = useAdsHealth(open)
   useModalA11y(open, ref, onClose)
 
   if (!open) return null
@@ -209,8 +211,8 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
   const closedTickets = tickets.filter((t) => t.status === 'resolved' || t.status === 'dismissed')
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
     >
       <button
         type="button"
@@ -248,6 +250,8 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="flex items-center justify-center py-8">
               <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden="true" />
             </div>
+          ) : error ? (
+            <div role="alert" className="space-y-3 text-sm text-warning"><p>Não foi possível verificar as contas.</p><button type="button" className="btn-secondary" onClick={() => mutate()}>Tentar novamente</button></div>
           ) : (
             <>
               {data?.enabled === false && (
@@ -335,6 +339,6 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
           </button>
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

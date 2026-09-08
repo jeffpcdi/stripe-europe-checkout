@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Criação de campanha Smart+ — formulário único e enxuto (não um wizard). O
 // TikTok automatiza targeting/lance/criativo, então o gestor só informa o
 // essencial: objetivo, orçamento total + término, vídeo e destino. Tudo nasce
@@ -108,7 +110,7 @@ export function SmartPlusCreateDialog({
         callToAction: cta,
       })
       if (res.dryRun) toast.info('Modo simulação: nada foi criado no TikTok')
-      else toast.success('Campanha Smart+ criada (pausada)', { hint: 'Revise e ative na aba Smart+.' })
+      else toast.success('Campanha Smart+ criada (pausada)', { hint: 'Revise e ative em Campanhas.' })
       onCreated()
       setName(''); setBudget(''); setEndDate(''); setCountries('BR'); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW')
       onClose()
@@ -122,8 +124,8 @@ export function SmartPlusCreateDialog({
   const field = 'input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground'
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose() }}
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Nova campanha Smart+" tabIndex={-1} className="w-full max-w-lg outline-none">
@@ -220,6 +222,6 @@ export function SmartPlusCreateDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

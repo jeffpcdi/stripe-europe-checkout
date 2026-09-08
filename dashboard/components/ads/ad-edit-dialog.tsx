@@ -1,5 +1,7 @@
 'use client'
 
+import { DialogPortal } from '@/components/ui/dialog-portal'
+
 // Editar um anúncio EXISTENTE sem recriar — texto, botão (CTA) e link de
 // destino. Fecha o motivo nº 1 de abrir o TikTok Ads Manager. Patch parcial:
 // só os campos preenchidos são enviados (PUT /api/ads/:adId { creative }).
@@ -71,8 +73,8 @@ export function AdEditDialog({
   const field = 'input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground'
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <DialogPortal><div
+      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Editar anúncio" tabIndex={-1} className="w-full max-w-md outline-none">
@@ -127,6 +129,6 @@ export function AdEditDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div></DialogPortal>
   )
 }

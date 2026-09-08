@@ -34,8 +34,10 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
     if (busy) return
     setBusy(kind)
     try {
-      const r = await apiSend<{ ok?: boolean; result?: string }>(`/api/ads/proposals/${p.id}/${kind}`, 'POST')
-      toast.success(kind === 'approve' ? r.result || 'Proposta aprovada e executada' : 'Proposta rejeitada')
+      const r = await apiSend<{ ok?: boolean; result?: string; warning?: string }>(`/api/ads/proposals/${p.id}/${kind}`, 'POST')
+      if (r.ok === false) toast.error('A ação não foi concluída', { hint: r.result })
+      else if (r.warning) toast.info('Ação enviada. Atualização dos dados pendente.', { hint: r.warning })
+      else toast.success(kind === 'approve' ? r.result || 'Proposta aprovada' : 'Proposta rejeitada')
       onDecided()
     } catch (e) {
       toast.error('Não foi possível decidir', { hint: e instanceof Error ? e.message : undefined })
@@ -54,7 +56,7 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
             {meta.label}: {cleanCampaignName(p.campaign_name || p.campaign_id)}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {p.detail || p.metric} · sugerida {timeAgo(p.created_at)} · expira em 6h
+            {p.detail || p.metric} · sugerida {timeAgo(p.created_at)}
           </p>
         </div>
       </div>
@@ -66,7 +68,7 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
           onClick={() => decide('approve')}
         >
           <Check className="size-3.5" aria-hidden="true" />
-          {busy === 'approve' ? 'Executando…' : 'Aprovar'}
+          {busy === 'approve' ? 'Enviando…' : 'Aprovar'}
         </button>
         <button
           type="button"

@@ -6,7 +6,6 @@
 // tabelas do dashboard (linhas com stagger, status dots, ações no hover).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronRight,
@@ -1087,7 +1086,7 @@ export function CampaignTree({
       />
 
       {/* Edição de anúncio (texto/CTA/link) sem recriar */}
-      <AdEditDialog
+      <AdEditDialog key={`${editAd?.adAccountId}:${editAd?.ad.platformAdId || editAd?.ad._id || 'closed'}`}
         ad={editAd?.ad ?? null}
         adAccountId={editAd?.adAccountId ?? ''}
         onClose={() => setEditAd(null)}
@@ -1148,7 +1147,7 @@ export function CampaignTree({
       )}
 
       {/* Modal de Ajuste de Orçamento em Lote */}
-      {bulkBudgetOpen && createPortal(<Modal isOpen={bulkBudgetOpen} onClose={() => { if (!bulkBudgetBusy) setBulkBudgetOpen(false) }} title="Ajustar orçamentos" description={`${selected.size} ${selected.size === 1 ? 'campanha selecionada' : 'campanhas selecionadas'}. O período de cada orçamento será mantido.`}>
+      {bulkBudgetOpen && <Modal isOpen={bulkBudgetOpen} onClose={() => { if (!bulkBudgetBusy) setBulkBudgetOpen(false) }} title="Ajustar orçamentos" description={`${selected.size} ${selected.size === 1 ? 'campanha selecionada' : 'campanhas selecionadas'}. O período de cada orçamento será mantido.`}>
             <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-secondary/30 p-1 mb-4 border border-border/40">
               <button
                 type="button"
@@ -1219,7 +1218,7 @@ export function CampaignTree({
                 )}
               </button>
             </div>
-      </Modal>, document.body)}
+      </Modal>}
     </GlassCard>
   )
 }

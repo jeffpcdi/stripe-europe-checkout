@@ -125,15 +125,9 @@ const ACTION_LABEL: Record<string, string> = {
 const DAY_LABELS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
 
 function ruleTitle(rule: AdsRule): string {
-  if (rule.pilot === 'protector') {
-    if (rule.metric === 'cpa_max') return `Protetor: CPA acima de ${rule.threshold} → pausar`
-    if (rule.metric === 'spend_no_conv') return `Protetor: gastou ${rule.threshold} sem venda → pausar`
-    if (rule.metric === 'cpc_max') return `Protetor: CPC acima de ${rule.threshold} → reduzir orçamento`
-  }
-  if (rule.pilot === 'scaler') {
-    return `Escalador: ROAS ≥ ${rule.threshold} → +${rule.pct}% (teto ${rule.budgetCap || 0}/dia)`
-  }
-  if (rule.pilot === 'schedule') return `Horário: ${rule.startTime || '00:00'}–${rule.endTime || '23:59'}`
+  if (rule.pilot === 'schedule') return `Horários: ${rule.startTime || '00:00'}–${rule.endTime || '23:59'}`
+  if (rule.pilot) return `${METRIC_META[rule.metric]?.name || rule.metric} · ${ACTION_LABEL[rule.action] || rule.action}`
+
   return rule.name || METRIC_META[rule.metric]?.name || rule.metric
 }
 
@@ -147,7 +141,7 @@ function summarize(r: AdsRule, currency: string): string {
     return `${meta.verb(r, currency)}${days ? ` · ${days}` : ' · todos os dias'}`
   }
   const parts = [
-    `${ACTION_LABEL[r.action] || r.action} ${r.metric === 'roas_scale' ? '' : ''}${meta.verb(r, currency).replace(/^age /, '')}`,
+    ['roas_scale', 'scheduled_scale', 'self_heal'].includes(r.metric) ? `${ACTION_LABEL[r.action] || r.action} em ${r.pct}% quando ROAS ≥ ${r.threshold}${r.metric === 'scheduled_scale' ? ` às ${r.triggerTime || '18:00'}` : ''}` : `${ACTION_LABEL[r.action] || r.action} ${meta.verb(r, currency).replace(/^age /, '')}`,
     `janela ${r.lookbackDays}d`,
   ]
   if (r.minClicks) parts.push(`min. ${r.minClicks} cliques`)
@@ -412,7 +406,7 @@ function RuleForm({
             value={draft.lookbackDays}
             onChange={(v) => set({ lookbackDays: v ?? 1 })}
             suffix="dias"
-            hint={draft.lookbackDays < 3 ? '⚠ Janela curta — o TikTok recomenda ~7d' : '1–30'}
+            hint={draft.lookbackDays < 3 ? 'Períodos curtos podem ter poucos dados' : '1–30'}
           />
           {isBudget && (
             <NumField
@@ -571,7 +565,7 @@ function RuleForm({
 // ═════════════════════════════════════════════════════════════════════════════
 export function AutomationPanel({
   active,
-  currency = '€',
+  currency = 'BRL',
   adAccountId = '',
   onOpenLimits,
 }: {
@@ -581,8 +575,9 @@ export function AutomationPanel({
   onOpenLimits?: () => void
 }) {
   const { data, mutate, isLoading, isValidating, error } = useAdsRules(active, adAccountId)
-  const { data: safetyData } = useAdsSafetyPolicy(active)
+  const { data: safetyData, error: safetyError } = useAdsSafetyPolicy(active)
 
+  const [newRule, setNewRule] = useState<AdsRule | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -607,9 +602,9 @@ export function AutomationPanel({
   const enabledCount = rules.filter((r) => r.enabled).length
   const automaticBlockedReason = (() => {
     const policy = safetyData?.policy
-    if (!policy) return null
+    if (safetyError || !policy) return 'Aguarde a confirmação dos limites de segurança. Se a conexão falhar, tente novamente.'
     if (!policy.enabled) return 'Ative a política de segurança antes de liberar ações automáticas.'
-    if (policy.blockedAdvertiserIds.map(String).includes(String(adAccountId))) {
+    if ((policy.blockedAdvertiserIds ?? []).map(String).includes(String(adAccountId))) {
       return 'Esta conta de anúncio está bloqueada pela política de segurança.'
     }
     if (!(policy.maxActionsPerHour > 0)) {
@@ -629,6 +624,7 @@ export function AutomationPanel({
 
   // PUT da lista COMPLETA (contrato da rota) com update otimista + rollback.
   async function saveRules(next: AdsRule[], okMsg: string) {
+    if (!data || saving) return false
     setSaving(true)
     const prev = data
     mutate(prev ? { ...prev, rules: next } : undefined, { revalidate: false })
@@ -667,7 +663,7 @@ export function AutomationPanel({
   }
 
   async function setAutonomy(autonomy: AdsAutomationAutonomy) {
-    if (!data || saving || autonomy === data.autonomy) return
+    if (!data || saving || autonomy === data.autonomy) return false
     setSaving(true)
     try {
       const next = await apiSend<AdsRulesResponse>('/api/ads/automation/autonomy', 'PUT', {
@@ -678,11 +674,13 @@ export function AutomationPanel({
       mutate(next, { revalidate: false })
       toast.success({
         notify: 'Só avisar: nenhuma regra pode agir; alertas estão ligados',
-        propose: 'Propor: toda regra aguarda sua aprovação',
-        auto: 'Agir sozinho: toda regra executa dentro dos limites',
+        propose: 'Pedir aprovação: as regras aguardam sua decisão',
+        auto: 'Aplicar sozinho: as regras seguem os limites definidos',
       }[autonomy])
+      return true
     } catch (error) {
       await handleSaveError(error, 'Falha ao alterar a autonomia')
+      return false
     } finally {
       setSaving(false)
     }
@@ -694,10 +692,11 @@ export function AutomationPanel({
       exists ? rules.map((r) => (r.id === updated.id ? updated : r)) : [...rules, updated],
       'Regra salva',
     )
-    if (ok) setExpandedId(null)
+    if (ok) { setExpandedId(null); setNewRule(null) }
   }
 
   async function deleteRule(id: string) {
+    if (newRule?.id === id) { setNewRule(null); setExpandedId(null); return }
     const ok = await saveRules(rules.filter((r) => r.id !== id), 'Regra removida')
     if (ok) setExpandedId(null)
   }
@@ -720,7 +719,7 @@ export function AutomationPanel({
       minImpressions: 1000,
     }
     // Entra direto expandida — o formulário É o fluxo de criação.
-    mutate(data ? { ...data, rules: [...rules, draft] } : undefined, { revalidate: false })
+    setNewRule(draft)
     setExpandedId(draft.id)
   }
 
@@ -736,7 +735,7 @@ export function AutomationPanel({
       const executed = r.executed ?? []
       const proposals = executed.filter((e) => e.proposed).length
       setTestResult(
-        executed.length === 0
+        r.skipped ? 'A avaliação não foi executada neste momento. Confira o estado do motor e os limites.' : executed.length === 0
           ? 'Avaliação completa — nenhuma regra disparou agora.'
           : `${executed.length} ${executed.length === 1 ? 'disparo' : 'disparos'}${proposals ? ` (${proposals} proposta${proposals > 1 ? 's' : ''} criada${proposals > 1 ? 's' : ''})` : ''} — veja o log abaixo.`,
       )
@@ -910,7 +909,7 @@ export function AutomationPanel({
               )}
               Avaliar agora
             </button>
-            <button type="button" className="btn-primary justify-center gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 12} title={rules.length >= 12 ? 'Limite de 12 regras por conta' : undefined}>
+            <button type="button" className="btn-primary justify-center gap-1 text-xs" onClick={addRule} disabled={saving || !!newRule || rules.length >= 12} title={rules.length >= 12 ? 'Limite de 12 regras por conta' : undefined}>
               <Plus className="size-3.5" aria-hidden="true" />
               Nova regra
             </button>
@@ -923,14 +922,14 @@ export function AutomationPanel({
           </p>
         ) : null}
 
-        {rules.length === 0 ? (
+        {rules.length === 0 && !newRule ? (
           <p className="py-6 text-center text-xs text-muted">
             Nenhuma regra. Crie a primeira com &quot;Nova regra&quot; — ela nasce em modo
             &quot;Propõe&quot;: nada é executado sem a sua aprovação.
           </p>
         ) : (
           <ul className="flex flex-col gap-2 mt-2">
-            {rules.map((r) => {
+            {[...rules, ...(newRule ? [newRule] : [])].map((r) => {
               const open = expandedId === r.id
               const meta = METRIC_META[r.metric]
               const last = lastAction(r.id, log)
@@ -991,7 +990,7 @@ export function AutomationPanel({
                     <Switch
                       checked={r.enabled}
                       disabled={saving}
-                      onCheckedChange={(on) => toggleRule(r, on)}
+                      onCheckedChange={(on) => { if (newRule?.id === r.id) setNewRule({ ...r, enabled: on }); else void toggleRule(r, on) }}
                       aria-label={`${r.enabled ? 'Pausar' : 'Ativar'} regra: ${ruleTitle(r)}`}
                       className="mt-0.5"
                     />
@@ -1005,7 +1004,7 @@ export function AutomationPanel({
                         onSave={saveRule}
                         onCancel={() => {
                           setExpandedId(null)
-                          mutate() // descarta rascunho de regra nova não salva
+                          setNewRule(null)
                         }}
                         onDelete={() => deleteRule(r.id)}
                       />
