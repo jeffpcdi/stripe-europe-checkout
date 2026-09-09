@@ -56,6 +56,8 @@ function EventIcon({ event }: { event: string }) {
     case 'sale':
     case 'test':
       return <ShoppingCart className={cn(cls, 'text-success')} aria-hidden="true" />
+    case 'pix_pending':
+      return <ShoppingCart className={cn(cls, 'text-warning')} aria-hidden="true" />
     case 'failed':
       return <CircleX className={cn(cls, 'text-error')} aria-hidden="true" />
     case 'refund':

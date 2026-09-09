@@ -3914,18 +3914,21 @@ function fireOutboundWebhook(n) {
   } catch (_) { /* webhook de saída nunca derruba a conversão */ }
 }
 
-function notifyPushcut(event, n) {
+async function notifyPushcut(event, n) {
   // Item 325/424: venda aprovada também dispara o webhook de saída da conta
   // (independe dos toggles do Pushcut — é outro canal).
   if (event === 'CompletePayment') fireOutboundWebhook(n);
-  const map = PUSHCUT_EVENT_MAP[event];
+  const pendingPix = n.paymentMethod === 'pix' && n.gatewayId && ['InitiateCheckout', 'AddPaymentInfo'].includes(event);
+  const map = pendingPix ? { key: 'pix_pending', name: 'Pix pendente' } : PUSHCUT_EVENT_MAP[event];
   if (!map) return;
+  if (pendingPix && await rdb.seenWebhookOrder(n.acc, 'pix_pending_notification', n.orderId, n.gatewayId).catch(() => false)) return;
   const valor = fmtMoney(n.amountCents, n.currency);
   // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
   // contas existentes, mas o recurso agora pertence à notificação nativa.
   const settings = config.get(n.acc).settings || {};
   const tpl = settings.notificationTemplate || settings.pushcutTemplate;
   const titles = {
+    pix_pending: 'Pix pendente' + (n.amountCents > 0 ? ' — ' + valor : ''),
     sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
     refund: `Reembolso — ${valor}`,
@@ -3934,7 +3937,7 @@ function notifyPushcut(event, n) {
   };
   sendPushcut(map.name, {
     title: titles[map.key],
-    text: [
+    text: pendingPix ? 'Aguardando pagamento.' : [
       n.customer ? `Cliente: ${n.customer}` : null,
       n.email ? `Email: ${n.email}` : null,
       n.product ? `Produto: ${n.product}` : null,
@@ -3947,6 +3950,7 @@ function notifyPushcut(event, n) {
   }, n.acc, {
     // meta para a copy do Web Push (notify-copy): evento + dados reais.
     event: map.key,
+    dedupeKey: pendingPix ? 'pix-pending:' + n.gatewayId + ':' + n.orderId : undefined,
     valor,
     produto: n.product || '',
     cliente: n.customer || '',
@@ -4283,6 +4287,25 @@ function submitConversion(n) {
   }
 }
 
+// Webhooks só confirmam recebimento depois que a fila aceitou o evento.
+// Em produção, indisponibilidade pede reentrega ao gateway sem marcar dedup.
+async function acceptWebhookConversion(n) {
+  if (!n._recvAt) n._recvAt = Date.now();
+  if (rdb.enabled) {
+    try {
+      if (!(await rdb.enqueueConversion(n))) return false;
+      convWorkerTick().catch((err) => console.error('[conversion] Worker:', err.message));
+      return true;
+    } catch (err) {
+      console.error('[conversion] Recebimento não persistido:', err.message);
+      return false;
+    }
+  }
+  if (process.env.NODE_ENV === 'production') return false;
+  const receipt = await processConversion(n);
+  return !!receipt && !receipt.retryable && receipt.status !== 'erro';
+}
+
 // Worker: consome a fila durável de conversões. Lock distribuído garante que,
 // com várias instâncias, só UMA drena por ciclo (evita disparo duplicado).
 let _convWorkerBusy = false;
@@ -4365,7 +4388,7 @@ function quarantineWebhook(req, route, reason, gatewayHint, accountId) {
 }
 
 // Endpoint público que os gateways chamam.
-app.post('/api/conversion', (req, res) => {
+app.post('/api/conversion', async (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
   if (!secret) {
     // nunca fica aberto sem segredo — instrui em vez de aceitar
@@ -4409,11 +4432,11 @@ app.post('/api/conversion', (req, res) => {
     quarantineWebhook(req, '/api/conversion', 'conta padrão indisponível — webhook recusado', String(req.query.gateway || ''), null);
     return res.status(503).json({ ok: false, error: 'conta indisponível, tente novamente' });
   }
-  // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
-  res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
-  // legado (sem conta no token): atribui à conta padrão
   n.acc = _defaultAccountId;
-  submitConversion(n);
+  if (!(await acceptWebhookConversion(n))) {
+    return res.status(503).json({ ok: false, code: 'CONVERSION_QUEUE_UNAVAILABLE', error: 'Recebimento indisponível. Reenvie o webhook.' });
+  }
+  res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
 });
 
 // ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
@@ -4468,27 +4491,18 @@ app.post('/hook/:token', async (req, res) => {
     return res.status(400).json({ ok: false, error: n.error });
   }
 
-  // 3. idempotência por order_id (item 45): gateways REENVIAM webhooks em
-  // retry — o mesmo pedido não pode disparar CompletePayment duas vezes.
-  // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
-  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
-  if (dup) {
-    rdb.bumpWebhookDedup(gw.accountId).catch(() => {}); // item 195
-    gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
-    rdb.pushConversionLog({
-      at: new Date().toISOString(), acc: gw.accountId,
-      gateway: gw.provider, event: n.event, status: 'duplicado',
-      orderId: n.orderId, error: 'reentrega do gateway ignorada (mesmo order_id em 24h)'
-    }).catch(() => {});
-    return res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId, deduplicated: true });
-  }
-
-  // 4. resposta imediata + processamento em background NA CONTA DO GATEWAY
-  res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId });
   n.acc = gw.accountId;
   n.gatewayId = gw.id;
-  gatewayStore.touch(gw.id, 'ok: ' + n.event);
-  submitConversion(n);
+  if (!(await acceptWebhookConversion(n))) {
+    gatewayStore.touch(gw.id, 'fila indisponível: aguardando reentrega');
+    return res.status(503).json({ ok: false, code: 'CONVERSION_QUEUE_UNAVAILABLE', error: 'Recebimento indisponível. Reenvie o webhook.' });
+  }
+  // Apenas observabilidade após persistência. A deduplicação do processamento
+  // continua autoritativa; um marcador de entrada nunca descarta uma venda.
+  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId, gw.provider).catch(() => false);
+  if (dup) rdb.bumpWebhookDedup(gw.accountId).catch(() => {});
+  gatewayStore.touch(gw.id, 'recebido: ' + n.event);
+  res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId, repeated: dup });
 });
 
 // ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════

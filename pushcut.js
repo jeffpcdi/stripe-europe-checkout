@@ -34,7 +34,7 @@ function nativePreferencesFor(accountId) {
 }
 
 function nativeGroup(event) {
-  if (event === 'sale' || event === 'test') return 'sales';
+  if (event === 'sale' || event === 'pix_pending' || event === 'test') return 'sales';
   if (['failed', 'refund', 'dispute', 'login', 'watchdog'].includes(event)) return 'risks';
   if (String(event || '').startsWith('ads_') || event === 'ads') return 'automation';
   return null;
@@ -50,7 +50,7 @@ function nativePreferenceEnabled(accountId, event) {
 // execuções automáticas bem-sucedidas continuam nos seus painéis próprios.
 function shouldRecord(event) {
   return [
-    'sale', 'failed', 'refund', 'dispute', 'login', 'watchdog',
+    'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog',
     'ads_attention', 'ads_rejected', 'ads_proposal', 'ads_failure',
     'ads_breaker', 'ads_cap',
   ].includes(event);
@@ -59,7 +59,7 @@ function shouldRecord(event) {
 function pushcutEventEnabled(accountId, event) {
   const events = (accountConfig(accountId).pushcut || {}).events || {};
   const key = {
-    sale: 'sale', failed: 'failed', refund: 'refund', dispute: 'dispute',
+    pix_pending: 'sale', sale: 'sale', failed: 'failed', refund: 'refund', dispute: 'dispute',
     checkout: 'checkout', daily: 'daily', login: 'login', watchdog: 'watchdog',
   }[event];
   if (!key) return true; // integrações antigas de Ads não tinham toggles próprios

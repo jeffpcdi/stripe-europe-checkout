@@ -30,8 +30,8 @@ const PREFERENCES: {
 }[] = [
   {
     key: 'sales',
-    label: 'Vendas',
-    hint: 'Pagamentos confirmados',
+    label: 'Vendas e Pix pendente',
+    hint: 'Compras aprovadas e Pix aguardando pagamento',
     icon: CircleDollarSign,
   },
   {

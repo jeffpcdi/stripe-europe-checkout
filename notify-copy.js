@@ -124,6 +124,7 @@ const POOLS = {
 //   info  = tom médio suave (ads/resumo)
 const SOUNDS = {
   sale: 'cash',
+  pix_pending: 'tick',
   test: 'cash',
   failed: 'alert',
   refund: 'alert',
@@ -147,7 +148,7 @@ const SOUNDS = {
 // tela de bloqueio. Eventos financeiros e de segurança EMPILHAM (tag única
 // por notificação — você nunca perde uma venda porque outra chegou depois);
 // eventos de status SUBSTITUEM (tag fixa — só a última importa, sem poluir).
-const STACKED = new Set(['sale', 'failed', 'refund', 'dispute', 'login', 'ads_proposal', 'ads_failure']);
+const STACKED = new Set(['pix_pending', 'sale', 'failed', 'refund', 'dispute', 'login', 'ads_proposal', 'ads_failure']);
 function tagFor(event) {
   const ev = event || 'geral';
   if (STACKED.has(ev)) return 'roinados-' + ev + '-' + Date.now().toString(36);
@@ -157,6 +158,7 @@ function tagFor(event) {
 // Deep link por evento (basePath /dashboard já embutido)
 const URLS = {
   sale: '/dashboard/activity',
+  pix_pending: '/dashboard/activity',
   failed: '/dashboard/activity',
   refund: '/dashboard/activity',
   dispute: '/dashboard/activity',

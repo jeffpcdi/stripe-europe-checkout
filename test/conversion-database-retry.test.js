@@ -59,5 +59,39 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(timers.length, 1);
   assert.strictEqual(timers[0].ms, 30000);
+  // O recebimento HTTP aguarda a persistência e não confirma fila indisponível.
+  context.process = { env: { NODE_ENV: 'production' } };
+  assert.strictEqual(await context.acceptWebhookConversion({}), false, 'produção sem fila pede reentrega');
+  rdb.enabled = true;
+  let confirmQueue;
+  rdb.enqueueConversion = () => new Promise(resolve => { confirmQueue = resolve; });
+  context.convWorkerTick = async () => {};
+  let accepted = false;
+  const pending = context.acceptWebhookConversion({}).then(result => { accepted = result; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(accepted, false, 'não confirma antes da fila');
+  confirmQueue(true);
+  await pending;
+  assert.strictEqual(accepted, true);
+  rdb.enqueueConversion = async () => false;
+  assert.strictEqual(await context.acceptWebhookConversion({}), false);
+  rdb.enqueueConversion = async () => { throw Error('offline'); };
+  assert.strictEqual(await context.acceptWebhookConversion({}), false);
+  const redisSource = fs.readFileSync(path.join(__dirname, '..', 'redis.js'), 'utf8');
+  const queueContext = vm.createContext({ enabled: true, Date, JSON, Number, console,
+    CONV_QUEUE: 'isolated', CONV_QUEUE_CAP: 2, redisRandId: () => 'qid',
+    redis: { eval: async (script, keys, args) => {
+      assert.ok(!script.includes('LTRIM'), 'não remove pedidos antigos');
+      assert.strictEqual(keys[0], 'isolated');
+      assert.strictEqual(args[0], '2');
+      return 0;
+    } },
+  });
+  const enqueueStart = redisSource.indexOf('async function enqueueConversion(n)');
+  const enqueueEnd = redisSource.indexOf('// Move até', enqueueStart);
+  vm.runInContext(redisSource.slice(enqueueStart, enqueueEnd), queueContext);
+  assert.strictEqual(await queueContext.enqueueConversion({ orderId: 'full' }), false, 'fila cheia recusa recebimento');
+  queueContext.redis.eval = async () => 1;
+  assert.strictEqual(await queueContext.enqueueConversion({ orderId: 'accepted' }), true);
   console.log('conversion-database-retry: falha preserva venda, recuperação confirma e fallback inline tenta novamente OK');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

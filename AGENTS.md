@@ -1330,3 +1330,20 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   Títulos personalizados continuam válidos dentro do limite. Som e abertura em Atividade
   são preservados. O tamanho visual final depende do iOS e do tamanho de fonte do aparelho.
 - Regressões em `test/web-push.test.js`, sem envio para aparelhos reais.
+
+### Recebimento confiável dos webhooks (2026-09-08)
+- `/hook/:token` e `/api/conversion` aguardam confirmação de `enqueueConversion` antes
+  do HTTP 200. Em produção, fila ausente/indisponível retorna 503 com
+  `CONVERSION_QUEUE_UNAVAILABLE` para o provedor reenviar; não usa fallback volátil.
+- O marcador de reentrega só é gravado após enqueue e inclui conta, provider, evento
+  e pedido. É observabilidade (`repeated`), nunca descarta antes da fila. A deduplicação
+  de processamento/receita continua responsável por impedir efeitos repetidos.
+- Testes em `conversion-database-retry` e `security`, com fila pendente, recusada e offline.
+
+- Fila cheia recusa novos eventos atomicamente, sem LTRIM que apagava recebimentos antigos.
+- Pix pendente: método explícito `pix` + evento de checkout/pagamento iniciado vindo de gateway
+  vinculado gera `pix_pending`, no grupo Vendas, com aviso curto e som discreto. Não contabiliza
+  receita nem envia Purchase. Aviso deduplicado por conta/gateway/pedido por 24h; compra aprovada
+  mantém aviso independente. O gateway precisa enviar também o evento pendente.
+- Stripe `checkout.session.completed` com `payment_status=unpaid` permanece pendente até
+  confirmação assíncrona; não dispara compra antecipada.

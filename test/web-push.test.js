@@ -241,3 +241,14 @@ test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload ori
     global.fetch = originals.fetch;
   }
 });
+
+
+test('Pix pendente: aviso curto no grupo de vendas com som discreto', () => {
+  const notifications = require('../pushcut');
+  assert.strictEqual(notifications._nativeGroup('pix_pending'), 'sales');
+  assert.strictEqual(notifications._shouldRecord('pix_pending'), true);
+  const note = notifyCopy.build({ payload: { title: 'Pix pendente — R$ 97,00', text: 'Aguardando pagamento.' }, meta: { event: 'pix_pending' }, funMode: true });
+  assert.strictEqual(note.body, 'Aguardando pagamento.');
+  assert.strictEqual(note.sound, 'tick');
+  assert.strictEqual(note.url, '/dashboard/activity');
+});

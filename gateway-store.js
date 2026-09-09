@@ -302,7 +302,8 @@ function adaptPayload(provider, body) {
     'payment_intent.payment_failed': 'failed',
     'checkout.session.async_payment_failed': 'failed'
   };
-  const mapped = EVENT_MAP[type];
+  const mapped = type === 'checkout.session.completed' && obj.payment_status === 'unpaid'
+    ? 'pending' : EVENT_MAP[type];
   if (!mapped) return { event: type }; // evento não relevante → normalizador rejeita com clareza
   const details = obj.customer_details || {};
   return {

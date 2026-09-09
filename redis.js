@@ -275,9 +275,9 @@ function _memSeen(key, ttlMs) {
   return false;
 }
 
-async function seenWebhookOrder(accountId, event, orderId) {
+async function seenWebhookOrder(accountId, event, orderId, gateway) {
   if (!orderId) return false; // sem order_id não há como deduplicar
-  const key = 'whdedup:' + (accountId || 'default') + ':' + String(event || '') + ':' + String(orderId).slice(0, 120);
+  const key = 'whdedup:v2:' + JSON.stringify([accountId || 'default', gateway || '', event || '', String(orderId)]);
   if (!enabled) return _memSeen(key, 24 * 3600 * 1000);
   try {
     const res = await redis.set(key, '1', { ex: 24 * 3600, nx: true });
@@ -551,11 +551,12 @@ async function enqueueConversion(n) {
   if (!enabled) return false;
   try {
     const env = { qid: (redisRandId()), at: Date.now(), n };
-    const pipe = redis.pipeline();
-    pipe.lpush(CONV_QUEUE, JSON.stringify(env));
-    pipe.ltrim(CONV_QUEUE, 0, CONV_QUEUE_CAP - 1);
-    await pipe.exec();
-    return true;
+    // Fila cheia recusa o novo item sem apagar vendas antigas já confirmadas.
+    const accepted = await redis.eval(
+      "if redis.call('LLEN', KEYS[1]) >= tonumber(ARGV[1]) then return 0 end redis.call('LPUSH', KEYS[1], ARGV[2]) return 1",
+      [CONV_QUEUE], [String(CONV_QUEUE_CAP), JSON.stringify(env)]
+    );
+    return Number(accepted) === 1;
   } catch (err) {
     console.error('[redis] enqueueConversion:', err.message);
     return false;

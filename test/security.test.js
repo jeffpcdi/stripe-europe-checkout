@@ -76,6 +76,9 @@ const linkStore = require('../link-store');
   assert.strictEqual(await redis.seenWebhookOrder('acc2', 'CompletePayment', 'PED-1'), false, 'conta diferente passa');
   assert.strictEqual(await redis.seenWebhookOrder('acc1', 'Refund', 'PED-1'), false, 'evento diferente passa');
   assert.strictEqual(await redis.seenWebhookOrder('acc1', 'CompletePayment', ''), false, 'sem order_id não deduplica');
+  assert.strictEqual(await redis.seenWebhookOrder('acc1', 'CompletePayment', 'same', 'stripe'), false);
+  assert.strictEqual(await redis.seenWebhookOrder('acc1', 'CompletePayment', 'same', 'kiwify'), false);
+  assert.strictEqual(await redis.seenWebhookOrder('acc1', 'CompletePayment', 'same', 'stripe'), true);
   console.log('C. idempotência de webhook (dedup por conta+evento+order) OK');
 
   // ── D. edição de gateway preserva token (item 33) ─────────────────────────

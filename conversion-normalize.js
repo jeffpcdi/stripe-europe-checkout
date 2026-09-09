@@ -295,6 +295,15 @@ function pickLeadId(b) {
   return candidates[0];
 }
 
+// Só classifica Pix por campos de pagamento, nunca por nome de produto ou cliente.
+function paymentMethod(body) {
+  const fields = collectFields(body || {}, new Set(['payment_method', 'paymentmethod', 'payment_type', 'paymenttype', 'payment_method_name', 'billing_type']));
+  if (Object.values(fields).some(value => typeof value === 'string' && value.trim().toLowerCase() === 'pix')) return 'pix';
+  const payment = body && (body.payment || (body.data && body.data.payment));
+  if (payment && typeof payment === 'object' && ['type', 'method'].some(key => String(payment[key] || '').toLowerCase() === 'pix')) return 'pix';
+  return null;
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
   const operational = operationalWebhook(body);
@@ -337,6 +346,7 @@ function normalizeConversion(body, query) {
     ['product_cost', 'cost', 'cogs'], moneyOpts);
   return {
     event,
+    paymentMethod: paymentMethod(body),
     gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
     orderId: String(orderId).slice(0, 120),
     amountCents: hasAmount ? amountCents : 0,
