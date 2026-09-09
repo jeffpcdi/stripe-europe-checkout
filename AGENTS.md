@@ -983,7 +983,8 @@ só no Railway (§5.2.2).
 - `lib/types.ts` espelha os shapes JSON do Express; `lib/metrics.ts` deriva KPIs/funil/série do
   `/api/stats`; `lib/format.ts` formata moeda/número/data em pt-BR (moeda multi com padrão BRL);
 `lib/navigation.ts` é a fonte
-  única do menu (seções Operação/Rastreamento/Conta) usada por sidebar, mobile-nav e subnav.
+  única do menu (seções Operação/Rastreamento/Conta), usada pela navegação superior e subnav.
+  Sidebar e mobile-nav permanecem como componentes antigos, sem montagem no layout atual.
 
 ### 19.3 Páginas (App Router, grupo `(dashboard)`)
 `/` Visão geral (indicadores + globo de presença + funil) · `/live` e `/geo` redirecionam para `/` ·
@@ -1073,16 +1074,22 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   `#fe2c55` (ao vivo/atenção/perigo), verde `#22c55e` (**só dinheiro/sucesso**), dourado `#fbbf24`
   (avisos/checkout), texto `#f4f4f5`/`#a1a1aa`. Degradê ciano→rosa (`--brand-grad`) é **reservado**
   a: logo, card-herói de Receita e anel do globo.
-- **Linguagem visual:** glassmorphism escuro (cards translúcidos com `backdrop-blur` e borda 8–12%
-  branco), orbes de aurora derivando ao fundo, grelha de pontos sutil, hairlines com gradiente,
-  labels mono uppercase 11px, números tabulares, KPIs em grelha 4→2→1.
-- **Layout:** sidebar fixa à esquerda (logo neon + seções MÉTRICAS/GESTÃO/SISTEMA + indicador
-  ativo ciano-rosa) — substituiu as pills do topo; header com título da página, data e badge
-  "Ao vivo"; conteúdo em `main` com container central. Mobile: `mobile-nav.tsx` (menu deslizante).
-- **Globo 3D** (`components/geo/globe.tsx`): textura blue-marble local (`/assets/`), polígonos de
-  países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen. O movimento é
-  deliberadamente discreto (máx. 3 anéis, 3 arcos e 2 rótulos), respeita `prefers-reduced-motion` e
-  não usa estrelas decorativas; a entrada curta só roda uma vez por sessão.
+- **Linguagem visual:** fundo espacial com estrelas locais e superfícies escuras mais sólidas,
+  definidas pelos tokens `--surface-*`. `GlassCard` aplica `surface-card`; Visão geral usa o mesmo
+  material em métricas, funil e atividade. Números tabulares, títulos claros, bordas com contraste
+  e KPIs em grelha 4→2→1. Destaques ciano indicam ações/seleção, verde destaca receita/compra;
+  tons âmbar e violeta integram o ambiente espacial sem substituir cores de erro.
+- **Layout:** `TopNav` envolve `Header` em um cabeçalho único preso ao topo, com a logo original
+  à esquerda (imagem 96px no desktop, 64px no tablet e 58px no celular, sem editar o asset).
+  Título e ações da conta dividem a primeira linha; navegação fica abaixo. Até 1099px, Menu abre
+  uma grade com todas as áreas, fechada ao navegar, clicar fora ou pressionar Escape. O menu
+  possui altura limitada em telas baixas. Notificações, privacidade e conta usam alvos consistentes;
+  conteúdo ocupa a largura disponível, sem sidebar nem carrossel de abas.
+- **Globo 3D** (`components/geo/globe.tsx`): texturas locais em `/dashboard/textures/`, presença
+  real, zoom e diálogo fullscreen nativo. Estrelas em SVG local e disco luminoso inclinado
+  inspirado em um buraco negro ficam atrás do canvas transparente. A expansão revela a tela
+  a partir da posição do card, com entrada escalonada dos controles e saída animada, sem
+  esticar a esfera. Respeita movimento reduzido e preferência de animações da dashboard.
 - **Notificações:** `NotificationBell` mostra no máximo 8 itens, diferencia prioridade crítica sem
   multiplicar alertas e sincroniza o visto entre os sinos de desktop/mobile. Eventos de automação TikTok
   devem apontar para `/dashboard/ads/tiktok?tab=automation` (o cliente ainda aceita o alias legado `view`).
@@ -1362,3 +1369,18 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - Validação local: build Next, dashboard-ui-integrity e dashboard-modal-focus aprovados;
   prévia com APIs isoladas em 390×844 e 844×390, abertura/fechamento e Escape conferidos,
   foco e rolagem restaurados, sem erros no console. Não equivale a teste em iPhone físico.
+
+### Composição espacial e cabeçalho integrado (2026-09-09)
+- Fundo usa `dashboard/public/space-stars.svg`, sem CDN. O disco luminoso âmbar fica atrás
+  do globo; o canvas mantém suas medidas próprias durante a expansão. A animação usa
+  recorte da posição original do card, com retorno de foco explícito ao botão Tela cheia.
+- O cabeçalho atual e os tokens de superfície estão descritos em §19.4. O menu móvel é
+  uma grade expansível, com estado acessível e fechamento por Escape; não depende de
+  rolagem horizontal. O asset original da logo foi preservado.
+- Métricas, funil, atividade, campanhas em destaque e países compartilham contraste e
+  espaçamento. Seleção de período permite setas/Home/End; contagem de países não força
+  uma barra mínima fictícia. O aviso de presença remove a alegação de origem TikTok e
+  identifica a demonstração como Simulação. Dados e integrações continuam nos hooks existentes.
+- Esta última revisão do cabeçalho/cards aguarda testes no navegador, conforme pedido
+  explícito do usuário. As verificações interativas do item anterior são da versão anterior.
+  Compilação Next/TypeScript e `git diff --check` aprovados após a nova implementação.

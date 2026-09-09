@@ -33,13 +33,13 @@ interface MetricProps {
   footer: ReactNode
   badge?: ReactNode
   monetary?: boolean
-  theme?: 'green' | 'pink' | 'cyan' | 'amber'
+  theme?: 'green' | 'pink' | 'cyan' | 'amber' | 'violet'
 }
 
 function Metric({ title, description, icon: Icon, index, value, footer, badge, monetary = false, theme = 'cyan' }: MetricProps) {
   return (
     <article
-      className="overview-metric group cursor-default"
+      className="overview-metric surface-card group cursor-default"
       data-theme={theme}
       style={{ '--metric-index': index } as CSSProperties}
       aria-label={title}
@@ -102,7 +102,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
         description="Investimento total da conta de anúncios, incluindo campanhas pausadas e encerradas."
         icon={Megaphone}
         index={1}
-        theme="pink"
+        theme="amber"
         monetary
         value={spend !== null ? <CountUp value={spend} format={adsMoney} /> : '—'}
         footer={
@@ -110,7 +110,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
             <span className={adsError ? 'text-warning font-medium' : undefined}>
               {adsError ? 'Atualização pendente' : spend === null ? 'Dados indisponíveis' : allPeriod ? 'TikTok Ads · últimos 90 dias' : 'TikTok Ads · todas as campanhas'}
             </span>
-            <Link href="/ads/tiktok" className="group-hover:translate-x-0.5 transition-transform">
+            <Link href="/ads/tiktok" className="overview-metric-action">
               Ver campanhas <ArrowUpRight size={13} aria-hidden="true" />
             </Link>
           </>
@@ -135,11 +135,11 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
         description="Visitantes que chegaram à compra aprovada no período."
         icon={Funnel}
         index={3}
-        theme="amber"
+        theme="violet"
         value={conversion !== null ? <CountUp value={conversion} format={(value) => `${decimal(value)}%`} /> : '—'}
         footer={
           <>
-            <span><strong>{purchased.toLocaleString('pt-BR')}</strong> compras · <strong>{visits.toLocaleString('pt-BR')}</strong> visitas</span>
+            <span><strong>{purchased.toLocaleString('pt-BR')}</strong> {purchased === 1 ? 'compra' : 'compras'} · <strong>{visits.toLocaleString('pt-BR')}</strong> {visits === 1 ? 'visita' : 'visitas'}</span>
             <span>Aprovação no checkout <strong>{visits > 0 ? `${decimal(approval, 0)}%` : '—'}</strong></span>
           </>
         }

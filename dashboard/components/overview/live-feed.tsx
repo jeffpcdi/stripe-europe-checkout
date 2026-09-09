@@ -36,21 +36,10 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
     .slice(0, 4)
 
   return (
-    <section className="recent-visits group/feed" aria-label="Últimas visitas">
-      <header className="overview-section-heading mb-4">
-        <h2 className="flex items-center gap-2">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.12)]">
-            <History size={14} className="text-emerald-400" aria-hidden="true" />
-          </span>
-          <span className="text-sm font-semibold text-foreground">Atividade recente</span>
-          <span className="relative flex size-2 ml-1">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-          </span>
-        </h2>
-        <Link href="/activity" className="group text-xs font-semibold text-brand-cyan hover:underline flex items-center gap-1">
-          Histórico <ArrowUpRight size={13} aria-hidden="true" className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-        </Link>
+    <section className="recent-visits surface-card" aria-label="Últimas visitas">
+      <header className="overview-section-heading">
+        <h2><span className="overview-section-icon"><History size={17} aria-hidden="true" /></span>Atividade recente</h2>
+        <Link href="/activity" className="overview-section-link">Histórico <ArrowUpRight size={14} aria-hidden="true" /></Link>
       </header>
       {!rows.length ? (
         <div className="recent-visits-empty">
@@ -67,22 +56,19 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
             return (
               <li
                 key={lead.id}
-                className={`recent-visit-row group transition-all duration-200 hover:translate-x-1 hover:bg-secondary/40 rounded-xl px-3 py-2.5 border ${
-                  isPurchased
-                    ? 'border-success/30 bg-success/5 shadow-[0_0_12px_rgba(34,197,94,0.08)]'
-                    : 'border-border/50 bg-secondary/15'
-                }`}
+                className="recent-visit-row"
+                data-purchased={isPurchased}
               >
-                <span className="recent-visit-place shadow-sm flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary/80 border border-border/60 text-base" aria-hidden="true">
+                <span className="recent-visit-place" aria-hidden="true">
                   {lead.country ? countryFlag(lead.country) : <MapPin size={16} />}
                 </span>
-                <div className="recent-visit-detail min-w-0 flex-1 ml-1">
-                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+                <div className="recent-visit-detail">
+                  <div className="recent-visit-description">
                     <strong className="truncate text-xs font-semibold text-foreground max-w-full">
                       {lead.city || (lead.country ? countryName(lead.country) : lead.countryName) || 'Local não informado'}
                     </strong>
                     <span
-                      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${stageInfo.badgeClass}`}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${stageInfo.badgeClass}`}
                     >
                       <StageIcon size={10} aria-hidden="true" />
                       {stageInfo.label}
@@ -93,14 +79,14 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                   {isPurchased && Number(lead.amount) > 0 && (
                     <strong
                       data-sensitive
-                      className="font-mono text-xs font-bold text-success drop-shadow-[0_0_8px_rgba(34,197,94,0.25)]"
+                      className="font-semibold text-success"
                     >
                       {fmtCurrency(lead.amount as number, lead.currency)}
                     </strong>
                   )}
                   <time
                     dateTime={lead.at}
-                    className="text-[10px] text-muted-foreground font-mono"
+                    className="text-[11px] text-muted-foreground font-mono"
                     title={new Date(lead.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
                   >
                     {timeAgo(lead.at)}

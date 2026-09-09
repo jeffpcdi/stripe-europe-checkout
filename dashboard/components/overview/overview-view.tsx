@@ -339,12 +339,13 @@ export function OverviewView() {
 
   return (
     <div
-      className={`w-full max-w-none flex flex-col gap-5 sm:gap-6 ${
+      className={`overview-view w-full max-w-none flex flex-col gap-5 sm:gap-6 ${
         firstEnter ? 'stagger-fade' : ''
       }`}
     >
       {/* ── SELETOR DE PERÍODO ── */}
-      <div className="flex items-center justify-end pb-1">
+      <div className="overview-toolbar">
+        <h2>Resultados</h2>
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
@@ -371,7 +372,7 @@ export function OverviewView() {
 
       {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}
       <section
-        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+        className="overview-detail-grid"
         aria-label="Funil de vendas e atividade recente"
       >
         <FunnelGauge
@@ -386,21 +387,21 @@ export function OverviewView() {
       {/* ── SEÇÃO 4: MOSTRADORES DE DESEMPENHO E SAÚDE ──────────────────── */}
       <section
         aria-label="Desempenho e conformidade"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        className="overview-insight-grid"
       >
         {/* Campanhas em destaque */}
-        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
-          <div className="flex items-center justify-between pb-0.5">
-            <div className="flex items-center gap-2">
+        <GlassCard variant="thick" className="overview-insight-card flex flex-col gap-4 p-5">
+          <div className="overview-insight-heading">
+            <div className="flex flex-wrap items-center gap-2">
               <span
                 data-tooltip="Campanhas com mais compras convertidas no período selecionado."
-                className="text-xs font-semibold uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5 cursor-help"
+                className="text-sm font-semibold text-foreground inline-flex items-center gap-1.5 cursor-help"
               >
                 <TrendingUp className="size-3.5 text-brand-cyan" />
                 Campanhas em destaque
               </span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
-                <div className="flex items-center rounded-lg border border-border/70 bg-secondary/50 p-0.5 text-[10px] font-medium shadow-inner">
+                <div className="flex items-center rounded-lg border border-border/70 bg-secondary/50 p-0.5 text-xs font-medium shadow-inner">
                   <button
                     type="button"
                     onClick={() => setCampaignTab('tiktok')}
@@ -442,24 +443,16 @@ export function OverviewView() {
               {tikTokCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.id || c.name}
-                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-secondary/20 px-3 py-2.5 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
+                  className="overview-campaign-row"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <span
-                      className={`flex size-5.5 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ${
-                        i === 0
-                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                          : i === 1
-                          ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
-                          : i === 2
-                          ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
-                          : 'bg-secondary text-muted-foreground border border-border/40'
-                      }`}
+                      className="overview-rank"
                     >
                       {i + 1}
                     </span>
                     <div className="flex min-w-0 flex-col">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
                           {c.name}
                         </span>
@@ -469,9 +462,9 @@ export function OverviewView() {
                               ? 'Campanha ativa veiculando anúncios.'
                               : 'Campanha pausada no TikTok.'
                           }
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium cursor-help ${
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium cursor-help ${
                             c.status === 'active' || c.status === 'ENABLE'
-                              ? 'border border-success/30 bg-success/15 text-success font-semibold shadow-[0_0_6px_rgba(34,197,94,0.15)]'
+                              ? 'border border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan font-semibold'
                               : 'bg-secondary text-muted-foreground'
                           }`}
                         >
@@ -480,7 +473,7 @@ export function OverviewView() {
                       </div>
                       <span
                         data-tooltip="Valor total consumido por esta campanha no período."
-                        className="text-[10px] text-muted-foreground cursor-help font-mono"
+                        className="text-xs text-muted-foreground cursor-help font-mono"
                       >
                         {fmtAdsMoney(c.spend, roas?.currency || 'BRL')} investidos
                       </span>
@@ -496,7 +489,7 @@ export function OverviewView() {
                     {c.roas !== null && c.roas > 0 && (
                       <span
                         data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
-                        className="rounded-lg border border-brand-cyan/35 bg-brand-cyan/15 px-2 py-0.5 font-mono text-[10px] font-bold text-brand-cyan cursor-help shadow-[0_0_10px_rgba(37,244,238,0.2)]"
+                        className="rounded-lg border border-brand-cyan/35 bg-brand-cyan/15 px-2 py-0.5 font-mono text-xs font-bold text-brand-cyan cursor-help "
                       >
                         {c.roas.toFixed(2).replace('.', ',')}x
                       </span>
@@ -510,19 +503,11 @@ export function OverviewView() {
               {cur.topCampaigns.slice(0, 4).map((c, i) => (
                 <div
                   key={c.name}
-                  className="group flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-secondary/20 px-3 py-2.5 transition-all hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5"
+                  className="overview-campaign-row"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <span
-                      className={`flex size-5.5 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ${
-                        i === 0
-                          ? 'border border-amber-500/40 bg-amber-500/20 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                          : i === 1
-                          ? 'border border-slate-400/30 bg-slate-400/15 text-slate-200'
-                          : i === 2
-                          ? 'border border-orange-500/30 bg-orange-500/15 text-orange-300'
-                          : 'bg-secondary text-muted-foreground border border-border/40'
-                      }`}
+                      className="overview-rank"
                     >
                       {i + 1}
                     </span>
@@ -539,7 +524,7 @@ export function OverviewView() {
                     </span>
                     <span
                       data-tooltip="Taxa de conversão de visitantes desta campanha."
-                      className="font-mono text-[10px] text-muted-foreground cursor-help"
+                      className="font-mono text-xs text-muted-foreground cursor-help"
                     >
                       {c.conv.toFixed(1).replace('.', ',')}%
                     </span>
@@ -555,11 +540,11 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Distribuição Global Interativa */}
-        <GlassCard variant="thick" className="flex flex-col gap-3.5 p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
-          <div className="flex items-center justify-between pb-0.5">
+        <GlassCard variant="thick" className="overview-insight-card flex flex-col gap-4 p-5">
+          <div className="overview-insight-heading">
             <span
               data-tooltip="Países com maior volume de acessos. Clique em qualquer país para centralizar o globo 3D."
-              className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
+              className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
             >
               <Globe2 className="size-3.5 text-brand-cyan" />
               Países no período
@@ -574,7 +559,7 @@ export function OverviewView() {
             <div className="flex flex-col gap-1.5">
               {cur.countries.slice(0, 4).map((c) => {
                 const total = cur.visits || 1
-                const pct = Math.min(100, Math.max(3, (c.count / total) * 100))
+                const pct = Math.min(100, Math.max(0, (c.count / total) * 100))
                 const isSelected = focusCountry === c.code
 
                 return (
@@ -585,7 +570,8 @@ export function OverviewView() {
                       setFocusCountry((prevVal) => (prevVal === c.code ? null : c.code))
                     }
                     data-tooltip={`Focar no globo: ${c.name || c.code} (${c.count} visitas, ${c.purchased} compras)`}
-                    className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
+                    aria-pressed={isSelected}
+                    className={`overview-country-row flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
                       isSelected
                         ? 'border-brand-cyan/80 bg-brand-cyan/20 shadow-[0_0_16px_rgba(37,244,238,0.25)] ring-1 ring-brand-cyan/50 translate-x-0.5'
                         : 'border-border/50 bg-secondary/20 hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5'
@@ -596,10 +582,10 @@ export function OverviewView() {
                         {countryFlag(c.code)}
                       </span>
                       <span className="truncate text-xs font-semibold text-foreground">
-                        {c.name || c.code}
+                        {countryName(c.code) || c.name || c.code}
                       </span>
                       {c.purchased > 0 && (
-                        <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-[9px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
+                        <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-[11px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
                           {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
                         </span>
                       )}
@@ -611,8 +597,7 @@ export function OverviewView() {
                           className="h-full rounded-full transition-all duration-500"
                           style={{
                             width: `${pct}%`,
-                            background: 'linear-gradient(90deg, #25f4ee, #0ea5e9)',
-                            boxShadow: '0 0 8px rgba(37, 244, 238, 0.4)',
+                            background: 'var(--accent)',
                           }}
                         />
                       </div>
@@ -628,11 +613,11 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Dados de conversão */}
-        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300 sm:col-span-2 lg:col-span-1">
-          <div className="flex items-center justify-between pb-0.5">
+        <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
+          <div className="overview-insight-heading">
             <span
               data-tooltip="Completude dos dados enviados ao TikTok. Consulte os pixels para ver erros de envio."
-              className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 cursor-help"
+              className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
             >
               <ShieldCheck className="size-3.5 text-brand-cyan" />
               Dados de conversão

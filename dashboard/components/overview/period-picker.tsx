@@ -1,7 +1,7 @@
 'use client'
 
 import type { Period } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { useRef, type KeyboardEvent } from 'react'
 
 const PERIODS: { id: Period; label: string }[] = [
   { id: 'today', label: 'Hoje' },
@@ -17,26 +17,34 @@ export function PeriodPicker({
   value: Period
   onChange: (p: Period) => void
 }) {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % PERIODS.length
+    else if (event.key === 'ArrowLeft') next = (index + PERIODS.length - 1) % PERIODS.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = PERIODS.length - 1
+    else return
+    event.preventDefault()
+    buttons.current[next]?.focus()
+    onChange(PERIODS[next].id)
+  }
   return (
     <div
-      className="glass flex items-center gap-0.5 rounded-full p-1"
+      className="overview-period-picker"
       role="tablist"
       aria-label="Período das métricas"
     >
-      {PERIODS.map((p) => (
-        /* V2-71: pílula ativa com anel ciano interno + glow — antes só mudava o fundo */
+      {PERIODS.map((p, index) => (
         <button
           key={p.id}
           type="button"
           role="tab"
           aria-selected={value === p.id}
           onClick={() => onChange(p.id)}
-          className={cn(
-            'rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
-            value === p.id
-              ? 'bg-[var(--active)] text-foreground shadow-[inset_0_0_0_1px_rgba(37,244,238,0.35),0_0_10px_rgba(37,244,238,0.12)]'
-              : 'text-muted-foreground hover:text-sub',
-          )}
+          ref={element => { buttons.current[index] = element }}
+          tabIndex={value === p.id ? 0 : -1}
+          onKeyDown={event => onKeyDown(event, index)}
         >
           {p.label}
         </button>

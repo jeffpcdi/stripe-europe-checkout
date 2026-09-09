@@ -1,5 +1,4 @@
 import { ViewTransition } from 'react'
-import { Sidebar } from '@/components/shell/sidebar'
 import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
 import { TabNotifier } from '@/components/shell/tab-notifier'
@@ -16,7 +15,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="dashboard-ui flex min-h-dvh">
+    <div className="dashboard-ui flex min-h-dvh flex-col">
       {/* Item 102: skip-link acessível — aparece no primeiro Tab */}
       <a href="#conteudo" className="skip-link">
         Pular para conteúdo
@@ -35,23 +34,13 @@ export default function DashboardLayout({
       <ClientErrorReporter />
       {/* Som de dinheiro (cha-ching) quando push de venda chega com o painel aberto */}
       <PushSound />
-      {/* Sidebar lateral esquerda — desktop.
-          Item 294: wrappers display:contents (não afetam o flex) permitem ao
-          modo TV esconder o chrome via html[data-tv] [data-tv-hide]. */}
-      <div data-tv-hide className="contents">
-        <Sidebar />
-      </div>
+      <TopNav><Header /></TopNav>
 
       <div className="min-w-0 flex-1 flex flex-col transition-colors duration-200">
-        {/* Barra superior — apenas mobile (logo + menu) */}
-        <div data-tv-hide className="contents">
-          <TopNav />
-          <Header />
-        </div>
         {/* Redesign: largura total fluida sem bordas/faixas pretas nas laterais em qualquer monitor (1080p, 1440p, 4K, ultrawide). */}
         <main
           id="conteudo"
-          className="w-full max-w-none px-3.5 sm:px-6 lg:px-8 xl:px-10 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3.5 sm:pt-5"
+          className="dashboard-main"
         >
           <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
             {children}

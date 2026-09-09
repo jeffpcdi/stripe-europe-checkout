@@ -23,14 +23,14 @@ function PrivacyButton() {
       type="button"
       onClick={() => update({ privacy: on ? 'off' : 'on' })}
       className={cn(
-        'glass hidden size-8 items-center justify-center rounded-full transition-colors sm:flex',
+        'dashboard-account-button',
         on ? 'text-brand-cyan' : 'text-muted-foreground hover:text-foreground',
       )}
       aria-label={on ? 'Mostrar valores sensíveis' : 'Ocultar valores sensíveis'}
       aria-pressed={on}
       title={on ? 'Modo apresentação ativo — valores borrados' : 'Ocultar valores para gravar tela'}
     >
-      {on ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+      {on ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
     </button>
   )
 }
@@ -69,7 +69,7 @@ function UserMenu() {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="glass hidden size-8 items-center justify-center rounded-full border-transparent text-xs font-bold text-brand-cyan transition-all hover:scale-110 hover:border-brand-cyan/50 hover:shadow-[0_0_15px_rgba(37,244,238,0.4)] sm:flex"
+          className="dashboard-account-button dashboard-account-avatar"
           aria-label="Menu do usuário"
         >
           {initial}
@@ -126,7 +126,7 @@ function ScrollProgress() {
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute bottom-0 left-0 h-px bg-[var(--accent)] transition-[width] duration-150"
+      className="dashboard-scroll-progress"
       style={{ width: `${pct}%`, opacity: pct > 0 ? 0.7 : 0 }}
     />
   )
@@ -145,27 +145,18 @@ export function Header() {
   prevPath.current = pathname
 
   return (
-    <div className="relative border-b border-[var(--border)] shadow-[0_1px_20px_rgba(37,244,238,0.05)]">
-      <div className="flex items-end justify-between gap-4 px-4 py-4 lg:px-6">
-        <div key={pathname} className={cn(changed && 'anim-blur-in')}>
-          {/* V2-73: título da página entra com blur-in (foco progressivo) */}
-          <h1 className="text-xl font-semibold tracking-tight text-foreground text-balance sm:text-2xl">
-            {current.label}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2 pb-0.5">
-          {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
-          <DurabilityBadge />
-          {/* O TopNav já exibe o sino no mobile; aqui ele pertence só ao desktop. */}
-          <span className="hidden md:block">
-            <NotificationBell />
-          </span>
-          <PrivacyButton />
-          <UserMenu />
-        </div>
+    <>
+      <div key={pathname} className={cn('dashboard-page-context', changed && 'anim-fade-in')}>
+        <span className="dashboard-page-eyebrow">Seu painel</span>
+        <h1>{current.label}</h1>
       </div>
-
+      <div className="dashboard-account-actions">
+        <DurabilityBadge />
+        <NotificationBell />
+        <PrivacyButton />
+        <UserMenu />
+      </div>
       <ScrollProgress />
-    </div>
+    </>
   )
 }

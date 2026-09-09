@@ -1,41 +1,69 @@
 'use client'
 
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, LayoutGrid, ArrowUpRight } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { MobileNav } from './mobile-nav'
-import { NotificationBell } from './notification-bell'
+import { usePathname } from 'next/navigation'
+import { NAV_SECTIONS } from '@/lib/navigation'
+import { cn } from '@/lib/utils'
 
-/**
- * Barra superior — visível apenas no mobile.
- * No desktop a navegação vive na Sidebar lateral esquerda.
- */
-export function TopNav() {
+const ITEMS = NAV_SECTIONS.flatMap(section => section.items)
+
+/** Cabeçalho único: marca, contexto da página e navegação sempre reconhecíveis. */
+export function TopNav({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const shellRef = useRef<HTMLElement>(null)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => { setMenuOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!menuOpen) return
+    const outside = (event: PointerEvent) => {
+      if (!shellRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      toggleRef.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [menuOpen])
+
   return (
-    /* V2-81: topnav mobile com hairline gradiente no lugar da borda seca */
-    <header className="header-hairline sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
-      <div className="flex h-[74px] items-center justify-between gap-3 px-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
-        {/* Logo */}
-        <Link href="/" className="group flex items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4" aria-label="ROI-NADOS">
-          <span className="brand-logo" aria-hidden="true">
-            <span className="brand-logo__ring" />
-            <Image
-              src="/dashboard/roi-nados-logo.jpg"
-              alt="ROI-NADOS"
-              width={54}
-              height={54}
-              unoptimized
-              className="brand-logo__img transition-transform duration-300 group-hover:scale-105"
-              priority
-            />
-          </span>
-        </Link>
-
-        {/* Direita: status ao vivo + sino + menu */}
-        <div className="flex items-center gap-2.5">
-          <NotificationBell />
-          <MobileNav />
-        </div>
-      </div>
+    <header ref={shellRef} className="dashboard-masthead" data-tv-hide>
+      <Link href="/" className="dashboard-brand-link" aria-label="ROI-NADOS — Visão geral" onClick={() => setMenuOpen(false)}>
+        <span className="dashboard-logo-frame">
+          <Image src="/dashboard/roi-nados-logo.jpg" alt="ROI-NADOS" width={96} height={96}
+            unoptimized priority className="dashboard-logo-image" />
+        </span>
+      </Link>
+      {children}
+      <button ref={toggleRef} type="button" className="dashboard-menu-toggle"
+        aria-expanded={menuOpen} aria-controls="dashboard-topnav" onClick={() => setMenuOpen(value => !value)}>
+        <LayoutGrid size={17} aria-hidden="true" />Menu<ChevronDown size={15} aria-hidden="true" />
+      </button>
+      <nav id="dashboard-topnav" className="dashboard-topnav" data-open={menuOpen}
+        aria-label="Navegação principal" data-tour="nav">
+        {ITEMS.map(item => {
+          const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+          return (
+            <Link key={item.id} href={item.href} aria-current={active ? 'page' : undefined}
+              onClick={() => setMenuOpen(false)}
+              className={cn('dashboard-nav-link', active && 'dashboard-nav-link--active')}>
+              <item.icon size={18} aria-hidden="true" />
+              <span>{item.label}</span>
+              <ArrowUpRight className="dashboard-nav-arrow" size={14} aria-hidden="true" />
+            </Link>
+          )
+        })}
+      </nav>
     </header>
   )
 }

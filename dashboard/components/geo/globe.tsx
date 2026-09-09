@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
 import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap, RefreshCw } from 'lucide-react'
@@ -54,7 +54,26 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   const [paused, setPaused] = useState(false)
   const [inAppFullscreen, setInAppFullscreen] = useState(false)
   const isImmersive = inAppFullscreen
-  const closeFullscreen = useCallback(() => setInAppFullscreen(false), [])
+  const transitionRef = useRef<Animation | null>(null)
+  const fullscreenTrigger = useRef<HTMLElement | null>(null)
+  const originClip = useRef('inset(8% 8% 8% 8% round 20px)')
+  const closing = useRef(false)
+  const closeFullscreen = useCallback(() => {
+    if (closing.current) return
+    const dialog = containerRef.current
+    transitionRef.current?.cancel()
+    if (!dialog || motion.current.reduced) { setInAppFullscreen(false); return }
+    closing.current = true
+    const animation = dialog.animate([
+      { clipPath: 'inset(0% 0% 0% 0% round 0px)', opacity: 1 },
+      { clipPath: originClip.current, opacity: 0.3 },
+    ], { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' })
+    transitionRef.current = animation
+    animation.finished.then(() => {
+      setInAppFullscreen(false)
+      closing.current = false
+    }).catch(() => { closing.current = false })
+  }, [])
   useModalA11y(inAppFullscreen, containerRef, closeFullscreen)
   const reduced = useReducedMotion()
   const motion = useRef({ reduced, paused })
@@ -151,7 +170,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     if (d.isPulse) {
       const tag = document.createElement('span')
       tag.className = 'globe-marker-tag'
-      tag.textContent = '⚡ NOVO LEAD'
+      tag.textContent = 'Novo'
       badge.appendChild(tag)
     }
 
@@ -256,15 +275,33 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     return () => observer.disconnect()
   }, [])
 
-  // O diálogo nativo mantém o mesmo canvas acima dos ancestrais com transform.
-  useEffect(() => {
+  // A abertura revela o espaço a partir do card sem esticar o canvas.
+  useLayoutEffect(() => {
     const dialog = containerRef.current
     if (!dialog) return
     if (!inAppFullscreen && !dialog.matches(':modal')) return
     const previousFocus = document.activeElement as HTMLElement | null
     dialog.close()
-    if (inAppFullscreen) dialog.showModal()
-    else { dialog.show(); previousFocus?.focus({ preventScroll: true }) }
+    transitionRef.current?.cancel()
+    if (inAppFullscreen) {
+      dialog.showModal()
+      if (!motion.current.reduced) {
+        transitionRef.current = dialog.animate([
+          { clipPath: originClip.current, opacity: 0.45 },
+          { clipPath: 'inset(0% 0% 0% 0% round 0px)', opacity: 1 },
+        ], { duration: 640, easing: 'cubic-bezier(.16,1,.3,1)' })
+      }
+    } else { dialog.show(); previousFocus?.focus({ preventScroll: true }) }
+  }, [inAppFullscreen])
+
+  useEffect(() => () => { transitionRef.current?.cancel() }, [])
+
+  // showModal move o foco antes do efeito compartilhado; guardamos o botão de origem.
+  useEffect(() => {
+    if (!inAppFullscreen && fullscreenTrigger.current) {
+      fullscreenTrigger.current.focus({ preventScroll: true })
+      fullscreenTrigger.current = null
+    }
   }, [inAppFullscreen])
 
   const onReady = useCallback(() => {
@@ -356,7 +393,15 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   }
 
   function toggleFullscreen() {
-    setInAppFullscreen(value => !value)
+    if (inAppFullscreen) { closeFullscreen(); return }
+    fullscreenTrigger.current = document.activeElement as HTMLElement | null
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (rect) {
+      const width = window.innerWidth, height = window.innerHeight
+      const clamp = (n: number, max: number) => Math.max(0, Math.min(max, n))
+      originClip.current = `inset(${clamp(rect.top, height) / height * 100}% ${clamp(width - rect.right, width) / width * 100}% ${clamp(height - rect.bottom, height) / height * 100}% ${clamp(rect.left, width) / width * 100}% round 20px)`
+    }
+    setInAppFullscreen(true)
   }
 
   return (
@@ -374,13 +419,13 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     >
       {/* HUD Imersivo no topo durante Fullscreen */}
       {isImmersive && (
-        <div className="presence-fullscreen-topbar anim-pop-in">
+        <div className="presence-fullscreen-topbar">
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="relative flex size-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-cyan opacity-50" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-brand-cyan" />
             </span>
-            <span className="text-xs font-bold tracking-widest text-white uppercase font-mono">
+            <span className="text-xs font-semibold text-foreground">
               Visitantes ao vivo
             </span>
             <span className="hidden sm:inline-block h-3 w-px bg-white/20" />
@@ -402,8 +447,12 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       )}
 
       <div className="presence-sky" aria-hidden="true" />
-      <div className="presence-orbit presence-orbit-outer" aria-hidden="true" />
-      <div className="presence-orbit presence-orbit-inner" aria-hidden="true" />
+      <div className="presence-star-depth" aria-hidden="true" />
+      <div className="presence-blackhole" aria-hidden="true"
+        style={{ '--horizon-size': `${Math.min(size.width, size.height) * 1.2}px` } as CSSProperties}>
+        <div className="presence-blackhole-lens" />
+        <div className="presence-blackhole-disc" />
+      </div>
       <div ref={canvasRef} className="presence-canvas">
         {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(1, size.height)}
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"

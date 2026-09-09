@@ -14,6 +14,7 @@ interface LatestLeadInfo {
   name: string
   flag: string
   at: number
+  simulated?: boolean
 }
 
 const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
@@ -77,6 +78,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
       name: countryName(targetCode),
       flag: countryFlag(targetCode),
       at: Date.now(),
+      simulated: true,
     })
 
     const timer = window.setTimeout(() => setPulseCodes([]), 4500)
@@ -115,12 +117,10 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
           <div className="presence-lead-banner animate-in fade-in slide-in-from-top-2 duration-300" role="status" aria-live="polite">
             <div className="presence-lead-banner-glow" aria-hidden="true" />
             <span className="presence-lead-banner-dot" aria-hidden="true" />
-            <span className="presence-lead-banner-tag">⚡ NOVO LEAD</span>
+            <span className="presence-lead-banner-tag">{latestLead.simulated ? 'Simulação' : 'Novo acesso'}</span>
             <div className="presence-lead-banner-text">
               <span className="presence-lead-banner-flag">{latestLead.flag}</span>
               <strong>{latestLead.name}</strong>
-              <span className="presence-lead-banner-code">({latestLead.code})</span>
-              <span className="presence-lead-banner-sub">• Rastreando no TikTok</span>
             </div>
             <button
               type="button"
@@ -129,7 +129,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
                 setSelected(latestLead.code)
                 setFocusRevision(v => v + 1)
               }}
-              title="Recentrar câmera neste lead"
+              title="Localizar visitante no globo"
             >
               Ver no globo
             </button>
@@ -158,7 +158,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
                       <span className="presence-country-name">{countryName(country.code)}</span>
                       <strong>{country.count}</strong>
                       {isPulse && (
-                        <span className="presence-country-pill-badge" aria-label="Novo lead agora">+1 lead</span>
+                        <span className="presence-country-pill-badge" aria-label="Novo acesso agora">Novo</span>
                       )}
                     </button>
                   )
