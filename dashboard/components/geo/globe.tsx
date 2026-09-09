@@ -5,6 +5,7 @@ import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
 import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap, RefreshCw } from 'lucide-react'
 import { useReducedMotion } from '@/lib/motion'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 import { countryName } from '@/lib/countries'
 import { countryFlag } from '@/lib/format'
@@ -19,17 +20,26 @@ interface GlobePanelProps {
   children?: ReactNode
 }
 
-const ALT_DEFAULT = 1.85
+const ALT_DEFAULT = 1.6
 const ALT_MIN = 1.35
-const ALT_MAX = 3.4
+const ALT_MAX = 6
 const SPIN = 0.3
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
 
 /** Um único canvas; presença vem exclusivamente do snapshot ao vivo validado pelo pai. */
 export default function GlobePanel({ countries, focusCode, focusRevision, pulseCodes = [], onSimulateLead, children }: GlobePanelProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDialogElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const sizeRef = useRef(size)
+  sizeRef.current = size
+  const fittedAltitude = useCallback(() => {
+    const { width, height } = sizeRef.current
+    const fov = globeRef.current?.camera().fov || 50
+    const ratio = height / Math.max(1, Math.min(width, height))
+    return Math.max(ALT_DEFAULT, Math.sqrt(1 + (ratio / (Math.tan(fov * Math.PI / 360) * 0.88)) ** 2) - 1)
+  }, [])
   const [ready, setReady] = useState(false)
   const [textureFailed, setTextureFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -42,9 +52,10 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     }
   }, [textureFailed, material])
   const [paused, setPaused] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
-  const [fullscreenError, setFullscreenError] = useState(false)
-  const [fullscreenSupported, setFullscreenSupported] = useState(false)
+  const [inAppFullscreen, setInAppFullscreen] = useState(false)
+  const isImmersive = inAppFullscreen
+  const closeFullscreen = useCallback(() => setInAppFullscreen(false), [])
+  useModalA11y(inAppFullscreen, containerRef, closeFullscreen)
   const reduced = useReducedMotion()
   const motion = useRef({ reduced, paused })
   motion.current = { reduced, paused }
@@ -73,9 +84,9 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     if (!d?.code || !globeRef.current) return
     const coords = COUNTRY_COORDS[d.code]
     if (coords) {
-      globeRef.current.pointOfView({ lat: coords[0], lng: coords[1], altitude: ALT_DEFAULT }, reduced ? 0 : 700)
+      globeRef.current.pointOfView({ lat: coords[0], lng: coords[1], altitude: fittedAltitude() }, reduced ? 0 : 700)
     }
-  }, [reduced])
+  }, [reduced, fittedAltitude])
 
   // Marcadores HTML elegantes e nítidos projetados no espaço 3D
   // Substitui rótulos de texto cru e cilindros negros por badges glassmorphism com bandeiras e pulso vivo
@@ -238,15 +249,23 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   }, [countries, maxCount, pulseCodes, reduced, paused])
 
   useEffect(() => {
-    const el = containerRef.current
+    const el = canvasRef.current
     if (!el) return
-    const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }))
+    const observer = new ResizeObserver(([entry]) => setSize({ width: Math.round(entry.contentRect.width), height: Math.round(entry.contentRect.height) }))
     observer.observe(el)
-    setFullscreenSupported(Boolean(document.fullscreenEnabled && el.requestFullscreen))
-    const onFullscreen = () => setFullscreen(document.fullscreenElement === el)
-    document.addEventListener('fullscreenchange', onFullscreen)
-    return () => { observer.disconnect(); document.removeEventListener('fullscreenchange', onFullscreen) }
+    return () => observer.disconnect()
   }, [])
+
+  // O diálogo nativo mantém o mesmo canvas acima dos ancestrais com transform.
+  useEffect(() => {
+    const dialog = containerRef.current
+    if (!dialog) return
+    if (!inAppFullscreen && !dialog.matches(':modal')) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    dialog.close()
+    if (inAppFullscreen) dialog.showModal()
+    else { dialog.show(); previousFocus?.focus({ preventScroll: true }) }
+  }, [inAppFullscreen])
 
   const onReady = useCallback(() => {
     const globe = globeRef.current
@@ -264,12 +283,12 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     const fill = new THREE.AmbientLight('#ffffff', 0.95)
     const key = new THREE.DirectionalLight('#ffffff', 1.85)
     key.position.set(-120, 100, 180)
-    const rim = new THREE.DirectionalLight('#25f4ee', 0.85)
+    const rim = new THREE.DirectionalLight('#d7e8ef', 0.35)
     rim.position.set(120, -70, -140)
     globe.lights([fill, key, rim])
     if (!cameraInitialized.current) {
       const coords = initialFocus.current ? COUNTRY_COORDS[initialFocus.current] : undefined
-      globe.pointOfView({ lat: coords?.[0] ?? 8, lng: coords?.[1] ?? -48, altitude: ALT_DEFAULT }, 0)
+      globe.pointOfView({ lat: coords?.[0] ?? 8, lng: coords?.[1] ?? -48, altitude: fittedAltitude() }, 0)
       cameraInitialized.current = true
     }
     setReady(true)
@@ -316,67 +335,38 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   useEffect(() => {
     if (!ready || !focusCode) return
     const coords = COUNTRY_COORDS[focusCode]
-    if (coords) globeRef.current?.pointOfView({ lat: coords[0], lng: coords[1], altitude: ALT_DEFAULT }, reduced ? 0 : 700)
-  }, [focusCode, focusRevision, ready, reduced])
+    if (coords) globeRef.current?.pointOfView({ lat: coords[0], lng: coords[1], altitude: fittedAltitude() }, reduced ? 0 : 700)
+  }, [focusCode, focusRevision, ready, reduced, fittedAltitude])
+
+  useEffect(() => {
+    if (!ready || !globeRef.current) return
+    globeRef.current.pointOfView({ ...globeRef.current.pointOfView(), altitude: fittedAltitude() }, 0)
+  }, [size.width, size.height, ready, fittedAltitude])
 
   // react-globe.gl já libera o renderer ao desmontar. Forçar a perda de
   // contexto aqui também destrói o canvas durante a repetição dos efeitos.
-
-  const [inAppFullscreen, setInAppFullscreen] = useState(false)
-  const isImmersive = fullscreen || inAppFullscreen
 
   function moveCamera(delta?: number) {
     const globe = globeRef.current
     if (!globe) return
     const pov = globe.pointOfView()
-    globe.pointOfView(delta === undefined ? { lat: 8, lng: -48, altitude: ALT_DEFAULT } : {
+    globe.pointOfView(delta === undefined ? { lat: 8, lng: -48, altitude: fittedAltitude() } : {
       ...pov, altitude: Math.max(ALT_MIN, Math.min(ALT_MAX, pov.altitude + delta)),
     }, reduced ? 0 : 350)
   }
 
-  // Tecla ESC para sair de tela cheia in-app
-  useEffect(() => {
-    if (!inAppFullscreen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setInAppFullscreen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [inAppFullscreen])
-
-  async function toggleFullscreen() {
-    try {
-      setFullscreenError(false)
-      if (inAppFullscreen) {
-        setInAppFullscreen(false)
-        return
-      }
-      if (fullscreen) {
-        if (document.fullscreenElement) {
-          await document.exitFullscreen()
-        }
-      } else {
-        if (containerRef.current?.requestFullscreen) {
-          try {
-            await containerRef.current.requestFullscreen()
-          } catch {
-            // Em caso de restrição do iframe (ex: sandbox sem allow-fullscreen), ativa o modo in-app
-            setInAppFullscreen(true)
-          }
-        } else {
-          setInAppFullscreen(true)
-        }
-      }
-    } catch {
-      setInAppFullscreen(true)
-    }
+  function toggleFullscreen() {
+    setInAppFullscreen(value => !value)
   }
 
   return (
-    <div
+    <dialog open
       ref={containerRef}
-      className={`presence-stage transition-all duration-500 ease-out ${isImmersive ? 'presence-stage-immersive' : ''}`}
-      role="region"
+      onCancel={(event) => { event.preventDefault(); closeFullscreen() }}
+      tabIndex={-1}
+      className={`presence-stage ${isImmersive ? 'presence-stage-immersive' : ''}`}
+      role={isImmersive ? 'dialog' : 'region'}
+      aria-modal={isImmersive || undefined}
       aria-label="Globo de visitantes online"
       data-ready={ready}
       data-immersive={isImmersive}
@@ -391,7 +381,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
               <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
             </span>
             <span className="text-xs font-bold tracking-widest text-white uppercase font-mono">
-              RADAR GLOBAL AO VIVO
+              Visitantes ao vivo
             </span>
             <span className="hidden sm:inline-block h-3 w-px bg-white/20" />
             <span className="hidden sm:inline-block text-xs text-slate-300">
@@ -406,7 +396,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
             aria-label="Sair da tela cheia"
           >
             <Minimize2 size={14} />
-            <span>Sair (ESC)</span>
+            <span>Fechar</span>
           </button>
         </div>
       )}
@@ -414,13 +404,13 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       <div className="presence-sky" aria-hidden="true" />
       <div className="presence-orbit presence-orbit-outer" aria-hidden="true" />
       <div className="presence-orbit presence-orbit-inner" aria-hidden="true" />
-      <div className="presence-canvas">
-        {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(120, size.height - (isImmersive ? 140 : 214))}
+      <div ref={canvasRef} className="presence-canvas">
+        {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(1, size.height)}
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#25f4ee" atmosphereAltitude={0.18}
+          showAtmosphere atmosphereColor="#a2bacb" atmosphereAltitude={0.085}
           htmlElementsData={htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"
@@ -473,16 +463,16 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
         <span className="presence-control-divider" aria-hidden="true" />
         <button
           type="button"
+          className="presence-expand"
           onClick={toggleFullscreen}
           aria-label={isImmersive ? 'Sair da tela cheia' : 'Tela cheia'}
           title={isImmersive ? 'Sair da tela cheia' : 'Tela cheia'}
           aria-pressed={isImmersive}
         >
-          {isImmersive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          {isImmersive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}<span>{isImmersive ? 'Fechar' : 'Ampliar'}</span>
         </button>
       </div>
-      {fullscreenError && <p className="presence-control-error" role="status">Tela cheia indisponível neste navegador.</p>}
       {textureFailed && <p className="presence-control-error" role="status">Mapa simplificado · imagem indisponível <button type="button" className="presence-retry" onClick={() => { cameraInitialized.current = false; setReady(false); setTextureFailed(false); setAttempt(value => value + 1) }}><RefreshCw size={13} />Recarregar imagem</button></p>}
-    </div>
+    </dialog>
   )
 }

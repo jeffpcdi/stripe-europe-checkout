@@ -1347,3 +1347,18 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   mantém aviso independente. O gateway precisa enviar também o evento pendente.
 - Stripe `checkout.session.completed` com `payment_status=unpaid` permanece pendente até
   confirmação assíncrona; não dispara compra antecipada.
+
+### Globo e fundo da dashboard (2026-09-09)
+- A área do globo tem mais altura e o canvas mede seu próprio espaço com ResizeObserver,
+  sem descontos fixos diferentes entre CSS e React. A câmera ajusta o enquadramento ao
+  menor eixo da área e ao FOV, preservando a esfera inteira ao girar o celular.
+- Ampliar usa um diálogo HTML na camada superior com o mesmo canvas, inclusive no iPhone;
+  não depende de requestFullscreen nem de position:fixed preso em ancestral transformado.
+  Mantém trava de rolagem, foco, Escape, botão Fechar e safe areas. Paisagem compacta
+  prioriza esfera e controles. O modo ampliado não anima escala/blur do canvas.
+- Atmosfera mais fina e iluminação de borda neutra; removidas as órbitas decorativas e
+  a névoa azul. Fundo global com textura e luz ciano/rosa suave, sem blur pesado, e
+  movimento ambiente desativado quando o usuário prefere movimento reduzido.
+- Validação local: build Next, dashboard-ui-integrity e dashboard-modal-focus aprovados;
+  prévia com APIs isoladas em 390×844 e 844×390, abertura/fechamento e Escape conferidos,
+  foco e rolagem restaurados, sem erros no console. Não equivale a teste em iPhone físico.

@@ -330,7 +330,7 @@ table,
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
-  background: var(--bg);
+  background: radial-gradient(ellipse at 55% 0%, color-mix(in srgb, var(--text) 5%, var(--bg)), var(--bg) 70%);
 }
 
 /* Grelha de pontos sutil com máscara radial (mais densa no topo) */
@@ -359,7 +359,12 @@ table,
    com o raio) e o próprio radial-gradient já entrega a suavidade. */
 .app-bg__aurora::before,
 .app-bg__aurora::after {
-  content: none;
+  content: '';
+  position: absolute;
+  width: 80vmax;
+  height: 80vmax;
+  opacity: .08;
+  pointer-events: none;
 }
 
 .app-bg__aurora::before {
@@ -3005,27 +3010,9 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
 @media (max-width: 768px) { .presence-panel { height: 500px; } }
 @media (max-width: 480px) { .presence-panel { height: 440px; } }
 .presence-stage { position: relative; height: 100%; width: 100%; overflow: hidden; isolation: isolate; background: radial-gradient(ellipse at 50% 47%, #123447 0%, #0c1c28 35%, #081119 65%, var(--bg) 100%); background-size: 150% 150%; animation: cosmicNebula 40s ease infinite; transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1), opacity 400ms ease; }
-.presence-stage:fullscreen { width: 100vw; height: 100dvh; animation: fullscreenEnter 400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-.presence-stage[data-in-app-fullscreen='true'], .presence-stage-immersive {
-  position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100dvh !important;
-  z-index: 99999 !important;
-  border-radius: 0 !important;
-  border: none !important;
-  animation: fullscreenEnter 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes fullscreenEnter {
-  0% { opacity: 0; transform: scale(0.96); filter: blur(6px); }
-  100% { opacity: 1; transform: scale(1); filter: blur(0); }
-}
-
-.presence-stage:fullscreen .presence-canvas,
-.presence-stage-immersive .presence-canvas,
-.presence-stage[data-in-app-fullscreen='true'] .presence-canvas {
-  inset: 56px 0 64px;
+ .presence-stage-immersive {
+  position: fixed; inset: 0; width: 100vw; height: 100dvh;
+  max-width: none; max-height: none; border-radius: 0;
 }
 
 .presence-fullscreen-topbar {
@@ -3354,3 +3341,48 @@ html[data-anim='off'] .tiktok-view [role='tabpanel'], html[data-anim='off'] .ads
   to { transform: rotate(360deg); }
 }
 .campaign-status-filters button[aria-pressed="true"] > span:last-child { color: inherit; background: rgb(0 0 0 / 10%); }
+
+/* Globo: área proporcional, luz neutra e tela ampliada na camada modal nativa. */
+body { isolation: isolate; }
+.presence-panel { height: clamp(640px, 52vw, 820px); }
+.presence-stage {
+  margin: 0; padding: 0; border: 0; max-width: none; max-height: none; color: var(--text);
+  background: radial-gradient(ellipse at 50% 43%, color-mix(in srgb, var(--text) 9%, var(--bg)) 0%, var(--bg) 68%);
+  animation: none; transition: none;
+}
+.presence-stage::backdrop { background: var(--bg); }
+.presence-stage-immersive { animation: none; }
+.presence-sky { opacity: .36; }
+.presence-orbit { display: none; }
+.presence-canvas { inset: 72px 0 126px; }
+.presence-controls { bottom: 76px; background: color-mix(in srgb, var(--bg) 92%, transparent); border-color: var(--border-strong); gap: 4px; }
+.presence-controls button { min-width: 44px; height: 44px; flex-shrink: 0; }
+.presence-expand { background: var(--accent-light); color: var(--accent) !important; font-size: 12px; font-weight: 600; }
+.presence-stage-immersive .presence-header { display: none; }
+.presence-stage-immersive .presence-canvas { inset: calc(76px + env(safe-area-inset-top)) 0 calc(136px + env(safe-area-inset-bottom)); }
+.presence-fullscreen-topbar {
+  top: max(16px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
+  transform: none; max-width: none; border-radius: 16px; padding: 8px 12px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent); border-color: var(--border); box-shadow: var(--shadow);
+}
+.presence-fullscreen-exit-btn { min-height: 44px; white-space: nowrap; border-radius: 10px; font-size: 12px; }
+.presence-stage-immersive .presence-controls { bottom: calc(78px + env(safe-area-inset-bottom)); }
+.presence-stage-immersive .presence-footer { bottom: calc(16px + env(safe-area-inset-bottom)); }
+.presence-stage-immersive .presence-lead-banner { top: calc(84px + env(safe-area-inset-top)); }
+@media (max-width: 639px) {
+  .presence-panel { height: clamp(520px, 145vw, 650px); }
+  .presence-canvas { inset: 70px 0 134px; }
+  .presence-controls { bottom: 82px; gap: 2px; padding: 4px; max-width: calc(100% - 20px); }
+  .presence-controls button { height: 44px; min-width: 40px; padding: 0 6px; }
+  .presence-controls .presence-control-divider { margin: 0; }
+  .presence-simulate-btn span, .presence-expand span { display: none; }
+  .presence-fullscreen-topbar > div > span.text-xs { font-size: 10px; letter-spacing: .03em; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .presence-stage-immersive .presence-canvas { inset: 60px 0 64px; }
+  .presence-stage-immersive .presence-controls { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .presence-stage-immersive .presence-footer, .presence-stage-immersive .presence-lead-banner { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-bg__aurora::before, .app-bg__aurora::after { animation: none; }
+}
