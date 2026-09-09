@@ -1,17 +1,25 @@
 'use strict';
 
-// ── notify-copy — copy humorada das notificações Web Push ──────────────────
-// Usado SOMENTE pelo canal Web Push (o texto do Pushcut permanece intacto,
-// inclusive o template custom de venda do item 429).
-//
-// build({ name, payload, meta, funMode, accountId }) → { title, body, url, tag }
-//   - meta.event (quando presente) classifica com precisão: sale, failed,
-//     refund, dispute, checkout, login, test. Vem do notifyPushcut/rotas.
-//   - Sem meta, classifica pelo título do payload (prefixos estáveis:
-//     "TikTok Ads:", "Resumo de", "Algo pode estar quebrado").
-//   - funMode=false → copy sóbria (título/texto originais do payload).
-//   - Anti-repetição: nunca sorteia a mesma frase duas vezes seguidas por
-//     conta+evento (estado em memória; reinício zera, sem problema).
+// Texto das notificações. Vendas usam um resumo compacto nos dois canais,
+// inclusive com modo descontraído ligado. Títulos personalizados são preservados
+// dentro do limite; detalhes pessoais e do pedido ficam na tela Atividade.
+
+function compactText(value, limit) {
+  const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  const chars = Array.from(text);
+  return chars.length > limit ? chars.slice(0, limit - 1).join('') + '…' : text;
+}
+
+function compactSale(payload, meta) {
+  const p = payload || {};
+  const data = meta || {};
+  const valor = compactText(data.valor, 32);
+  const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' — ' + valor : ''));
+  const produto = compactText(data.produto, 48);
+  const gateway = compactText(data.gateway, 24);
+  const body = [produto, gateway].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
+  return { title, body };
+}
 
 // Interpolação ESTRITA: {valor} {produto} {cliente} {gateway} {campanha}.
 // Se o template referencia um dado que não veio, retorna null — o chamador
@@ -29,24 +37,6 @@ function interp(tpl, data) {
 // Pools de frases por evento. Cada item: { t: título, b: corpo }.
 // Corpo vazio ('') = usa o texto original do payload (informação completa).
 const POOLS = {
-  sale: [
-    // Completas (todos os dados)
-    { t: '🤑 Venda Aprovada! {valor}', b: 'Produto: {produto}\nGateway: {gateway}\nCliente: {cliente}' },
-    { t: '✅ Venda realizada com sucesso!', b: 'Você acaba de vender {produto} no valor de {valor}.' },
-    { t: '🎉 Nova Venda Aprovada!', b: 'Valor: {valor} | Produto: {produto}' },
-    // Médias (valor + produto/gateway)
-    { t: '🤑 Comissão Recebida: {valor}', b: 'Produto: {produto} através do {gateway}.' },
-    { t: '💰 Dinheiro na conta! {valor}', b: 'Sua venda de {produto} foi aprovada.' },
-    { t: '✅ Mais uma venda! {valor}', b: '{produto} vendido no {gateway}.' },
-    { t: '💳 Pagamento Aprovado', b: 'Valor: {valor}\nProduto: {produto}' },
-    { t: '🚀 Venda Confirmada!', b: '{produto} foi vendido. Total: {valor}.' },
-    { t: '🤑 {valor} em vendas!', b: 'O produto {produto} acabou de ser vendido.' },
-    // Leves (só valor — sempre elegíveis quando há venda)
-    { t: '🤑 Venda Aprovada! {valor}', b: 'O pagamento foi confirmado com sucesso.' },
-    { t: '✅ Nova Venda: {valor}', b: 'Comissão adicionada ao seu saldo.' },
-    { t: '💰 Saldo atualizado: +{valor}', b: 'Venda processada e aprovada no gateway.' },
-    { t: '🎉 Pingou! {valor}', b: 'Mais uma venda aprovada pra conta.' }
-  ],
   failed: [
     { t: '❌ Venda Recusada: {valor}', b: 'Produto: {produto} | Gateway: {gateway}\nMotivo: Pagamento negado pelo banco.' },
     { t: '⚠️ Cartão Recusado', b: 'A tentativa de compra de {produto} no valor de {valor} falhou.' },
@@ -234,6 +224,10 @@ function build(opts) {
   // via WebAudio; no push fechado o sistema toca o som padrão.
   const sound = SOUNDS[event] || '';
 
+  if (event === 'sale') {
+    return { ...compactSale(p, meta), url, tag, sound, event };
+  }
+
   // Modo sóbrio ou evento desconhecido: título/texto originais.
   if (funMode === false || !event || !POOLS[event]) {
     return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event: event || '' };
@@ -249,4 +243,4 @@ function build(opts) {
   return { title, body, url, tag, sound, event };
 }
 
-module.exports = { build, _pools: POOLS };
+module.exports = { build, compactSale, _pools: POOLS };

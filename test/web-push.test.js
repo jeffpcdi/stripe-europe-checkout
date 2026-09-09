@@ -14,7 +14,7 @@ test('notify-copy: venda com funMode interpola valor/produto reais', () => {
   const meta = { event: 'sale', valor: 'R$ 197,00', produto: 'Curso X', cliente: 'Ana', gateway: 'CartPanda' };
   const note = notifyCopy.build({
     name: 'Aprovada',
-    payload: { title: 'Venda aprovada', text: 'texto original' },
+    payload: { title: 'Venda aprovada — R$ 197,00', text: 'texto original' },
     meta, funMode: true, accountId: 'acc1'
   });
   assert.ok(note.title.length > 0, 'título presente');
@@ -28,7 +28,7 @@ test('notify-copy: venda com funMode interpola valor/produto reais', () => {
   assert.ok(note.tag.startsWith('roinados-sale-'), 'tag de venda tem prefixo estável');
   const note2 = notifyCopy.build({
     name: 'Aprovada',
-    payload: { title: 'Venda aprovada', text: 'texto original' },
+    payload: { title: 'Venda aprovada — R$ 197,00', text: 'texto original' },
     meta, funMode: true, accountId: 'acc1'
   });
   // tags podem colidir só se geradas no MESMO milissegundo — improvável aqui
@@ -60,14 +60,14 @@ test('notify-copy: som distinto por evento', () => {
   }
 });
 
-test('notify-copy: funMode=false preserva título/texto originais', () => {
+test('notify-copy: venda preserva título personalizado e resume corpo', () => {
   const note = notifyCopy.build({
     name: 'Aprovada',
     payload: { title: 'Título original', text: 'Corpo original' },
     meta: { event: 'sale', valor: 'R$ 10,00' }, funMode: false, accountId: 'acc1'
   });
   assert.strictEqual(note.title, 'Título original');
-  assert.strictEqual(note.body, 'Corpo original');
+  assert.strictEqual(note.body, 'Pagamento confirmado.');
 });
 
 test('notify-copy: evento desconhecido passa payload intacto', () => {
@@ -91,7 +91,7 @@ test('notify-copy: classifica TikTok Ads pelo prefixo do título', () => {
 });
 
 test('notify-copy: anti-repetição não sorteia a mesma frase 2x seguidas', () => {
-  const meta = { event: 'sale', valor: 'R$ 50,00', produto: 'P', cliente: 'C', gateway: 'G' };
+  const meta = { event: 'refund', valor: 'R$ 50,00', produto: 'P', cliente: 'C', gateway: 'G' };
   let prev = null;
   for (let i = 0; i < 12; i++) {
     const n = notifyCopy.build({ name: 'Aprovada', payload: {}, meta, funMode: true, accountId: 'rep' });
@@ -185,4 +185,59 @@ test('pushcut: sendPushcut existe e aceita meta como 4º argumento', () => {
   const pushcut = require('../pushcut');
   assert.strictEqual(typeof pushcut.sendPushcut, 'function');
   assert.ok(pushcut.sendPushcut.length >= 3, 'assinatura com accountId (e meta opcional)');
+});
+
+
+test('venda compacta: limita texto e não expõe cliente, e-mail ou pedido', () => {
+  for (const funMode of [false, true]) {
+    const note = notifyCopy.build({
+      payload: { title: 'Venda aprovada — US$ 99,00', text: 'Cliente: Ana\nEmail: ana@example.com\nPedido: 123' },
+      meta: { event: 'sale', valor: 'US$ 99,00', produto: 'Curso\n' + 'X'.repeat(200), gateway: 'Stripe' },
+      funMode,
+    });
+    assert.strictEqual(note.title, 'Venda aprovada — US$ 99,00');
+    assert.ok(Array.from(note.body).length <= 75);
+    assert.ok(note.body.endsWith('… · Stripe'));
+    assert.ok(!/[\r\n]|Cliente|Email|Pedido|ana@example/.test(note.body));
+    assert.strictEqual(note.sound, 'cash');
+    assert.strictEqual(note.url, '/dashboard/activity');
+  }
+  assert.deepStrictEqual(notifyCopy.compactSale({}, { valor: 'R$ 0,00', gateway: 'Kiwify' }), {
+    title: 'Venda aprovada — R$ 0,00', body: 'Kiwify',
+  });
+  const long = notifyCopy.compactSale({ title: '🎉'.repeat(100) }, {});
+  assert.strictEqual(Array.from(long.title).length, 60);
+});
+
+test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload original', async () => {
+  const notifications = require('../pushcut');
+  const config = require('../config');
+  const native = require('../web-push-notify');
+  const redis = require('../redis');
+  const originals = { get: config.get, subs: native.subsFor, send: native.sendWebPush, log: redis.pushNotifLog, fetch: global.fetch };
+  let webNote;
+  let legacyNote;
+  config.get = () => ({ pushcut: { url: 'https://example.invalid/notifications/Aprovada' }, webPush: { funMode: true } });
+  native.subsFor = () => [{}];
+  native.sendWebPush = async (_, note) => { webNote = note; return true; };
+  redis.pushNotifLog = async () => {};
+  global.fetch = async (_, options) => { legacyNote = JSON.parse(options.body); return { ok: true }; };
+  const payload = { title: 'Venda aprovada — R$ 197,00', text: 'Email: ana@example.com\nPedido: 123', sound: 'system', isTimeSensitive: true };
+  try {
+    assert.strictEqual(await notifications.sendNotification('Aprovada', payload, 'isolated', {
+      event: 'sale', produto: 'Curso X', gateway: 'Kiwify', valor: 'R$ 197,00',
+    }), true);
+    assert.strictEqual(webNote.title, legacyNote.title);
+    assert.strictEqual(webNote.body, 'Curso X · Kiwify');
+    assert.strictEqual(legacyNote.text, webNote.body);
+    assert.strictEqual(legacyNote.sound, 'system');
+    assert.strictEqual(legacyNote.isTimeSensitive, true);
+    assert.ok(payload.text.includes('ana@example.com'));
+  } finally {
+    config.get = originals.get;
+    native.subsFor = originals.subs;
+    native.sendWebPush = originals.send;
+    redis.pushNotifLog = originals.log;
+    global.fetch = originals.fetch;
+  }
 });

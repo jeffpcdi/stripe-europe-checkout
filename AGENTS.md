@@ -1321,3 +1321,12 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   catálogo preserva orçamento/mercado na sessão do catálogo. Não usa localStorage para esses dados.
 - Regressões: `ads-upload-ease` (concorrência, isolamento, cancelamento, retry), `ads-smart-cover`
   (capa automática antes da campanha) e `catalog-multiple-creatives-ui`.
+
+### Notificações de venda compactas (2026-09-08)
+- `notify-copy.compactSale` aplica o mesmo resumo no Web Push e Pushcut: título de até
+  60 caracteres e corpo em uma linha com produto (48) e gateway (24). Remove quebras
+  de linha e abrevia textos extensos; cliente, e-mail, data e pedido ficam no painel.
+- O modo descontraído não expande vendas nem sugere comissão/saldo disponível sem evidência.
+  Títulos personalizados continuam válidos dentro do limite. Som e abertura em Atividade
+  são preservados. O tamanho visual final depende do iOS e do tamanho de fonte do aparelho.
+- Regressões em `test/web-push.test.js`, sem envio para aparelhos reais.

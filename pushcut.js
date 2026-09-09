@@ -146,6 +146,10 @@ async function sendViaPushcut(notificationName, payload, accountId, meta) {
  * `meta.event` determina prioridade, preferência e deep link.
  */
 async function sendNotification(notificationName, payload, accountId, meta) {
+  if (meta && meta.event === 'sale') {
+    const compact = require('./notify-copy').compactSale(payload, meta);
+    payload = Object.assign({}, payload, { title: compact.title, text: compact.body });
+  }
   const [nativeOk, legacyOk] = await Promise.all([
     sendViaWebPush(notificationName, payload || {}, accountId, meta || {}),
     sendViaPushcut(notificationName, payload || {}, accountId, meta || {}),
