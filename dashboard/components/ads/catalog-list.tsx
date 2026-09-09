@@ -144,6 +144,8 @@ export function CatalogList({
       const saved = localStorage.getItem('roi:catalogs:viewMode')
       if (saved === 'table' || saved === 'cards') {
         setViewMode(saved)
+      } else if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        setViewMode('cards')
       }
     } catch {}
   }, [])

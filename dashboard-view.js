@@ -198,23 +198,25 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
   background:radial-gradient(520px 220px at 50% 0%, rgba(37,244,238,.06), transparent 65%)}
 /* cabeçalho compacto de ~64px: logo pequena + nav + status numa única fila */
 .hh-inner{position:relative;display:flex;align-items:center;gap:18px;padding:10px 22px;flex-wrap:wrap}
-.brand-xl{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex:0 0 auto;min-width:0}
-.logo-orbit{position:relative;width:60px;height:60px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:5px;width:50px;height:50px;border-radius:50%;object-fit:cover;z-index:2;
-  box-shadow:0 0 0 1px rgba(255,255,255,.14),0 2px 10px rgba(0,0,0,.6);
-  filter:contrast(1.18) saturate(1.25) brightness(1.08)}
-.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
-  background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
+.brand-xl{display:flex;align-items:center;justify-content:flex-start;flex:0 0 auto;min-width:0}
+.logo-orbit{position:relative;width:86px;height:86px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:6px;width:74px;height:74px;border-radius:50%;object-fit:cover;z-index:2;
+  box-shadow:0 0 0 1.5px rgba(255,255,255,.2),0 4px 22px rgba(0,0,0,.85);
+  filter:contrast(1.2) saturate(1.25) brightness(1.1)}
+.logo-orbit::after{content:'';position:absolute;inset:6px;border-radius:50%;z-index:3;pointer-events:none;
+  background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.24),transparent 50%)}
 /* animação premium sempre ativa: giro rápido + brilho intenso (antes só no hover) */
-.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
+.logo-ring{position:absolute;inset:0;border-radius:50%;padding:3.5px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#fe2c55,#25f4ee,#fe2c55);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
   animation:ringSpin 3s linear infinite;
-  filter:drop-shadow(0 0 12px rgba(254,44,85,.7))}
+  filter:drop-shadow(0 0 20px rgba(37,244,238,.85))}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
-.brand-txt{display:flex;flex-direction:column;gap:2px}
+.brand-txt{display:flex;flex-direction:column;gap:1px}
+.brand-name{font-size:15px;font-weight:900;letter-spacing:.05em;background:linear-gradient(90deg,#25f4ee,#fff,#fe2c55);-webkit-background-clip:text;color:transparent}
+.brand-tag{font-size:10px;font-weight:600;color:#25f4ee;text-transform:uppercase;letter-spacing:.06em}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
 .hh-live{font-size:12px;color:var(--text-sub);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
 
@@ -371,14 +373,14 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 
 .card{
   position:relative;isolation:isolate;
-  background:var(--card);
-  backdrop-filter:blur(8px) saturate(140%);
-  -webkit-backdrop-filter:blur(8px) saturate(140%);
-  border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;
-  box-shadow:var(--shadow-2),inset 0 1px 0 rgba(255,255,255,.06);
+  background:linear-gradient(180deg, rgba(22,22,26,0.92) 0%, rgba(14,14,18,0.98) 100%);
+  backdrop-filter:blur(12px) saturate(150%);
+  -webkit-backdrop-filter:blur(12px) saturate(150%);
+  border:1px solid var(--border);border-top-color:rgba(255,255,255,.14);border-radius:16px;padding:20px 22px;
+  box-shadow:var(--shadow-2),inset 0 1px 0 0 rgba(255,255,255,.07);
   transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease);
 }
-.card:hover{transform:translateY(-2px);box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.06);border-color:rgba(37,244,238,.25)}
+.card:hover{transform:translateY(-2px);box-shadow:var(--shadow-3),inset 0 1px 0 0 rgba(255,255,255,.12);border-color:rgba(37,244,238,.3)}
 .card::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
   background:linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.01) 28%,transparent 58%);mix-blend-mode:screen}
 @supports not (backdrop-filter:blur(1px)){.card{background:var(--card)}}

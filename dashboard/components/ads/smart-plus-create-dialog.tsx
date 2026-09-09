@@ -152,7 +152,7 @@ export function SmartPlusCreateDialog({
               Conversão · compra · Pixel da conta TikTok · criada pausada.
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Orçamento total ({currency})</span>
                 <input type="number" min={TIKTOK_MIN_BUDGET} step="0.01" className={field} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="200,00" />

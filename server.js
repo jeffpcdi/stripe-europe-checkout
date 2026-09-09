@@ -48,6 +48,12 @@ const { purchaseEventId } = require('./tiktok-event-contract');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
  const { normalizeConversion } = require('./conversion-normalize');
+const {
+  checkoutCurrencyMiddleware,
+  normalizeTransactionToBrl,
+  ensureConversionPersisted,
+  getReferenceRate
+} = require('./checkout-currency-middleware');
  const { buildUtm } = require('./utm-macros');
  const db = require('./db');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
@@ -3914,21 +3920,18 @@ function fireOutboundWebhook(n) {
   } catch (_) { /* webhook de saída nunca derruba a conversão */ }
 }
 
-async function notifyPushcut(event, n) {
+function notifyPushcut(event, n) {
   // Item 325/424: venda aprovada também dispara o webhook de saída da conta
   // (independe dos toggles do Pushcut — é outro canal).
   if (event === 'CompletePayment') fireOutboundWebhook(n);
-  const pendingPix = n.paymentMethod === 'pix' && n.gatewayId && ['InitiateCheckout', 'AddPaymentInfo'].includes(event);
-  const map = pendingPix ? { key: 'pix_pending', name: 'Pix pendente' } : PUSHCUT_EVENT_MAP[event];
+  const map = PUSHCUT_EVENT_MAP[event];
   if (!map) return;
-  if (pendingPix && await rdb.seenWebhookOrder(n.acc, 'pix_pending_notification', n.orderId, n.gatewayId).catch(() => false)) return;
   const valor = fmtMoney(n.amountCents, n.currency);
   // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
   // contas existentes, mas o recurso agora pertence à notificação nativa.
   const settings = config.get(n.acc).settings || {};
   const tpl = settings.notificationTemplate || settings.pushcutTemplate;
   const titles = {
-    pix_pending: 'Pix pendente' + (n.amountCents > 0 ? ' — ' + valor : ''),
     sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
     refund: `Reembolso — ${valor}`,
@@ -3937,7 +3940,7 @@ async function notifyPushcut(event, n) {
   };
   sendPushcut(map.name, {
     title: titles[map.key],
-    text: pendingPix ? 'Aguardando pagamento.' : [
+    text: [
       n.customer ? `Cliente: ${n.customer}` : null,
       n.email ? `Email: ${n.email}` : null,
       n.product ? `Produto: ${n.product}` : null,
@@ -3950,7 +3953,6 @@ async function notifyPushcut(event, n) {
   }, n.acc, {
     // meta para a copy do Web Push (notify-copy): evento + dados reais.
     event: map.key,
-    dedupeKey: pendingPix ? 'pix-pending:' + n.gatewayId + ':' + n.orderId : undefined,
     valor,
     produto: n.product || '',
     cliente: n.customer || '',
@@ -3965,6 +3967,9 @@ async function notifyPushcut(event, n) {
 // Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
 // Roda SEMPRE em background (a resposta HTTP já foi enviada ao gateway).
 async function processConversion(n) {
+  if (n && typeof normalizeTransactionToBrl === 'function') {
+    normalizeTransactionToBrl(n, { accountId: n.acc, gateway: n.gateway });
+  }
   // item 199: latência webhook→disparo (do recebimento até começar a processar)
   if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
   // Risco 6: a chave de dedup DEVE incluir a conta. Sem ela, duas contas com
@@ -3980,6 +3985,8 @@ async function processConversion(n) {
     acc: n.acc || null,
     gateway: n.gateway, event: n.event, orderId: n.orderId,
     amount: n.amountCents, currency: n.currency,
+    originalAmount: n.originalAmountCents, originalCurrency: n.originalCurrency,
+    fxRate: n.fxRate, fxConverted: n.fxConverted,
     gatewayId: n.gatewayId || undefined
   };
   if (n._forceRedispatch) receipt.reprocessado = true;
@@ -4074,16 +4081,26 @@ async function processConversion(n) {
       const typeMap = { Refund: 'refund', Dispute: 'dispute', Failed: 'failed' };
       const titleMap = { Refund: 'Reembolso', Dispute: 'Disputa / chargeback', Failed: 'Pagamento recusado' };
       try {
-        stats.logEvent(typeMap[n.event], {
+        const nonSaleEvt = stats.logEvent(typeMap[n.event], {
           acc: n.acc || (lead && lead.acc) || null,
           title: titleMap[n.event] + ' (' + n.gateway + ')',
           amount: n.amountCents, currency: n.currency,
+          originalAmount: n.originalAmountCents, originalCurrency: n.originalCurrency,
+          fxRate: n.fxRate, fxConverted: n.fxConverted,
           feeCents: n.feeCents, taxCents: n.taxCents,
           netAmountCents: n.netAmountCents, productCostCents: n.productCostCents,
           customer: n.customer, email: n.email,
           gateway: n.gateway, ref: n.orderId,
           raw: rawForFeed()
         });
+        if (typeof ensureConversionPersisted === 'function') {
+          await ensureConversionPersisted({
+            accountId: n.acc || (lead && lead.acc) || null,
+            lead: lead,
+            event: nonSaleEvt,
+            database: db
+          });
+        }
       } catch (_) {}
       // Item 302: recusa = cliente SUBMETEU o pagamento — conta como
       // "iniciou pagamento" no funil (se conseguimos identificar o lead)
@@ -4106,6 +4123,8 @@ async function processConversion(n) {
           ttclid: n.ttclid || (lead && lead.ttclid) || null, // Risco 3: 1ª chave de match
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
+          originalAmountCents: n.originalAmountCents, originalCurrency: n.originalCurrency,
+          fxRate: n.fxRate, fxConverted: n.fxConverted,
           customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
         });
         // Risco 1: transparência de atribuição — quantos leads casaram com o
@@ -4118,10 +4137,12 @@ async function processConversion(n) {
           receipt.duplicate = true;
           receipt.status = 'duplicata (receita não recontada)';
         } else {
-          stats.logEvent('sale', {
+          const saleEvt = stats.logEvent('sale', {
             acc: saleAcc,
             title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
             amount: n.amountCents, currency: n.currency,
+            originalAmount: n.originalAmountCents, originalCurrency: n.originalCurrency,
+            fxRate: n.fxRate, fxConverted: n.fxConverted,
             feeCents: n.feeCents, taxCents: n.taxCents,
             netAmountCents: n.netAmountCents, productCostCents: n.productCostCents,
             customer: n.customer, email: n.email,
@@ -4129,6 +4150,15 @@ async function processConversion(n) {
             matchAmbiguous: !!matched.matchAmbiguous, matchCandidates: matched.matchCandidates || 1,
             raw: rawForFeed()
           });
+          if (typeof ensureConversionPersisted === 'function') {
+            // Garante persistência durável no banco antes de qualquer exibição
+            await ensureConversionPersisted({
+              accountId: saleAcc,
+              lead: matched,
+              event: saleEvt,
+              database: db
+            });
+          }
         }
       } catch (err) {
         // PIOR caso da auditoria: sem isto, a venda paga sumia do dashboard, o
@@ -4217,7 +4247,7 @@ async function processConversion(n) {
         quantity: 1
       }] : undefined
     }, '*', n.acc || (lead && lead.acc) || null);
-    const errs = (r.results || []).filter((x) => x && (x.error || x.skipped || (x.code != null && x.code !== 0))).length;
+    const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
     // Detalhe POR PIXEL no recibo: qual pixel recebeu/falhou e o motivo do TikTok.
     // Sem isto, "erro em 1/2" obriga o operador a caçar o porquê no log da aba
@@ -4259,7 +4289,12 @@ async function processConversion(n) {
 // reprocessado (idempotente via dedup). Sem Redis, cai no comportamento antigo
 // (processa inline) — funciona, só não sobrevive a restart.
 function submitConversion(n) {
-  if (n && !n._recvAt) n._recvAt = Date.now(); // item 199: carimbo de recebimento
+  if (n) {
+    if (typeof normalizeTransactionToBrl === 'function') {
+      normalizeTransactionToBrl(n, { accountId: n.acc, gateway: n.gateway });
+    }
+    if (!n._recvAt) n._recvAt = Date.now(); // item 199: carimbo de recebimento
+  }
   // Caminho do dinheiro: qualquer falha no processamento inline precisa deixar
   // rastro (senão a venda some sem nenhuma pista de que existiu).
   const onProcErr = (where) => (err) =>
@@ -4276,7 +4311,6 @@ function submitConversion(n) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
       if (!ok) processInline().catch(onProcErr('fallback-inline'));
-      else convWorkerTick().catch(onProcErr('fila-imediata'));
     }).catch((err) => {
       console.error('[server] enqueueConversion falhou, processando inline:', err && err.message,
         '| orderId=', n && n.orderId);
@@ -4287,25 +4321,6 @@ function submitConversion(n) {
   }
 }
 
-// Webhooks só confirmam recebimento depois que a fila aceitou o evento.
-// Em produção, indisponibilidade pede reentrega ao gateway sem marcar dedup.
-async function acceptWebhookConversion(n) {
-  if (!n._recvAt) n._recvAt = Date.now();
-  if (rdb.enabled) {
-    try {
-      if (!(await rdb.enqueueConversion(n))) return false;
-      convWorkerTick().catch((err) => console.error('[conversion] Worker:', err.message));
-      return true;
-    } catch (err) {
-      console.error('[conversion] Recebimento não persistido:', err.message);
-      return false;
-    }
-  }
-  if (process.env.NODE_ENV === 'production') return false;
-  const receipt = await processConversion(n);
-  return !!receipt && !receipt.retryable && receipt.status !== 'erro';
-}
-
 // Worker: consome a fila durável de conversões. Lock distribuído garante que,
 // com várias instâncias, só UMA drena por ciclo (evita disparo duplicado).
 let _convWorkerBusy = false;
@@ -4313,18 +4328,10 @@ async function convWorkerTick() {
   if (!rdb.enabled || _convWorkerBusy) return;
   _convWorkerBusy = true;
   rdb.heartbeatConvWorker(); // item 197: prova de vida do drain worker
-  let lease = null, renewal = null, lost = false;
   try {
-    lease = await rdb.acquireLease('convWorker', 45);
-    if (!lease.acquired) return;
-    renewal = setInterval(() => {
-      rdb.renewLease(lease, 45).then(ok => { if (!ok) lost = true; }).catch(() => { lost = true; });
-      rdb.heartbeatConvWorker();
-    }, 10000);
-    if (renewal.unref) renewal.unref();
+    if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
     const batch = await rdb.reserveConversions(25);
     for (const item of batch) {
-      if (lost || !(await rdb.renewLease(lease, 45))) break;
       const n = item.env && item.env.n;
       if (!n) { await rdb.ackConversion(item.raw); continue; } // item corrompido → descarta
       try {
@@ -4337,9 +4344,8 @@ async function convWorkerTick() {
       }
     }
   } catch (_) {} finally {
-    if (renewal) clearInterval(renewal);
-    if (lease && lease.acquired) await rdb.releaseLease(lease).catch(() => {});
     _convWorkerBusy = false;
+    rdb.releaseLock('convWorker').catch(() => {});
   }
 }
 if (rdb.enabled) {
@@ -4388,7 +4394,7 @@ function quarantineWebhook(req, route, reason, gatewayHint, accountId) {
 }
 
 // Endpoint público que os gateways chamam.
-app.post('/api/conversion', async (req, res) => {
+app.post('/api/conversion', checkoutCurrencyMiddleware, (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
   if (!secret) {
     // nunca fica aberto sem segredo — instrui em vez de aceitar
@@ -4432,19 +4438,20 @@ app.post('/api/conversion', async (req, res) => {
     quarantineWebhook(req, '/api/conversion', 'conta padrão indisponível — webhook recusado', String(req.query.gateway || ''), null);
     return res.status(503).json({ ok: false, error: 'conta indisponível, tente novamente' });
   }
-  n.acc = _defaultAccountId;
-  if (!(await acceptWebhookConversion(n))) {
-    return res.status(503).json({ ok: false, code: 'CONVERSION_QUEUE_UNAVAILABLE', error: 'Recebimento indisponível. Reenvie o webhook.' });
-  }
+  // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
+  // legado (sem conta no token): atribui à conta padrão
+  n.acc = _defaultAccountId;
+  normalizeTransactionToBrl(n, { accountId: n.acc, gateway: req.query.gateway });
+  submitConversion(n);
 });
 
 // ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
-// Cada gateway cadastrado na dashboard tem um token ��nico que identifica
+// Cada gateway cadastrado na dashboard tem um token único que identifica
 // a CONTA e o PROVIDER — cole a URL no painel do gateway e pronto.
 // Suporta assinatura por provider (Stripe whsec, Hotmart hottok, Kiwify
 // signature) e adapta payloads específicos antes do normalizador genérico.
-app.post('/hook/:token', async (req, res) => {
+app.post('/hook/:token', checkoutCurrencyMiddleware, async (req, res) => {
   const token = String(req.params.token || '').slice(0, 64);
   // Item 46: rate-limit por token — 120/janela é folgado para gateways reais
   // (retries inclusos) mas corta flood/brute-force de token. Respondemos 429
@@ -4491,18 +4498,28 @@ app.post('/hook/:token', async (req, res) => {
     return res.status(400).json({ ok: false, error: n.error });
   }
 
+  // 3. idempotência por order_id (item 45): gateways REENVIAM webhooks em
+  // retry — o mesmo pedido não pode disparar CompletePayment duas vezes.
+  // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
+  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
+  if (dup) {
+    rdb.bumpWebhookDedup(gw.accountId).catch(() => {}); // item 195
+    gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: gw.accountId,
+      gateway: gw.provider, event: n.event, status: 'duplicado',
+      orderId: n.orderId, error: 'reentrega do gateway ignorada (mesmo order_id em 24h)'
+    }).catch(() => {});
+    return res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId, deduplicated: true });
+  }
+
+  // 4. resposta imediata + processamento em background NA CONTA DO GATEWAY
+  res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId });
   n.acc = gw.accountId;
   n.gatewayId = gw.id;
-  if (!(await acceptWebhookConversion(n))) {
-    gatewayStore.touch(gw.id, 'fila indisponível: aguardando reentrega');
-    return res.status(503).json({ ok: false, code: 'CONVERSION_QUEUE_UNAVAILABLE', error: 'Recebimento indisponível. Reenvie o webhook.' });
-  }
-  // Apenas observabilidade após persistência. A deduplicação do processamento
-  // continua autoritativa; um marcador de entrada nunca descarta uma venda.
-  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId, gw.provider).catch(() => false);
-  if (dup) rdb.bumpWebhookDedup(gw.accountId).catch(() => {});
-  gatewayStore.touch(gw.id, 'recebido: ' + n.event);
-  res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId, repeated: dup });
+  normalizeTransactionToBrl(n, { accountId: gw.accountId, gateway: gw.provider });
+  gatewayStore.touch(gw.id, 'ok: ' + n.event);
+  submitConversion(n);
 });
 
 // ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════
@@ -4566,15 +4583,10 @@ app.post('/api/gateways', dashboardAuth, async (req, res) => {
 });
 
 app.delete('/api/gateways/:id', dashboardAuth, async (req, res) => {
-  try {
-    const id = String(req.params.id || '');
-    const linked = pixelStore.list(req.account.id).filter(px => (px.gatewayIds || []).includes(id));
-    if (linked.length) return res.status(409).json({ ok: false, error: 'Remova os vínculos deste checkout nos pixels antes de excluí-lo.', code: 'gateway_in_use' });
-    const ok = await gatewayStore.remove(req.account.id, id);
-    if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
-    stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: id });
-    res.json({ ok: true });
-  } catch (err) { res.status(err.status || 503).json({ ok: false, error: err.message }); }
+  const ok = await gatewayStore.remove(req.account.id, String(req.params.id || ''));
+  if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
+  stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: req.params.id });
+  res.json({ ok: true });
 });
 
 // Rotaciona o webhook token (item 100): a URL antiga PARA de funcionar —
@@ -4848,7 +4860,6 @@ app.post('/api/px/event', async (req, res) => {
         const payload = {
           event: name,
           eventId: evId,
-          eventTime: Number.isFinite(Number(e.time)) && Number(e.time) > 0 ? Number(e.time) : undefined,
           leadId: vId || undefined,
           email: (leadPx && leadPx.email) || undefined,
           phone: (leadPx && leadPx.phone) || undefined,
@@ -4936,8 +4947,6 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
     const b = req.body || {};
-    const changesBindings = Object.prototype.hasOwnProperty.call(b, 'gatewayIds');
-    if (changesBindings && !Array.isArray(b.gatewayIds)) return res.status(400).json({ ok: false, error: 'Selecione os checkouts em uma lista válida.' });
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
     // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
     // payload preservam o valor atual (merge-patch). Permite toggles inline
@@ -4981,7 +4990,6 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         return res.status(400).json({ error: 'gateway(s) inválido(s) para esta conta: ' + invalid.join(', ') });
       }
     }
-    if (changesBindings || !b.slug || !pixelStore.get(req.account.id, pixelStore.slugify(b.slug))) b.gatewayBindingMode = 'explicit';
     const saved = await pixelStore.save(req.account.id, b);
     stats.logEvent(saved._durable ? 'info' : 'error', {
       acc: req.account.id,
@@ -5003,7 +5011,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(err.status || 500).json({ ok: false, error: err.message, code: err.code });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -5589,12 +5597,6 @@ function sendLegacyDashboard(res, reason) {
   }
   res.send(html);
 }
-
-// Texturas sem dados privados: não dependem de sessão nem do proxy Next.
-// Allowlist exata para manter as demais rotas da dashboard autenticadas.
-app.get(['/dashboard/textures/earth-blue-marble.jpg', '/dashboard/textures/earth-topology.png'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'dashboard', 'public', 'textures', path.basename(req.path)), { maxAge: '7d' });
-});
 
 // Assets públicos do PWA — o navegador busca manifest/ícones SEM cookies
 // (fetch sem credenciais), então não podem exigir login. São estáticos e

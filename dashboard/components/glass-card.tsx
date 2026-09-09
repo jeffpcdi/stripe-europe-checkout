@@ -42,7 +42,7 @@ export function GlassCard({
     <div
       ref={ref}
       className={cn(
-        'glass overflow-hidden rounded-2xl border border-border shadow-sm transition-colors',
+        'glass relative overflow-hidden rounded-2xl border border-border/80 shadow-sm transition-all duration-200 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/12 before:to-transparent',
         variantClass[variant],
         hover && 'surface-hover',
         sheen && 'sheen',
@@ -62,7 +62,7 @@ export function GlassCardHeader({
   children,
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('flex items-start justify-between gap-3 p-5 pb-0', className)}>
+    <div className={cn('flex items-start justify-between gap-3 p-5 sm:p-6 pb-0', className)}>
       {children}
     </div>
   )
@@ -73,7 +73,7 @@ export function GlassCardTitle({
   children,
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3 className={cn('text-sm font-medium text-sub text-pretty', className)}>
+    <h3 className={cn('text-sm font-semibold tracking-tight text-foreground text-pretty', className)}>
       {children}
     </h3>
   )
@@ -83,5 +83,5 @@ export function GlassCardContent({
   className,
   children,
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('p-5', className)}>{children}</div>
+  return <div className={cn('p-5 sm:p-6 pt-3.5', className)}>{children}</div>
 }

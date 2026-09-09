@@ -313,7 +313,7 @@ export function UniversalLauncherDialog({
 
   return (
     <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-3 sm:p-5 backdrop-blur-md"
+      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-2 sm:p-5 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting && !jobId) onClose()
       }}
@@ -324,10 +324,10 @@ export function UniversalLauncherDialog({
         aria-modal="true"
         aria-label="Lançador de Campanhas"
         tabIndex={-1}
-        className="anim-pop-in flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#09090b]/95 shadow-[0_0_60px_rgba(0,0,0,0.85)] outline-none"
+        className="anim-pop-in flex max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#09090b]/95 shadow-[0_0_60px_rgba(0,0,0,0.85)] outline-none"
       >
         {/* Cabeçalho Minimalista */}
-        <div className="flex items-center justify-between border-b border-border/40 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-border/40 px-4 sm:px-5 py-3.5 sm:py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Rocket className="size-4" aria-hidden="true" />
@@ -354,7 +354,7 @@ export function UniversalLauncherDialog({
 
         {/* Seletor Rápido de Formato */}
         {!jobId && (onSmartPlus || onSpark) && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/30 bg-secondary/15 px-5 py-2">
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/30 bg-secondary/15 px-4 sm:px-5 py-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Formato:</span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-3 py-1 text-xs font-semibold text-primary">
               <Rocket className="size-3" />
@@ -384,7 +384,7 @@ export function UniversalLauncherDialog({
         )}
 
         {/* Corpo do Modal */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 sm:space-y-5">
           {/* Se houver job em andamento (Modo progresso do lote) */}
           {jobId && job ? (
             <div className="space-y-4 rounded-xl border border-border/50 bg-secondary/15 p-4">
@@ -726,7 +726,7 @@ export function UniversalLauncherDialog({
         </div>
 
         {/* Rodapé com Ação Principal */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-4 sm:px-5 py-3 sm:py-3.5">
           <div className="text-[11px] text-muted-foreground">
             {validationError ? (
               <span className="text-warning flex items-center gap-1">

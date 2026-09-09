@@ -77,19 +77,19 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                   {lead.country ? countryFlag(lead.country) : <MapPin size={16} />}
                 </span>
                 <div className="recent-visit-detail min-w-0 flex-1 ml-1">
-                  <div className="flex items-center gap-2">
-                    <strong className="truncate text-xs font-semibold text-foreground">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+                    <strong className="truncate text-xs font-semibold text-foreground max-w-full">
                       {lead.city || (lead.country ? countryName(lead.country) : lead.countryName) || 'Local não informado'}
                     </strong>
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${stageInfo.badgeClass}`}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${stageInfo.badgeClass}`}
                     >
                       <StageIcon size={10} aria-hidden="true" />
                       {stageInfo.label}
                     </span>
                   </div>
                 </div>
-                <div className="recent-visit-time flex flex-col items-end gap-0.5">
+                <div className="recent-visit-time flex shrink-0 flex-col items-end gap-0.5">
                   {isPurchased && Number(lead.amount) > 0 && (
                     <strong
                       data-sensitive

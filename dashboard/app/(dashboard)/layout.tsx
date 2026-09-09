@@ -48,11 +48,10 @@ export default function DashboardLayout({
           <TopNav />
           <Header />
         </div>
-        {/* Redesign: largura total — o max-width de 1100px criava faixas
-            pretas nas laterais em telas grandes (1920px). */}
+        {/* Redesign: largura total fluida sem bordas/faixas pretas nas laterais em qualquer monitor (1080p, 1440p, 4K, ultrawide). */}
         <main
           id="conteudo"
-          className="mx-auto w-full max-w-[1680px] px-4 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 lg:px-6"
+          className="w-full max-w-none px-3.5 sm:px-6 lg:px-8 xl:px-10 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3.5 sm:pt-5"
         >
           <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
             {children}

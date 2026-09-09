@@ -28,11 +28,22 @@ export function Sidebar() {
       className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-background/95 backdrop-blur-xl md:flex selection:bg-brand-cyan/20"
       aria-label="Navegação principal"
     >
-      {/* Logo & Brand Header */}
-      <div className="flex flex-col items-center justify-center px-4 py-5 border-b border-white/[0.04]">
+      {/* Logo & Brand Header — área de destaque refinada com pedestal e iluminação ambiente */}
+      <div className="relative flex flex-col items-center justify-center px-3 py-8 overflow-hidden">
+        {/* Halo ambiente superior */}
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(37,244,238,0.14)_0%,rgba(254,44,85,0.06)_42%,transparent_75%)]"
+          aria-hidden="true"
+        />
+        {/* Base / pedestal orbital sutil */}
+        <div
+          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full border border-white/[0.06] bg-gradient-to-b from-white/[0.03] to-transparent shadow-[inset_0_0_28px_rgba(37,244,238,0.06)]"
+          aria-hidden="true"
+        />
+
         <Link
           href="/"
-          className="group flex flex-col items-center text-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
+          className="group relative z-10 flex flex-col items-center text-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
           aria-label="ROI-NADOS — Visão geral"
         >
           <span className="brand-logo brand-logo--lg" aria-hidden="true">
@@ -40,14 +51,20 @@ export function Sidebar() {
             <Image
               src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
-              width={88}
-              height={88}
+              width={154}
+              height={154}
               unoptimized
-              className="brand-logo__img transition-transform duration-300 group-hover:scale-105"
+              className="brand-logo__img transition-transform duration-500 ease-out group-hover:scale-105"
               priority
             />
           </span>
         </Link>
+
+        {/* Hairline gradiente inferior refinado */}
+        <div
+          className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-brand-cyan/30 to-transparent"
+          aria-hidden="true"
+        />
       </div>
 
       {/* Seções de navegação */}

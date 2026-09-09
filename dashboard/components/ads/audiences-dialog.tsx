@@ -144,22 +144,22 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
   return (
     <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
+      className="ads-dialog fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
     >
       <div
         ref={ref}
         role="dialog" aria-modal="true" aria-labelledby="audiences-dialog-title"
         tabIndex={-1}
-        className="relative flex flex-col w-full max-w-2xl max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
+        className="relative flex flex-col w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/20">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border bg-muted/20">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-primary/10 text-primary">
               <Users className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 id="audiences-dialog-title" className="text-base font-semibold tracking-tight text-foreground">
+              <h2 id="audiences-dialog-title" className="text-sm sm:text-base font-semibold tracking-tight text-foreground">
                 Públicos
               </h2>
               <p className="text-xs text-muted-foreground">
@@ -178,7 +178,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Quick 1-Click Creation Presets */}
           <div className="space-y-2.5">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">

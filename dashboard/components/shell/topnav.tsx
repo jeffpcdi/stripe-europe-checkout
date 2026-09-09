@@ -13,23 +13,20 @@ export function TopNav() {
   return (
     /* V2-81: topnav mobile com hairline gradiente no lugar da borda seca */
     <header className="header-hairline sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
-      <div className="flex h-16 items-center justify-between gap-3 px-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
+      <div className="flex h-[74px] items-center justify-between gap-3 px-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
         {/* Logo */}
-        <Link href="/" className="group flex items-center gap-2.5" aria-label="ROI-NADOS">
+        <Link href="/" className="group flex items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4" aria-label="ROI-NADOS">
           <span className="brand-logo" aria-hidden="true">
             <span className="brand-logo__ring" />
             <Image
               src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
-              width={40}
-              height={40}
+              width={54}
+              height={54}
               unoptimized
-              className="brand-logo__img"
+              className="brand-logo__img transition-transform duration-300 group-hover:scale-105"
               priority
             />
-          </span>
-          <span className="text-sm font-extrabold tracking-wider bg-gradient-to-r from-brand-cyan via-white to-brand-pink bg-clip-text text-transparent">
-            ROI-NADOS
           </span>
         </Link>
 

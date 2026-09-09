@@ -638,7 +638,7 @@ function findLeadByPhone(phone, accountId) {
 function matchExternalConversion(data) {
   data = data || {};
   ensureLoaded();
-  const cur = (data.currency || 'eur').toUpperCase();
+  const cur = (data.currency || 'BRL').toUpperCase();
   const amount = data.amountCents || 0;
   const nowIso = new Date().toISOString();
   const gw = String(data.gateway || 'externo').toLowerCase().slice(0, 30);
@@ -702,6 +702,10 @@ function matchExternalConversion(data) {
     lead.convertedAt = nowIso;
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
+    lead.originalAmount = data.originalAmountCents != null ? data.originalAmountCents : (data.originalAmount != null ? data.originalAmount : amount);
+    lead.originalCurrency = data.originalCurrency || cur;
+    lead.fxRate = data.fxRate || 1.0;
+    lead.fxConverted = !!data.fxConverted;
     lead.customer = data.customer || lead.customer || null;
     lead.email = data.email || lead.email || null;
     lead.phone = data.phone || lead.phone || null;
@@ -754,6 +758,10 @@ function matchExternalConversion(data) {
       convertedAt: nowIso,
       reportedAmount: amount,
       reportedCurrency: cur,
+      originalAmount: data.originalAmountCents != null ? data.originalAmountCents : (data.originalAmount != null ? data.originalAmount : amount),
+      originalCurrency: data.originalCurrency || cur,
+      fxRate: data.fxRate || 1.0,
+      fxConverted: !!data.fxConverted,
       customer: data.customer || null,
       email: data.email || null,
       phone: data.phone || null,
@@ -830,7 +838,7 @@ function getStats(accountId) {
   allEvents.forEach((e) => {
     if (e.type === 'sale') {
       sales++;
-      const cur = (e.currency || 'EUR').toUpperCase();
+      const cur = (e.currency || 'BRL').toUpperCase();
       revenue[cur] = (revenue[cur] || 0) + (e.amount || 0);
     }
     else if (e.type === 'failed') failed++;

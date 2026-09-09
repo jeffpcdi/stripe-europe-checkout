@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Menu, X } from 'lucide-react'
@@ -32,8 +33,26 @@ export function MobileNav() {
           className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col overflow-y-auto border-r border-white/5 bg-[#040406]/70 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pt-[max(1.25rem,env(safe-area-inset-top))] shadow-2xl backdrop-blur-3xl duration-300 focus:outline-none data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left"
           aria-describedby={undefined}
         >
-          <div className="mb-4 flex items-center justify-between px-2">
-            <Dialog.Title className="text-sm font-semibold">Navegação</Dialog.Title>
+          <Dialog.Title className="sr-only">Menu de navegação</Dialog.Title>
+          <div className="mb-5 flex items-center justify-between border-b border-white/[0.06] pb-4">
+            <Link
+              href="/"
+              onClick={() => setOpen(false)}
+              className="group flex items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
+              aria-label="ROI-NADOS"
+            >
+              <span className="brand-logo" aria-hidden="true">
+                <span className="brand-logo__ring" />
+                <Image
+                  src="/dashboard/roi-nados-logo.jpg"
+                  alt="ROI-NADOS"
+                  width={54}
+                  height={54}
+                  unoptimized
+                  className="brand-logo__img transition-transform duration-300 group-hover:scale-105"
+                />
+              </span>
+            </Link>
             <Dialog.Close asChild>
               <button
                 type="button"

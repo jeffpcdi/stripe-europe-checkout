@@ -339,7 +339,7 @@ export function OverviewView() {
 
   return (
     <div
-      className={`mx-auto max-w-[1600px] flex flex-col gap-6 ${
+      className={`w-full max-w-none flex flex-col gap-5 sm:gap-6 ${
         firstEnter ? 'stagger-fade' : ''
       }`}
     >
@@ -628,7 +628,7 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Dados de conversão */}
-        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300">
+        <GlassCard variant="thick" className="flex flex-col justify-between p-5 border-border/70 hover:border-brand-cyan/30 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300 sm:col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between pb-0.5">
             <span
               data-tooltip="Completude dos dados enviados ao TikTok. Consulte os pixels para ver erros de envio."

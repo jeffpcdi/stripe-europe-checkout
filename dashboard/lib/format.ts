@@ -51,19 +51,20 @@ export function formatMoney(cents?: number, currency: string = DEFAULT_CURRENCY)
 
 /**
  * Gasto de anúncios: valores em UNIDADES de moeda (não centavos) vindos da
- * API do TikTok, moeda default USD. Usado na aba Ads (KPIs, propostas de
+ * API do TikTok, moeda padrão BRL (R$). Usado na aba Ads (KPIs, propostas de
  * orçamento, insights de criativos).
  */
 export function fmtSpend(v?: number | null, currency?: string | null): string {
+  const ccy = currency && currency !== 'USD' ? currency : DEFAULT_CURRENCY
   try {
     return new Intl.NumberFormat(LOCALE, {
       style: 'currency',
-      currency: currency || 'USD',
+      currency: ccy,
       maximumFractionDigits: 2,
     }).format(v || 0)
   } catch {
     // moeda desconhecida pelo Intl: degrada para número puro com prefixo
-    return `${currency || 'USD'} ${(v || 0).toFixed(2)}`
+    return `${ccy} ${(v || 0).toFixed(2)}`
   }
 }
 

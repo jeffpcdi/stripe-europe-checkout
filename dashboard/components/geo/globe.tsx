@@ -65,6 +65,10 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     return countries.reduce((max, c) => Math.max(max, c.count), 1)
   }, [countries])
 
+  const totalVisitors = useMemo(() => {
+    return countries.reduce((sum, c) => sum + c.count, 0)
+  }, [countries])
+
   const onMarkerClick = useCallback((d: any) => {
     if (!d?.code || !globeRef.current) return
     const coords = COUNTRY_COORDS[d.code]
@@ -318,6 +322,9 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   // react-globe.gl já libera o renderer ao desmontar. Forçar a perda de
   // contexto aqui também destrói o canvas durante a repetição dos efeitos.
 
+  const [inAppFullscreen, setInAppFullscreen] = useState(false)
+  const isImmersive = fullscreen || inAppFullscreen
+
   function moveCamera(delta?: number) {
     const globe = globeRef.current
     if (!globe) return
@@ -326,21 +333,89 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       ...pov, altitude: Math.max(ALT_MIN, Math.min(ALT_MAX, pov.altitude + delta)),
     }, reduced ? 0 : 350)
   }
+
+  // Tecla ESC para sair de tela cheia in-app
+  useEffect(() => {
+    if (!inAppFullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setInAppFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [inAppFullscreen])
+
   async function toggleFullscreen() {
     try {
       setFullscreenError(false)
-      if (fullscreen) await document.exitFullscreen()
-      else await containerRef.current?.requestFullscreen()
-    } catch { setFullscreenError(true) }
+      if (inAppFullscreen) {
+        setInAppFullscreen(false)
+        return
+      }
+      if (fullscreen) {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen()
+        }
+      } else {
+        if (containerRef.current?.requestFullscreen) {
+          try {
+            await containerRef.current.requestFullscreen()
+          } catch {
+            // Em caso de restrição do iframe (ex: sandbox sem allow-fullscreen), ativa o modo in-app
+            setInAppFullscreen(true)
+          }
+        } else {
+          setInAppFullscreen(true)
+        }
+      }
+    } catch {
+      setInAppFullscreen(true)
+    }
   }
 
   return (
-    <div ref={containerRef} className="presence-stage" role="region" aria-label="Globo de visitantes online" data-ready={ready}>
+    <div
+      ref={containerRef}
+      className={`presence-stage transition-all duration-500 ease-out ${isImmersive ? 'presence-stage-immersive' : ''}`}
+      role="region"
+      aria-label="Globo de visitantes online"
+      data-ready={ready}
+      data-immersive={isImmersive}
+      data-in-app-fullscreen={inAppFullscreen}
+    >
+      {/* HUD Imersivo no topo durante Fullscreen */}
+      {isImmersive && (
+        <div className="presence-fullscreen-topbar anim-pop-in">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="relative flex size-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+            </span>
+            <span className="text-xs font-bold tracking-widest text-white uppercase font-mono">
+              RADAR GLOBAL AO VIVO
+            </span>
+            <span className="hidden sm:inline-block h-3 w-px bg-white/20" />
+            <span className="hidden sm:inline-block text-xs text-slate-300">
+              {totalVisitors} visitante{totalVisitors === 1 ? '' : 's'} monitorados em tempo real
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="presence-fullscreen-exit-btn"
+            title="Sair da tela cheia (ESC)"
+            aria-label="Sair da tela cheia"
+          >
+            <Minimize2 size={14} />
+            <span>Sair (ESC)</span>
+          </button>
+        </div>
+      )}
+
       <div className="presence-sky" aria-hidden="true" />
       <div className="presence-orbit presence-orbit-outer" aria-hidden="true" />
       <div className="presence-orbit presence-orbit-inner" aria-hidden="true" />
       <div className="presence-canvas">
-        {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(120, size.height - 214)}
+        {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(120, size.height - (isImmersive ? 140 : 214))}
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
@@ -395,7 +470,16 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
             </button>
           </>
         )}
-        {fullscreenSupported && <><span className="presence-control-divider" aria-hidden="true" /><button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} title={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'} aria-pressed={fullscreen}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button></>}
+        <span className="presence-control-divider" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-label={isImmersive ? 'Sair da tela cheia' : 'Tela cheia'}
+          title={isImmersive ? 'Sair da tela cheia' : 'Tela cheia'}
+          aria-pressed={isImmersive}
+        >
+          {isImmersive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+        </button>
       </div>
       {fullscreenError && <p className="presence-control-error" role="status">Tela cheia indisponível neste navegador.</p>}
       {textureFailed && <p className="presence-control-error" role="status">Mapa simplificado · imagem indisponível <button type="button" className="presence-retry" onClick={() => { cameraInitialized.current = false; setReady(false); setTextureFailed(false); setAttempt(value => value + 1) }}><RefreshCw size={13} />Recarregar imagem</button></p>}

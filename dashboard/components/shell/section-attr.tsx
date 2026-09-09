@@ -7,12 +7,7 @@ import { usePathname } from 'next/navigation'
 // aurora mudar de cor por página (ciano padrão, rosa no Ao Vivo,
 // âmbar na Geografia) — só CSS reage, sem re-render do fundo.
 export function SectionAttr() {
-  let pathname = ''
-  try {
-    pathname = usePathname() || ''
-  } catch {
-    pathname = ''
-  }
+  const pathname = usePathname() || ''
 
   useEffect(() => {
     if (!pathname) return
