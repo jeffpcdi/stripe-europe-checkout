@@ -1202,9 +1202,10 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   fallback local. `/c/:slug` bloqueia recorrências de score alto e pode emitir o custom event
   diagnóstico `BotTrafficBlocked`; nunca cria compra/conversão falsa. Rotas de operação:
   `GET /api/cloak/blocks` e `DELETE /api/cloak/blocks/:ipHash`.
-- **Catálogo mágico:** `ads-catalog-inspect.js` raspa JSON-LD e coleções Shopify com DNS anti-SSRF,
-  redirects revalidados, limite de corpo e timeout. `POST /api/ads/catalogs/magic-import` cria produtos
-  e tenta iniciar o sync; `GET /feed/:token.xml` expõe XML complementar, mas o upload TikTok continua
+- **Catálogo pelo link:** `ads-catalog-inspect.js` lê JSON-LD com DNS anti-SSRF,
+  redirects revalidados, limite de corpo e timeout. `POST /api/ads/catalogs/magic-import` usa um único
+  produto e cria quatro registros de feed com a mesma URL (ver automação abaixo),
+  preserva vídeos e inicia o sync; `GET /feed/:token.xml` expõe XML complementar, mas o upload TikTok continua
   usando o CSV canônico. Produtos têm `sort_order` e `PUT /api/ads/catalogs/:id/products/reorder`.
 - **Drive/Dropbox:** `cloud-video-sync.js` usa OAuth, cifra tokens AES-256-GCM no Neon, observa pastas,
   limita downloads e envia somente assets de vídeo ao TikTok (rascunho reutilizável, nunca ativa
@@ -1384,3 +1385,42 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - Esta última revisão do cabeçalho/cards aguarda testes no navegador, conforme pedido
   explícito do usuário. As verificações interativas do item anterior são da versão anterior.
   Compilação Next/TypeScript e `git diff --check` aprovados após a nova implementação.
+
+### Catálogo de um produto com biblioteca de vídeos (2026-09-09)
+- `catalog/catalog-product-automation.js` normaliza uma URL HTTPS e prepara quatro registros com
+  SKUs e `item_group_id` distintos e estáveis. Todos mantêm nome, preço, marca e destino do produto
+  real. São registros do mesmo produto, não novas variantes comerciais. A criação não promete
+  aprovação: somente os itens confirmados pelo TikTok podem liberar campanhas.
+- Os mesmos quatro itens são compartilhados por todos os vídeos. Dez criativos resultam, por
+  padrão, em dez campanhas, não cinquenta produtos. O schema vivo do Pipeboard consultado nesta
+  revisão não expõe criação de Product Sets; nenhum conjunto remoto fictício é exibido. O lote usa
+  `productScope: all` com um vídeo por campanha e preserva a validação/ativação durável existente.
+- `catalog/catalog-product-import.js` coordena extração, validação, gravação e fila. `ads_catalogs`
+  recebe `automation` e `creatives` (JSONB). Uma instrução SQL grava catálogo, quatro produtos e
+  vínculos dos vídeos atomicamente; `batch_key` + fingerprint evitam duplicação após timeout e
+  bloqueiam reutilização da mesma tentativa para outro plano. Retry usa o registro já salvo, sem
+  depender novamente da loja. Edições/importações em catálogos deste fluxo rejeitam outra URL.
+- `POST /api/ads/catalogs/:catalogId/creatives` acrescenta vídeos; `DELETE .../creatives/:creativeId`
+  remove somente o vínculo. Ambos validam conta e advertiser. Acréscimo exige arquivo MP4/MOV
+  existente na biblioteca da conta, mescla por URL em SQL e limita a cinquenta; remoção não apaga
+  arquivo, produtos nem anúncios existentes. `sortOrder` preserva a seleção inclusive após retry.
+- Business Center único é descoberto automaticamente. A preparação usa a mesma chave de revisão
+  do sync manual e o worker durável existente (ciclo de 2 s). Falhas anteriores à fila persistem
+  como `automation.syncIssue`, visíveis e retomáveis. Depois da fila, o status continua nos runs.
+  Nenhum `synced_at` é avançado sem o recibo do upload atual e a auditoria remota correspondente.
+- `CatalogProductImport` pede link, país e vídeos opcionais; exibe campos adicionais só se faltarem
+  dados na loja. Marca não é inferida de `og:site_name`; imagens relativas usam a URL final da página.
+  `CatalogCreatives` envia em sequência, preserva falhas individuais e permite reenviar/remover.
+  O lançador reutiliza os vídeos vinculados e salva também novos uploads/seleções da biblioteca.
+- `CatalogSyncStatus` fica visível fora dos detalhes técnicos e atualiza catálogo/prontidão ao
+  receber nova etapa. O detalhe mantém todos os hooks antes do retorno de erro e o orçamento do
+  lançador usa a moeda da conta de anúncios, que pode ser diferente da moeda dos produtos.
+- Testes sem serviços externos: `test/catalog-product-import.test.js`, `test/catalog-product-routes.test.js`,
+  `test/catalog-product-ui.test.js` e `test/catalog-multiple-creatives-ui.test.js`. `test/catalog-product-store.test.js` exercita SQL em
+  Postgres isolado via PGlite; execute com `CATALOG_TEST_PGLITE_PATH` apontando para o pacote instalado
+  fora do app. Verifica rollback, concorrência, idempotência, ordem, limite e isolamento. Nenhum teste
+  usa Neon/TikTok reais. Testes no navegador e lançamento externo aguardam validação do usuário.
+- A regressão geral da base `97d7bf5` já contém duas falhas não relacionadas a catálogo:
+  `conversion-database-retry` espera lease enquanto `server.js` usa `acquireLock/releaseLock`, e
+  `conversion-operational` procura `async function notifyPushcut` inexistente nessa forma atual.
+  Não interpretar testes isolados de catálogo como aprovação da bateria completa.

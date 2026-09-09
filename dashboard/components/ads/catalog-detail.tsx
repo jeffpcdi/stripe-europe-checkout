@@ -5,7 +5,7 @@
 // concentra produtos, importação e histórico.
 
 import { catalogDisplayPrice } from '@/lib/catalog-display'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Loader2, Plus, Trash2, UploadCloud, Download,
@@ -29,6 +29,7 @@ import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
 import { CatalogBatchDialog } from './catalog-batch-dialog'
 import { CatalogSyncStatus } from './catalog-sync-status'
+import { CatalogCreatives } from './catalog-creatives'
 import { CatalogQuickCampaignsDialog } from './catalog-quick-campaigns-dialog'
 
 import { ProductEditor, generateSku, formatPriceForFeed } from './catalog-editor'
@@ -134,6 +135,8 @@ export function CatalogDetail({
   const [cloning, setCloning] = useState(false)
   const [fixing, setFixing] = useState(false)
   const [quickCampaignsOpen, setQuickCampaignsOpen] = useState(false)
+  const [creativeBusy, setCreativeBusy] = useState(false)
+  const [creativePending, setCreativePending] = useState(0)
   const [productOrder, setProductOrder] = useState<string[]>([])
   const [dragProductId, setDragProductId] = useState<string | null>(null)
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
@@ -148,6 +151,7 @@ export function CatalogDetail({
   // aplicar setSyncing(true) (duplo toque no iPhone / salvar + botão manual).
   const syncLockRef = useRef(false)
   const auditAttemptsRef = useRef(0)
+  const refreshProgress = useCallback(() => { void mutate(); void mutateReadiness() }, [mutate, mutateReadiness])
 
   const catalog = data?.catalog
   const products = data?.products ?? []
@@ -167,21 +171,6 @@ export function CatalogDetail({
   const remoteProductCount = Math.max(0, Number(catalog?.audit?.total) || 0)
   const localOnlyCount = remoteProductCount > 0 ? Math.max(0, validCount - remoteProductCount) : 0
   const hasUnpublishedChanges = Boolean(catalog?.syncedAt && products.some((p) => new Date(p.updatedAt).getTime() > new Date(catalog.syncedAt as string).getTime()))
-
-  if (detailError) {
-    return (
-      <div className="flex flex-col gap-3">
-        <button type="button" className="btn-ghost w-fit text-xs" onClick={onBack}>
-          <ChevronLeft className="size-3.5" aria-hidden="true" /> Voltar aos catálogos
-        </button>
-        <ErrorState
-          title="Não foi possível carregar este catálogo"
-          description="Nenhum produto foi alterado. Confirme a conta de anúncio selecionada e tente novamente."
-          onRetry={() => mutate()}
-        />
-      </div>
-    )
-  }
 
   async function handleUrlPreview() {
     if (!urlValue.trim()) return
@@ -508,6 +497,21 @@ export function CatalogDetail({
     }
   }
 
+  if (detailError) {
+    return (
+      <div className="flex flex-col gap-3">
+        <button type="button" className="btn-ghost w-fit text-xs" onClick={onBack}>
+          <ChevronLeft className="size-3.5" aria-hidden="true" /> Voltar aos catálogos
+        </button>
+        <ErrorState
+          title="Não foi possível carregar este catálogo"
+          description="Nenhum produto foi alterado. Confirme a conta de anúncio selecionada e tente novamente."
+          onRetry={() => mutate()}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -568,8 +572,11 @@ export function CatalogDetail({
                 <button
                   type="button"
                   className="btn-primary gap-2 text-xs font-semibold px-4 py-2"
-                  onClick={() => setQuickCampaignsOpen(true)}
-                  disabled={!catalog || !readinessData?.readiness?.readyForCampaign || catalogCapabilities?.catalogSingleVideoCampaign !== true}
+                  onClick={async () => {
+                    try { await mutate(); setQuickCampaignsOpen(true) }
+                    catch (error) { toast.error('Não foi possível atualizar os vídeos', { hint: error instanceof Error ? error.message : undefined }) }
+                  }}
+                  disabled={creativeBusy || creativePending > 0 || !catalog || !readinessData?.readiness?.readyForCampaign || catalogCapabilities?.catalogSingleVideoCampaign !== true}
                   title="Cria campanhas de conversão em lote para este catálogo"
                 >
                   <Rocket className="size-4" aria-hidden="true" />
@@ -579,14 +586,14 @@ export function CatalogDetail({
             </div>
 
             {/* Falha de início */}
-            {publishFailed && validCount > 0 && (
+            {(publishFailed || catalog?.automation?.syncIssue) && validCount > 0 && (
               <div className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                   <AlertCircle className="size-4 text-warning" aria-hidden="true" />
                   Sincronização automática não iniciada
                 </p>
                 <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                  {publishFailureHint || 'Os produtos permanecem salvos. Corrija o requisito indicado e tente novamente.'}
+                  {publishFailureHint || catalog?.automation?.syncIssue?.message || 'Os produtos permanecem salvos. Corrija o requisito indicado e tente novamente.'}
                 </p>
                 <button type="button" className="btn-primary w-fit text-xs" onClick={handleSyncTiktok} disabled={syncing}>
                   {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="size-3.5" aria-hidden="true" />} Tentar sincronização automática
@@ -649,6 +656,23 @@ export function CatalogDetail({
               </button>
             )}
           </div>
+
+          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} onProgress={refreshProgress} />
+
+          {catalog && <div className="surface-card rounded-2xl p-4 sm:p-5">
+            {catalog.automation?.sourceUrl && <a href={catalog.automation.sourceUrl} target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"><Link2 size={16} /> Página do produto</a>}
+            <CatalogCreatives key={catalog.id + advertiserId} value={catalog.creatives || []}
+              onBusyChange={setCreativeBusy} onPendingChange={setCreativePending}
+              onAdd={async creative => {
+                await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives`, advertiserId), 'POST', { creatives: [creative] })
+                await mutate()
+              }}
+              onRemove={async creative => {
+                await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives/${encodeURIComponent(creative.id)}`, advertiserId), 'DELETE')
+                await mutate()
+              }} />
+            {(catalog.creatives?.length || 0) > 0 && <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">{catalog.creatives!.length} vídeo(s) salvo(s) para o lançamento. Reutilizam os mesmos itens do catálogo.</p>}
+          </div>}
 
           {/* ── GESTÃO DIRETA DE PRODUTOS ── */}
           <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm">
@@ -837,7 +861,6 @@ export function CatalogDetail({
                   ? undefined
                   : handleReadinessAction}
               />
-              <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
               {catalog && (
                 <CatalogConnectionCard
                   catalog={catalog}
@@ -915,10 +938,11 @@ export function CatalogDetail({
         <CatalogQuickCampaignsDialog
           catalog={catalog}
           advertiserId={advertiserId}
-          advertiserCurrency={catalog.currency || 'BRL'}
+          advertiserCurrency={advertiserCurrency || 'BRL'}
           capabilities={catalogCapabilities}
           open={quickCampaignsOpen}
-          onClose={() => setQuickCampaignsOpen(false)}
+          onClose={() => { setQuickCampaignsOpen(false); void mutate() }}
+          onAssetsChanged={() => { void mutate() }}
           onCreated={() => {
             setQuickCampaignsOpen(false)
             void mutate()

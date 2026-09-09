@@ -3226,101 +3226,83 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Catálogo Mágico (1-Click Link): raspa a URL, cria catálogo, insere produto e
   // inicia sincronização automática ao TikTok.
+  async function validateCatalogCreatives(req, creatives) {
+    const fs = require('fs/promises');
+    const path = require('path');
+    const prefix = '/uploads/' + adsStorage.safeSegment(req.account.id) + '/';
+    const origin = adsStorage.publicOrigin(req);
+    for (const creative of creatives) {
+      const parsed = new URL(creative.url);
+      const filename = parsed.pathname.slice(prefix.length);
+      if (parsed.origin !== origin || !parsed.pathname.startsWith(prefix)
+        || !/^[a-zA-Z0-9._-]+\.(mp4|mov)$/i.test(filename) || parsed.search) {
+        throw Object.assign(new Error('Selecione um vídeo enviado à biblioteca desta conta.'), { status: 400, code: 'CATALOG_CREATIVE_SCOPE' });
+      }
+      try { await fs.access(path.join(adsStorage.accountDir(req.account.id), filename)); }
+      catch (_) { throw Object.assign(new Error('Um vídeo não está mais disponível. Envie o arquivo novamente.'), { status: 422, code: 'CATALOG_CREATIVE_MISSING' }); }
+    }
+  }
+
+  async function startProductCatalogSync(req, advertiserId, catalog) {
+    const accId = req.account.id;
+    const unavailable = (code, message) => Object.assign(new Error(message), { code });
+    if (!pipeboard.enabled) throw unavailable('PIPEBOARD_DISABLED', 'Conecte o TikTok Ads para sincronizar este catálogo.');
+    if (await killSwitchActive(accId)) throw unavailable('KILL_SWITCH_ACTIVE', 'A sincronização está bloqueada na aba Segurança.');
+    if (await isDryRun(accId)) throw unavailable('DRY_RUN_ENABLED', 'O modo teste está ativo. Desative-o para enviar ao TikTok.');
+    let bcId = catalog.bcId || pipeboard.getBusinessCenterId(accId, advertiserId);
+    if (!bcId) {
+      const candidates = await pipeboard.listCatalogBusinessCenters(advertiserId);
+      if (candidates.length === 1) bcId = pipeboard.setBusinessCenterId(accId, advertiserId, candidates[0].id);
+    }
+    if (!bcId) throw unavailable('CATALOG_BC_REQUIRED', 'Selecione o Business Center na conexão do catálogo.');
+    const pub = await publishCatalogFeed(accId, advertiserId, catalog.id, adsStorage.publicOrigin(req));
+    // O worker consulta o schema vivo antes da primeira escrita e aguarda o
+    // conector quando necessário. A requisição não espera upload nem análise.
+    const run = await catalogStore.createSyncRun(accId, advertiserId, catalog.id, {
+      idempotencyKey: scopedCatalogRunIdempotencyKey(advertiserId, ['catalog-sync', accId, catalog.id, pub.feedRevision].join(':')),
+      status: 'queued', stage: 'queued',
+      payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
+      progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
+    });
+    if (run.status === 'failed') return catalogStore.resumeSyncRun(accId, advertiserId, run.id);
+    return run;
+  }
+
   app.post('/api/ads/catalogs/magic-import', dashboardAuth, async (req, res) => {
     try {
-      const accId = req.account.id;
       const advertiserId = await catalogAdvertiserId(req);
-      const url = String((req.body || {}).url || '').trim();
-      if (!url) return res.status(400).json({ error: 'URL do produto é obrigatória', code: 'MISSING_URL' });
-
-      // 1. Extração segura. Coleções Shopify e listas JSON-LD viram vários
-      // produtos; uma página comum continua funcionando como produto único.
-      const inspected = await catalogInspect.previewCatalog(url);
-      const domain = new URL(inspected.finalUrl || url).hostname.replace(/^www\./, '');
-      const requestedCurrency = String((req.body || {}).currency || '').toUpperCase();
-      const detectedCurrency = (inspected.products || []).map((item) => String(item.currency || '').toUpperCase()).find((value) => /^[A-Z]{3}$/.test(value));
-      const currency = /^[A-Z]{3}$/.test(requestedCurrency) ? requestedCurrency : (detectedCurrency || 'BRL');
-      const brandOverride = String((req.body || {}).brand || '').trim().slice(0, 100);
-      const catalogName = String((req.body || {}).name || (inspected.source === 'shopify_collection' ? 'Coleção ' + domain : ((inspected.products[0] || {}).title || domain))).slice(0, 100);
-      const normalizePrice = (value) => {
-        const raw = String(value || '').trim().replace(',', '.');
-        if (!raw) return '';
-        return /^\d+(?:\.\d{1,2})?\s+[A-Za-z]{3}$/.test(raw) ? raw.toUpperCase() : raw + ' ' + currency;
-      };
-      const productDatas = (inspected.products || []).slice(0, 50).map((source, index) => {
-        const stable = crypto.createHash('sha256').update(String(source.sku_id || source.link || source.title || index)).digest('hex').slice(0, 16).toUpperCase();
-        const data = Object.assign({}, source, {
-          sku_id: String(source.sku_id || 'SKU-' + stable).slice(0, 100),
-          title: String(source.title || '').trim().slice(0, 500),
-          description: String(source.description || source.title || '').replace(/\s+/g, ' ').trim().slice(0, 10000),
-          price: normalizePrice(source.price),
-          condition: source.condition || 'new',
-          availability: source.availability || 'in stock',
-          brand: String(brandOverride || source.brand || '').trim().slice(0, 100),
-        });
-        if (source.sale_price) data.sale_price = normalizePrice(source.sale_price);
-        delete data.currency;
-        return data;
+      const result = await require('./catalog/catalog-product-import').importProductCatalog({
+        accountId: req.account.id, advertiserId, body: req.body || {}, store: catalogStore,
+        inspect: catalogInspect.previewProduct,
+        validateCreatives: (creatives) => validateCatalogCreatives(req, creatives),
+        startSync: (catalog) => startProductCatalogSync(req, advertiserId, catalog),
       });
-      if (!productDatas.length) {
-        return res.status(422).json({ error: 'Nenhum produto com preço foi encontrado nesta página.', code: 'CATALOG_PRODUCTS_NOT_FOUND', hint: 'Use uma página de produto/coleção com JSON-LD ou uma coleção Shopify pública.' });
-      }
-      const invalid = productDatas.map((data, index) => ({ index, result: catalogFeed.validateProduct(data, { currency }) }))
-        .filter((row) => !row.result.valid);
-      if (invalid.length) {
-        const missingBrand = invalid.some((row) => row.result.errors.some((error) => error.field === 'brand'));
-        return res.status(422).json({
-          error: missingBrand ? 'A loja não publicou a marca dos produtos.' : 'Alguns produtos extraídos estão incompletos.',
-          code: missingBrand ? 'CATALOG_BRAND_REQUIRED' : 'CATALOG_SCRAPE_INVALID',
-          hint: missingBrand ? 'Informe a marca no campo opcional e tente novamente.' : 'Revise título, preço, imagem e links publicados no site.',
-          invalid: invalid.slice(0, 10),
-          preview: productDatas.slice(0, 10),
-        });
-      }
-
-      // 2. Cria catálogo
-      const catalog = await catalogStore.createCatalog(accId, advertiserId, {
-        name: catalogName, currency, catalogType: 'ECOM', country: String((req.body || {}).country || 'BR').toUpperCase()
+      res.status(201).json(result);
+    } catch (err) {
+      if (err.code === 'CATALOG_PRODUCT_INCOMPLETE') return res.status(422).json({
+        error: err.message, code: err.code, product: err.product, fields: err.fields,
       });
+      fail(res, err);
+    }
+  });
 
-      // 3. Formata e insere o produto
-      await catalogStore.bulkUpsertProducts(
-        accId, advertiserId, catalog.id,
-        productDatas, catalogFeed.validateProduct
-      );
-      
-      stats.logEvent('info', { acc: accId, title: 'Catálogo mágico criado via Link', ref: catalog.id, meta: { url, count: productDatas.length } });
+  app.post('/api/ads/catalogs/:catalogId/creatives', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado.' });
+      const creatives = require('./catalog/catalog-product-automation').normalizeCreatives((req.body || {}).creatives);
+      await validateCatalogCreatives(req, creatives);
+      res.json({ catalog: await catalogStore.addCatalogCreatives(req.account.id, advertiserId, catalog.id, creatives) });
+    } catch (err) { fail(res, err); }
+  });
 
-
-      // 4. Sincronização automática
-      let syncStarted = false;
-      let syncRun = null;
-      const wantSync = (req.body || {}).syncToTikTok !== false;
-      const bcId = wantSync && pipeboard.enabled ? pipeboard.getBusinessCenterId(accId, advertiserId) : null;
-      if (wantSync && bcId && !(await killSwitchActive(accId)) && !(await isDryRun(accId))) {
-        try {
-          const pub = await publishCatalogFeed(accId, advertiserId, catalog.id, adsStorage.publicOrigin(req));
-          const idempotencyKey = scopedCatalogRunIdempotencyKey(
-            advertiserId,
-            ['catalog-magic-sync', accId, catalog.id, pub.feedRevision].join(':'),
-          );
-          const capabilities = await catalogGateway.capabilities(pipeboard);
-          const syncQueueStatus = capabilities.catalogUpload !== true || capabilities.catalogCreate !== true
-            ? 'waiting_connector_confirmation' : 'queued';
-          syncRun = await catalogStore.createSyncRun(accId, advertiserId, catalog.id, {
-            idempotencyKey,
-            status: syncQueueStatus, stage: syncQueueStatus,
-            payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
-            progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
-          });
-          syncStarted = true;
-        } catch (syncErr) {
-          console.warn('[catalog-magic-import] sync automático falhou:', syncErr && syncErr.message);
-        }
-      }
-      
-      const updatedCatalog = await catalogStore.getCatalog(accId, advertiserId, catalog.id);
-      res.status(201).json({ catalog: updatedCatalog || catalog, syncStarted, syncRun });
+  app.delete('/api/ads/catalogs/:catalogId/creatives/:creativeId', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.removeCatalogCreative(req.account.id, advertiserId, req.params.catalogId, req.params.creativeId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado.' });
+      res.json({ catalog });
     } catch (err) { fail(res, err); }
   });
 
@@ -4050,6 +4032,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
         progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
       });
+      await catalogStore.setCatalogSyncIssue(accId, advertiserId, catalogId, null);
       return res.status(202).json({
         ok: true, pending: true, run, catalog, feedUrl: pub.feedUrl,
         published: pub.published, skipped: pub.skipped,

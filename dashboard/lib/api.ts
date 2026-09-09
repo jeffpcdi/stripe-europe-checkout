@@ -76,7 +76,9 @@ export class ApiError extends Error {
   retryable?: boolean
   providerRequestId?: string
   createdIds?: Record<string, string>
-  constructor(status: number, message: string, opts?: { code?: string; hint?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }) {
+  fields?: { field: string; message: string }[]
+  product?: Record<string, string>
+  constructor(status: number, message: string, opts?: { fields?: { field: string; message: string }[]; product?: Record<string, string>; code?: string; hint?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }) {
     super(message)
     this.status = status
     this.code = opts?.code
@@ -85,6 +87,8 @@ export class ApiError extends Error {
     this.retryable = opts?.retryable
     this.providerRequestId = opts?.providerRequestId
     this.createdIds = opts?.createdIds
+    this.fields = opts?.fields
+    this.product = opts?.product
   }
   // Mensagem pronta para exibir: prioriza a orientação (hint) quando existe.
   get display(): string {
@@ -97,7 +101,7 @@ export class ApiError extends Error {
 // timeout/crash), `d.error` vem vazio — em vez de um "Falha na API (502)" cru,
 // damos uma mensagem e um hint acionáveis por status.
 function parseApiError(status: number, data: unknown): ApiError {
-  const d = (data ?? {}) as { error?: string; message?: string; userMessage?: string; code?: string; hint?: string; suggestedAction?: string; step?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }
+  const d = (data ?? {}) as { fields?: { field: string; message: string }[]; product?: Record<string, string>; error?: string; message?: string; userMessage?: string; code?: string; hint?: string; suggestedAction?: string; step?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }
   const bodyMsg = d.userMessage || d.error || d.message || ''
   let hint = d.suggestedAction || d.hint
   let msg = bodyMsg
@@ -113,7 +117,7 @@ function parseApiError(status: number, data: unknown): ApiError {
     }
   }
   return new ApiError(status, msg, {
-    code: d.code, hint, stage: d.stage || d.step, retryable: d.retryable,
+    fields: d.fields, product: d.product, code: d.code, hint, stage: d.stage || d.step, retryable: d.retryable,
     providerRequestId: d.providerRequestId, createdIds: d.createdIds,
   })
 }

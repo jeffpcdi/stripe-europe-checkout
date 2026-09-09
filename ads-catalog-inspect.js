@@ -111,11 +111,12 @@ function extractProduct(html, sourceUrl) {
   return {
     title: decodeHtml(structured?.name || meta(html, 'og:title') || (titleMatch && titleMatch[1]) || ''),
     description: decodeHtml(structured?.description || meta(html, 'og:description') || meta(html, 'description') || ''),
-    image_link: String(image || meta(html, 'og:image') || meta(html, 'image') || '').trim(),
+    image_link: image || meta(html, 'og:image') || meta(html, 'image')
+      ? absoluteUrl(image || meta(html, 'og:image') || meta(html, 'image'), sourceUrl) : '',
     price: String(offer.price || offer.lowPrice || offer.highPrice || priceSpec.price || meta(html, 'product:price:amount') || meta(html, 'price') || '').trim(),
     currency: String(offer.priceCurrency || priceSpec.priceCurrency || meta(html, 'product:price:currency') || meta(html, 'priceCurrency') || '').trim().toUpperCase(),
     availability: /outofstock/i.test(String(offer.availability || '')) ? 'out of stock' : 'in stock',
-    brand: String(brand || meta(html, 'product:brand') || meta(html, 'og:site_name') || '').trim(),
+    brand: String(brand || meta(html, 'product:brand') || '').trim(),
     sku_id: String(structured?.sku || structured?.mpn || structured?.productID || '').trim(),
     link: sourceUrl,
   };

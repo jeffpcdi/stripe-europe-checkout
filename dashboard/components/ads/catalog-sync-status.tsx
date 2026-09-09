@@ -39,16 +39,19 @@ export function CatalogSyncStatus({
   catalogId,
   advertiserId,
   refreshToken = 0,
+  onProgress,
 }: {
   catalogId: string
   advertiserId: string
   refreshToken?: number
+  onProgress?: () => void
 }) {
   const { data, mutate } = useAdsCatalogSyncRuns(catalogId, advertiserId)
   useEffect(() => {
     if (refreshToken > 0) void mutate()
   }, [mutate, refreshToken])
   const run = data?.runs?.[0]
+  useEffect(() => { if (run) onProgress?.() }, [run?.id, run?.updatedAt, onProgress])
   if (!run) return null
 
   const runId = run.id
@@ -110,21 +113,21 @@ export function CatalogSyncStatus({
       <div className="flex items-start gap-2">
         {remoteReadyWithDifference ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-foreground">{statusLabel}</p>
+          <p className="text-sm font-semibold text-foreground">{statusLabel}</p>
           {run.error ? (
             <>
-              <p className="mt-1 text-pretty text-[10px] leading-relaxed text-muted-foreground">
+              <p className="mt-1 text-pretty text-xs leading-relaxed text-muted-foreground">
                 <span className={`font-semibold ${waitingConnector ? 'text-primary' : 'text-error'}`}>{run.error.userMessage}</span>
                 {run.error.suggestedAction ? ` ${run.error.suggestedAction}` : ''}
               </p>
               {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1.5 text-xs" onClick={resume}><RotateCcw className="size-3.5" /> Retomar</button>}
             </>
           ) : (
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {remoteReadyWithDifference
                 ? `O TikTok confirmou ${remoteProducts} produtos. Campanhas usam somente essa lista remota; ${localOnlyCount} ${localOnlyCount === 1 ? 'item local permanece salvo' : 'itens locais permanecem salvos'} para revisão.`
                 : awaitingTikTok
-                ? 'A dashboard acompanha o arquivo pelo recibo do TikTok e só conclui depois de confirmar que ele terminou sem erros e que a quantidade esperada apareceu no catálogo.'
+                ? 'Envio recebido. Aguardando o TikTok concluir o processamento e confirmar os produtos.'
                 : active
                   ? run.status === 'waiting_connector_confirmation'
                   ? 'O lote está salvo e será retomado automaticamente quando o conector confirmar a criação do catálogo.'
@@ -133,7 +136,7 @@ export function CatalogSyncStatus({
             </p>
           )}
           {uploadStatus && (
-            <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+            <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs leading-relaxed text-muted-foreground">
               Arquivo: <strong className="text-foreground">{String(uploadStatus.processStatus || 'processando')}</strong>
               {' · '}adicionados {Number(uploadStatus.addCount) || 0}
               {' · '}atualizados {Number(uploadStatus.updateCount) || 0}
@@ -142,21 +145,21 @@ export function CatalogSyncStatus({
             </p>
           )}
           {affectedErrors.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 rounded-md bg-error/5 px-5 py-2 text-[10px] leading-relaxed text-error">
+            <ul className="mt-2 list-disc space-y-1 rounded-md bg-error/5 px-5 py-2 text-xs leading-relaxed text-error">
               {affectedErrors.map((error, index) => (
                 <li key={index}>{affectedMessage(error, 'erro')}</li>
               ))}
             </ul>
           )}
           {affectedWarnings.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 rounded-md bg-warning/5 px-5 py-2 text-[10px] leading-relaxed text-warning">
+            <ul className="mt-2 list-disc space-y-1 rounded-md bg-warning/5 px-5 py-2 text-xs leading-relaxed text-warning">
               {affectedWarnings.map((warning, index) => (
                 <li key={index}>{affectedMessage(warning, 'aviso')}</li>
               ))}
             </ul>
           )}
           {remoteMismatch && !remoteReadyWithDifference && (
-            <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
+            <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-xs leading-relaxed text-warning">
               O TikTok mostrou {remoteProducts} produto(s), mas esta revisão contém {expectedProducts}. A dashboard continuará verificando antes de concluir a sincronização.
             </p>
           )}

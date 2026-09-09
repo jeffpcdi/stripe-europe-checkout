@@ -30,6 +30,7 @@ import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
 import { CatalogBatchDialog } from './catalog-batch-dialog'
 import { CatalogSyncStatus } from './catalog-sync-status'
+import { CatalogProductImport } from './catalog-product-import'
 
 
 type CatalogSpec = AdsCatalogSpecResponse
@@ -135,7 +136,6 @@ export function CatalogList({
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   const [showMagicImport, setShowMagicImport] = useState(false)
-  const [magicUrl, setMagicUrl] = useState('')
   const [magicBusy, setMagicBusy] = useState(false)
 
   // Persistência da preferência de visualização
@@ -185,27 +185,6 @@ export function CatalogList({
       toast.error('Falha ao criar catálogo', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function handleMagicImport() {
-    if (!magicUrl.trim() || magicBusy) return
-    setMagicBusy(true)
-    try {
-      const res = await apiSend<{ catalog: AdsCatalog; syncStarted: boolean }>(
-        adsCatalogApiUrl('/api/ads/catalogs/magic-import', advertiserId), 'POST', { url: magicUrl.trim() }
-      )
-      toast.success('Catálogo criado', {
-        hint: res.syncStarted ? 'A sincronização com o TikTok já começou.' : 'O produto foi extraído e o catálogo criado.',
-      })
-      setMagicUrl('')
-      setShowMagicImport(false)
-      onChanged()
-      onOpen(res.catalog.id)
-    } catch (e) {
-      toast.error('Não foi possível importar', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setMagicBusy(false)
     }
   }
 
@@ -396,6 +375,7 @@ export function CatalogList({
             <button
               type="button"
               onClick={() => {
+                if (magicBusy) return
                 setShowMagicImport(!showMagicImport)
                 setCreating(false)
               }}
@@ -418,6 +398,7 @@ export function CatalogList({
               type="button"
               className="btn-primary shrink-0 text-xs font-semibold px-3.5 py-1.5 shadow-xs cursor-pointer"
               onClick={() => {
+                if (magicBusy) return
                 setCreating(true)
                 setShowMagicImport(false)
               }}
@@ -429,54 +410,10 @@ export function CatalogList({
         </div>
       </div>
 
-      {/* 2. Caixa Expansível de Importação por Link */}
-      {showMagicImport && (
-        <div className="border-b border-border/70 bg-secondary/20 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex flex-col gap-2 max-w-3xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
-                <span>Importar pelo link do produto ou loja</span>
-              </div>
-              <button
-                type="button"
-                disabled={magicBusy}
-                aria-label="Fechar importação"
-                onClick={() => setShowMagicImport(false)}
-                className="text-muted-foreground hover:text-foreground text-xs p-1 cursor-pointer"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Cole o link HTTPS de um produto ou loja. A importação depende dos dados públicos disponíveis na página; confira os produtos antes de anunciar.
-            </p>
-            <div className="flex flex-col gap-2 sm:flex-row mt-1">
-              <input
-                type="url"
-                className="input-base flex-1 text-xs"
-                placeholder="https://sualoja.com.br/produtos/exemplo..."
-                value={magicUrl}
-                onChange={(e) => setMagicUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleMagicImport()
-                }}
-                disabled={magicBusy}
-                autoFocus
-              />
-              <button
-                type="button"
-                className="btn-primary shrink-0 text-xs font-semibold px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 border-none text-white hover:opacity-90 shadow-xs cursor-pointer"
-                onClick={handleMagicImport}
-                disabled={magicBusy || !magicUrl.trim()}
-              >
-                {magicBusy ? <Loader2 className="size-3.5 animate-spin mr-1.5" aria-hidden="true" /> : <Sparkles className="size-3.5 mr-1.5" aria-hidden="true" />}
-                Extrair e Criar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showMagicImport && <CatalogProductImport key={advertiserId} advertiserId={advertiserId}
+        countries={countries.map(item => ({ code: item.code, name: item.name || item.code }))}
+        onBusyChange={setMagicBusy} onClose={() => setShowMagicImport(false)}
+        onCreated={catalog => { setShowMagicImport(false); onChanged(); onOpen(catalog.id) }} />}
 
       {/* 3. Caixa Expansível de Criação Manual */}
       {creating && (
@@ -557,7 +494,7 @@ export function CatalogList({
           <div className="max-w-md">
             <p className="text-sm font-semibold text-foreground">Nenhum catálogo criado ainda</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Importe seus produtos colando o link da sua loja ou crie um catálogo para anunciar no TikTok.
+              Cole o link de um produto para preparar o catálogo e vincular seus vídeos.
             </p>
           </div>
           <div className="flex items-center gap-2 mt-2">

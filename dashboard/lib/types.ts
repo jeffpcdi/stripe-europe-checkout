@@ -1654,6 +1654,13 @@ export interface AdsCatalogAudit {
   at?: string
 }
 
+export interface AdsCatalogCreative {
+  id: string
+  name: string
+  url: string
+  sortOrder?: number
+}
+
 export interface AdsCatalog {
   id: string
   accountId: string
@@ -1680,6 +1687,12 @@ export interface AdsCatalog {
   feedUrl: string | null
   feedPublishedAt: string | null
   productCount: number
+  creatives?: AdsCatalogCreative[]
+  automation?: {
+    sourceUrl?: string
+    sharedItems?: number
+    syncIssue?: { code: string; message: string } | null
+  }
   createdAt: string
   updatedAt: string
 }

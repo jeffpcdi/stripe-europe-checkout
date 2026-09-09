@@ -12,7 +12,7 @@ import { DialogPortal } from '@/components/ui/dialog-portal'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
-import { ApiError, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
+import { ApiError, adsCatalogApiUrl, apiSend, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -45,6 +45,7 @@ export function CatalogQuickCampaignsDialog({
   initialVideoUrl,
   onClose,
   onCreated,
+  onAssetsChanged,
 }: {
   catalog: AdsCatalog
   advertiserId: string
@@ -54,7 +55,10 @@ export function CatalogQuickCampaignsDialog({
   initialVideoUrl?: string
   onClose: () => void
   onCreated: () => void
+  onAssetsChanged?: () => void
 }) {
+  const linkedCreatives = useRef(catalog.creatives || [])
+  linkedCreatives.current = catalog.creatives || []
   const uploadController = useRef<AbortController | null>(null)
   const [customCount, setCustomCount] = useState(1)
   const [onePerCreative, setOnePerCreative] = useState(true)
@@ -104,7 +108,7 @@ export function CatalogQuickCampaignsDialog({
     if (!open) return
     setCustomCount(1)
     setOnePerCreative(true)
-    setCreatives(initialVideoUrl ? [{ id: randomKey(), name: 'Vídeo já enviado', url: initialVideoUrl, status: 'ready' }] : [])
+    setCreatives(initialVideoUrl ? [{ id: randomKey(), name: 'Vídeo já enviado', url: initialVideoUrl, status: 'ready' }] : linkedCreatives.current.map(item => ({ ...item, status: 'ready' })))
     setBidStrategy('lowest_cost')
     setBidAmount('')
     setAcceleratedDelivery(false)
@@ -223,6 +227,9 @@ export function CatalogQuickCampaignsDialog({
           const result = await adsUpload(file, 'video', { signal: controller.signal })
           if (generation !== uploadGeneration.current) return
           if (!result.url) throw new Error('O envio não retornou o vídeo. Tente novamente.')
+          await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/creatives`, advertiserId), 'POST', { creatives: [{ name: item.name, url: result.url }] })
+          onAssetsChanged?.()
+          if (generation !== uploadGeneration.current) return
           setCreatives((current) => current.map((c) => c.id === item.id ? { ...c, status: 'ready', url: result.url } : c))
         } catch (error) {
           if (generation !== uploadGeneration.current) return
@@ -247,6 +254,24 @@ export function CatalogQuickCampaignsDialog({
     void uploadItems(items)
   }
 
+  async function addSavedVideo(item: { name: string; url: string }) {
+    if (busy || uploadLock.current || creatives.length >= MAX_COUNT || creatives.some(creative => creative.url === item.url)) return
+    uploadLock.current = true
+    setUploading(true)
+    const generation = uploadGeneration.current
+    try {
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/creatives`, advertiserId), 'POST', { creatives: [item] })
+      onAssetsChanged?.()
+      if (generation !== uploadGeneration.current) return
+      idempotencyKeyRef.current = null
+      setCreatives(current => [...current, { id: randomKey(), name: item.name, url: item.url, status: 'ready' }])
+    } catch (error) {
+      if (generation === uploadGeneration.current) toast.error('Não foi possível vincular o vídeo', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      if (generation === uploadGeneration.current) { uploadLock.current = false; setUploading(false) }
+    }
+  }
+
   if (!open) return null
 
   return (
@@ -265,7 +290,7 @@ export function CatalogQuickCampaignsDialog({
               <Rocket className="size-4 text-primary" aria-hidden="true" /> Criar campanhas
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Envie os criativos e escolha o orçamento. A dashboard valida e ativa tudo.
+              Os vídeos salvos já estão selecionados. Escolha o orçamento para lançar.
             </p>
           </div>
           <button type="button" className="btn-ghost size-8 shrink-0 justify-center p-0" onClick={close} disabled={busy} aria-label="Fechar">
@@ -274,7 +299,7 @@ export function CatalogQuickCampaignsDialog({
         </header>
 
         <fieldset disabled={busy} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-5">
-        <SavedVideos selectedUrls={creatives.map((item) => item.url || '')} disabled={busy || uploading || creatives.length >= MAX_COUNT} onPick={(item) => update(setCreatives, [...creatives, { id: randomKey(), name: item.name, url: item.url, status: 'ready' }])} />
+        <SavedVideos selectedUrls={creatives.map((item) => item.url || '')} disabled={busy || uploading || creatives.length >= MAX_COUNT} onPick={item => { void addSavedVideo(item) }} />
         <MarketSelector value={market} onChange={(value) => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
         <div className="flex flex-col gap-1.5">
           <label className="flex items-center gap-2 text-xs font-medium text-foreground">

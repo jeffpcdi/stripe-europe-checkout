@@ -43,7 +43,7 @@ function harness(upload, create = async () => ({ count: 5 })) {
       if (name === 'react/jsx-runtime') return jsx;
       if (name === 'lucide-react') return new Proxy({}, { get: (_o, key) => String(key) });
       if (name === '@/lib/api') return {
-        ApiError, adsUpload: upload, useAdsCatalogIdentities: () => ({ data: { identities: [] } }),
+        ApiError, adsUpload: upload, adsCatalogApiUrl: (url) => url, apiSend: async () => ({}), useAdsCatalogIdentities: () => ({ data: { identities: [] } }),
         adsCreateCatalogCampaignBatch: async (_cat, _adv, body) => { requests.push(body); return create(body); },
       };
       if (name === './tiktok-contracts') return { TIKTOK_MIN_BUDGET: 50, tiktokMinimumBudgetMessage: () => 'Mínimo 50' };
@@ -82,6 +82,20 @@ function harness(upload, create = async () => ({ count: 5 })) {
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const files = Array.from({ length: 5 }, (_, i) => ({ name: `video-${i + 1}.mp4` }));
 (async () => {
+  let unexpectedUploads = 0;
+  const saved = harness(async () => { unexpectedUploads++; throw Error('vídeo já salvo'); });
+  saved.props.open = false; saved.render();
+  saved.props.catalog.creatives = Array.from({ length: 10 }, (_, i) => ({ id: 'saved-' + i, name: 'Salvo ' + i, url: `https://cdn.test/saved-${i}.mp4` }));
+  saved.props.open = true; saved.render();
+  await saved.button().props.onClick(); saved.render();
+  assert.strictEqual(saved.requests[0].count, 10);
+  assert.strictEqual(saved.requests[0].videoUrls.length, 10);
+  assert.strictEqual(unexpectedUploads, 0, 'dez vídeos vinculados geram dez campanhas sem reupload');
+  saved.props.open = false; saved.render();
+  saved.props.advertiserId = 'other';
+  saved.props.catalog = { id: 'other-cat', name: 'Outro', creatives: [] };
+  saved.props.open = true; saved.render();
+  assert.strictEqual(saved.button().props.disabled, true, 'trocar conta não reaproveita vídeos do catálogo anterior');
   let failCreation = true;
   const h = harness(async (file) => ({ url: 'https://cdn.test/' + file.name }), async () => {
     if (failCreation) throw Error('timeout');

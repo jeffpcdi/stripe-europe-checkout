@@ -100,6 +100,8 @@ async function ensureSchema() {
     // de persistir um catálogo, o mesmo lote reaproveita o registro em vez de
     // duplicar produtos e feeds no retry.
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS batch_key text`;
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS automation jsonb NOT NULL DEFAULT '{}'::jsonb`;
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS creatives jsonb NOT NULL DEFAULT '[]'::jsonb`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_catalogs_batch_key_idx
       ON ads_catalogs (account_id, advertiser_id, batch_key) WHERE batch_key IS NOT NULL`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_products (
@@ -221,6 +223,8 @@ function mapCatalog(row) {
     accountId: row.account_id,
     advertiserId: row.advertiser_id || null,
     batchKey: row.batch_key || null,
+    automation: row.automation || {},
+    creatives: Array.isArray(row.creatives) ? row.creatives : [],
     name: row.name,
     currency: row.currency,
     catalogType: cleanCatalogType(row.catalog_type),
@@ -341,6 +345,89 @@ async function createCatalog(accountId, advertiserId, input) {
   return mapCatalog(rows[0]);
 }
 
+async function getProductCatalogRequest(accountId, advertiserId, batchKey) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_catalogs WHERE account_id = ${accountId}
+    AND advertiser_id = ${advertiserId} AND batch_key = ${batchKey}`;
+  return mapCatalog(rows[0]);
+}
+
+// Uma única instrução grava catálogo + quatro produtos + vídeos. O conflito
+// reaproveita a preparação original, sem sobrescrever edições no retry.
+async function createProductCatalog(accountId, advertiserId, input, plan) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const automation = { sourceUrl: input.url, requestFingerprint: input.fingerprint, sharedItems: 4, products: plan.products };
+  const rows = await sql`WITH catalog AS (
+    INSERT INTO ads_catalogs (id, account_id, advertiser_id, name, currency, catalog_type, country,
+      batch_key, automation, creatives, product_count)
+    VALUES (${id('cat_')}, ${accountId}, ${advertiserId}, ${plan.name}, ${plan.currency}, 'ECOM',
+      ${plan.country}, ${input.batchKey}, ${JSON.stringify(automation)}::jsonb, ${JSON.stringify(input.creatives)}::jsonb, 4)
+    ON CONFLICT (account_id, advertiser_id, batch_key) WHERE batch_key IS NOT NULL
+    DO UPDATE SET batch_key = EXCLUDED.batch_key
+      WHERE ads_catalogs.automation->>'requestFingerprint' = EXCLUDED.automation->>'requestFingerprint'
+    RETURNING *
+  ), items AS (
+    INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+    SELECT catalog.id || '_' || entry.ordinality, catalog.id, catalog.account_id, entry.value->>'sku_id',
+      entry.value, true, '[]'::jsonb, entry.ordinality - 1
+    FROM catalog, jsonb_array_elements(catalog.automation->'products') WITH ORDINALITY AS entry(value, ordinality)
+    ON CONFLICT (catalog_id, sku_id) DO NOTHING RETURNING id
+  ) SELECT * FROM catalog`;
+  if (!rows.length) throw Object.assign(new Error('Esta tentativa já pertence a outro produto. Inicie uma nova criação.'), { status: 409, code: 'CATALOG_REQUEST_CONFLICT' });
+  return mapCatalog(rows[0]);
+}
+
+// Mescla por URL dentro do UPDATE: envios simultâneos não perdem vídeos e
+// repetir um upload/salvamento não duplica o vínculo. A ordem é preservada.
+async function addCatalogCreatives(accountId, advertiserId, catalogId, creatives) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_catalogs SET creatives = (
+    SELECT COALESCE(jsonb_agg(item ORDER BY COALESCE((item->>'sortOrder')::integer, pos), pos), '[]'::jsonb) FROM (
+      SELECT DISTINCT ON (value->>'url') value AS item, ordinality AS pos
+      FROM jsonb_array_elements(creatives || ${JSON.stringify(creatives)}::jsonb) WITH ORDINALITY
+      ORDER BY value->>'url', ordinality
+    ) merged
+  ) WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
+    AND (SELECT count(DISTINCT value->>'url') FROM jsonb_array_elements(creatives || ${JSON.stringify(creatives)}::jsonb)) <= 50
+    RETURNING *`;
+  if (!rows.length) {
+    const catalog = await getCatalog(accountId, advertiserId, catalogId);
+    throw Object.assign(new Error(catalog ? 'O catálogo já possui 50 criativos. Remova um antes de adicionar outro.' : 'Catálogo não encontrado.'),
+      { status: catalog ? 409 : 404, code: catalog ? 'CATALOG_CREATIVES_LIMIT' : 'CATALOG_NOT_FOUND' });
+  }
+  return mapCatalog(rows[0]);
+}
+
+async function removeCatalogCreative(accountId, advertiserId, catalogId, creativeId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_catalogs SET creatives = (
+    SELECT COALESCE(jsonb_agg(value ORDER BY ordinality), '[]'::jsonb)
+    FROM jsonb_array_elements(creatives) WITH ORDINALITY WHERE value->>'id' <> ${String(creativeId)}
+  ) WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} RETURNING *`;
+  return mapCatalog(rows[0]);
+}
+
+async function setCatalogSyncIssue(accountId, advertiserId, catalogId, issue) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  await sql`UPDATE ads_catalogs SET automation = jsonb_set(automation, '{syncIssue}', ${JSON.stringify(issue || null)}::jsonb)
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`;
+}
+
 async function updateCatalog(accountId, advertiserId, catalogId, input) {
   accountId = cleanAccountId(accountId);
   advertiserId = cleanAdvertiserId(advertiserId);
@@ -432,6 +519,14 @@ async function refreshProductCount(accountId, advertiserId, catalogId) {
 
 // Upsert de um produto. `validate` é injetado pelo chamador (ads-catalog-feed)
 // para não acoplar o store à lógica de validação.
+function assertCatalogProductUrl(catalog, data) {
+  const expected = catalog.automation && catalog.automation.sourceUrl;
+  if (!expected) return;
+  let actual = '';
+  try { const parsed = new globalThis.URL(String(data.link || '')); parsed.hash = ''; actual = parsed.toString(); } catch (_) {}
+  if (actual !== expected) throw Object.assign(new Error('Este catálogo pertence a um único produto. Use o link original ou crie outro catálogo.'), { status: 422, code: 'CATALOG_SINGLE_PRODUCT_URL' });
+}
+
 async function upsertProduct(accountId, advertiserId, catalogId, product, validate) {
   accountId = cleanAccountId(accountId);
   advertiserId = cleanAdvertiserId(advertiserId);
@@ -440,6 +535,7 @@ async function upsertProduct(accountId, advertiserId, catalogId, product, valida
   const catalog = await getCatalog(accountId, advertiserId, catalogId);
   if (!catalog) throw new Error('Catálogo não encontrado');
   const data = (product && product.data) || {};
+  assertCatalogProductUrl(catalog, data);
   const skuId = String(data.sku_id || (product && product.skuId) || '').trim().slice(0, 100);
   if (!skuId) throw new Error('sku_id obrigatório');
   data.sku_id = skuId;
@@ -467,6 +563,8 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
   let imported = 0;
   let validCount = 0;
   const skipped = [];
+  // Valida o lote inteiro antes da primeira escrita para evitar importação parcial.
+  for (const product of products || []) assertCatalogProductUrl(catalog, (product && product.data) || product || {});
   for (const product of products || []) {
     const data = (product && product.data) || product || {};
     const skuId = String(data.sku_id || '').trim().slice(0, 100);
@@ -1167,6 +1265,11 @@ module.exports = {
   listCatalogs,
   getCatalog,
   createCatalog,
+  getProductCatalogRequest,
+  createProductCatalog,
+  addCatalogCreatives,
+  removeCatalogCreative,
+  setCatalogSyncIssue,
   updateCatalog,
   deleteCatalog,
   cloneCatalog,
