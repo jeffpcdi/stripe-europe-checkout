@@ -5,7 +5,8 @@
 // (criar anúncio e Spark Ads) vivem em componentes próprios.
 
 import { AudiencesDialog } from './audiences-dialog'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud } from 'lucide-react'
@@ -78,25 +79,6 @@ export function TikTokAdsView() {
     [rangeDays, advertiserTimeZone, calendarTick],
   )
 
-  const treeActive = connected && Boolean(effectiveAdvertiser)
-  const {
-    data: tree,
-    mutate: mutateTree,
-    isLoading: treeLoading,
-    isValidating: treeValidating,
-    error: treeError,
-  } = useAdsTree(treeActive, {
-    adAccountId: effectiveAdvertiser || undefined,
-    // A árvore completa mantém os contadores e filtros locais coerentes.
-    sort,
-    page,
-    fromDate,
-    toDate,
-  })
-
-  // Vendas reais por campanha usam exatamente o mesmo período global.
-  const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser, { fromDate, toDate })
-
   // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
   // achava nada. Cada aba tem UM propósito: ver resultado / operar campanhas /
   // configurar automações / usar a IA. Estado local (não URL) — trocar de aba
@@ -114,6 +96,29 @@ export function TikTokAdsView() {
   ]
   const [toolsExpanded, setToolsExpanded] = useState(false)
   const [tab, setTab] = useState<TabKey>('campaigns')
+
+  const treeActive = connected && Boolean(effectiveAdvertiser)
+  const campaignsActive = treeActive && tab === 'campaigns'
+  const { mutate: mutateCache } = useSWRConfig()
+  const refreshLock = useRef(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const {
+    data: tree,
+    mutate: mutateTree,
+    isLoading: treeLoading,
+    error: treeError,
+  } = useAdsTree(campaignsActive, {
+    adAccountId: effectiveAdvertiser || undefined,
+    // A árvore completa mantém os contadores e filtros locais coerentes.
+    sort,
+    page,
+    fromDate,
+    toDate,
+  })
+
+  // Vendas reais por campanha usam exatamente o mesmo período global.
+  const { data: attribution } = useAdsAttribution(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
+
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
     // Lê ?tab= no mount e a cada navegação (voltar/avançar). Mapa de
@@ -230,7 +235,7 @@ export function TikTokAdsView() {
     )
   }
 
-  if (statusError) {
+  if (statusError && !status) {
     return (
       <div className="flex flex-col gap-5">
         <ErrorState onRetry={() => mutateStatus()} />
@@ -318,7 +323,7 @@ export function TikTokAdsView() {
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
         syncState={selectedSyncState}
-        refreshing={treeValidating}
+        refreshing={refreshing}
         rangeDays={rangeDays}
         onRangeDays={(days) => {
           setRangeDays(days)
@@ -330,6 +335,9 @@ export function TikTokAdsView() {
           mutateAccounts()
         }}
         onRefresh={async () => {
+          if (refreshLock.current || !concreteAdvertiser) return
+          refreshLock.current = true
+          setRefreshing(true)
           try {
             const result = await apiSend<{ ok?: boolean; error?: string }>(
               `/api/ads/tree/refresh?adAccountId=${encodeURIComponent(concreteAdvertiser)}`,
@@ -337,13 +345,21 @@ export function TikTokAdsView() {
               {},
             )
             if (result.ok === false) throw new Error(result.error || 'Atualização incompleta')
+            await Promise.all([
+              mutateCache(key => {
+                if (typeof key !== 'string' || !/^\/api\/ads\/(tree|kpis|roas|attribution)\?/.test(key)) return false
+                return new URLSearchParams(key.split('?')[1]).get('adAccountId') === concreteAdvertiser
+              }),
+              mutateAccounts(), mutateSyncStatus(),
+            ])
             toast.success('Dados atualizados')
           } catch (e) {
             toast.error('Não foi possível sincronizar agora', {
               hint: e instanceof Error ? e.message : undefined,
             })
           } finally {
-            await Promise.all([mutateTree(), mutateAccounts(), mutateSyncStatus()])
+            refreshLock.current = false
+            setRefreshing(false)
           }
         }}
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
@@ -414,63 +430,23 @@ export function TikTokAdsView() {
             )}
 
             {tab === 'catalog' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-secondary flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation cursor-pointer"
-                  onClick={() => requestCatalog('batch')}
-                  title="Importar múltiplos catálogos por planilha"
-                >
-                  <UploadCloud className="size-3.5" />
-                  <span>Em massa</span>
+              <div className="flex items-center gap-2">
+                <button type="button" className="btn-primary min-h-[44px] px-4 text-sm font-semibold" onClick={() => requestCatalog('magic')}>
+                  <Sparkles className="size-4" aria-hidden="true" /> Criar pelo link
                 </button>
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button
-                      type="button"
-                      className="btn-primary shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation shadow-xs cursor-pointer"
-                      aria-label="Ações do catálogo"
-                    >
-                      <Plus className="size-4" />
-                      <span>Novo catálogo</span>
-                      <ChevronDown className="size-3.5 opacity-80" />
+                    <button type="button" className="btn-secondary min-h-[44px] px-3" aria-label="Outras formas de criar catálogo">
+                      <ChevronDown className="size-4" aria-hidden="true" />
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      align="end"
-                      sideOffset={8}
-                      className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-xl border border-white/10 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl text-xs"
-                    >
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => requestCatalog('create')}
-                      >
-                        <Plus className="size-4 text-emerald-400" />
-                        <div className="flex flex-col">
-                          <span className="font-semibold">Criar manual</span>
-                          <span className="text-[10px] text-muted-foreground">Nome, moeda e país</span>
-                        </div>
+                    <DropdownMenu.Content align="end" sideOffset={8} className="glass glass-thick anim-pop-in z-50 min-w-52 rounded-xl border border-border bg-background p-1.5 shadow-2xl">
+                      <DropdownMenu.Item className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('batch')}>
+                        <UploadCloud className="size-4" aria-hidden="true" /> Importar planilha
                       </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => requestCatalog('magic')}
-                      >
-                        <Sparkles className="size-4 text-indigo-400" />
-                        <div className="flex flex-col">
-                          <span className="font-semibold">Importar por link</span>
-                          <span className="text-[10px] text-muted-foreground">Extrair de loja ou produto</span>
-                        </div>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-foreground outline-none data-[highlighted]:bg-secondary transition-colors"
-                        onSelect={() => requestCatalog('batch')}
-                      >
-                        <UploadCloud className="size-4 text-brand-cyan" />
-                        <div className="flex flex-col">
-                          <span className="font-semibold">Catálogos em massa</span>
-                          <span className="text-[10px] text-muted-foreground">Planilha CSV com produtos</span>
-                        </div>
+                      <DropdownMenu.Item className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('create')}>
+                        <Plus className="size-4" aria-hidden="true" /> Criar manualmente
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>

@@ -376,9 +376,9 @@ export function useAdsAccounts(connected: boolean) {
 // quando o job termina (refreshInterval devolve 0).
 export function useAdsBulkJob(jobId: string | null) {
   return useSWR<AdsBulkJob>(jobId ? `/api/ads/bulk/${encodeURIComponent(jobId)}` : null, fetcher, {
-    refreshInterval: (data) => (data && data.status === 'done' ? 0 : 2_500),
+    refreshInterval: (data) => (data && ['done', 'failed', 'cancelled'].includes(data.status) ? 0 : 2_500),
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    keepPreviousData: false,
   })
 }
 

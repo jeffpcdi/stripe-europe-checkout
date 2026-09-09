@@ -5,7 +5,7 @@
  * 3 durações + 2 easings — todas as animações derivam daqui (ou dos
  * espelhos CSS --dur/--dur-fast/--dur-slow/--ease/--spring em globals.css).
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 export const DUR_MICRO = 120 // micro-feedback (hover, tick)
 export const DUR_BASE = 240 // transições padrão
@@ -19,33 +19,48 @@ export const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)' // spring leve
  * Usado para rodar entradas em cascata uma única vez (não a cada navegação).
  */
 export function useOncePerSession(key: string): boolean {
-  const [first] = useState(() => {
-    if (typeof window === 'undefined') return false
+  const [first, setFirst] = useState(false)
+  const checked = useRef<string | null>(null)
+  useEffect(() => {
+    if (checked.current === key) return
+    checked.current = key
     try {
       const k = `v0-once:${key}`
-      if (sessionStorage.getItem(k)) return false
+      const seen = sessionStorage.getItem(k)
       sessionStorage.setItem(k, '1')
-      return true
+      setFirst(!seen)
     } catch {
-      return true
+      setFirst(true)
     }
-  })
+  }, [key])
   return first
 }
 
-/** Detecta prefers-reduced-motion (SSR-safe; default false). */
-export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
+// Um único observador atende todos os contadores, cards e o globo.
+const motionListeners = new Set<() => void>()
+let stopMotionWatch: (() => void) | undefined
+function readMotionPreference() {
+  return typeof window !== 'undefined' && (window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.dataset.anim === 'off')
+}
+function subscribeMotion(listener: () => void) {
+  motionListeners.add(listener)
+  if (!stopMotionWatch) {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const on = () => setReduced(mq.matches || document.documentElement.dataset.anim === 'off')
-    on()
+    const on = () => motionListeners.forEach(notify => notify())
     const observer = new MutationObserver(on)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-anim'] })
     mq.addEventListener('change', on)
-    return () => { mq.removeEventListener('change', on); observer.disconnect() }
-  }, [])
-  return reduced
+    stopMotionWatch = () => { mq.removeEventListener('change', on); observer.disconnect() }
+  }
+  return () => {
+    motionListeners.delete(listener)
+    if (!motionListeners.size) { stopMotionWatch?.(); stopMotionWatch = undefined }
+  }
+}
+
+/** Respeita a preferência do sistema e o controle de animações da dashboard. */
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribeMotion, readMotionPreference, () => false)
 }
 
 /**
@@ -54,13 +69,15 @@ export function useReducedMotion(): boolean {
  */
 export function useValueFlash(value: unknown, ms = 400): boolean {
   const prev = useRef(value)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [flash, setFlash] = useState(false)
   useEffect(() => {
     if (Object.is(prev.current, value)) return
     prev.current = value
     setFlash(true)
-    const t = window.setTimeout(() => setFlash(false), ms)
-    return () => window.clearTimeout(t)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setFlash(false), ms)
   }, [value, ms])
+  useEffect(() => () => clearTimeout(timer.current), [])
   return flash
 }

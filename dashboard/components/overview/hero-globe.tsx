@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Radio } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
@@ -14,7 +14,6 @@ interface LatestLeadInfo {
   name: string
   flag: string
   at: number
-  simulated?: boolean
 }
 
 const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
@@ -38,57 +37,29 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
 
   const live = useMemo(() => liveGlobeData(data, now, !!error), [data, now, error])
 
-  // Detecta quando um novo lead/visitante entra em tempo real
+  // O polling não interrompe a duração do destaque nem move a câmera do usuário.
   useEffect(() => {
-    const increased = presenceIncreases(previous.current, live.countries)
+    const increased = live.fresh ? presenceIncreases(previous.current, live.countries) : []
     previous.current = live.fresh ? live.countries : null
-    setPulseCodes(increased)
+    if (!live.fresh) { setLatestLead(null); setPulseCodes([]); return }
     if (!increased.length) return
-
-    const leadCode = increased[0]
-    // 1. Rotação suave automática para centralizar o país do lead
-    setSelected(leadCode)
-    setFocusRevision(v => v + 1)
-
-    // 2. Notificação visual de alta prioridade no topo do globo
-    setLatestLead({
-      code: leadCode,
-      name: countryName(leadCode),
-      flag: countryFlag(leadCode),
-      at: Date.now(),
-    })
-
-    const pulseTimer = window.setTimeout(() => setPulseCodes([]), 4500)
-    const bannerTimer = window.setTimeout(() => setLatestLead(null), 6000)
-
-    return () => {
-      window.clearTimeout(pulseTimer)
-      window.clearTimeout(bannerTimer)
-    }
+    const code = increased[0]
+    setPulseCodes(increased)
+    setLatestLead({ code, name: countryName(code), flag: countryFlag(code), at: Date.now() })
   }, [live])
 
-  // Permite testar/demonstrar a animação de entrada de lead a qualquer momento
-  const handleSimulateLead = useCallback(() => {
-    const targetCode = 'BR'
-    setSelected(targetCode)
-    setFocusRevision(v => v + 1)
-    setPulseCodes([targetCode])
-    setLatestLead({
-      code: targetCode,
-      name: countryName(targetCode),
-      flag: countryFlag(targetCode),
-      at: Date.now(),
-      simulated: true,
-    })
-
-    const timer = window.setTimeout(() => setPulseCodes([]), 4500)
+  useEffect(() => {
+    if (!latestLead) return
+    const pulseTimer = window.setTimeout(() => setPulseCodes([]), 4500)
     const bannerTimer = window.setTimeout(() => setLatestLead(null), 6000)
+    return () => { window.clearTimeout(pulseTimer); window.clearTimeout(bannerTimer) }
+  }, [latestLead])
 
-    return () => {
-      window.clearTimeout(timer)
-      window.clearTimeout(bannerTimer)
-    }
-  }, [])
+  useEffect(() => {
+    if (!focusCode) return
+    setSelected(focusCode)
+    setFocusRevision(value => value + 1)
+  }, [focusCode])
 
   return (
     <div className="presence-panel">
@@ -98,12 +69,10 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
         focusCode={selected || focusCode}
         focusRevision={focusRevision}
         pulseCodes={pulseCodes}
-        onSimulateLead={handleSimulateLead}
       >
         <header className="presence-header">
           <div>
             <h2><Radio size={16} aria-hidden="true" />Visitantes ao vivo</h2>
-            <p>Presença atual por país</p>
           </div>
           <div className="presence-online" data-fresh={live.fresh}>
             <span aria-hidden="true" />
@@ -117,7 +86,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
           <div className="presence-lead-banner animate-in fade-in slide-in-from-top-2 duration-300" role="status" aria-live="polite">
             <div className="presence-lead-banner-glow" aria-hidden="true" />
             <span className="presence-lead-banner-dot" aria-hidden="true" />
-            <span className="presence-lead-banner-tag">{latestLead.simulated ? 'Simulação' : 'Novo acesso'}</span>
+            <span className="presence-lead-banner-tag">Novo acesso</span>
             <div className="presence-lead-banner-text">
               <span className="presence-lead-banner-flag">{latestLead.flag}</span>
               <strong>{latestLead.name}</strong>
@@ -131,7 +100,7 @@ export function HeroGlobe({ focusCode }: { focusCode?: string | null }) {
               }}
               title="Localizar visitante no globo"
             >
-              Ver no globo
+              Localizar
             </button>
           </div>
         )}
