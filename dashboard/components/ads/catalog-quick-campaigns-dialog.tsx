@@ -351,65 +351,8 @@ export function CatalogQuickCampaignsDialog({
           )}
         </label>
 
-        <section className="rounded-lg border border-border bg-card p-3" aria-label="Criativos do lote">
-          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeos das campanhas</span>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Selecione vários vídeos MP4 ou MOV de uma vez. O áudio é mantido e a capa é automática.</p>
-          <label className="btn-ghost mt-3 w-fit cursor-pointer text-xs">
-            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-            {creatives.length ? 'Adicionar criativos' : 'Enviar criativos'}
-            <input className="sr-only" type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov"
-              aria-label="Enviar criativos" disabled={uploading || busy || creatives.length >= MAX_COUNT}
-              onChange={(event) => { addVideos(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
-          </label>
-          {creatives.length > 0 && <p className="mt-2 text-[11px] text-muted-foreground" role="status">{readyCount} de {creatives.length} criativos prontos</p>}
-          <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
-            {creatives.map((creative, index) => (
-              <li key={creative.id} className="flex items-start gap-2 rounded-lg bg-secondary/30 p-2 text-[11px]">
-                {creative.status === 'ready' ? <Check className="mt-0.5 size-3.5 shrink-0 text-success" /> : creative.status === 'error' ? <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" /> : <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />}
-                <div className="min-w-0 flex-1">
-                  <span className="block truncate text-foreground" title={creative.name}>{index + 1}. {creative.name}</span>
-                  <span className="block text-muted-foreground">{creative.status === 'ready' ? 'Pronto' : creative.status === 'uploading' ? 'Enviando…' : creative.status === 'queued' ? 'Na fila' : creative.error}</span>
-                </div>
-                {creative.status === 'error' && <button type="button" className="btn-ghost shrink-0 p-1" disabled={uploading} onClick={() => void uploadItems([creative])} aria-label={`Tentar novamente ${creative.name}`}><RefreshCw className="size-3.5" /></button>}
-                <button type="button" className="btn-ghost shrink-0 p-1" disabled={uploading} onClick={() => update(setCreatives, creatives.filter((c) => c.id !== creative.id))} aria-label={`Remover ${creative.name}`}><X className="size-3.5" /></button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
-          <strong className="block text-foreground">
-            {count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia no total
-          </strong>
-          {creatives.length > 0 && (
-            <details className="my-2">
-              <summary className="cursor-pointer text-primary">Ver o vídeo de cada campanha</summary>
-              <ol className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                {Array.from({ length: count }, (_, index) => <li key={index} className="break-words">{sampleName(index + 1)} → {creatives[index % creatives.length].name}</li>)}
-              </ol>
-            </details>
-          )}
-          Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
-        </div>
-
-        <div className="rounded-lg border border-border px-3 py-2">
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-3 text-left text-[11px] text-muted-foreground"
-            onClick={() => setAdvancedOpen((current) => !current)}
-            aria-expanded={advancedOpen}
-            aria-controls="catalog-campaign-delivery-profile"
-          >
-            <span className="min-w-0">
-              <span className="font-medium text-foreground">Entrega e perfil</span>
-              <span className="ml-2 text-[10px]">{advancedSummary}</span>
-            </span>
-            <ChevronDown className={`size-3.5 min-w-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
-          </button>
-          {advancedOpen && (
-          <div className="mt-3 flex flex-col gap-4">
             <fieldset className="flex flex-col gap-2">
-              <legend className="text-[11px] font-medium text-foreground">Como gastar o orçamento</legend>
+              <legend className="text-[11px] font-medium text-foreground">Lance das campanhas</legend>
               <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
                   type="button"
@@ -430,7 +373,7 @@ export function CatalogQuickCampaignsDialog({
                     onClick={() => update(setBidStrategy, 'cost_cap')}
                     aria-pressed={bidStrategy === 'cost_cap'}
                   >
-                    <strong className="block font-semibold">Custo-alvo</strong>
+                    <strong className="block font-semibold">Com bid · Custo-alvo</strong>
                     Busca manter o CPA próximo da meta.
                   </button>
                 )}
@@ -439,7 +382,7 @@ export function CatalogQuickCampaignsDialog({
               {bidStrategy === 'cost_cap' && (
                 <div className="rounded-lg border border-border bg-secondary/20 p-3">
                   <label className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="font-medium text-foreground">CPA alvo ({advertiserCurrency})</span>
+                    <span className="font-medium text-foreground">Bid por compra · CPA alvo ({advertiserCurrency})</span>
                     <input
                       className="input-base"
                       type="number"
@@ -470,7 +413,68 @@ export function CatalogQuickCampaignsDialog({
                   )}
                 </div>
               )}
+              {!costCapAvailable && <p className="text-[11px] text-muted-foreground" role="status">Bid indisponível: a integração ainda não confirmou suporte a Custo-alvo para catálogo.</p>}
             </fieldset>
+
+        <section className="rounded-lg border border-border bg-card p-3" aria-label="Criativos do lote">
+          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeos das campanhas</span>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Selecione vários vídeos MP4 ou MOV de uma vez. O áudio é mantido e a capa é automática.</p>
+          <label className="btn-ghost mt-3 w-fit cursor-pointer text-xs">
+            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            {creatives.length ? 'Adicionar criativos' : 'Enviar criativos'}
+            <input className="sr-only" type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov"
+              aria-label="Enviar criativos" disabled={uploading || busy || creatives.length >= MAX_COUNT}
+              onChange={(event) => { addVideos(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
+          </label>
+          {creatives.length > 0 && <p className="mt-2 text-[11px] text-muted-foreground" role="status">{readyCount} de {creatives.length} criativos prontos</p>}
+          <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+            {creatives.map((creative, index) => (
+              <li key={creative.id} className="flex items-start gap-2 rounded-lg bg-secondary/30 p-2 text-[11px]">
+                {creative.status === 'ready' ? <Check className="mt-0.5 size-3.5 shrink-0 text-success" /> : creative.status === 'error' ? <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" /> : <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />}
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-foreground" title={creative.name}>{index + 1}. {creative.name}</span>
+                  <span className="block text-muted-foreground">{creative.status === 'ready' ? 'Pronto' : creative.status === 'uploading' ? 'Enviando…' : creative.status === 'queued' ? 'Na fila' : creative.error}</span>
+                </div>
+                {creative.status === 'error' && <button type="button" className="btn-ghost shrink-0 p-1" disabled={uploading} onClick={() => void uploadItems([creative])} aria-label={`Tentar novamente ${creative.name}`}><RefreshCw className="size-3.5" /></button>}
+                <button type="button" className="btn-ghost shrink-0 p-1" disabled={uploading} onClick={() => update(setCreatives, creatives.filter((c) => c.id !== creative.id))} aria-label={`Remover ${creative.name}`}><X className="size-3.5" /></button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
+          <strong className="block text-foreground">
+            {count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia no total
+          </strong>
+          <p>{bidStrategy === 'cost_cap' ? `Bid por compra: ${bidValid ? money.format(bidAmountNumber) : 'informe o valor'} · aplicado a cada campanha do lote` : 'Máxima entrega · sem bid definido'}</p>
+          {creatives.length > 0 && (
+            <details className="my-2">
+              <summary className="cursor-pointer text-primary">Ver o vídeo de cada campanha</summary>
+              <ol className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                {Array.from({ length: count }, (_, index) => <li key={index} className="break-words">{sampleName(index + 1)} → {creatives[index % creatives.length].name}</li>)}
+              </ol>
+            </details>
+          )}
+          Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
+        </div>
+
+        <div className="rounded-lg border border-border px-3 py-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left text-[11px] text-muted-foreground"
+            onClick={() => setAdvancedOpen((current) => !current)}
+            aria-expanded={advancedOpen}
+            aria-controls="catalog-campaign-delivery-profile"
+          >
+            <span className="min-w-0">
+              <span className="font-medium text-foreground">Entrega e perfil</span>
+              <span className="ml-2 text-[10px]">{advancedSummary}</span>
+            </span>
+            <ChevronDown className={`size-3.5 min-w-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+          </button>
+          {advancedOpen && (
+          <div className="mt-3 flex flex-col gap-4">
+
 
             <label className="flex flex-col gap-1.5 text-[11px]">
               <span className="flex items-center gap-1.5 font-medium text-foreground">

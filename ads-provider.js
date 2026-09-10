@@ -1871,7 +1871,7 @@ function resolveBudgetPlan(spec) {
   }
   const bidStrategy = s.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
   const bidAmount = Number(s.bidAmount);
-  if (bidStrategy === 'cost_cap' && !(bidAmount > 0)) {
+  if (bidStrategy === 'cost_cap' && (!Number.isFinite(bidAmount) || !(bidAmount > 0))) {
     throw badRequest('Custo-alvo exige um valor de lance maior que zero');
   }
   const requestedDeliveryMode = String(s.deliveryMode || 'standard').trim().toLowerCase();

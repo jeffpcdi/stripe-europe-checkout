@@ -183,7 +183,7 @@ function normalizeCampaignSpec(input, catalog) {
   const budgetOptimization = value.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup';
   const bidStrategy = value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
   const bidAmount = Number(value.bidAmount);
-  if (bidStrategy === 'cost_cap' && !(bidAmount > 0)) {
+  if (bidStrategy === 'cost_cap' && (!Number.isFinite(bidAmount) || !(bidAmount > 0))) {
     throw catalogError(
       'CATALOG_CAMPAIGN_BID_AMOUNT_REQUIRED',
       'Informe um custo-alvo por compra maior que zero.',

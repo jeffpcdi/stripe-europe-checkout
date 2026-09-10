@@ -177,7 +177,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   explicitamente é reconsultada antes do upload e nunca cai silenciosamente em outro perfil; o endpoint
   `GET /api/ads/catalogs/:catalogId/identities` devolve somente `BC_AUTH_TT` utilizáveis do BC vinculado.
   Product Sales aceita Máxima entrega ou Cost Cap; `CONVERT + OCPM` usa obrigatoriamente
-  `conversion_bid_price`. Entrega acelerada só é válida em `ABO + Cost Cap`; CBO e Máxima entrega ficam
+  `conversion_bid_price`. Entrega acelerada só é válida em `ABO + Cost Cap`.
+  No lançador de catálogo, “Lance das campanhas” fica junto ao orçamento:
+  “Com bid · Custo-alvo” recebe o CPA na moeda da conta e o resumo mostra o valor aplicado
+  a cada campanha do lote. Bid não finito, zero ou negativo é rejeitado antes da criação.
+  As opções continuam condicionadas ao suporte real do conector. CBO e Máxima entrega ficam
   em `STANDARD`. O schema vivo habilita cada opção separadamente e o readback confirma lance e pacing.
   O conjunto envia e confirma `PLACEMENT_TYPE_NORMAL`, `PLACEMENT_TIKTOK` e as localizações; o mapper
   aceita `location_ids` na raiz do readback real. `dark_post_status` pode não voltar na leitura, mas,
