@@ -1073,6 +1073,14 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   visual usa APIs locais de teste, sem workers Express, credenciais ou escrita em serviços externos.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
+- **Refinamento da referência ilustrativa (2026-09-10):** masthead desktop com logo visual
+  de 72px, navegação cyan translúcida e controles de 38px. Na Visão geral, o Faturamento
+  ocupa 67% e os três KPIs empilhados 33%, com gap de 16px. O seletor de período existente
+  fica dentro do Faturamento e preserva seus handlers. `revenue-trend.tsx` usa dias reais:
+  vazio ou ponto único não gera curva; múltiplas moedas são filtradas para a moeda exibida
+  reutilizando `aggregate`, sem alterar os totais. KPIs não exibem sparklines fictícias.
+  Os estilos são escopados ao masthead e a `overview-metrics--summary`; o globo não foi
+  alterado. A conferência visual permanece manual, sem Preview, por pedido do usuário.
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
   fundo preto neutro `#08080a` (nunca azul), ciano neon `#25f4ee` (interação/links/ativo), rosa
   `#fe2c55` (ao vivo/atenção/perigo), verde `#22c55e` (**só dinheiro/sucesso**), dourado `#fbbf24`

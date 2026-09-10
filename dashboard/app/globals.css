@@ -3656,3 +3656,95 @@ html[data-anim='off'] .dashboard-topnav { animation: none; }
   .presence-star-depth, .presence-stage-immersive::backdrop, .presence-stage-immersive .presence-fullscreen-topbar, .presence-stage-immersive .presence-controls { animation: none; }
 }
 html[data-anim='off'] :is(.presence-star-depth, .presence-fullscreen-topbar, .presence-controls), html[data-anim='off'] .presence-stage-immersive::backdrop { animation: none; }
+
+/* Visão geral: Faturamento 67% e três KPIs 33%, sem alterar cards de outras abas. */
+.overview-metrics.overview-metrics--summary {
+  grid-template-columns: minmax(0, 67fr) minmax(0, 33fr); gap: 16px; align-items: stretch;
+}
+.overview-metrics--summary .overview-revenue {
+  display: flex; flex-direction: column; min-width: 0; min-height: 420px; padding: 20px;
+  background: color-mix(in srgb, var(--surface-inset) 94%, transparent);
+  border-color: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: var(--shadow-sm);
+}
+.overview-revenue-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.overview-revenue-heading h2 { margin: 0; color: var(--text-sub); font-size: 14px; font-weight: 600; }
+.overview-revenue .overview-period-picker { width: auto; padding: 2px; gap: 2px; border-radius: 8px; border-color: var(--border); background: var(--hover); }
+.overview-revenue .overview-period-picker button { flex: none; min-height: 26px; padding-inline: 9px; border-radius: 5px; font-size: 11px; color: var(--text-muted); }
+.overview-revenue .overview-period-picker button[aria-selected='true'] { background: var(--active); color: var(--text); box-shadow: none; }
+.overview-revenue-value-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.overview-revenue-value { color: var(--text); font-family: var(--font-mono); font-size: clamp(28px, 2.3vw, 38px); font-weight: 650; line-height: 1.15; letter-spacing: -.045em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
+.overview-revenue-change { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; color: var(--money); background: var(--success-light); }
+.overview-revenue-change[data-direction='down'] { color: var(--error); background: var(--error-light); }
+.overview-revenue-comparison { margin-top: 4px; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+.overview-revenue-plot { position: relative; flex: 1; min-height: 160px; margin: 14px 0 12px; }
+.overview-revenue-chart { position: absolute; inset: 0; min-width: 0; }
+.overview-revenue-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: inherit; padding: 20px 12px; text-align: center; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.overview-revenue-plot > .overview-revenue-empty { position: absolute; inset: 0; border-radius: 10px; background: color-mix(in srgb, var(--text) 2%, transparent); }
+.overview-revenue-point { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; color: var(--text-sub); font-family: var(--font-mono); }
+.overview-revenue-point > span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.overview-revenue-point strong { color: var(--text); font-weight: 600; }
+.overview-revenue-hint { color: var(--text-faint); font-size: 11px; }
+.overview-revenue-tooltip { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-base); font-size: 11px; color: var(--text-muted); }
+.overview-revenue-tooltip strong { color: var(--text); font-family: var(--font-mono); font-size: 13px; }
+.overview-revenue-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.overview-revenue-footer > span:last-child { margin-left: auto; text-align: right; }
+.overview-revenue-footer strong { color: var(--text); font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.overview-summary-kpis { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 16px; min-width: 0; }
+.overview-summary-kpis .overview-metric { padding: 16px 18px; border-color: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: var(--shadow-sm); }
+.overview-summary-kpis .overview-metric::before, .overview-summary-kpis .overview-metric::after { display: none; }
+.overview-summary-kpis .overview-metric-heading { gap: 8px; }
+.overview-summary-kpis .overview-metric-heading h2 { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; font-weight: 500; }
+.overview-summary-kpis .overview-metric-heading h2::before { content: ''; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: var(--metric-accent); }
+.overview-summary-kpis .overview-metric-action { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.overview-summary-kpis .overview-metric-action:hover { color: var(--accent); }
+.overview-summary-kpis .overview-metric-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.overview-summary-kpis .overview-metric-main { min-height: 0; padding: 8px 0 6px; }
+.overview-summary-kpis .overview-metric-value { font-family: var(--font-mono); font-size: clamp(24px, 1.7vw, 30px); font-weight: 600; letter-spacing: -.035em; line-height: 1.15; }
+.overview-summary-kpis .overview-metric-footer { flex: 0; gap: 2px; margin-top: auto; padding-top: 0; border: 0; font-size: 11px; line-height: 1.45; }
+.overview-summary-kpis .overview-metric-footer strong { color: inherit; font-weight: 500; }
+
+/* Acabamento da referência espacial, restrito ao masthead e indicadores. */
+.dashboard-masthead { padding: 14px 20px; border-radius: 18px; border-color: rgb(160 197 225 / 18%); background: radial-gradient(ellipse at 78% 10%, rgb(22 76 110 / 17%), transparent 45%), rgb(7 12 19 / 93%); box-shadow: 0 10px 28px -20px #000; }
+.dashboard-logo-frame { border-color: rgb(160 197 225 / 18%); box-shadow: 0 0 18px -10px var(--accent); }
+.dashboard-account-button, .dashboard-account-actions > button { width: 38px; height: 38px; border-radius: 10px; background: rgb(255 255 255 / 3%); box-shadow: none; border-color: rgb(255 255 255 / 9%); }
+.dashboard-topnav { border-top: 0; padding-top: 0; }
+.dashboard-nav-link { min-height: 36px; padding-inline: 9px; font-size: 12px; border-radius: 7px; }
+.dashboard-nav-link--active, .dashboard-nav-link--active:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 18%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); box-shadow: none; }
+.dashboard-nav-link--active::after { content: ''; position: absolute; bottom: -1px; left: 10px; right: 10px; height: 1px; background: var(--accent); }
+.overview-metrics--summary .overview-revenue { min-height: 400px; border-radius: 16px; border-color: rgb(99 177 191 / 20%); background: radial-gradient(ellipse at 0 0, rgb(37 244 238 / 6%), transparent 58%), #080f15; box-shadow: inset 0 1px rgb(255 255 255 / 3%), 0 10px 28px -24px #000; }
+.overview-revenue-heading h2 { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: 16px; }
+.overview-revenue-heading h2 svg, .overview-revenue-footer svg { color: var(--accent); flex-shrink: 0; }
+.overview-revenue-value { font-family: var(--font-sans); font-size: clamp(32px, 3vw, 46px); color: #8df4d6; font-weight: 650; letter-spacing: -.04em; }
+.overview-revenue-change { padding: 5px 9px; border-radius: 999px; }
+.overview-revenue .overview-period-picker { border-color: rgb(255 255 255 / 9%); background: rgb(255 255 255 / 3%); }
+.overview-revenue .overview-period-picker button { min-height: 30px; }
+.overview-revenue .overview-period-picker button[aria-selected='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent); }
+.overview-revenue-footer > span:first-child { display: flex; align-items: center; gap: 6px; }
+.overview-revenue-footer > span:first-child svg { margin-right: 8px; }
+.overview-revenue-footer { padding-top: 16px; border-color: rgb(160 197 225 / 12%); }
+.overview-summary-kpis .overview-metric { border-radius: 16px; border-color: rgb(160 197 225 / 12%); background: radial-gradient(ellipse at 100% 0, color-mix(in srgb, var(--metric-accent) 6%, transparent), transparent 65%), #0b0e15; }
+.overview-summary-kpis .overview-metric-heading h2 { color: var(--text-sub); gap: 10px; }
+.overview-summary-kpis .overview-metric-heading h2::before { display: none; }
+.overview-summary-kpis .overview-metric-heading h2 svg { color: var(--metric-accent); flex-shrink: 0; }
+.overview-summary-kpis .overview-metric-value { font-family: var(--font-sans); font-size: clamp(25px, 2vw, 32px); }
+.overview-summary-kpis .overview-metric-action { color: var(--metric-accent); }
+@media (min-width: 1100px) {
+  .dashboard-masthead { grid-template-columns: 80px minmax(0, 1fr) auto; gap: 8px 18px; min-height: 116px; }
+  .dashboard-logo-frame { width: 80px; height: 80px; padding: 3px; }
+  .dashboard-logo-image { width: 72px; height: 72px; }
+  .dashboard-page-context h1 { font-size: 20px; }
+}
+
+@media (max-width: 1023px) {
+  .overview-metrics.overview-metrics--summary { grid-template-columns: minmax(0, 1fr); }
+  .overview-summary-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; }
+  .overview-summary-kpis .overview-metric-heading { flex-wrap: wrap; }
+}
+@media (max-width: 639px) {
+  .overview-metrics--summary .overview-revenue { padding: 16px; min-height: 390px; }
+  .overview-revenue-value { font-size: clamp(26px, 7vw, 32px); }
+  .overview-revenue .overview-period-picker button { min-height: 36px; padding-inline: 7px; }
+  .overview-summary-kpis { grid-template-columns: minmax(0, 1fr); }
+  .overview-summary-kpis .overview-metric { padding: 14px 16px; }
+  .overview-summary-kpis .overview-metric-footer { margin-top: 0; }
+}

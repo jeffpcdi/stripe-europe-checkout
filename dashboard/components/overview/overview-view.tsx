@@ -343,12 +343,6 @@ export function OverviewView() {
         firstEnter ? 'stagger-fade' : ''
       }`}
     >
-      {/* ── SELETOR DE PERÍODO ── */}
-      <div className="overview-toolbar">
-        <h2>Resultados</h2>
-        <PeriodPicker value={period} onChange={setPeriod} />
-      </div>
-
       {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
       {(roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <OverviewMetrics
@@ -363,6 +357,10 @@ export function OverviewView() {
         ads={roas}
         adsError={Boolean(roasError)}
         allPeriod={period === 'all'}
+        periodPicker={<PeriodPicker value={period} onChange={setPeriod} />}
+        series={data && otherRev.length > 0
+          ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period)).series
+          : cur.series}
       />
 
       {/* ── SEÇÃO 2: GLOBO EM DESTAQUE TOTAL (LARGURA TOTAL) ───────────── */}
