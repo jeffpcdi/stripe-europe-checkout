@@ -1442,3 +1442,6 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - `GlassCard` expõe `data-universe-surface="true"`; o atributo serve somente ao design system global. `SectionTitle` ganhou o marcador visual `.section-orbit`, também estritamente decorativo.
 - O tema Spatial Analytics foi ampliado para o projeto inteiro: cenário cósmico com estrelas/auroras por seção, superfícies orbitais, tabs internas (`.universe-tabs`), CTAs ciano com sheen, inputs/modais contextuais e estados de tabela com acento da seção. Respeitar `prefers-reduced-motion` ao adicionar movimento futuro.
 - As cores continuam semânticas: ciano para interação/live, verde para sucesso/receita, âmbar para investimento/atenção, violeta para qualidade/inteligência e vermelho para falha/rejeição. O rosa TikTok é assinatura secundária de Ads, não cor estrutural global.
+
+### Compatibilidade do build da dashboard (2026-09-12)
+- Os callbacks de shader/textura do globo mantêm tipos estruturais locais porque o pacote `three` instalado não publica declarações TypeScript. Compras enviadas ao `HeroGlobe` são produzidas diretamente como `GlobePurchase[]`, sem predicado incompatível com propriedades opcionais. Essas anotações são somente de compilação e não alteram WebGL, dados ou comportamento.

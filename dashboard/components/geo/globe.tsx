@@ -11,6 +11,16 @@ import { countryName } from '@/lib/countries'
 import { countryFlag } from '@/lib/format'
 
 interface Country { code: string; name: string; count: number; purchased: number }
+interface GlobeShaderSource { fragmentShader: string }
+interface GlobeTexture {
+  dispose: () => void
+  colorSpace: unknown
+  minFilter: unknown
+  magFilter: unknown
+  generateMipmaps: boolean
+  anisotropy: number
+  needsUpdate: boolean
+}
 interface GlobePanelProps {
   countries: Country[]
   focusCode?: string | null
@@ -69,7 +79,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
 
     // O shader mantém a textura diurna natural, mas com grade frio/escuro,
     // terminador mais longo e rim atmosférico extremamente sutil aderido à borda.
-    earth.onBeforeCompile = (shader) => {
+    earth.onBeforeCompile = (shader: GlobeShaderSource) => {
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
@@ -110,7 +120,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     const loader = new THREE.TextureLoader()
     loader.load(
       '/dashboard/textures/earth-night.jpg',
-      (nightMap) => {
+      (nightMap: GlobeTexture) => {
         if (cancelled) { nightMap.dispose(); return }
         nightMap.colorSpace = THREE.SRGBColorSpace
         nightMap.minFilter = THREE.LinearMipmapLinearFilter

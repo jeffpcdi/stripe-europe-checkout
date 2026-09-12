@@ -22,7 +22,7 @@ import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { toast } from '@/lib/toast'
 import { PeriodPicker } from './period-picker'
-import { HeroGlobe } from './hero-globe'
+import { HeroGlobe, type GlobePurchase } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
@@ -336,18 +336,17 @@ export function OverviewView() {
     .filter(([c, v]) => c !== cur.mainCur && v > 0)
     .sort((a, b) => b[1] - a[1])
 
-  const globePurchases = (data?.leads ?? [])
-    .map((lead) => {
+  const globePurchases: GlobePurchase[] = (data?.leads ?? [])
+    .flatMap((lead) => {
       const at = lead.purchasedAt || (lead.stage === 'purchased' ? lead.at : null)
-      if (!at) return null
-      return {
+      if (!at) return []
+      return [{
         at,
         country: lead.country,
         amount: lead.amount,
         currency: lead.currency,
-      }
+      }]
     })
-    .filter((purchase): purchase is { at: string; country?: string; amount?: number; currency?: string } => Boolean(purchase))
 
   return (
     <div
