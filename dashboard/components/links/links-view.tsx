@@ -314,7 +314,7 @@ export function LinksView() {
 
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
-    <div className="flex flex-col gap-5">
+    <div className="project-page project-page--links flex flex-col gap-5">
       {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
       <div className="relative py-1 flex flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-background transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
         <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">

@@ -336,6 +336,18 @@ export function OverviewView() {
     .filter(([c, v]) => c !== cur.mainCur && v > 0)
     .sort((a, b) => b[1] - a[1])
 
+  const globePurchases = (data?.leads ?? [])
+    .map((lead) => {
+      const at = lead.purchasedAt || (lead.stage === 'purchased' ? lead.at : null)
+      if (!at) return null
+      return {
+        at,
+        country: lead.country,
+        amount: lead.amount,
+        currency: lead.currency,
+      }
+    })
+    .filter((purchase): purchase is { at: string; country?: string; amount?: number; currency?: string } => Boolean(purchase))
 
   return (
     <div
@@ -365,7 +377,7 @@ export function OverviewView() {
 
       {/* ── SEÇÃO 2: GLOBO EM DESTAQUE TOTAL (LARGURA TOTAL) ───────────── */}
       <section className="w-full" aria-label="Visitantes online em tempo real">
-        <HeroGlobe focusCode={focusCountry} />
+        <HeroGlobe focusCode={focusCountry} purchases={globePurchases} />
       </section>
 
       {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}

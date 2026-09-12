@@ -77,7 +77,7 @@ export function DomainsView() {
     finally { setDeleteBusy(false) }
   }
   return (
-    <div className="space-y-4">
+    <div className="project-page project-page--domains space-y-4">
       <GlassCard variant="thick" className="p-4 sm:p-6 border border-border/70 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Globe className="size-4 text-primary" />

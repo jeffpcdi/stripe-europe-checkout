@@ -35,6 +35,10 @@ import {
   ArrowUp,
   ArrowDown,
   MoreHorizontal,
+  Flame,
+  ShoppingCart,
+  Zap,
+  TriangleAlert,
 } from 'lucide-react'
 import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list'
 import { apiSend } from '@/lib/api'
@@ -180,7 +184,7 @@ export function CampaignQuickActionsDropdown({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex size-11 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
+          className="flex size-9 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
           aria-label={`Ações rápidas da campanha ${c.campaignName || id}`}
           title="Ações rápidas e status"
         >
@@ -629,45 +633,49 @@ export function CampaignTree({
       return
     }
     setBulkBudgetBusy(true)
-    let updated = 0
-    let simulated = 0
-    let failed = 0
-
     const selectedCampaigns = campaigns.filter((c) => selected.has(c.platformCampaignId))
-
-    for (const c of selectedCampaigns) {
-      try {
-        const curAmount = Number(c.budget?.amount)
-        let newAmount = curAmount
-        if (bulkBudgetMode === 'percent_up') {
-          newAmount = Math.round(curAmount * (1 + val / 100))
-        } else if (bulkBudgetMode === 'percent_down') {
-          newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
-        } else {
-          newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
-        }
-
-        const result = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
-          budget: { amount: newAmount, type: c.budget?.type || 'daily' },
-          adAccountId: c.platformAdAccountId,
-        })
-        if (result.dryRun) simulated++
-        else updated++
-      } catch {
-        failed++
+    const updates = selectedCampaigns.map((c) => {
+      const curAmount = Number(c.budget?.amount)
+      let newAmount = curAmount
+      if (bulkBudgetMode === 'percent_up') newAmount = Math.round(curAmount * (1 + val / 100))
+      else if (bulkBudgetMode === 'percent_down') newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
+      else newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
+      return {
+        platformCampaignId: c.platformCampaignId,
+        amount: newAmount,
+        type: c.budget?.type === 'lifetime' ? 'lifetime' : 'daily',
       }
-    }
+    })
 
-    setBulkBudgetBusy(false)
-    setBulkBudgetOpen(false)
-    if (updated > 0) {
-      toast.info(`${updated} orçamento(s) enviado(s)`, { hint: 'Aguardando atualização do TikTok.' })
-      actionFeedback()
-      onMutate()
-    }
-    if (simulated > 0) toast.info(`${simulated} orçamento(s) simulado(s)`, { hint: 'Modo teste: nenhuma alteração publicada para essas campanhas.' })
-    if (failed > 0) {
-      toast.error(`${failed} falha(s) ao atualizar orçamento`)
+    try {
+      const result = await apiSend<{
+        dryRun?: boolean
+        totals?: { updated?: number; skipped?: number; failed?: number }
+        items?: { id: string; status: string; error?: string }[]
+      }>('/api/ads/campaigns/bulk-budget', 'POST', {
+        adAccountId: selectedCampaigns[0]?.platformAdAccountId,
+        campaigns: updates,
+      })
+      const updated = Number(result.totals?.updated || 0)
+      const skipped = Number(result.totals?.skipped || 0)
+      const failed = Number(result.totals?.failed || 0)
+      if (result.dryRun) {
+        toast.info('Simulação de orçamento concluída', { hint: `${updates.length} campanha(s) avaliadas. Nada foi publicado.` })
+      } else if (failed > 0 || skipped > 0) {
+        toast.error('Atualização parcial de orçamento', { hint: `${updated} atualizada(s), ${skipped} ignorada(s), ${failed} falha(s).` })
+      } else {
+        toast.success(`${updated} orçamento(s) atualizados`, { hint: 'A sincronização do TikTok foi acionada automaticamente.' })
+      }
+      if (updated > 0) {
+        actionFeedback()
+        setSelected(new Set())
+        onMutate()
+      }
+      setBulkBudgetOpen(false)
+    } catch (e) {
+      toast.error('Falha ao atualizar orçamentos', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBulkBudgetBusy(false)
     }
   }
 
@@ -869,7 +877,7 @@ export function CampaignTree({
     if (viewMode === 'table') {
       return (
         <div
-          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1305px]"
+          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1175px]"
           style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
         >
           <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
@@ -1150,7 +1158,7 @@ export function CampaignTree({
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
         {/* Linha compacta: 12 colunas com alinhamento rigoroso */}
-        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1305px]">
+        <div className="grid grid-cols-[34px_72px_minmax(220px,1.8fr)_165px_92px_70px_88px_78px_86px_94px_118px_58px] items-center px-3 py-2.5 text-xs min-w-[1175px]">
           {/* 1. Checkbox */}
           <div className="flex items-center justify-center">
             <input
@@ -1286,7 +1294,7 @@ export function CampaignTree({
 
         {/* Banner de erro quando houver problema */}
         {detailedError && (
-          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1305px]">
+          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1175px]">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>{detailedError}</span>
           </div>
@@ -1421,7 +1429,7 @@ export function CampaignTree({
 
   function TableHeader() {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1305px] shadow-xs">
+      <div className="sticky top-0 z-10 grid grid-cols-[34px_72px_minmax(220px,1.8fr)_165px_92px_70px_88px_78px_86px_94px_118px_58px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1175px] shadow-xs">
         {/* 1. Checkbox Select All */}
         <div className="flex items-center justify-center">
           <input
@@ -1598,68 +1606,63 @@ export function CampaignTree({
           </button>
         </div>
 
-        {/* Atalhos Rápidos de Seleção e Desempenho */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1 px-1">
-          <span className="text-[11px] font-medium text-muted-foreground mr-0.5">Atalhos:</span>
+        {/* Atalhos de performance — sem emojis; estados semânticos e compactos. */}
+        <div className="campaign-smart-filters">
+          <span className="campaign-smart-filter-label">Atalhos</span>
           <button
             type="button"
             onClick={() => setOnlyWithSpend(v => !v)}
             aria-pressed={onlyWithSpend}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
-              onlyWithSpend
-                ? 'border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs'
-                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
+            data-active={onlyWithSpend ? 'true' : 'false'}
+            data-tone="amber"
+            className="campaign-smart-filter"
           >
-            🔥 Com gasto
+            <Flame className="size-3.5" aria-hidden="true" />
+            Com gasto
           </button>
           <button
             type="button"
             onClick={() => setQuickFilter(curr => curr === 'with_sales' ? 'all' : 'with_sales')}
             aria-pressed={quickFilter === 'with_sales'}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
-              quickFilter === 'with_sales'
-                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-400 font-semibold shadow-xs'
-                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
+            data-active={quickFilter === 'with_sales' ? 'true' : 'false'}
+            data-tone="green"
+            className="campaign-smart-filter"
           >
-            💰 Com vendas
+            <ShoppingCart className="size-3.5" aria-hidden="true" />
+            Com vendas
           </button>
           <button
             type="button"
             onClick={() => setQuickFilter(curr => curr === 'high_roas' ? 'all' : 'high_roas')}
             aria-pressed={quickFilter === 'high_roas'}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
-              quickFilter === 'high_roas'
-                ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-400 font-semibold shadow-xs'
-                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
+            data-active={quickFilter === 'high_roas' ? 'true' : 'false'}
+            data-tone="cyan"
+            className="campaign-smart-filter"
           >
-            ⚡ ROAS &gt; 2×
+            <Zap className="size-3.5" aria-hidden="true" />
+            ROAS &gt; 2×
           </button>
           <button
             type="button"
             onClick={() => setQuickFilter(curr => curr === 'no_sales' ? 'all' : 'no_sales')}
             aria-pressed={quickFilter === 'no_sales'}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all ${
-              quickFilter === 'no_sales'
-                ? 'border-amber-500/50 bg-amber-500/15 text-amber-400 font-semibold shadow-xs'
-                : 'border-border/60 bg-secondary/40 text-muted-foreground hover:bg-secondary hover:text-foreground'
-            }`}
+            data-active={quickFilter === 'no_sales' ? 'true' : 'false'}
+            data-tone="warning"
+            className="campaign-smart-filter"
           >
-            ⚠️ Gastando sem venda
+            <TriangleAlert className="size-3.5" aria-hidden="true" />
+            Gastando sem venda
           </button>
           {(onlyWithSpend || quickFilter !== 'all') && (
             <button
               type="button"
               onClick={() => {
                 setOnlyWithSpend(false)
-                  setQuickFilter('all')
                 setQuickFilter('all')
               }}
-              className="ml-auto text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+              className="campaign-smart-filter-clear"
             >
-              Limpar atalhos
+              Limpar
             </button>
           )}
         </div>
@@ -1867,7 +1870,7 @@ export function CampaignTree({
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: viewMode === 'table' ? '1305px' : undefined,
+                minWidth: viewMode === 'table' ? '1175px' : undefined,
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1893,7 +1896,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: viewMode === 'table' ? '1305px' : undefined }}
+              style={{ minWidth: viewMode === 'table' ? '1175px' : undefined }}
             >
               {flatRows.map((row, index) => (
                 <div

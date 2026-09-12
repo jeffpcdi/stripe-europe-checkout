@@ -55,7 +55,7 @@ export function FunnelView() {
   if (error && !data) return <ErrorState onRetry={() => mutate()} />
   if (isLoading && !data) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="project-page project-page--funnel flex flex-col gap-4">
         <Skeleton className="h-40" />
         <Skeleton className="h-64" />
       </div>

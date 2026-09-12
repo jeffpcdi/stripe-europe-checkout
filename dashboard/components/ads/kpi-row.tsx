@@ -11,17 +11,56 @@ import {
   Percent,
   Coins,
   Sparkles,
+  ArrowDownRight,
+  ArrowUpRight,
+  RefreshCw,
 } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
-import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
+import { fmtCompact, fmtPercent, fmtSpend, timeAgo } from '@/lib/format'
 
-export interface KpiRowData {
-  spend: number; impressions: number; clicks: number; ctr: number; cpm: number; activeCount: number; spendSeries: number[]
+function MiniSparkline({ values, tone = 'cyan' }: { values: number[]; tone?: 'cyan' | 'green' | 'amber' | 'violet' }) {
+  const clean = values.filter(Number.isFinite)
+  if (clean.length < 2) return <span className="ads-kpi-sparkline-empty" aria-hidden="true" />
+  const width = 132
+  const height = 34
+  const min = Math.min(...clean)
+  const max = Math.max(...clean)
+  const spread = Math.max(max - min, 1)
+  const points = clean.map((value, index) => {
+    const x = (index / Math.max(clean.length - 1, 1)) * width
+    const y = height - 3 - ((value - min) / spread) * (height - 8)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  const area = `0,${height} ${points} ${width},${height}`
+
+  return (
+    <svg className="ads-kpi-sparkline" data-tone={tone} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Tendência no período">
+      <polygon className="ads-kpi-sparkline-area" points={area} />
+      <polyline className="ads-kpi-sparkline-line" points={points} />
+    </svg>
+  )
+}
+
+function Delta({ value }: { value: number | null | undefined }) {
+  if (value == null || !Number.isFinite(value) || value === 0) return null
+  const up = value > 0
+  const Icon = up ? ArrowUpRight : ArrowDownRight
+  return (
+    <span className="ads-kpi-delta" data-direction={up ? 'up' : 'down'}>
+      <Icon className="size-3" aria-hidden="true" />
+      {Math.abs(value).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+    </span>
+  )
 }
 
 export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZone }: {
-  kpi: KpiRowData; currency: string; active: boolean; adAccountId: string; fromDate: string; toDate: string; timeZone?: string
+  currency: string
+  active: boolean
+  adAccountId: string
+  fromDate: string
+  toDate: string
+  timeZone?: string
 }) {
   const { data: kpis, error: kpisError, isLoading, mutate: refreshKpis } = useAdsKpis(active, adAccountId, { fromDate, toDate })
   const { data: salesData, error: salesError, mutate: refreshSales } = useAdsRoas(active, adAccountId, { fromDate, toDate })
@@ -33,146 +72,122 @@ export function KpiRow({ currency, active, adAccountId, fromDate, toDate, timeZo
   const unavailable = !!kpisError || !!salesError
   const revenue = salesData ? salesData.revenueCents / 100 : null
   const roas = salesData?.currencyMismatch ? null : salesData?.roas ?? null
+  const syncAt = kpis?.lastSyncedAt || salesData?.lastSyncedAt || null
+  const spendSeries = salesData?.daily?.map(day => day.spend) ?? []
+  const revenueSeries = salesData?.daily?.map(day => day.revenueCents / 100) ?? []
 
   const cards = [
-    { icon: Wallet, label: 'Gasto em ADS', value: cur?.spend ?? null, money, detail: 'Todas as campanhas da conta', theme: 'amber' },
-    { icon: ReceiptText, label: 'Receita', value: revenue, money: revenueMoney, detail: salesData ? `${salesData.sales} ${salesData.sales === 1 ? 'venda atribuída' : 'vendas atribuídas'}` : 'Vendas atribuídas aos anúncios', theme: 'green' },
-    { icon: ChartNoAxesCombined, label: 'Retorno', value: roas, money: '', detail: 'Receita ÷ investimento (ROAS)', theme: 'cyan' },
-    { icon: Target, label: 'Custo por venda', value: salesData?.currencyMismatch ? null : salesData?.cpa ?? null, money, detail: 'Investimento ÷ vendas', theme: 'amber' },
+    {
+      icon: Wallet,
+      label: 'Gasto em ADS',
+      value: cur?.spend ?? null,
+      money,
+      detail: 'Investimento da conta',
+      theme: 'amber' as const,
+      series: spendSeries,
+      delta: kpis?.deltas?.spend,
+    },
+    {
+      icon: ReceiptText,
+      label: 'Receita atribuída',
+      value: revenue,
+      money: revenueMoney,
+      detail: salesData ? `${salesData.sales} ${salesData.sales === 1 ? 'venda atribuída' : 'vendas atribuídas'}` : 'Vendas atribuídas aos anúncios',
+      theme: 'green' as const,
+      series: revenueSeries,
+      delta: null,
+    },
+    {
+      icon: ChartNoAxesCombined,
+      label: 'ROAS',
+      value: roas,
+      money: '',
+      detail: salesData?.currencyMismatch ? 'Moedas diferentes — cálculo bloqueado' : 'Receita ÷ investimento',
+      theme: 'cyan' as const,
+      series: [],
+      delta: null,
+    },
+    {
+      icon: Target,
+      label: 'CPA',
+      value: salesData?.currencyMismatch ? null : salesData?.cpa ?? null,
+      money,
+      detail: 'Investimento ÷ vendas',
+      theme: 'violet' as const,
+      series: [],
+      delta: null,
+    },
   ]
 
-  // Métricas derivadas
   const avgCpc = cur && cur.clicks > 0 ? cur.spend / cur.clicks : null
   const avgTicket = revenue !== null && salesData && salesData.sales > 0 ? revenue / salesData.sales : null
 
   return (
-    <section className="ads-account-results space-y-3" aria-label="Resultados da conta de anúncios">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p className="flex items-center gap-1.5" title={timeZone ? `Fuso da conta: ${timeZone}` : undefined}>
-          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
-          <span>Total da conta · {period}</span>
-        </p>
+    <section className="ads-performance-deck" aria-label="Performance da conta de anúncios">
+      <header className="ads-performance-head">
+        <div className="min-w-0">
+          <p className="ads-performance-eyebrow">Performance da conta</p>
+          <p className="ads-performance-period" title={timeZone ? `Fuso da conta: ${timeZone}` : undefined}>
+            {period}
+            {syncAt ? <span>· sincronizado {timeAgo(syncAt)}</span> : null}
+          </p>
+        </div>
         {unavailable && (
           <button
             type="button"
-            className="text-warning underline underline-offset-4 hover:text-foreground transition-colors"
+            className="ads-performance-retry"
             onClick={() => void Promise.all([refreshKpis(), refreshSales()])}
           >
-            Atualização pendente · tentar novamente
+            <RefreshCw className="size-3.5" aria-hidden="true" />
+            Dados não atualizados
           </button>
         )}
-      </div>
+      </header>
 
       {isLoading && !kpis ? (
-        <div className="overview-metrics stagger-fade">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton
-              key={i}
-              className="h-28 rounded-2xl stagger-fade"
-              style={{ '--i': i, '--stagger-index': i } as React.CSSProperties}
-            />
-          ))}
+        <div className="ads-performance-grid">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[118px] rounded-2xl" />)}
         </div>
       ) : (
-        <div className="overview-metrics stagger-fade">
-          {cards.map((card, index) => (
-            <article
-              key={card.label}
-              aria-label={card.label}
-              className="overview-metric surface-card stagger-fade"
-              data-theme={card.theme}
-              style={{
-                '--i': index,
-                '--stagger-index': index,
-                '--metric-index': index,
-              } as React.CSSProperties}
-            >
-              <div className="overview-metric-heading">
-                <h2>{card.label}</h2>
-                <span className="overview-metric-icon">
-                  <card.icon className="size-5" aria-hidden="true" />
-                </span>
+        <div className="ads-performance-grid">
+          {cards.map((card) => (
+            <article key={card.label} className="ads-kpi-cell" data-tone={card.theme}>
+              <div className="ads-kpi-topline">
+                <span className="ads-kpi-label"><card.icon className="size-3.5" aria-hidden="true" />{card.label}</span>
+                <Delta value={card.delta} />
               </div>
-              <div className="overview-metric-main">
-                <p className="overview-metric-value" data-sensitive>
-                  {card.value === null || !Number.isFinite(card.value) ? (
-                    '—'
-                  ) : (
+              <div className="ads-kpi-value-row">
+                <p className="ads-kpi-value" data-sensitive>
+                  {card.value === null || !Number.isFinite(card.value) ? '—' : (
                     <CountUp
                       value={card.value}
-                      format={value => card.money ? fmtSpend(value, card.money) : `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}
+                      format={value => card.money
+                        ? fmtSpend(value, card.money)
+                        : `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}
                     />
                   )}
                 </p>
-
+                <MiniSparkline values={card.series} tone={card.theme === 'violet' ? 'violet' : card.theme} />
               </div>
-              <p className="overview-metric-footer">{card.detail}</p>
+              <p className="ads-kpi-detail">{card.detail}</p>
             </article>
           ))}
         </div>
       )}
 
       {cur && (
-        <details className="group text-xs text-muted-foreground">
-          <summary className="w-fit cursor-pointer rounded-md py-1 hover:text-foreground select-none transition-colors font-medium">
-            <span className="inline-flex items-center gap-1.5">
-              <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
-              Mais métricas
-            </span>
+        <details className="ads-more-metrics">
+          <summary>
+            <span><Sparkles className="size-3.5" aria-hidden="true" />Mais métricas</span>
+            <span className="ads-more-metrics-hint">cliques · exibições · CTR · CPM · CPC · ticket</span>
           </summary>
-          <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 rounded-xl border border-border/60 bg-card/60 p-3 shadow-sm stagger-fade">
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 0, '--stagger-index': 0 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <MousePointerClick className="size-3" aria-hidden="true" />
-                Cliques
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {fmtCompact(cur.clicks)}
-              </strong>
-            </div>
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 1, '--stagger-index': 1 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Eye className="size-3" aria-hidden="true" />
-                Exibições
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {fmtCompact(cur.impressions)}
-              </strong>
-            </div>
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 2, '--stagger-index': 2 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Percent className="size-3" aria-hidden="true" />
-                CTR Médio
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {fmtPercent(cur.ctr)}
-              </strong>
-            </div>
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 3, '--stagger-index': 3 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Coins className="size-3" aria-hidden="true" />
-                CPM
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {fmtSpend(cur.cpm, money)}
-              </strong>
-            </div>
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 4, '--stagger-index': 4 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                CPC Médio
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {avgCpc ? fmtSpend(avgCpc, money) : '—'}
-              </strong>
-            </div>
-            <div className="flex flex-col gap-0.5 p-1.5 stagger-fade" style={{ '--i': 5, '--stagger-index': 5 } as React.CSSProperties}>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                Ticket Médio
-              </span>
-              <strong className="text-sm font-semibold text-foreground tabular-nums">
-                {avgTicket ? fmtSpend(avgTicket, revenueMoney) : '—'}
-              </strong>
-            </div>
+          <div className="ads-more-metrics-grid">
+            <div><span><MousePointerClick className="size-3" />Cliques</span><strong>{fmtCompact(cur.clicks)}</strong></div>
+            <div><span><Eye className="size-3" />Exibições</span><strong>{fmtCompact(cur.impressions)}</strong></div>
+            <div><span><Percent className="size-3" />CTR médio</span><strong>{fmtPercent(cur.ctr)}</strong></div>
+            <div><span><Coins className="size-3" />CPM</span><strong>{fmtSpend(cur.cpm, money)}</strong></div>
+            <div><span>CPC médio</span><strong>{avgCpc !== null ? fmtSpend(avgCpc, money) : '—'}</strong></div>
+            <div><span>Ticket médio</span><strong>{avgTicket !== null ? fmtSpend(avgTicket, revenueMoney) : '—'}</strong></div>
           </div>
         </details>
       )}

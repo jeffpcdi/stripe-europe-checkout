@@ -62,14 +62,16 @@ process.on('uncaughtException', (error) => {
 const fs = require('fs');
 const isBuilt = fs.existsSync(path.join(dashboardDir, '.next', 'BUILD_ID'));
 const useStart = isBuilt && process.env.FORCE_NEXT_DEV !== '1';
-const nextArgs = useStart ? ['start', '-p', '3001'] : ['dev', '-p', '3001'];
-const nextEnv = useStart ? { PORT: '3001', NODE_ENV: 'production' } : { PORT: '3001' };
+const defaultNextPort = process.env.NEXT_PORT || '3005';
+const nextArgs = useStart ? ['start', '-p', defaultNextPort] : ['dev', '-p', defaultNextPort];
+const nextEnv = useStart ? { PORT: defaultNextPort, NODE_ENV: 'production' } : { PORT: defaultNextPort };
 
-console.log(`[dev] Next.js iniciando em modo ${useStart ? 'produção otimizada (start)' : 'desenvolvimento (dev)'}`);
+console.log(`[dev] Next.js iniciando em modo ${useStart ? 'produção otimizada (start)' : 'desenvolvimento (dev)'} na porta ${defaultNextPort}`);
 start('Next.js', process.execPath, [nextBin, ...nextArgs], {
   cwd: dashboardDir,
   env: nextEnv,
 });
 start('Express', process.execPath, ['server.js'], {
-  env: { PORT: '3000' },
+  env: { PORT: '3000', DASHBOARD_UPSTREAM_URL: `http://127.0.0.1:${defaultNextPort}` },
 });
+

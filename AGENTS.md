@@ -1436,3 +1436,9 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   `conversion-database-retry` espera lease enquanto `server.js` usa `acquireLock/releaseLock`, e
   `conversion-operational` procura `async function notifyPushcut` inexistente nessa forma atual.
   Não interpretar testes isolados de catálogo como aprovação da bateria completa.
+
+### Identidade visual compartilhada — rodada global 2 (2026-09-10)
+- As principais telas Next (`TikTok Ads`, `Conversões`, `Links`, `Domínios`, `Proteção`, `Configurações`, `Funil`, `Atividade`, `Gateways` e `Pixels`) agora expõem classes `project-page--*` apenas para apresentação. Nenhuma regra de negócio depende dessas classes.
+- `GlassCard` expõe `data-universe-surface="true"`; o atributo serve somente ao design system global. `SectionTitle` ganhou o marcador visual `.section-orbit`, também estritamente decorativo.
+- O tema Spatial Analytics foi ampliado para o projeto inteiro: cenário cósmico com estrelas/auroras por seção, superfícies orbitais, tabs internas (`.universe-tabs`), CTAs ciano com sheen, inputs/modais contextuais e estados de tabela com acento da seção. Respeitar `prefers-reduced-motion` ao adicionar movimento futuro.
+- As cores continuam semânticas: ciano para interação/live, verde para sucesso/receita, âmbar para investimento/atenção, violeta para qualidade/inteligência e vermelho para falha/rejeição. O rosa TikTok é assinatura secundária de Ads, não cor estrutural global.

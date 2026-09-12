@@ -42,13 +42,15 @@ export function GlassCard({
     <div
       ref={ref}
       className={cn(
-        'glass surface-card relative overflow-hidden rounded-2xl border border-border/80 shadow-sm transition-all duration-200 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/12 before:to-transparent',
+        'glass surface-card universe-card relative overflow-hidden rounded-2xl border border-border/80 shadow-sm transition-all duration-200 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/12 before:to-transparent',
         variantClass[variant],
         hover && 'surface-hover',
         sheen && 'sheen',
         spotlight && 'spotlight-card',
         className,
       )}
+      data-surface-variant={variant}
+      data-universe-surface="true"
       onMouseMove={spotlight ? trackSpotlight : undefined}
       {...props}
     >

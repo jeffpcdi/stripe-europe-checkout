@@ -33,10 +33,10 @@ export function Switch({
         onCheckedChange(!checked)
       }}
       className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200',
+        'app-switch relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        checked ? 'border-brand-cyan/60 bg-brand-cyan/30 shadow-[0_0_12px_rgba(37,244,238,0.3)]' : 'border-border bg-[var(--hover)]',
+        checked ? 'is-checked border-brand-cyan/60 bg-brand-cyan/30' : 'border-border bg-[var(--hover)]',
         className,
       )}
     >
@@ -44,7 +44,7 @@ export function Switch({
         aria-hidden="true"
         className={cn(
           'pointer-events-none block size-3.5 rounded-full shadow-sm transition-transform duration-300 ease-[var(--spring)]',
-          checked ? 'translate-x-[18px] bg-brand-cyan shadow-[0_0_8px_rgba(37,244,238,0.8)]' : 'translate-x-[3px] bg-muted-foreground',
+          checked ? 'translate-x-[18px] bg-brand-cyan' : 'translate-x-[3px] bg-muted-foreground',
         )}
       />
     </button>

@@ -21,6 +21,7 @@
 //   POST   /api/ads/create               → campanha completa (vídeo)
 //   POST   /api/ads/boost                → Spark Ads
 //   POST   /api/ads/campaigns/bulk-status→ pausa/ativa em lote
+//   POST   /api/ads/campaigns/bulk-budget→ orçamento em lote, validado no servidor
 //   POST   /api/ads/duplicate            → duplicação durável (1–50 cópias)
 //   PUT    /api/ads/:adId                → status/budget/creative
 //   DELETE /api/ads/:adId                → cancela o anúncio
@@ -1336,6 +1337,101 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const updated = auctionIds.length + smartIds.length;
       stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + updated });
       res.json({ ok: true, totals: { updated, skipped: skippedIds.length, failed: 0 }, skippedIds });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Atualizar orçamento de campanhas em lote ──────────────────────────────
+  // O front calcula o novo valor (percentual/fixo), mas a validação real fica
+  // no servidor: escopo do advertiser, tipo da entidade, dono do orçamento,
+  // mínimo do TikTok, kill switch e dry-run. Uma única chamada substitui até
+  // 50 PUTs sequenciais no navegador e dispara apenas um sync ao final.
+  app.post('/api/ads/campaigns/bulk-budget', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const raw = Array.isArray(b.campaigns) ? b.campaigns.slice(0, 50) : [];
+      if (!raw.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
+
+      const seen = new Set();
+      const requested = [];
+      for (const item of raw) {
+        const id = String(item && item.platformCampaignId || '').trim().slice(0, 60);
+        const amount = Number(item && item.amount);
+        const type = item && item.type === 'lifetime' ? 'lifetime' : 'daily';
+        if (!id || seen.has(id)) continue;
+        if (!(amount >= TIKTOK_MIN_BUDGET) || !Number.isFinite(amount)) {
+          return res.status(400).json({ error: 'Todo orçamento deve ser numérico e respeitar o mínimo do TikTok (' + TIKTOK_MIN_BUDGET + ')' });
+        }
+        seen.add(id);
+        requested.push({ id, amount, type });
+      }
+      if (!requested.length) return res.status(400).json({ error: 'Nenhuma campanha válida informada' });
+
+      const advertiserHint = String(b.adAccountId || '').trim();
+      const advertiserId = advertiserHint
+        ? (await requireAdvertiser(req.account.id, null, advertiserHint, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+
+      const classifiedMap = await adsCache.classifyEntities(req.account.id, advertiserId, requested.map((item) => item.id));
+      const eligible = [];
+      const items = [];
+      for (const item of requested) {
+        const entity = classifiedMap.get(item.id);
+        if (!entity || entity.type !== 'campaign') {
+          items.push({ id: item.id, status: 'skipped', error: 'Campanha não encontrada no espelho sincronizado' });
+          continue;
+        }
+        if (entity.budgetOwner && entity.budgetOwner !== 'campaign') {
+          items.push({ id: item.id, status: 'skipped', error: 'Orçamento pertence aos conjuntos (ABO)' });
+          continue;
+        }
+        eligible.push({ ...item, entity });
+      }
+
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'campaign_budget_bulk', targetType: 'campaign', advertiserId,
+          metadata: { count: eligible.length, campaigns: eligible.map((item) => ({ id: item.id, amount: item.amount, type: item.type })) },
+          title: 'Atualizar orçamento de ' + eligible.length + ' campanha(s)'
+        });
+        for (const item of eligible) items.push({ id: item.id, status: 'simulated' });
+        return res.json({
+          dryRun: true,
+          simulated: eligible.length,
+          totals: { updated: 0, skipped: items.filter((item) => item.status === 'skipped').length, failed: 0 },
+          items,
+        });
+      }
+
+      let updated = 0;
+      let failed = 0;
+      for (const item of eligible) {
+        try {
+          await updateEntityBudget(item.entity, { kind: 'campaign', id: item.entity.campaignId }, { amount: item.amount, type: item.type });
+          updated += 1;
+          items.push({ id: item.id, status: 'updated' });
+        } catch (err) {
+          failed += 1;
+          items.push({ id: item.id, status: 'failed', error: String(err && err.message || 'Falha ao atualizar orçamento').slice(0, 240) });
+        }
+      }
+
+      if (updated > 0) adsSync.syncAfterWrite(req.account.id, advertiserId);
+      const skipped = items.filter((item) => item.status === 'skipped').length;
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'campaign_budget.bulk_updated',
+        targetType: 'campaign', targetId: 'bulk:' + Date.now(), advertiserId,
+        afterState: { updated, skipped, failed },
+        reason: 'Ajuste de orçamento em lote',
+        metadata: { campaigns: requested.map((item) => ({ id: item.id, amount: item.amount, type: item.type })) },
+      }).catch(() => {});
+      stats.logEvent(updated > 0 ? 'info' : 'warn', {
+        acc: req.account.id,
+        title: 'Orçamentos TikTok em lote: ' + updated + ' atualizados, ' + skipped + ' ignorados, ' + failed + ' falhas'
+      });
+      res.json({ ok: failed === 0, totals: { updated, skipped, failed }, items });
     } catch (err) { fail(res, err); }
   });
 

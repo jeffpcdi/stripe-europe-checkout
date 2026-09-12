@@ -20,7 +20,7 @@ export function SubNav() {
       className="anim-row-in mb-6 flex justify-center"
       aria-label={`Seções de ${group.label}`}
     >
-      <div className="glass flex max-w-full items-center gap-1 overflow-x-auto rounded-[12px] p-1">
+      <div className="dashboard-subnav glass flex max-w-full items-center gap-1 overflow-x-auto rounded-[12px] p-1">
         {group.tabs.map((tab) => {
           const active = pathname.startsWith(tab.href)
           return (
@@ -29,9 +29,9 @@ export function SubNav() {
               href={tab.href}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                'whitespace-nowrap rounded-[9px] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150',
+                'dashboard-subnav-link whitespace-nowrap rounded-[9px] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150',
                 active
-                  ? 'bg-[var(--active)] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]'
+                  ? 'dashboard-subnav-link--active bg-[var(--active)] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]'
                   : 'text-muted-foreground hover:bg-[var(--hover)] hover:text-foreground',
               )}
             >

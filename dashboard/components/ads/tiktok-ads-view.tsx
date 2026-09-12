@@ -43,6 +43,7 @@ import { adsDateRange } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
 import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
+import { KpiRow } from './kpi-row'
 
 export function TikTokAdsView() {
   const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
@@ -276,7 +277,7 @@ export function TikTokAdsView() {
   const advertisers = accounts?.accounts ?? []
 
   return (
-    <div className="tiktok-view min-w-0 flex flex-col gap-4">
+    <div className="project-page project-page--ads tiktok-view min-w-0 flex flex-col gap-4">
       {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
           acima do contexto da conta. */}
       {hasAccountAlert && (
@@ -381,7 +382,7 @@ export function TikTokAdsView() {
               (pill tablist) é o mesmo da aba Atividade. */}
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="universe-tabs grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
@@ -510,6 +511,14 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" className="space-y-4 outline-none">
+              <KpiRow
+                active={campaignsActive}
+                currency={currency}
+                adAccountId={concreteAdvertiser}
+                fromDate={fromDate}
+                toDate={toDate}
+                timeZone={advertiserTimeZone}
+              />
               <NeedsYouInbox
                 key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
                 active={treeActive}

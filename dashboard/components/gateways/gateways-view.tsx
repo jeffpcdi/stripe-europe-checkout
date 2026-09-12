@@ -283,7 +283,7 @@ export function GatewaysView() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="project-page project-page--gateways flex flex-col gap-5">
       {/* Item 110: anúncio acessível das cópias (fora de tela, polido) */}
       <span className="sr-only" role="status" aria-live="polite">
         {copyAnnounce}

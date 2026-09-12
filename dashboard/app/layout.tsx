@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#08080a',
+  themeColor: '#02050a',
   colorScheme: 'dark',
   // iPhone com Dynamic Island/notch: ocupa a tela toda e expõe as variáveis
   // env(safe-area-inset-*) usadas no topnav, mobile-nav e toaster.
@@ -43,9 +43,13 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <SectionAttr />
         </Suspense>
-        <div className="app-bg" aria-hidden="true">
+        <div className="app-bg cosmic-bg-v1" aria-hidden="true">
+          <div className="app-bg__deep-space" />
           <div className="app-bg__dots" />
+          <div className="app-bg__stars-near" />
           <div className="app-bg__aurora" />
+          <div className="app-bg__nebula" />
+          <div className="app-bg__orbit" />
           <div className="app-bg__vignette" />
           <div className="app-bg__grain" />
         </div>

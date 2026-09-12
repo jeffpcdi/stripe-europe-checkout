@@ -10,6 +10,21 @@ import { cn } from '@/lib/utils'
 
 const ITEMS = NAV_SECTIONS.flatMap(section => section.items)
 
+function TikTokNavIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M13.1 4.2v9.35a3.18 3.18 0 1 1-2.28-3.04" fill="none" stroke="#25F4EE" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" transform="translate(-.65 .45)" opacity=".95" />
+      <path d="M13.1 4.2c.55 2.15 1.88 3.42 4.02 3.87" fill="none" stroke="#FE2C55" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" transform="translate(.7 -.25)" opacity=".92" />
+      <path d="M13.1 4.2v9.35a3.18 3.18 0 1 1-2.28-3.04M13.1 4.2c.55 2.15 1.88 3.42 4.02 3.87" fill="none" stroke="#F8FBFF" strokeWidth="1.72" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** Cabeçalho único: marca, contexto da página e navegação sempre reconhecíveis. */
 export function TopNav({ children }: { children: ReactNode }) {
   const pathname = usePathname()
@@ -47,7 +62,7 @@ export function TopNav({ children }: { children: ReactNode }) {
       {children}
       <button ref={toggleRef} type="button" className="dashboard-menu-toggle"
         aria-expanded={menuOpen} aria-controls="dashboard-topnav" onClick={() => setMenuOpen(value => !value)}>
-        <LayoutGrid size={17} aria-hidden="true" />Menu<ChevronDown size={15} aria-hidden="true" />
+        <LayoutGrid size={17} aria-hidden="true" /><span className="dashboard-menu-label">Menu</span><ChevronDown size={15} aria-hidden="true" />
       </button>
       <nav id="dashboard-topnav" className="dashboard-topnav" data-open={menuOpen}
         aria-label="Navegação principal" data-tour="nav">
@@ -57,7 +72,11 @@ export function TopNav({ children }: { children: ReactNode }) {
             <Link key={item.id} href={item.href} aria-current={active ? 'page' : undefined}
               onClick={() => setMenuOpen(false)}
               className={cn('dashboard-nav-link', active && 'dashboard-nav-link--active')}>
-              <item.icon size={18} aria-hidden="true" />
+              {item.id === 'ads' ? (
+                <TikTokNavIcon className="dashboard-tiktok-icon" />
+              ) : (
+                <item.icon size={18} aria-hidden="true" />
+              )}
               <span>{item.label}</span>
               <ArrowUpRight className="dashboard-nav-arrow" size={14} aria-hidden="true" />
             </Link>

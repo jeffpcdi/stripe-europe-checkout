@@ -56,14 +56,14 @@ export function ConfirmDialog({
 
   return (
     <DialogPortal><div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl"
+      className="universe-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
       <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl outline-none">
         <GlassCard variant="thick" className={cn(
-          "p-6 border shadow-2xl transition-all",
+          "universe-confirm p-6 border shadow-2xl transition-all",
           tone === 'danger' 
             ? "border-destructive/30 shadow-[0_0_40px_rgba(239,68,68,0.15)]" 
             : "border-primary/30 shadow-[0_0_40px_rgba(37,244,238,0.15)]"

@@ -11,11 +11,25 @@ export function SectionAttr() {
 
   useEffect(() => {
     if (!pathname) return
-    const section = pathname.startsWith('/live')
-      ? 'live'
-      : pathname.startsWith('/geo')
-        ? 'geo'
-        : 'default'
+    const section = pathname === '/'
+      ? 'overview'
+      : pathname.startsWith('/ads') || pathname.startsWith('/catalog')
+        ? 'ads'
+        : pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+          ? 'conversions'
+          : pathname.startsWith('/links')
+            ? 'links'
+            : pathname.startsWith('/domains')
+              ? 'domains'
+              : pathname.startsWith('/cloak')
+                ? 'cloak'
+                : pathname.startsWith('/config')
+                  ? 'config'
+                  : pathname.startsWith('/activity')
+                    ? 'activity'
+                    : pathname.startsWith('/funnel')
+                      ? 'funnel'
+                      : 'default'
     document.documentElement.dataset.section = section
   }, [pathname])
 
