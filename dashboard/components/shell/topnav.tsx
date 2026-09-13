@@ -61,6 +61,7 @@ export function TopNav({ children }: { children: ReactNode }) {
       </Link>
       {children}
       <button ref={toggleRef} type="button" className="dashboard-menu-toggle"
+        aria-label={menuOpen ? 'Fechar menu principal' : 'Abrir menu principal'}
         aria-expanded={menuOpen} aria-controls="dashboard-topnav" onClick={() => setMenuOpen(value => !value)}>
         <LayoutGrid size={17} aria-hidden="true" /><span className="dashboard-menu-label">Menu</span><ChevronDown size={15} aria-hidden="true" />
       </button>

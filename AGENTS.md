@@ -1452,11 +1452,10 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 - `app/dashboard-refinement.css`, importado após `globals.css` e escopado por `.refined-dashboard`,
   concentra os novos ajustes de marca, navegação, botões, campos, cards e fundos. Manter os próximos
   ajustes desta composição nesse arquivo, evitando novas rodadas dispersas em `globals.css`.
-  A paleta agora usa superfícies ardósia mais claras (`#263647` / `#304459`) e texto de alto
-  contraste; os tokens no `body` também atendem aos portais. O fundo global `.dashboard-backdrop`
-  usa ardósia neutra, luz difusa e trama CSS discreta, estáticas e iguais entre abas. Substitui as
-  oito camadas cósmicas do layout; estrelas/órbitas ficam restritas ao globo. A cor da barra do
-  navegador acompanha o fundo (`#202b36`). Não aplicar esta composição à view legada por engano.
+  A paleta atual usa fundo quase preto (`#05060d`) e superfícies `#0d111d` / `#141b2c`;
+  os tokens no `body` também atendem aos portais. `.dashboard-backdrop` usa duas camadas CSS
+  decorativas: nebulosas ciano/violeta e estrelas do SVG local, com movimento lento. A cor da
+  barra do navegador acompanha o fundo. Não aplicar esta composição à view legada por engano.
 - Visão geral destaca Faturamento com KPIs de mesma escala, contraste ampliado e fundos semânticos.
   Explicações dos KPIs ficam em `details` acessíveis por teclado/toque; o funil usa ícones de etapa.
   TikTok Ads mantém os fluxos existentes, com barra de conta maior, abas de 46px, indicadores em
@@ -1523,3 +1522,23 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   Build de produção/TypeScript e testes da dashboard passaram; a suíte geral continua parando
   no erro preexistente `rdb.releaseLock is not a function` em `conversion-database-retry`.
   Sem prévia, testes no navegador, push ou deploy nesta entrega; validação visual manual do usuário.
+
+
+### Identidade espacial e proporções da UI (2026-09-12)
+- `dashboard-refinement.css` mantém a identidade compartilhada escura, com estrelas locais,
+  nebulosas CSS, entrada curta de página e respostas de hover. `SectionAttr` expõe
+  `data-page-hidden` para pausar o ambiente com a aba oculta; `prefers-reduced-motion`
+  e `data-anim=off` desligam as novas animações. Não há novos downloads ou dependências.
+- O masthead usa logo de 64px no desktop (56/52px nas larguras menores), navegação de 44px
+  e ações alinhadas. A aba ativa tem superfície ciano; o seletor móvel tem nome acessível
+  mesmo com o texto visual oculto. Cards de atividade usam linhas compactas com divisores;
+  funil, indicadores e workspace de campanhas compartilham superfícies e espaçamento.
+- A doca do globo redefine explicitamente `flex-direction: row`, incluindo tela cheia;
+  botões têm 40px no desktop e 44px com ponteiro de toque. O foco visual fica nos controles,
+  sem moldura ao clicar no canvas. Em paisagem baixa, o canvas reserva espaço para o cabeçalho
+  e a doca. Material, câmera, dados e integrações não foram modificados.
+- Build Next/TypeScript, `dashboard-refinement`, `dashboard-ui-integrity` e
+  `dashboard-modal-focus` passaram. Prévia local com APIs isoladas: Visão geral e TikTok Ads,
+  menu móvel, zoom, expansão e Escape conferidos em navegador; conferência de layouts em
+  1440×1000, 390×844 e 844×390. Dados da prévia são de teste, sem serviços externos.
+  Não equivale a validação em aparelho físico ou deploy Railway.

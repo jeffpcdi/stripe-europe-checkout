@@ -5,19 +5,19 @@
   --refine-violet: #a993fa;
   --refine-green: #71e4ad;
   --refine-amber: #f5c579;
-  --refine-ink: #202b36;
-  --refine-panel: #263647;
-  --refine-raised: #304459;
-  --refine-line: rgb(167 203 232 / 19%);
-  --refine-rim: rgb(221 243 255 / 30%);
+  --refine-ink: #05060d;
+  --refine-panel: #0d111d;
+  --refine-raised: #141b2c;
+  --refine-line: rgb(165 190 236 / 13%);
+  --refine-rim: rgb(194 219 255 / 20%);
   --refine-white: #f0f6fc;
-  --refine-muted: #c2d0dd;
-  --refine-dim: #afbfce;
-  --refine-shadow: 0 18px 46px -24px rgb(5 12 21 / 48%), inset 0 1px 0 rgb(255 255 255 / 9%);
+  --refine-muted: #aab8cf;
+  --refine-dim: #94a3bc;
+  --refine-shadow: 0 16px 40px -22px rgb(0 0 0 / 70%), inset 0 1px 0 rgb(255 255 255 / 3%);
   --refine-surface: radial-gradient(ellipse at 0 0, rgb(101 233 244 / 6%), transparent 58%),
-    linear-gradient(145deg, #304356, #243242 72%);
+    linear-gradient(145deg, rgb(17 23 39 / 96%), rgb(9 12 23 / 97%) 72%);
   --refine-gutter: clamp(16px, 2.2vw, 36px);
-  /* Os portais também herdam estes tokens: menus e formulários não voltam ao preto. */
+  /* Portais, menus e formulários compartilham a mesma paleta espacial. */
   --bg: var(--refine-ink);
   --card: var(--refine-panel);
   --text: var(--refine-white);
@@ -25,15 +25,15 @@
   --text-muted: var(--refine-muted);
   --text-faint: var(--refine-dim);
   --border: var(--refine-line);
-  --lg-tint: #293b4d;
-  --lg-tint-thick: #2b3d50;
-  --lg-tint-clear: #28394b;
+  --lg-tint: #0d111d;
+  --lg-tint-thick: #121827;
+  --lg-tint-clear: #0a0e18;
   --hover: rgb(205 229 249 / 8%);
   --active: rgb(205 229 249 / 14%);
 }
 
-/* Fundo arquitetural único: iluminação difusa e trama discreta, sem cenário
-   cósmico fora do observatório. Não varia entre abas nem exige imagens ou animação. */
+/* Nebulosas e estrelas locais: atmosfera decorativa, sem representar tráfego. */
+.refined-dashboard { background: var(--refine-ink); isolation: isolate; }
 .refined-dashboard .dashboard-backdrop {
   position: fixed;
   inset: 0;
@@ -41,21 +41,26 @@
   pointer-events: none;
   overflow: hidden;
   contain: paint;
-  background:
-    radial-gradient(ellipse 86% 65% at 48% -18%, rgb(181 206 222 / 11%), transparent 76%),
-    radial-gradient(ellipse 62% 85% at -14% 50%, rgb(97 159 172 / 7%), transparent 74%),
-    linear-gradient(155deg, #263540 0%, var(--refine-ink) 54%, #1e2833 100%);
+  background: var(--refine-ink);
 }
 .refined-dashboard .dashboard-backdrop::before {
   content: '';
   position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(ellipse 48% 36% at 78% 12%, rgb(107 57 177 / 19%), transparent 76%),
+    radial-gradient(ellipse 40% 55% at 5% 40%, rgb(21 124 153 / 13%), transparent 76%),
+    radial-gradient(ellipse 42% 30% at 60% 92%, rgb(70 51 148 / 14%), transparent 78%);
+  animation: nebula-drift 28s ease-in-out infinite alternate;
+}
+.refined-dashboard .dashboard-backdrop::after {
+  content: '';
+  position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgb(221 237 248 / 2%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(221 237 248 / 2%) 1px, transparent 1px);
-  background-size: 88px 88px;
-  mask-image: linear-gradient(#000, transparent 78%);
-  -webkit-mask-image: linear-gradient(#000, transparent 78%);
+  background: url('/dashboard/space-stars.svg') center / 1100px 800px;
+  opacity: .24;
+  mask-image: linear-gradient(#000, rgb(0 0 0 / 30%));
+  animation: nebula-stars 9s ease-in-out infinite alternate;
 }
 .refined-dashboard .dashboard-main {
   padding: 26px max(var(--refine-gutter), env(safe-area-inset-right))
@@ -279,7 +284,7 @@
 .refined-dashboard .universe-tabs {
   border-radius: 14px;
   border-color: var(--refine-line) !important;
-  background: rgb(27 40 54 / 88%) !important;
+  background: rgb(8 12 23 / 88%) !important;
 }
 
 /* Faturamento lidera a composição; os três indicadores têm a mesma escala. */
@@ -456,9 +461,12 @@
   box-shadow: none;
 }
 .refined-dashboard .presence-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   padding: 6px;
   gap: 4px;
-  background: rgb(42 65 86 / 94%);
+  background: rgb(10 16 29 / 94%);
   border: 1px solid rgb(101 233 244 / 24%);
   border-radius: 15px;
 }
@@ -516,7 +524,7 @@
   padding: 20px;
   border: 1px solid color-mix(in srgb, var(--ads-kpi-tone) 22%, var(--refine-panel));
   border-radius: 16px;
-  background: radial-gradient(ellipse at 95% 0, color-mix(in srgb, var(--ads-kpi-tone) 13%, transparent), transparent 85%), rgb(28 44 60 / 65%);
+  background: radial-gradient(ellipse at 95% 0, color-mix(in srgb, var(--ads-kpi-tone) 13%, transparent), transparent 85%), rgb(8 13 24 / 65%);
 }
 .refined-dashboard .ads-kpi-cell::after {
   left: 20px;
@@ -709,7 +717,7 @@
 .refined-dashboard .overview-insight-card { min-width: 0; }
 .refined-dashboard .overview-campaign-row { padding: 13px 12px; }
 .refined-dashboard .overview-country-row { min-height: 50px; }
-.refined-dashboard .overview-revenue-tooltip { border-color: var(--refine-rim); background: #2b3d50; color: var(--refine-white); box-shadow: var(--refine-shadow); }
+.refined-dashboard .overview-revenue-tooltip { border-color: var(--refine-rim); background: var(--refine-raised); color: var(--refine-white); box-shadow: var(--refine-shadow); }
 .refined-dashboard .presence-focus-label { position: absolute; z-index: 4; top: 22px; right: 24px; display: flex; gap: 7px; align-items: center; max-width: calc(100% - 48px); padding: 9px 13px; border-radius: 20px; background: rgb(35 57 78 / 88%); border: 1px solid var(--refine-line); color: var(--refine-white); font-size: 12px; pointer-events: none; }
 .refined-dashboard .ads-range-more select { min-height: 36px; padding: 0 5px; border: 0; background: transparent; color: var(--refine-muted); font-size: 12px; cursor: pointer; }
 .refined-dashboard select option { background: var(--refine-panel); color: var(--refine-white); }
@@ -728,7 +736,7 @@
   color: var(--refine-white);
   border-color: var(--refine-rim) !important;
   border-radius: 20px;
-  background: linear-gradient(145deg, #344b60, #293b4e 72%) !important;
+  background: var(--refine-surface) !important;
   box-shadow: 0 28px 90px -24px rgb(3 9 17 / 65%), inset 0 1px 0 rgb(255 255 255 / 14%) !important;
 }
 .refined-dashboard .universe-confirm { background: transparent; }
@@ -743,7 +751,7 @@
 .refined-dashboard .catalog-identifiers[open] { padding-bottom: 8px; }
 .refined-dashboard .overview-revenue-tooltip :is(.overview-revenue-tooltip__topline, time, .overview-revenue-tooltip__context) { color: var(--refine-muted); font-size: 12px; }
 .refined-dashboard .overview-summary-kpis .overview-metric-value { white-space: normal; overflow-wrap: anywhere; overflow: visible; }
-.refined-dashboard .dashboard-account-popup { background: linear-gradient(145deg, #344b60, #293b4e 72%) !important; }
+.refined-dashboard .dashboard-account-popup { background: var(--refine-surface) !important; }
 .refined-dashboard .dialog-footer { display: flex; justify-content: flex-end; align-items: center; gap: 10px; background: rgb(8 22 35 / 12%); }
 .refined-dashboard :is([role='dialog'], [role='alertdialog']) :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea) {
   min-height: 44px;
@@ -790,8 +798,8 @@ html[data-anim='off'] .refined-dashboard :is(.btn-primary, .btn-secondary, .setu
 
 /* Visão geral integrada: dados em HTML ao redor de um único globo. */
 .refined-dashboard .overview-observatory {
-  --observatory-bg: #0b1d31;
-  --observatory-raised: #112c46;
+  --observatory-bg: #080d19;
+  --observatory-raised: #141e33;
   --observatory-text: #edf6ff;
   --observatory-muted: #a9c2d8;
   --observatory-cyan: #70e6fc;
@@ -805,9 +813,9 @@ html[data-anim='off'] .refined-dashboard :is(.btn-primary, .btn-secondary, .setu
   border-radius: 28px;
   color: var(--observatory-text);
   background:
-    radial-gradient(ellipse 45% 65% at 50% 42%, rgb(23 100 151 / 24%), transparent 76%),
-    radial-gradient(ellipse 70% 38% at 50% 0%, rgb(30 82 130 / 24%), transparent 80%),
-    linear-gradient(145deg, #10273e, var(--observatory-bg) 48%, #10233c);
+    radial-gradient(ellipse 45% 65% at 50% 42%, rgb(39 117 167 / 15%), transparent 76%),
+    radial-gradient(ellipse 70% 38% at 50% 0%, rgb(106 65 180 / 12%), transparent 80%),
+    linear-gradient(145deg, #0d1426, var(--observatory-bg) 48%, #100e20);
   box-shadow: inset 0 1px 0 rgb(196 232 255 / 10%), 0 26px 70px -38px rgb(0 10 22 / 80%);
 }
 .refined-dashboard .overview-observatory::before {
@@ -912,7 +920,7 @@ html[data-anim='off'] .refined-dashboard :is(.btn-primary, .btn-secondary, .setu
 .refined-dashboard .presence-stage--embedded .presence-orbital-field { width: 94%; background: radial-gradient(circle, transparent 35%, rgb(58 160 231 / 16%) 52%, transparent 70%); }
 .refined-dashboard .presence-stage--embedded .presence-orbital-field::before { inset: 0; border-color: rgb(126 211 255 / 32%); transform: rotate(-20deg) scaleY(.46); }
 .refined-dashboard .presence-stage--embedded .presence-orbital-field::after { inset: -8%; border-color: rgb(126 168 255 / 18%); transform: rotate(22deg) scaleY(.48); }
-.refined-dashboard .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls { left: 50%; right: auto; bottom: 16px; width: max-content; max-width: calc(100% - 8px); transform: translateX(-50%); padding: 5px; gap: 2px; border-radius: 13px; opacity: 1; background: rgb(12 36 57 / 94%); box-shadow: 0 8px 24px rgb(0 7 17 / 24%); }
+.refined-dashboard .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls { left: 50%; right: auto; bottom: 16px; width: max-content; max-width: calc(100% - 8px); transform: translateX(-50%); padding: 5px; gap: 2px; border-radius: 13px; opacity: 1; background: rgb(9 15 28 / 94%); box-shadow: 0 8px 24px rgb(0 7 17 / 24%); }
 .refined-dashboard .presence-stage--embedded .presence-controls button { min-width: 40px; min-height: 44px; height: 44px; }
 .refined-dashboard .presence-stage--embedded .presence-controls .presence-rotation { min-width: 40px; }
 .refined-dashboard .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls button span { display: none; }
@@ -1024,6 +1032,149 @@ html[data-anim='off'] .refined-dashboard :is(.btn-primary, .btn-secondary, .setu
   .refined-dashboard .observatory-fullscreen-countries button { font-size: 10px; gap: 4px; padding: 5px 7px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
-  .refined-dashboard .presence-stage--embedded.presence-stage-immersive .presence-canvas { inset: 62px 0 70px; }
+  .refined-dashboard .presence-stage--embedded.presence-stage-immersive .presence-canvas { inset: 86px 0 82px; }
   .refined-dashboard .presence-stage--embedded.presence-stage-immersive .observatory-fullscreen-countries { display: none; }
+}
+
+
+/* Escala final do shell: uma linha no desktop e grade expansível no celular. */
+.refined-dashboard .dashboard-masthead {
+  min-height: 84px;
+  padding: 10px 18px;
+  margin-top: 16px;
+  gap: 12px 20px;
+  border-radius: 18px;
+  background: linear-gradient(110deg, rgb(101 233 244 / 4%), transparent 38%), rgb(10 14 25 / 94%);
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  grid-template-areas: 'brand nav actions';
+}
+.refined-dashboard :is(.dashboard-brand-link, .dashboard-logo-frame) { width: 64px; height: 64px; }
+.refined-dashboard .dashboard-logo-frame { box-shadow: 0 0 0 4px rgb(101 233 244 / 3%), 0 0 24px -10px rgb(101 233 244 / 30%) !important; }
+.refined-dashboard .dashboard-logo-image { width: 62px; height: 62px; }
+.refined-dashboard .dashboard-topnav { align-self: center; justify-content: center; gap: clamp(3px, .7vw, 12px); }
+.refined-dashboard .dashboard-nav-link { min-height: 44px; padding: 10px 12px; font-size: 13px; border-radius: 10px; }
+/* O tema anterior usa !important nos links; o escopo local substitui essa trava. */
+.refined-dashboard .dashboard-nav-link--active,
+.refined-dashboard .dashboard-nav-link--active:hover { border: 1px solid rgb(101 233 244 / 24%) !important; background: rgb(101 233 244 / 9%) !important; box-shadow: inset 0 -2px 0 rgb(101 233 244 / 65%), 0 0 20px -12px var(--refine-cyan) !important; }
+.refined-dashboard .dashboard-nav-link:not(.dashboard-nav-link--active):hover { background: rgb(165 190 236 / 5%) !important; }
+.refined-dashboard .dashboard-masthead::after { position: absolute; pointer-events: none; }
+.refined-dashboard .presence-fullscreen-topbar button { background: var(--refine-raised); color: var(--refine-white); border-color: var(--refine-line); }
+
+.refined-dashboard .dashboard-main { padding-top: 22px; }
+.refined-dashboard .dashboard-account-button.dashboard-account-utility,
+.refined-dashboard .dashboard-account-actions .dashboard-account-avatar { border-radius: 11px; }
+@media (min-width: 1100px) {
+  .refined-dashboard .dashboard-page-context { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; }
+}
+@media (min-width: 1100px) and (max-width: 1279px) {
+  .refined-dashboard .dashboard-masthead { gap: 12px; padding-inline: 14px; }
+  .refined-dashboard .dashboard-nav-link { padding-inline: 8px; gap: 6px; font-size: 12px; }
+}
+@media (max-width: 1099px) {
+  .refined-dashboard .dashboard-masthead { grid-template-columns: 56px minmax(0, 1fr) auto auto; grid-template-areas: 'brand context actions menu' 'nav nav nav nav'; min-height: 78px; gap: 0 12px; }
+  .refined-dashboard :is(.dashboard-brand-link, .dashboard-logo-frame) { width: 56px; height: 56px; }
+  .refined-dashboard .dashboard-logo-image { width: 54px; height: 54px; }
+  .refined-dashboard .dashboard-page-context h1 { font-size: 17px; }
+  .refined-dashboard .dashboard-topnav[data-open='true'] { justify-content: stretch; }
+}
+@media (max-width: 639px) {
+  .refined-dashboard .dashboard-masthead { grid-template-columns: 52px minmax(0, 1fr) auto; grid-template-areas: 'brand actions menu' 'context context context' 'nav nav nav'; padding: 10px 12px; gap: 8px; margin-top: max(10px, env(safe-area-inset-top)); border-radius: 16px; }
+  .refined-dashboard :is(.dashboard-brand-link, .dashboard-logo-frame) { width: 52px; height: 52px; }
+  .refined-dashboard .dashboard-logo-image { width: 50px; height: 50px; }
+  .refined-dashboard .dashboard-page-context h1 { font-size: 15px; color: var(--refine-muted); }
+  .refined-dashboard .dashboard-topnav { gap: 6px; }
+  .refined-dashboard .dashboard-nav-link { justify-content: flex-start; }
+  .refined-dashboard .dashboard-main { padding-top: 14px; }
+}
+
+/* Listas leves, sem cartões dentro de cartões; mesma hierarquia no funil e Ads. */
+.refined-dashboard .dashboard-main :is(.journey-funnel, .recent-visits, .overview-insight-card) { padding: 20px; }
+.refined-dashboard .dashboard-main :is(.overview-detail-grid, .overview-insight-grid) { gap: 16px; }
+.refined-dashboard .dashboard-main .overview-section-heading { margin-bottom: 16px; }
+.refined-dashboard .dashboard-main .overview-section-heading h2 { font-size: 15px; gap: 10px; }
+.refined-dashboard .dashboard-main .overview-section-icon { width: 30px; height: 30px; border-radius: 9px; color: var(--refine-cyan); border: 1px solid var(--refine-line); background: rgb(101 233 244 / 5%); box-shadow: none; }
+.refined-dashboard .dashboard-main .overview-section-link { font-size: 12px; min-height: 36px; }
+.refined-dashboard .dashboard-main .recent-visits > ul { gap: 0; }
+.refined-dashboard .dashboard-main .recent-visit-row,
+.refined-dashboard .dashboard-main .recent-visit-row:last-child {
+  min-height: 64px;
+  padding: 12px 0;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--refine-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.refined-dashboard .dashboard-main .recent-visit-row:last-child { border-bottom: 0; }
+.refined-dashboard .dashboard-main .recent-visit-place { width: 34px; height: 34px; font-size: 17px; border: 1px solid var(--refine-line); border-radius: 10px; background: rgb(165 190 236 / 4%); box-shadow: none; }
+.refined-dashboard .dashboard-main .recent-visit-description { gap: 5px; }
+.refined-dashboard .dashboard-main .recent-visit-description > span { border: 0; background: none; padding: 0; box-shadow: none; font-size: 11px; }
+.refined-dashboard .dashboard-main .recent-visit-time time { font-family: inherit; color: var(--refine-dim); }
+.refined-dashboard .dashboard-main .journey-step { background: rgb(165 190 236 / 3%); border: 1px solid var(--refine-line); box-shadow: none; }
+.refined-dashboard .dashboard-main .overview-campaign-row { background: rgb(165 190 236 / 3%); box-shadow: none; }
+.refined-dashboard .dashboard-main .campaign-workspace { border: 1px solid var(--refine-line); border-radius: 18px; background: var(--refine-surface); box-shadow: var(--refine-shadow); }
+.refined-dashboard .dashboard-main .campaign-workspace .campaign-toolbar { padding: 20px !important; background: transparent; }
+.refined-dashboard .dashboard-main .campaign-table-container { background: rgb(5 9 18 / 42%); }
+.refined-dashboard .dashboard-main .campaign-table-container th { padding-block: 12px; font-size: 10px; }
+.refined-dashboard .dashboard-main .campaign-table-row td { padding-block: 14px; }
+.refined-dashboard .dashboard-main .ads-command-bar { padding: 16px 20px; border-radius: 18px; }
+.refined-dashboard .dashboard-main .ads-performance-deck { border-radius: 18px; }
+.refined-dashboard .dashboard-main .ads-kpi-cell { min-height: 132px; padding: 16px; border-radius: 12px; }
+.refined-dashboard .dashboard-main .ads-kpi-value-row { padding-top: 12px; }
+.refined-dashboard .dashboard-main .ads-kpi-detail { margin-top: 8px; }
+.refined-dashboard .dashboard-main .tiktok-view { gap: 18px; }
+.refined-dashboard .dashboard-main .universe-tabs { box-shadow: none; }
+
+/* Foco visível nos botões, sem moldura ao clicar na superfície WebGL. */
+.refined-dashboard .presence-stage:not(.presence-stage-immersive):focus-visible { outline: none; }
+.refined-dashboard .presence-stage .presence-controls { flex-direction: row; align-items: center; }
+.refined-dashboard .presence-stage .presence-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; flex: 0 0 40px; background: transparent; border: 1px solid transparent; box-shadow: none; }
+.refined-dashboard .presence-stage .presence-controls button:hover:not(:disabled) { color: var(--refine-cyan); background: rgb(101 233 244 / 10%); border-color: rgb(101 233 244 / 18%); }
+.refined-dashboard .presence-stage .presence-control-divider { width: 1px; height: 18px; margin: 0 3px; }
+.refined-dashboard .presence-stage .presence-controls .presence-expand { color: var(--refine-cyan); background: rgb(101 233 244 / 8%); }
+.refined-dashboard .presence-stage-immersive .presence-controls { left: 50%; right: auto; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: max-content; }
+.refined-dashboard .presence-stage--embedded.presence-stage-immersive { background: radial-gradient(ellipse at 50% 40%, #13243d, var(--refine-ink) 70%); }
+.refined-dashboard .observatory-activity { background: rgb(7 12 24 / 65%); border-color: var(--refine-line); }
+.refined-dashboard .overview-observatory { border-color: var(--refine-line); border-top-color: var(--refine-rim); }
+@media (pointer: coarse) {
+  .refined-dashboard .presence-stage .presence-controls button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; flex-basis: 44px; }
+}
+@media (max-width: 639px) {
+  .refined-dashboard :is(.journey-funnel, .recent-visits, .overview-insight-card) { padding: 16px; }
+  .refined-dashboard .campaign-workspace .campaign-toolbar { padding: 14px !important; }
+  .refined-dashboard .ads-kpi-cell { padding: 14px 12px; }
+}
+
+/* Movimento com propósito: entrada curta, atmosfera lenta e resposta ao cursor. */
+@keyframes nebula-drift { from { transform: translate3d(-2%, -1%, 0) rotate(-3deg); } to { transform: translate3d(2%, 2%, 0) rotate(3deg); } }
+@keyframes nebula-stars { from { opacity: .17; } to { opacity: .3; } }
+@keyframes nebula-reveal { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+.refined-dashboard .dashboard-main > .project-page { animation: nebula-reveal 420ms ease-out both; }
+.refined-dashboard .recent-visit-row:nth-child(2) { animation-delay: 45ms; }
+.refined-dashboard .recent-visit-row:nth-child(3) { animation-delay: 90ms; }
+.refined-dashboard .recent-visit-row:nth-child(4) { animation-delay: 135ms; }
+.refined-dashboard :is(.recent-visit-row, .overview-campaign-row, .ads-kpi-cell) { transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
+@media (hover: hover) {
+  .refined-dashboard :is(.recent-visit-row, .overview-campaign-row):hover { background: rgb(101 233 244 / 4%); }
+  .refined-dashboard .ads-kpi-cell:hover { border-color: color-mix(in srgb, var(--ads-kpi-tone) 45%, transparent); box-shadow: inset 0 0 28px -18px var(--ads-kpi-tone); }
+}
+html[data-page-hidden='true'] .refined-dashboard .dashboard-backdrop::before,
+html[data-page-hidden='true'] .refined-dashboard .dashboard-backdrop::after { animation-play-state: paused; }
+html[data-anim='off'] .refined-dashboard .dashboard-backdrop::before,
+html[data-anim='off'] .refined-dashboard .dashboard-backdrop::after,
+html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .refined-dashboard .dashboard-backdrop::before,
+  .refined-dashboard .dashboard-backdrop::after,
+  .refined-dashboard .dashboard-main > .project-page { animation: none; }
+}
+
+/* As camadas decorativas ficam contidas; tabelas mantêm a própria rolagem. */
+.refined-dashboard .project-page { min-width: 0; }
+.refined-dashboard .campaign-workspace { overflow: hidden; }
+@media (max-width: 639px) {
+  .refined-dashboard .tiktok-section-tab { gap: 5px; padding-inline: 6px; font-size: 11px; }
+  .refined-dashboard .tiktok-section-tab svg { width: 14px; height: 14px; }
 }

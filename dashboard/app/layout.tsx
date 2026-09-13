@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#202b36',
+  themeColor: '#05060d',
   colorScheme: 'dark',
   // iPhone com Dynamic Island/notch: ocupa a tela toda e expõe as variáveis
   // env(safe-area-inset-*) usadas no topnav, mobile-nav e toaster.

@@ -48,5 +48,18 @@ export function SectionAttr() {
     }
   }, [])
 
+  // A atmosfera suspende o movimento quando a aba fica oculta.
+  useEffect(() => {
+    const syncVisibility = () => {
+      document.documentElement.dataset.pageHidden = String(document.hidden)
+    }
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility)
+      delete document.documentElement.dataset.pageHidden
+    }
+  }, [])
+
   return null
 }
