@@ -7,7 +7,7 @@
 
 import { useAdsMcpStatus } from '@/lib/api'
 
-export function McpStatusDot({ active, compact = false }: { active: boolean; compact?: boolean }) {
+export function McpStatusDot({ active }: { active: boolean }) {
   const { data } = useAdsMcpStatus(active)
   if (!data) return null
 
@@ -23,14 +23,6 @@ export function McpStatusDot({ active, compact = false }: { active: boolean; com
 
   const dot = tone === 'error' ? 'bg-error' : tone === 'warning' ? 'bg-warning' : 'bg-success'
   const text = tone === 'error' ? 'text-error' : tone === 'warning' ? 'text-warning' : 'text-muted-foreground'
-
-  if (compact) {
-    return (
-      <span className={`ads-mcp-dot ${text}`} title={title} aria-label={label}>
-        <span className={`size-2 rounded-full ${dot}`} aria-hidden="true" />
-      </span>
-    )
-  }
 
   return (
     <span className={`hidden items-center gap-1.5 sm:inline-flex ${text}`} title={title}>

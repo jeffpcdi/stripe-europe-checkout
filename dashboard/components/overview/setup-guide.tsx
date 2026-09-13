@@ -1,42 +1,114 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Check, ChevronDown, Circle, Link2, Radio, WalletCards, Wrench } from 'lucide-react'
-import type { OverviewHealthResponse } from '@/lib/types'
+import { ArrowRight, CheckCircle2, Circle } from 'lucide-react'
 
-const ICONS = { link: Link2, pixel: Radio, gateway: WalletCards }
+export interface OverviewHealthData {
+  setup?: {
+    links?: { total?: number; active?: number }
+    pixels?: { total?: number; active?: number; ready?: number; incomplete?: number }
+    gateways?: { total?: number; lastEventAt?: string | null }
+  }
+  guide?: {
+    completed?: number
+    total?: number
+    next?: { id: string; label: string; href: string }
+  }
+}
 
-/** Um próximo passo real; detalhes de cobertura ficam recolhidos. */
-export function SetupGuide({ health }: { health?: OverviewHealthResponse }) {
-  const guide = health?.guide
-  const action = guide?.nextAction ?? health?.actions[0]
-  if (!health?.ok || !action) return null
-  const pendingSetup = guide && guide.configured < guide.total
+export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
+  if (!health || !health.setup) return null
+
+  const hasLink = (health.setup.links?.total ?? 0) > 0
+  const hasPixel = (health.setup.pixels?.ready ?? 0) > 0
+  const hasGateway = (health.setup.gateways?.total ?? 0) > 0
+
+  const steps = [
+    {
+      id: 'link',
+      label: 'Crie um link rastreado',
+      desc: 'Direciona seu tráfego com parâmetros e cloaker.',
+      done: hasLink,
+      href: '/links',
+    },
+    {
+      id: 'pixel',
+      label: 'Configure um pixel',
+      desc: 'Vincula o TikTok Ads para envio de conversões via CAPI.',
+      done: hasPixel,
+      href: '/conversions?tab=pixels',
+    },
+    {
+      id: 'gateway',
+      label: 'Conecte um gateway',
+      desc: 'Receba confirmações de pagamento dos checkouts.',
+      done: hasGateway,
+      href: '/conversions?tab=gateways',
+    },
+  ]
+
+  const completed = steps.filter((s) => s.done).length
+
+  // Conta pronta não vê onboarding repetido
+  if (completed === steps.length) return null
+
+  const nextStep = steps.find((s) => !s.done) || steps[0]
 
   return (
-    <section className="setup-guide" aria-label="Próximo passo da conta" data-severity={action.severity}>
-      <div className="setup-guide-main">
-        <span className="setup-guide-icon" aria-hidden="true"><Wrench size={20} /></span>
-        <div className="setup-guide-title">
-          <span>{pendingSetup ? `Configuração · ${guide.configured}/${guide.total}` : 'Revisar rastreamento'}</span>
-          <h2>{action.title}</h2>
+    <section className="setup-guide rounded-2xl border border-border/70 bg-card/60 p-4 sm:p-5 backdrop-blur-md" aria-label="Guia de configuração inicial">
+      <div className="setup-guide-main flex items-center justify-between gap-4">
+        <div className="setup-guide-title min-w-0">
+          <span className="text-[11px] font-medium tracking-wide uppercase text-muted-foreground">
+            Configuração · {completed}/3
+          </span>
+          <h2 className="mt-0.5 text-sm sm:text-base font-semibold text-foreground truncate">
+            {nextStep.label}
+          </h2>
         </div>
-        <Link href={action.href} className="btn-secondary setup-guide-action">{pendingSetup ? 'Configurar' : 'Revisar'}<ArrowRight size={16} aria-hidden="true" /></Link>
+
+        <Link
+          href={nextStep.href}
+          className="setup-guide-action btn-primary inline-flex items-center gap-1.5 text-xs py-2 px-3.5 shrink-0"
+        >
+          <span>Continuar</span>
+          <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Link>
       </div>
-      <details className="setup-guide-details">
-        <summary><ChevronDown size={14} aria-hidden="true" />Ver detalhes{health.actions.length > 1 ? ` · ${health.actions.length} pendências` : ''}</summary>
-        <p>{action.detail}</p>
-        {guide && <ol className="setup-guide-steps">
-          {guide.steps.map(step => {
-            const Icon = ICONS[step.id as keyof typeof ICONS] || Circle
-            return <li key={step.id}><Link href={step.href} data-configured={step.configured}>
-              <Icon size={18} aria-hidden="true" /><span>{step.label}</span>
-              {step.configured ? <Check size={16} aria-label="Cadastrado" /> : <ArrowRight size={16} aria-label="Configurar" />}
-            </Link></li>
-          })}
-        </ol>}
-        {health.actions.length > 1 && <ul className="setup-guide-pending">{health.actions.filter(item => item.id !== action.id).map(item => <li key={item.id}><Link href={item.href}>{item.title}<ArrowRight size={14} aria-hidden="true" /></Link></li>)}</ul>}
-        <small>Cadastros não confirmam a entrega de eventos. Confira o recebimento em Conversões.</small>
+
+      <details className="setup-guide-details mt-3 text-xs text-muted-foreground">
+        <summary className="cursor-pointer font-medium hover:text-foreground select-none">
+          Ver etapas da configuração
+        </summary>
+        <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+          <p className="text-[11px] text-muted-foreground">
+            Cadastros não confirmam a entrega de eventos até o primeiro teste real de disparo.
+          </p>
+          <ul className="setup-guide-steps grid gap-2 sm:grid-cols-3">
+            {steps.map((step) => (
+              <li
+                key={step.id}
+                className="flex items-start gap-2 rounded-xl border border-border/40 bg-secondary/20 p-2.5"
+              >
+                {step.done ? (
+                  <CheckCircle2 className="size-4 shrink-0 text-emerald-400 mt-0.5" aria-hidden="true" />
+                ) : (
+                  <Circle className="size-4 shrink-0 text-muted-foreground mt-0.5" aria-hidden="true" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={step.href}
+                    className="font-medium text-foreground hover:underline block truncate text-xs"
+                  >
+                    {step.label}
+                  </Link>
+                  <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                    {step.desc}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       </details>
     </section>
   )

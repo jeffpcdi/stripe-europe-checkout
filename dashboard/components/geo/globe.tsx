@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import GlobeGL from 'react-globe.gl'
 import * as THREE from 'three'
-import { Crosshair, Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap, RefreshCw } from 'lucide-react'
+import { Maximize2, Minimize2, Minus, Plus, Play, Pause, Zap, RefreshCw } from 'lucide-react'
 import { useReducedMotion } from '@/lib/motion'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
@@ -67,18 +67,18 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   const [attempt, setAttempt] = useState(0)
   const material = useMemo(() => {
     const earth = new THREE.MeshStandardMaterial({
-      // Base clara preserva oceanos, nuvens e continentes sob a iluminação da cena.
-      color: '#e1edf5',
-      roughness: 0.78,
-      metalness: 0.02,
-      envMapIntensity: 0.24,
-      bumpScale: 0.34,
+      // Base com saturação e contraste vivos, sem esbranquiçar os oceanos e relevos.
+      color: '#ffffff',
+      roughness: 0.60,
+      metalness: 0.04,
+      envMapIntensity: 0.32,
+      bumpScale: 0.36,
       emissive: '#000000',
       emissiveIntensity: 0,
       dithering: true,
     })
 
-    // Transição dia/noite suave, com relevo legível também no hemisfério escuro.
+    // Transição dia/noite com contraste acentuado e tonalidade oceânica viva.
     earth.onBeforeCompile = (shader: GlobeShaderSource) => {
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <emissivemap_fragment>',
@@ -87,8 +87,8 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   float roiSunFacing = dot(normal, directionalLights[0].direction);
   float roiDaylight = smoothstep(-0.34, 0.30, roiSunFacing);
   float roiNightMask = 1.0 - smoothstep(-0.16, 0.20, roiSunFacing);
-  vec3 roiNightGrade = vec3(0.60, 0.70, 0.84);
-  vec3 roiDayGrade = vec3(1.02, 1.03, 1.05);
+  vec3 roiNightGrade = vec3(0.18, 0.28, 0.44);
+  vec3 roiDayGrade = vec3(1.10, 1.12, 1.15);
   diffuseColor.rgb *= mix(roiNightGrade, roiDayGrade, roiDaylight);
   totalEmissiveRadiance *= roiNightMask;
 #endif`,
@@ -103,8 +103,8 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   float roiSunFacing = dot(normal, directionalLights[0].direction);
   float roiRimMask = smoothstep(-0.26, 0.12, roiSunFacing);
   float roiTwilight = smoothstep(-0.30, 0.04, roiSunFacing) - smoothstep(0.05, 0.28, roiSunFacing);
-  vec3 roiAtmosphere = vec3(0.18, 0.66, 0.92) * roiFresnel * roiRimMask * 0.18;
-  vec3 roiTwilightLift = vec3(0.05, 0.12, 0.18) * roiTwilight * roiFresnel * 0.42;
+  vec3 roiAtmosphere = vec3(0.14, 0.65, 0.98) * roiFresnel * roiRimMask * 0.30;
+  vec3 roiTwilightLift = vec3(0.06, 0.16, 0.24) * roiTwilight * roiFresnel * 0.45;
   gl_FragColor.rgb += roiAtmosphere + roiTwilightLift;
 }
 #endif`,
@@ -645,15 +645,15 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
       material.emissiveMap.needsUpdate = true
     }
 
-    // Preenchimento mais aberto evita continentes apagados durante a rotação.
-    const fill = new THREE.AmbientLight('#e5efff', 1.25)
-    const key = new THREE.DirectionalLight('#f7fbff', 2.65)
+    // Iluminação calibrada com profundidade, mantendo os continentes e oceanos nítidos e vivos.
+    const fill = new THREE.AmbientLight('#7ca6d4', 0.72)
+    const key = new THREE.DirectionalLight('#fff9f0', 2.15)
     key.position.set(-162, 102, 214)
-    const coolFill = new THREE.DirectionalLight('#9fc9e2', 0.65)
+    const coolFill = new THREE.DirectionalLight('#38bdf8', 0.85)
     coolFill.position.set(94, 38, 132)
-    const cyanRim = new THREE.DirectionalLight('#4fe0ff', 0.42)
+    const cyanRim = new THREE.DirectionalLight('#00e5ff', 0.65)
     cyanRim.position.set(170, -42, -154)
-    const violetRim = new THREE.DirectionalLight('#8570ff', 0.11)
+    const violetRim = new THREE.DirectionalLight('#7c3aed', 0.20)
     violetRim.position.set(-146, -26, -142)
     globe.lights([fill, key, coolFill, cyanRim, violetRim])
     if (!cameraInitialized.current) {
@@ -790,7 +790,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#91dcfa" atmosphereAltitude={0.022}
+          showAtmosphere atmosphereColor="#38bdf8" atmosphereAltitude={0.026}
           htmlElementsData={htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"
@@ -835,7 +835,6 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
         <button type="button" onClick={() => moveCamera(-0.3)} aria-label="Aproximar" title="Aproximar" disabled={!ready}><Plus size={17} /></button>
         <button type="button" onClick={() => moveCamera(0.3)} aria-label="Afastar" title="Afastar" disabled={!ready}><Minus size={17} /></button>
         <span className="presence-control-divider" aria-hidden="true" />
-        <button type="button" onClick={() => moveCamera()} aria-label="Recentrar globo" title="Recentrar globo" disabled={!ready}><Crosshair size={17} /></button>
         <button type="button" className="presence-rotation" onClick={() => setPaused(!paused)} disabled={!ready || reduced}
           aria-pressed={paused || reduced} aria-label={paused ? 'Retomar rotação automática' : 'Pausar rotação'} title={reduced ? 'Movimento reduzido ativado' : paused ? 'Retomar rotação' : 'Pausar rotação'}>
           {paused || reduced ? <Play size={15} /> : <Pause size={15} />}<span>{paused || reduced ? 'Pausado' : 'Girando'}</span>

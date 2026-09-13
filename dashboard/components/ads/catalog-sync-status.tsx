@@ -107,39 +107,35 @@ export function CatalogSyncStatus({
       toast.error('Não foi possível retomar', { hint: error instanceof Error ? error.message : undefined })
     }
   }
-  if (remoteReadyWithDifference && uploadErrors === 0 && affectedWarnings.length === 0) return null
+  if ((remoteReadyWithDifference || run.status === 'completed') && uploadErrors === 0 && affectedWarnings.length === 0) return null
   return (
     <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : remoteReadyWithDifference ? 'border-success/25 bg-success/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
       <div className="flex items-start gap-2">
         {remoteReadyWithDifference ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{statusLabel}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-foreground">{statusLabel}</p>
           {run.error ? (
             <>
-              <p className="mt-1 text-pretty text-xs leading-relaxed text-muted-foreground">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 <span className={`font-semibold ${waitingConnector ? 'text-primary' : 'text-error'}`}>{run.error.userMessage}</span>
                 {run.error.suggestedAction ? ` ${run.error.suggestedAction}` : ''}
               </p>
-              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1.5 text-xs" onClick={resume}><RotateCcw className="size-3.5" /> Retomar</button>}
+              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1 text-xs" onClick={resume}><RotateCcw className="size-3" /> Retomar</button>}
             </>
           ) : (
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               {remoteReadyWithDifference
-                ? `O TikTok confirmou ${remoteProducts} produtos. Campanhas usam somente essa lista remota; ${localOnlyCount} ${localOnlyCount === 1 ? 'item local permanece salvo' : 'itens locais permanecem salvos'} para revisão.`
+                ? `${remoteProducts} produtos confirmados no TikTok.`
                 : awaitingTikTok
-                ? 'Envio recebido. Aguardando o TikTok concluir o processamento e confirmar os produtos.'
+                ? 'Aguardando o TikTok concluir o processamento.'
                 : active
-                  ? run.status === 'waiting_connector_confirmation'
-                  ? 'O lote está salvo e será retomado automaticamente quando o conector confirmar a criação do catálogo.'
-                  : 'Esta tarefa continua mesmo se você sair da página.'
-                  : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
+                  ? 'Sincronização em andamento...'
+                  : `Atualizado às ${new Date(run.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
             </p>
           )}
-          {uploadStatus && (
-            <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs leading-relaxed text-muted-foreground">
-              Arquivo: <strong className="text-foreground">{String(uploadStatus.processStatus || 'processando')}</strong>
-              {' · '}adicionados {Number(uploadStatus.addCount) || 0}
-              {' · '}atualizados {Number(uploadStatus.updateCount) || 0}
+          {uploadStatus && (uploadErrors > 0 || uploadWarnings > 0) && (
+            <p className="mt-1.5 rounded-md bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
+              Status: <strong className="text-foreground">{String(uploadStatus.processStatus || 'processando')}</strong>
               {uploadWarnings > 0 ? ` · ${uploadWarnings} aviso(s)` : ''}
               {uploadErrors > 0 ? ` · ${uploadErrors} erro(s)` : ''}
             </p>

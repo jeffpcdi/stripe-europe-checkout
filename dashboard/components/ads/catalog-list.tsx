@@ -265,43 +265,43 @@ export function CatalogList({
       {/* 1. Toolbar Unificada */}
       <div className="campaign-toolbar">
         <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2>Seus catálogos</h2>
-          </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
+            <h2 className="text-sm font-bold text-foreground">Catálogos</h2>
+            <span className="rounded-full bg-secondary/80 border border-border/50 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+              {filteredCatalogs.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
               <button
                 type="button"
                 onClick={() => handleViewModeChange('table')}
                 aria-pressed={viewMode === 'table'}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all cursor-pointer ${
                   viewMode === 'table'
                     ? 'bg-background text-foreground shadow-xs font-semibold'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
-                title="Modo Tabela: visualização compacta de alta densidade (ideal para muitos catálogos)"
+                title="Tabela"
               >
                 <LayoutList className="size-3.5" />
-                <span>Tabela</span>
+                <span className="hidden sm:inline">Tabela</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleViewModeChange('cards')}
                 aria-pressed={viewMode === 'cards'}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all cursor-pointer ${
                   viewMode === 'cards'
                     ? 'bg-background text-foreground shadow-xs font-semibold'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
-                title="Modo Cards: visualização em blocos"
+                title="Cards"
               >
                 <LayoutGrid className="size-3.5" />
-                <span>Cards</span>
+                <span className="hidden sm:inline">Cards</span>
               </button>
             </div>
-            <span className="rounded-full bg-secondary/80 border border-border/50 px-2.5 py-1 text-xs font-medium text-foreground tabular-nums">
-              {filteredCatalogs.length} {filteredCatalogs.length === 1 ? 'catálogo' : 'catálogos'}
-            </span>
           </div>
         </div>
 
@@ -332,14 +332,14 @@ export function CatalogList({
         </div>
 
         {/* Search & Actions Row */}
-        <div className="campaign-search-row flex flex-col gap-2.5 sm:flex-row sm:items-center">
+        <div className="campaign-search-row flex flex-col gap-2 sm:flex-row sm:items-center">
           <label className="campaign-search flex-1">
-            <Search size={16} className="text-muted-foreground shrink-0" aria-hidden="true" />
+            <Search size={15} className="text-muted-foreground shrink-0" aria-hidden="true" />
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar catálogo…"
+              placeholder="Buscar catálogo..."
               aria-label="Buscar catálogo"
             />
             {search && (
@@ -354,28 +354,60 @@ export function CatalogList({
             )}
           </label>
 
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto shrink-0">
             {/* Sort Dropdown */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1 rounded-lg border border-border/80 bg-background px-2 py-1.5 text-xs text-muted-foreground">
               <ArrowUpDown className="size-3.5 text-muted-foreground" />
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as 'newest' | 'products' | 'name')}
                 className="bg-transparent text-foreground text-xs font-medium outline-none cursor-pointer"
-                aria-label="Ordenar catálogos"
+                aria-label="Ordenar"
               >
-                <option value="newest">Mais recentes</option>
+                <option value="newest">Recentes</option>
                 <option value="products">Mais produtos</option>
                 <option value="name">Nome (A-Z)</option>
               </select>
             </div>
 
+            {/* Quick Action: Import Link */}
+            <button
+              type="button"
+              onClick={() => {
+                if (magicBusy) return
+                setShowMagicImport(!showMagicImport)
+                setCreating(false)
+              }}
+              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all cursor-pointer ${
+                showMagicImport
+                  ? 'border-primary/50 bg-primary/10 text-primary'
+                  : 'border-border/80 bg-secondary/50 text-foreground hover:bg-secondary'
+              }`}
+              title="Importar link do produto"
+            >
+              <Sparkles className="size-3.5 text-primary" />
+              <span>Importar link</span>
+            </button>
+
+            {/* Quick Action: Batch Dialog */}
+            <CatalogBatchDialog openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
+
+            {/* Quick Action: New Catalog */}
+            <button
+              type="button"
+              className="btn-primary shrink-0 text-xs font-semibold px-3 py-1.5 shadow-xs cursor-pointer"
+              onClick={() => {
+                if (magicBusy) return
+                setCreating(true)
+                setShowMagicImport(false)
+              }}
+            >
+              <Plus className="size-3.5 mr-1" aria-hidden="true" />
+              Novo catálogo
+            </button>
           </div>
         </div>
       </div>
-
-      {/* A entrada de criação é única no cabeçalho do TikTok Ads. */}
-      <CatalogBatchDialog showTrigger={false} openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
 
       {showMagicImport && <CatalogProductImport key={advertiserId} advertiserId={advertiserId}
         countries={countries.map(item => ({ code: item.code, name: item.name || item.code }))}
@@ -453,7 +485,7 @@ export function CatalogList({
           <Loader2 className="size-6 animate-spin text-primary" aria-hidden="true" />
           <span className="text-xs font-medium">Carregando catálogos...</span>
         </div>
-      ) : catalogs.length === 0 && (creating || showMagicImport) ? null : catalogs.length === 0 ? (
+      ) : catalogs.length === 0 && !creating ? (
         <div className="flex flex-col items-center gap-3 p-10 text-center">
           <div className="rounded-full bg-secondary/80 p-3 text-muted-foreground/60">
             <PackageOpen className="size-7" aria-hidden="true" />
@@ -507,15 +539,15 @@ export function CatalogList({
       ) : viewMode === 'table' ? (
         /* MODO TABELA: ALTA DENSIDADE */
         <div className="campaign-table-container overflow-x-auto" style={{ overflowX: 'auto' }}>
-          <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '920px' }}>
+          <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '840px' }}>
             <thead className="bg-secondary/40 text-muted-foreground border-b border-border/70 sticky top-0 z-10 select-none backdrop-blur-xs">
               <tr>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[140px]">Status</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[260px]">Catálogo</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[220px]">Produtos</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[150px]">Mercado</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[180px]">Sincronização</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider text-right w-[140px]">Ações</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[130px]">Status</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider min-w-[240px]">Catálogo</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider min-w-[200px]">Produtos</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[130px]">Mercado</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[160px]">Sincronização</th>
+                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider text-right w-[120px]">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
@@ -530,7 +562,7 @@ export function CatalogList({
                   <tr
                     key={c.id}
                     onClick={() => onOpen(c.id)}
-                    className="campaign-table-row hover:bg-secondary/30 transition-colors cursor-pointer group"
+                    className="hover:bg-secondary/30 transition-colors cursor-pointer group"
                   >
                     {/* 1. Status */}
                     <td className="px-4 py-3 align-middle whitespace-nowrap">
@@ -545,9 +577,7 @@ export function CatalogList({
                         <span className="font-bold text-foreground text-sm truncate group-hover:text-primary transition-colors" title={c.name}>
                           {c.name}
                         </span>
-                        <details className="catalog-identifiers mt-1 text-xs text-muted-foreground" onClick={event => event.stopPropagation()}>
-                          <summary className="cursor-pointer">Identificadores</summary>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
                           {c.tiktokCatalogId ? (
                             <span className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
                               <span className="text-muted-foreground">TT:</span> {c.tiktokCatalogId}
@@ -555,94 +585,57 @@ export function CatalogList({
                           ) : (
                             <span className="text-[11px] text-warning font-medium">Sem ID TikTok</span>
                           )}
-                          <span className="text-border">·</span>
-                          <span className="font-mono text-[11px] text-muted-foreground/75" title={`ID local: ${c.id}`}>
-                            ID: {c.id.slice(0, 8)}…
-                          </span>
                         </div>
-                        </details>
                       </div>
                     </td>
 
                     {/* 3. Produtos & Auditoria */}
                     <td className="px-4 py-3 align-middle">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className="font-semibold text-foreground tabular-nums">
-                            {displayCount} produto{displayCount === 1 ? '' : 's'} · {productSummary.source}
-                          </span>
-                          {productSummary.hasRemoteCount && remoteCount !== c.productCount && (
-                            <span className="text-[11px] text-muted-foreground">
-                              ({c.productCount} local)
-                            </span>
-                          )}
-                        </div>
-                        {c.audit ? (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-semibold text-foreground tabular-nums">
+                          {displayCount} {displayCount === 1 ? 'produto' : 'produtos'}
+                        </span>
+                        {c.audit && (
                           <div className="flex items-center gap-1 text-[11px] tabular-nums">
                             {Number(c.audit.approved) > 0 && (
-                              <span
-                                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-success/15 text-success border border-success/20"
-                                title={`${c.audit.approved} aprovados no TikTok`}
-                              >
+                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-success/15 text-success">
                                 <Check className="size-2.5" /> {c.audit.approved}
                               </span>
                             )}
-                            {Number(c.audit.pending) > 0 && (
-                              <span
-                                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-warning/15 text-warning border border-warning/20"
-                                title={`${c.audit.pending} em análise`}
-                              >
-                                <Clock className="size-2.5" /> {c.audit.pending}
-                              </span>
-                            )}
                             {Number(c.audit.rejected) > 0 && (
-                              <span
-                                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-error/15 text-error border border-error/20"
-                                title={`${c.audit.rejected} reprovados no TikTok`}
-                              >
+                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-error/15 text-error">
                                 <AlertCircle className="size-2.5" /> {c.audit.rejected}
                               </span>
                             )}
                           </div>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground/80">Sem auditoria</span>
                         )}
                       </div>
                     </td>
 
                     {/* 4. Mercado */}
                     <td className="px-4 py-3 align-middle whitespace-nowrap">
-                      <div className="flex flex-col text-xs">
-                        <span className="font-semibold text-foreground">{c.currency}</span>
-                        <span className="text-[11px] text-muted-foreground">{c.country || 'BR'} · {c.catalogType || 'ECOM'}</span>
-                      </div>
+                      <span className="font-semibold text-foreground text-xs">{c.currency}</span>
+                      <span className="text-muted-foreground text-xs ml-1.5">· {c.country || 'BR'}</span>
                     </td>
 
                     {/* 5. Sincronização */}
-                    <td className="px-4 py-3 align-middle whitespace-nowrap">
-                      <div className="flex flex-col text-xs">
-                        {c.syncedAt ? (
-                          <span className="inline-flex items-center gap-1 text-success font-medium text-[11px]">
-                            <Check className="size-3" /> {formatTimestamp(c.syncedAt)}
-                          </span>
-                        ) : c.feedUrl ? (
-                          <span className="inline-flex items-center gap-1 text-primary font-medium text-[11px]">
-                            <UploadCloud className="size-3" /> Feed pronto
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-[11px]">Não sincronizado</span>
-                        )}
-                        {c.audit?.at && (
-                          <span className="text-[11px] text-muted-foreground">
-                            Auditado: {formatTimestamp(c.audit.at)}
-                          </span>
-                        )}
-                      </div>
+                    <td className="px-4 py-3 align-middle whitespace-nowrap text-xs">
+                      {c.syncedAt ? (
+                        <span className="inline-flex items-center gap-1 text-success font-medium">
+                          <Check className="size-3" /> {formatTimestamp(c.syncedAt)}
+                        </span>
+                      ) : c.feedUrl ? (
+                        <span className="inline-flex items-center gap-1 text-primary font-medium">
+                          <UploadCloud className="size-3" /> Pronto
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Pendente</span>
+                      )}
                     </td>
 
                     {/* 6. Ações */}
                     <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -662,7 +655,7 @@ export function CatalogList({
                             e.stopPropagation()
                             handleCloneFromList(c.id)
                           }}
-                          className="btn-ghost p-1.5 text-muted-foreground hover:text-foreground cursor-pointer rounded-md"
+                          className="btn-ghost p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-md"
                         >
                           {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />}
                         </button>
@@ -687,105 +680,78 @@ export function CatalogList({
             return (
               <div
                 key={c.id}
-                className="catalog-summary-card flex flex-col justify-between rounded-xl border border-border/80 bg-card/60 p-4 transition-all hover:border-primary/50 hover:bg-card/90 hover:shadow-xs group"
+                className="flex flex-col justify-between rounded-xl border border-border/80 bg-card/60 p-4 transition-all hover:border-primary/50 hover:bg-card/90 hover:shadow-xs group"
               >
                 <div>
                   {/* Card Top: Status & Badges */}
-                  <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.className}`}>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status.className}`}>
                       {status.label}
                     </span>
-                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className="font-semibold text-foreground">{c.currency}</span>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
+                      <span className="text-foreground">{c.currency}</span>
                       <span>·</span>
                       <span>{c.country || 'BR'}</span>
                     </div>
                   </div>
 
-                  {/* Title & IDs */}
-                  <button
-                    type="button"
-                    onClick={() => onOpen(c.id)}
-                    className="text-left block w-full group-hover:text-primary transition-colors cursor-pointer"
-                  >
-                    <h3 className="font-bold text-foreground text-sm truncate" title={c.name}>
-                      {c.name}
-                    </h3>
-                  </button>
-                  <details className="catalog-identifiers mt-1 text-xs text-muted-foreground">
-                    <summary className="cursor-pointer">Identificadores</summary>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground font-mono">
-                    {c.tiktokCatalogId ? (
-                      <span className="text-foreground bg-secondary px-1.5 py-0.5 rounded border border-border/50">
+                  {/* Title & TikTok ID */}
+                  <h3 className="font-bold text-foreground text-sm truncate group-hover:text-primary transition-colors" title={c.name}>
+                    {c.name}
+                  </h3>
+                  {c.tiktokCatalogId ? (
+                    <div className="mt-1">
+                      <span className="font-mono text-[11px] text-muted-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/40">
                         TT: {c.tiktokCatalogId}
                       </span>
-                    ) : (
-                      <span className="text-warning">Não vinculado</span>
-                    )}
-                    <span>·</span>
-                    <span title={`ID local: ${c.id}`}>ID: {c.id.slice(0, 8)}…</span>
-                  </div>
+                    </div>
+                  ) : null}
 
-                  </details>
-                  {/* Product Audit Breakdown */}
-                  <div className="mt-3.5 grid grid-cols-4 gap-1.5 rounded-lg border border-border/50 bg-secondary/30 p-2 text-center text-[11px]">
-                    <div>
-                      <span className="block text-muted-foreground text-[11px] uppercase">{productSummary.source}</span>
-                      <span className="font-bold text-foreground text-xs tabular-nums">{displayCount}</span>
-                    </div>
-                    <div>
-                      <span className="block text-success text-[11px] uppercase">Aprovados</span>
-                      <span className="font-bold text-success text-xs tabular-nums">{c.audit?.approved ?? '—'}</span>
-                    </div>
-                    <div>
-                      <span className="block text-warning text-[11px] uppercase">Análise</span>
-                      <span className="font-bold text-warning text-xs tabular-nums">{c.audit?.pending ?? '—'}</span>
-                    </div>
-                    <div>
-                      <span className="block text-error text-[11px] uppercase">Erros</span>
-                      <span className="font-bold text-error text-xs tabular-nums">{c.audit?.rejected ?? '—'}</span>
-                    </div>
-                  </div>
-
-                  {/* Sync Info */}
-                  <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground border-t border-border/40 pt-2.5">
-                    <span>Sincronização:</span>
-                    {c.syncedAt ? (
-                      <span className="text-success font-medium flex items-center gap-1">
-                        <Check className="size-3" /> {formatTimestamp(c.syncedAt)}
-                      </span>
-                    ) : c.feedUrl ? (
-                      <span className="text-primary font-medium flex items-center gap-1">
-                        <UploadCloud className="size-3" /> Feed pronto
-                      </span>
-                    ) : (
-                      <span>Aguardando envio</span>
+                  {/* Product Summary */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs border-t border-border/40 pt-2.5">
+                    <span className="font-semibold text-foreground tabular-nums">
+                      {displayCount} {displayCount === 1 ? 'produto' : 'produtos'}
+                    </span>
+                    {c.audit && (
+                      <>
+                        {Number(c.audit.approved) > 0 && (
+                          <span className="text-success font-medium tabular-nums">
+                            · {c.audit.approved} no TikTok
+                          </span>
+                        )}
+                        {Number(c.audit.rejected) > 0 && (
+                          <span className="text-error font-medium tabular-nums">
+                            · {c.audit.rejected} com erro
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
                 {/* Footer Actions */}
-                <div className="mt-4 flex items-center gap-2 border-t border-border/60 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => onOpen(c.id)}
-                    className="btn-secondary flex-1 text-xs font-semibold py-1.5 justify-center cursor-pointer"
-                  >
-                    Gerenciar catálogo <span aria-hidden="true">→</span>
-                  </button>
-                  <button
-                    type="button"
-                    title="Clonar catálogo"
-                          aria-label={`Clonar ${c.name}`}
-                    disabled={Boolean(cloningId)}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleCloneFromList(c.id)
-                    }}
-                    className="btn-ghost p-1.5 text-muted-foreground hover:text-foreground cursor-pointer border border-border/60 rounded-lg"
-                  >
-                    {isCloning ? <Loader2 className="size-4 animate-spin" /> : <CopyPlus className="size-4" />}
-                  </button>
+                <div className="mt-3.5 flex items-center justify-between border-t border-border/50 pt-2.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {c.syncedAt ? `Sincronizado ${formatTimestamp(c.syncedAt)}` : 'Aguardando envio'}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Clonar catálogo"
+                      aria-label={`Clonar ${c.name}`}
+                      disabled={Boolean(cloningId)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCloneFromList(c.id)
+                      }}
+                      className="btn-ghost p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />}
+                    </button>
+                    <span className="text-xs font-semibold text-primary flex items-center gap-0.5">
+                      Gerenciar <span aria-hidden="true">→</span>
+                    </span>
+                  </div>
                 </div>
               </div>
             )
@@ -839,36 +805,38 @@ export function BusinessCenterBar({
   if (!editing) {
     if (configured) {
       return (
-        <details className="group rounded-xl border border-border bg-background px-3 py-2">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-2"><Check className="size-3.5 text-success" aria-hidden="true" /> Conexão TikTok pronta</span>
-            <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
-          </summary>
-          <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
-            <code className="truncate text-[11px] text-muted-foreground">Business Center {bcId}{fromEnv ? ' · servidor' : autoDetected ? ' · detectado automaticamente' : ''}</code>
-            <button type="button" className="btn-ghost text-xs" onClick={() => { setValue(bcId); setEditing(true) }}>
-              <Pencil className="size-3.5" aria-hidden="true" /> Alterar
-            </button>
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-card/40 px-3.5 py-2 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="size-2 rounded-full bg-success shrink-0" />
+            <span className="font-semibold text-foreground">TikTok conectado</span>
+            <span className="font-mono text-[11px] text-muted-foreground truncate hidden sm:inline">BC: {bcId}</span>
           </div>
-        </details>
+          <button
+            type="button"
+            className="btn-ghost py-1 px-2 text-xs text-muted-foreground hover:text-foreground h-auto"
+            onClick={() => { setValue(bcId); setEditing(true) }}
+            title="Alterar Business Center"
+          >
+            <Pencil className="size-3 mr-1" aria-hidden="true" /> Alterar
+          </button>
+        </div>
       )
     }
     if (loading) {
       return (
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-background p-3 text-xs text-muted-foreground">
-          <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" /> Detectando a conexão TikTok
+        <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-card/30 px-3.5 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin text-primary" aria-hidden="true" /> Conectando ao TikTok...
         </div>
       )
     }
     if (candidates.length > 1) {
       return (
-        <div className="rounded-xl border border-border bg-background p-3">
-          <p className="text-xs font-medium text-foreground">Escolha a organização deste catálogo</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">O TikTok devolveu mais de um organização autorizada para esta conta.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <div className="rounded-xl border border-border bg-card p-3">
+          <p className="text-xs font-semibold text-foreground">Selecione a organização TikTok</p>
+          <div className="mt-2 flex flex-wrap gap-2">
             {candidates.map((candidate) => (
-              <button key={candidate.id} type="button" className="btn-ghost text-xs" onClick={() => save(candidate.id)} disabled={busy}>
-                <Building2 className="size-3.5" aria-hidden="true" /> {candidate.label || candidate.id}
+              <button key={candidate.id} type="button" className="btn-secondary text-xs py-1 px-2.5" onClick={() => save(candidate.id)} disabled={busy}>
+                <Building2 className="size-3.5 mr-1" aria-hidden="true" /> {candidate.label || candidate.id}
               </button>
             ))}
           </div>
@@ -876,55 +844,43 @@ export function BusinessCenterBar({
       )
     }
     return (
-      <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2 text-xs">
-            <Building2 className="size-4 text-warning" aria-hidden="true" />
-            <span className="text-pretty text-muted-foreground">{discoveryError ? 'Não foi possível detectar a organização agora.' : 'Nenhuma organização autorizada foi encontrada nesta conta.'}</span>
-          </div>
-          <button type="button" className="btn-ghost text-xs" onClick={onChanged}>
-            <RefreshCw className="size-3.5" aria-hidden="true" /> Tentar novamente
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-2 text-xs">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Building2 className="size-3.5 text-warning shrink-0" aria-hidden="true" />
+          <span>{discoveryError ? 'Falha ao detectar organização TikTok.' : 'Organização TikTok não detectada.'}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className="btn-ghost py-1 px-2 text-xs h-auto" onClick={onChanged}>
+            <RefreshCw className="size-3 mr-1" aria-hidden="true" /> Repetir
+          </button>
+          <button type="button" className="btn-secondary py-1 px-2 text-xs h-auto" onClick={() => { setValue(''); setEditing(true) }}>
+            Informar ID
           </button>
         </div>
-        <details className="mt-2 border-t border-warning/20 pt-2">
-          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Detalhes da conexão</summary>
-          <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => { setValue(''); setEditing(true) }}>
-            Informar ID do Business Center
-          </button>
-        </details>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="font-medium text-foreground">ID do Business Center</span>
-        <input
-          autoFocus
-          className="input-base"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Ex.: 7012345678901234567"
-          inputMode="numeric"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) save()
-          }}
-        />
-      </label>
-      <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-        Use somente se a detecção automática não encontrar a organização correta. O ID deve pertencer ao mesmo
-        Business Center que autorizou a identidade e o catálogo desta conta de anúncios.
-      </p>
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(false)} disabled={busy}>
-          Cancelar
-        </button>
-        <button type="button" className="btn-primary text-xs" onClick={() => save()} disabled={busy}>
-          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
-          Salvar
-        </button>
-      </div>
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
+      <input
+        autoFocus
+        className="input-base text-xs flex-1"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="ID do Business Center (ex.: 7012345678901234567)"
+        inputMode="numeric"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) save()
+        }}
+      />
+      <button type="button" className="btn-ghost text-xs py-1.5 px-2.5 h-auto" onClick={() => setEditing(false)} disabled={busy}>
+        Cancelar
+      </button>
+      <button type="button" className="btn-primary text-xs py-1.5 px-3 h-auto" onClick={() => save()} disabled={busy}>
+        {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Check className="size-3.5 mr-1" />}
+        Salvar
+      </button>
     </div>
   )
 }

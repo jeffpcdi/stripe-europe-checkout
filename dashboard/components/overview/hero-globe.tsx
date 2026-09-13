@@ -91,11 +91,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
 
   return <section className="overview-observatory" aria-label="Visão geral da operação">
     <header className="observatory-header">
-      <div className="observatory-heading">
-        <span className="observatory-emblem" aria-hidden="true"><Globe2 size={22} /></span>
-        <div><span className="observatory-eyebrow">ROI-NADOS</span><h2>Visão geral</h2></div>
-      </div>
-      <div className="observatory-period">{periodPicker}<span>Período dos indicadores</span></div>
+      <div className="observatory-period">{periodPicker}</div>
       <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
         <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" /><span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>
       </button>
@@ -104,9 +100,11 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
     <OverviewMetrics {...metrics} globe={
       <GlobeBoundary embedded>
         <GlobePanel embedded countries={live.countries} online={live.online} focusCode={selected} focusRevision={focusRevision} pulseCodes={pulseCodes}>
-          <div className="observatory-globe-caption">
-            {selected ? <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país"><MapPin size={13} aria-hidden="true" />{countryName(selected)}<X size={13} aria-hidden="true" /></button> : <span>Presença por país</span>}
-          </div>
+          {selected && (
+            <div className="observatory-globe-caption">
+              <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país"><MapPin size={13} aria-hidden="true" />{countryName(selected)}<X size={13} aria-hidden="true" /></button>
+            </div>
+          )}
           <div className="observatory-fullscreen-countries" role="group" aria-label="Localizar país no globo ampliado">
             {live.countries.slice(0, 3).map(country => <button type="button" key={country.code} aria-pressed={selected === country.code} onClick={() => focusCountry(country.code)}><span aria-hidden="true">{countryFlag(country.code)}</span>{countryName(country.code)}<strong>{country.count}</strong></button>)}
           </div>

@@ -3920,27 +3920,35 @@ function fireOutboundWebhook(n) {
   } catch (_) { /* webhook de saída nunca derruba a conversão */ }
 }
 
-function notifyPushcut(event, n) {
+async function notifyPushcut(event, n) {
   // Item 325/424: venda aprovada também dispara o webhook de saída da conta
   // (independe dos toggles do Pushcut — é outro canal).
   if (event === 'CompletePayment') fireOutboundWebhook(n);
   const map = PUSHCUT_EVENT_MAP[event];
   if (!map) return;
+  const isPix = String(n.paymentMethod || '').toLowerCase() === 'pix';
+  const isPendingPix = isPix && map.key === 'checkout';
+  if (isPendingPix && rdb && typeof rdb.seenWebhookOrder === 'function') {
+    const seen = await rdb.seenWebhookOrder(n.acc, n.gateway, n.orderId, 'pix_pending');
+    if (seen) return;
+  }
   const valor = fmtMoney(n.amountCents, n.currency);
   // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
   // contas existentes, mas o recurso agora pertence à notificação nativa.
   const settings = config.get(n.acc).settings || {};
   const tpl = settings.notificationTemplate || settings.pushcutTemplate;
+  const eventKey = isPendingPix ? 'pix_pending' : map.key;
   const titles = {
     sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
     refund: `Reembolso — ${valor}`,
     dispute: `Disputa aberta — ${valor}`,
-    checkout: `Checkout iniciado — ${n.gateway}`
+    checkout: `Checkout iniciado — ${n.gateway}`,
+    pix_pending: `Pix pendente — ${valor}`
   };
   sendPushcut(map.name, {
-    title: titles[map.key],
-    text: [
+    title: titles[eventKey] || titles[map.key],
+    text: isPendingPix ? 'Aguardando pagamento.' : [
       n.customer ? `Cliente: ${n.customer}` : null,
       n.email ? `Email: ${n.email}` : null,
       n.product ? `Produto: ${n.product}` : null,
@@ -3949,10 +3957,10 @@ function notifyPushcut(event, n) {
       `Pedido: ${n.orderId}`
     ].filter(Boolean).join('\n'),
     sound: 'system',
-    isTimeSensitive: map.key === 'sale' || map.key === 'dispute'
+    isTimeSensitive: eventKey === 'sale' || eventKey === 'dispute'
   }, n.acc, {
     // meta para a copy do Web Push (notify-copy): evento + dados reais.
-    event: map.key,
+    event: eventKey,
     valor,
     produto: n.product || '',
     cliente: n.customer || '',
@@ -4321,6 +4329,24 @@ function submitConversion(n) {
   }
 }
 
+async function acceptWebhookConversion(n) {
+  if (process.env.NODE_ENV === 'production' && !rdb.enabled) return false;
+  if (!rdb.enabled) {
+    submitConversion(n);
+    return true;
+  }
+  try {
+    const enqueued = await rdb.enqueueConversion(n);
+    if (!enqueued) return false;
+    if (typeof convWorkerTick === 'function') {
+      convWorkerTick().catch(() => {});
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Worker: consome a fila durável de conversões. Lock distribuído garante que,
 // com várias instâncias, só UMA drena por ciclo (evita disparo duplicado).
 let _convWorkerBusy = false;
@@ -4328,8 +4354,14 @@ async function convWorkerTick() {
   if (!rdb.enabled || _convWorkerBusy) return;
   _convWorkerBusy = true;
   rdb.heartbeatConvWorker(); // item 197: prova de vida do drain worker
+  let lease = null;
   try {
-    if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
+    if (rdb.acquireLease) {
+      lease = await rdb.acquireLease('convWorker', 25);
+      if (!lease || !lease.acquired) return;
+    } else if (rdb.acquireLock) {
+      if (!(await rdb.acquireLock('convWorker', 25))) return;
+    }
     const batch = await rdb.reserveConversions(25);
     for (const item of batch) {
       const n = item.env && item.env.n;
@@ -4345,7 +4377,11 @@ async function convWorkerTick() {
     }
   } catch (_) {} finally {
     _convWorkerBusy = false;
-    rdb.releaseLock('convWorker').catch(() => {});
+    if (lease && lease.acquired && rdb.releaseLease) {
+      rdb.releaseLease('convWorker', lease.token).catch(() => {});
+    } else if (rdb.releaseLock) {
+      rdb.releaseLock('convWorker').catch(() => {});
+    }
   }
 }
 if (rdb.enabled) {

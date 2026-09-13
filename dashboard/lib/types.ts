@@ -160,12 +160,6 @@ export interface OverviewHealthResponse {
     pixels: { total: number; active: number; ready: number; incomplete: number }
     gateways: { total: number; lastEventAt: string | null }
   }
-  guide?: {
-    configured: number
-    total: number
-    steps: { id: string; label: string; configured: boolean; href: string }[]
-    nextAction: OverviewHealthAction | null
-  }
   coverage: {
     purchases: { total: number; tracked: number; orphan: number; rate: number | null }
     attribution: { total: number; identified: number; rate: number | null }

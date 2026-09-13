@@ -11,7 +11,6 @@ import { DurabilityBadge } from '@/components/shell/durability-badge'
 import { NotificationBell } from '@/components/shell/notification-bell'
 import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
-import { toast } from '@/lib/toast'
 
 const ALL_ITEMS = NAV_SECTIONS.flatMap((s) => s.items)
 
@@ -19,26 +18,19 @@ const ALL_ITEMS = NAV_SECTIONS.flatMap((s) => s.items)
 function PrivacyButton() {
   const { prefs, update } = usePrefs()
   const on = prefs.privacy === 'on'
-
-  function togglePrivacy() {
-    const nextOn = !on
-    update({ privacy: nextOn ? 'on' : 'off' })
-    toast.info(nextOn ? 'Valores ocultos' : 'Valores visíveis', { duration: 2200 })
-  }
-
   return (
     <button
       type="button"
-      onClick={togglePrivacy}
+      onClick={() => update({ privacy: on ? 'off' : 'on' })}
       className={cn(
-        'dashboard-account-button dashboard-account-utility dashboard-account-privacy',
-        on ? 'dashboard-account-button--active text-brand-cyan' : 'text-muted-foreground hover:text-foreground',
+        'dashboard-account-button',
+        on ? 'text-brand-cyan' : 'text-muted-foreground hover:text-foreground',
       )}
-      aria-label={on ? 'Mostrar valores' : 'Ocultar valores'}
+      aria-label={on ? 'Mostrar valores sensíveis' : 'Ocultar valores sensíveis'}
       aria-pressed={on}
-      title={on ? 'Mostrar valores' : 'Ocultar valores'}
+      title={on ? 'Modo apresentação ativo — valores borrados' : 'Ocultar valores para gravar tela'}
     >
-      {on ? <EyeOff className="size-[16px]" aria-hidden="true" /> : <Eye className="size-[16px]" aria-hidden="true" />}
+      {on ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
     </button>
   )
 }
@@ -78,7 +70,6 @@ function UserMenu() {
         <button
           type="button"
           className="dashboard-account-button dashboard-account-avatar"
-          title="Minha conta"
           aria-label="Menu do usuário"
         >
           {initial}
@@ -88,16 +79,16 @@ function UserMenu() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          className="dashboard-account-popup dashboard-profile-menu glass glass-thick anim-pop-in z-50 min-w-[216px] rounded-[14px] p-1.5"
+          className="glass glass-thick anim-pop-in z-50 min-w-44 rounded-[12px] p-1.5"
         >
-          <div className="dashboard-account-popup__header dashboard-profile-menu__header px-2.5 pb-2 pt-1">
+          <div className="border-b border-[var(--border)] px-2.5 pb-2 pt-1">
             <p className="truncate text-xs font-semibold text-foreground">
               {account?.name || 'Conta'}
             </p>
             <p className="truncate text-[11px] text-muted-foreground">{account?.email}</p>
           </div>
           <DropdownMenu.Item
-            className="dashboard-profile-menu__item mt-1 flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-2.5 text-xs text-sub outline-none transition-colors"
+            className="mt-1 flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
             asChild
           >
             {/* Link do Next aplica o basePath /dashboard — <a> cru caía em 404 */}
@@ -107,7 +98,7 @@ function UserMenu() {
             </Link>
           </DropdownMenu.Item>
           <DropdownMenu.Item
-            className="dashboard-profile-menu__item dashboard-profile-menu__item--danger flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-2.5 text-xs outline-none transition-colors"
+            className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-error outline-none transition-colors data-[highlighted]:bg-[var(--error-light)]"
             onSelect={logout}
           >
             <LogOut className="size-3.5" aria-hidden="true" />
@@ -156,10 +147,10 @@ export function Header() {
   return (
     <>
       <div key={pathname} className={cn('dashboard-page-context', changed && 'anim-fade-in')}>
+        <span className="dashboard-page-eyebrow">Seu painel</span>
         <h1>{current.label}</h1>
-        <p className="dashboard-page-description">{current.description}</p>
       </div>
-      <div className="dashboard-account-actions" role="group" aria-label="Ações da conta">
+      <div className="dashboard-account-actions">
         <DurabilityBadge />
         <NotificationBell />
         <PrivacyButton />

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSWRConfig } from 'swr'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud } from 'lucide-react'
+import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -43,7 +43,6 @@ import { adsDateRange } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
 import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
-import { KpiRow } from './kpi-row'
 
 export function TikTokAdsView() {
   const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
@@ -118,7 +117,7 @@ export function TikTokAdsView() {
   })
 
   // Vendas reais por campanha usam exatamente o mesmo período global.
-  const { data: attribution } = useAdsAttribution(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
+  const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser, { fromDate, toDate })
 
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
@@ -277,7 +276,7 @@ export function TikTokAdsView() {
   const advertisers = accounts?.accounts ?? []
 
   return (
-    <div className="project-page project-page--ads tiktok-view min-w-0 flex flex-col gap-4">
+    <div className="tiktok-view min-w-0 flex flex-col gap-4">
       {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
           acima do contexto da conta. */}
       {hasAccountAlert && (
@@ -380,9 +379,9 @@ export function TikTokAdsView() {
         <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div className="ads-workspace-navigation flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="universe-tabs grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
@@ -394,7 +393,7 @@ export function TikTokAdsView() {
                       value={item.value}
                       className="tiktok-section-tab touch-manipulation"
                     >
-                      <item.icon className="size-4 shrink-0" aria-hidden="true" />
+                      <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
                       <span className="truncate sm:hidden">{item.compactLabel}</span>
                       <span className="hidden sm:inline">{item.label}</span>
                       {attentionCount > 0 && (
@@ -412,42 +411,53 @@ export function TikTokAdsView() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  className="btn-secondary px-3.5 py-2 text-xs font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation"
+                  className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"
                   onClick={() => setAudiencesOpen(true)}
+                  title="Gerenciar públicos de remarketing e semelhantes"
                 >
-                  Públicos
+                  <Users className="size-3.5" aria-hidden="true" />
+                  <span>Públicos</span>
                 </button>
                 <button
                   type="button"
-                  className="btn-primary shrink-0 justify-center px-4 py-2 text-sm font-semibold min-h-[44px] sm:min-h-[38px] touch-manipulation"
+                  className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold h-9 rounded-lg shrink-0 touch-manipulation cursor-pointer"
                   onClick={() => openWriteFlow(() => setLauncherOpen(true))}
                   aria-label="Criar campanha"
                   title="Criar campanhas de venda com um ou vários vídeos"
                 >
                   <Plus className="size-4" aria-hidden="true" />
-                  Criar campanha
+                  <span>Criar campanha</span>
                 </button>
               </div>
             )}
 
             {tab === 'catalog' && (
-              <div className="flex items-center gap-2">
-                <button type="button" className="btn-primary min-h-[44px] px-4 text-sm font-semibold" onClick={() => requestCatalog('magic')}>
-                  <Sparkles className="size-4" aria-hidden="true" /> Criar pelo link
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"
+                  onClick={() => requestCatalog('magic')}
+                >
+                  <Sparkles className="size-3.5" aria-hidden="true" />
+                  <span>Criar pelo link</span>
                 </button>
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button type="button" className="btn-secondary min-h-[44px] px-3" aria-label="Outras formas de criar catálogo">
-                      <ChevronDown className="size-4" aria-hidden="true" />
+                    <button
+                      type="button"
+                      className="btn-secondary inline-flex items-center justify-center size-9 p-0 rounded-lg touch-manipulation cursor-pointer"
+                      aria-label="Outras opções de criação"
+                    >
+                      <ChevronDown className="size-3.5" aria-hidden="true" />
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content align="end" sideOffset={8} className="glass glass-thick anim-pop-in z-50 min-w-52 rounded-xl border border-border bg-background p-1.5 shadow-2xl">
-                      <DropdownMenu.Item className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('batch')}>
-                        <UploadCloud className="size-4" aria-hidden="true" /> Importar planilha
+                    <DropdownMenu.Content align="end" sideOffset={6} className="glass glass-thick anim-pop-in z-50 min-w-44 rounded-xl border border-border bg-background p-1 shadow-xl">
+                      <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('batch')}>
+                        <UploadCloud className="size-3.5" aria-hidden="true" /> Importar planilha
                       </DropdownMenu.Item>
-                      <DropdownMenu.Item className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('create')}>
-                        <Plus className="size-4" aria-hidden="true" /> Criar manualmente
+                      <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('create')}>
+                        <Plus className="size-3.5" aria-hidden="true" /> Criar manualmente
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
@@ -511,14 +521,6 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" className="space-y-4 outline-none">
-              <KpiRow
-                active={campaignsActive}
-                currency={currency}
-                adAccountId={concreteAdvertiser}
-                fromDate={fromDate}
-                toDate={toDate}
-                timeZone={advertiserTimeZone}
-              />
               <NeedsYouInbox
                 key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
                 active={treeActive}

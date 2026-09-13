@@ -255,7 +255,7 @@ export function PixelsView() {
   const warnings = durability?.warnings ?? []
 
   return (
-    <div className="project-page project-page--pixels flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       {/* Item 55/93: anúncio acessível das cópias (fora de tela, polido) */}
       <span className="sr-only" role="status" aria-live="polite">
         {copyAnnounce}

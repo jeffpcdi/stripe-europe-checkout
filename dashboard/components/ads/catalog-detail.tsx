@@ -537,49 +537,59 @@ export function CatalogDetail({
         </div>
       ) : (
         <>
-          {/* ── CARD DE STATUS DE SAÚDE CONSOLIDADO ── */}
-          <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm">
-            {/* Header & Ações Rápidas de Alto Contraste */}
+          {/* ── STATUS E AÇÕES PRINCIPAIS ── */}
+          <div className="flex flex-col gap-3.5 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-xs">
+            {/* Header & Ações */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-1 min-w-0">
+              <div className="flex flex-col gap-0.5 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-bold text-foreground truncate">{catalog?.name || 'Catálogo'}</h2>
-                  {catalog && <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${hasUnpublishedChanges ? 'bg-warning/15 text-warning' : catalogStatusMeta(catalog).className}`}>{hasUnpublishedChanges ? 'Alterações por enviar' : catalogStatusMeta(catalog).label}</span>}
-                </div>
-                <p className="text-xs text-muted">
-                  Moeda: <strong className="text-foreground">{catalog?.currency || 'BRL'}</strong>
-                  {catalog?.tiktokCatalogId ? (
-                    <span> · ID TikTok: <span className="font-mono text-foreground">{catalog.tiktokCatalogId}</span></span>
-                  ) : (
-                    <span> · <span className="text-warning font-medium">Não vinculado ao TikTok</span></span>
+                  {catalog && (
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${hasUnpublishedChanges ? 'bg-warning/15 text-warning' : catalogStatusMeta(catalog).className}`}>
+                      {hasUnpublishedChanges ? 'Alterações pendentes' : catalogStatusMeta(catalog).label}
+                    </span>
                   )}
-                </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">{catalog?.currency || 'BRL'}</span>
+                  {catalog?.tiktokCatalogId ? (
+                    <>
+                      <span>·</span>
+                      <span className="font-mono text-muted-foreground">TT: {catalog.tiktokCatalogId}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>·</span>
+                      <span className="text-warning">Não vinculado</span>
+                    </>
+                  )}
+                </div>
               </div>
 
-              {/* Botões de Ação de Alto Contraste (Mais Utilizados) */}
+              {/* Botões de Ação */}
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  className="btn-secondary gap-2 text-xs font-semibold px-3.5 py-2 border-border/80 shadow-xs hover:bg-secondary"
+                  className="btn-secondary gap-1.5 text-xs font-semibold px-3 py-2"
                   onClick={handleSyncTiktok}
                   disabled={syncing || validCount === 0}
-                  title="Sincroniza os produtos com o TikTok"
+                  title="Sincronizar com o TikTok"
                 >
-                  {syncing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4 text-primary" aria-hidden="true" />}
-                  Sincronizar produtos
+                  {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5 text-primary" aria-hidden="true" />}
+                  Sincronizar
                 </button>
 
                 <button
                   type="button"
-                  className="btn-primary gap-2 text-xs font-semibold px-4 py-2"
+                  className="btn-primary gap-1.5 text-xs font-semibold px-3.5 py-2"
                   onClick={async () => {
                     try { await mutate(); setQuickCampaignsOpen(true) }
                     catch (error) { toast.error('Não foi possível atualizar os vídeos', { hint: error instanceof Error ? error.message : undefined }) }
                   }}
                   disabled={creativeBusy || creativePending > 0 || !catalog || !readinessData?.readiness?.readyForCampaign || catalogCapabilities?.catalogSingleVideoCampaign !== true}
-                  title="Cria campanhas de conversão em lote para este catálogo"
+                  title="Criar campanhas de conversão"
                 >
-                  <Rocket className="size-4" aria-hidden="true" />
+                  <Rocket className="size-3.5" aria-hidden="true" />
                   Criar campanhas
                 </button>
               </div>
@@ -587,58 +597,50 @@ export function CatalogDetail({
 
             {/* Falha de início */}
             {(publishFailed || catalog?.automation?.syncIssue) && validCount > 0 && (
-              <div className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                  <AlertCircle className="size-4 text-warning" aria-hidden="true" />
-                  Sincronização automática não iniciada
-                </p>
-                <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                  {publishFailureHint || catalog?.automation?.syncIssue?.message || 'Os produtos permanecem salvos. Corrija o requisito indicado e tente novamente.'}
-                </p>
-                <button type="button" className="btn-primary w-fit text-xs" onClick={handleSyncTiktok} disabled={syncing}>
-                  {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="size-3.5" aria-hidden="true" />} Tentar sincronização automática
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground min-w-0">
+                  <AlertCircle className="size-4 text-warning shrink-0" aria-hidden="true" />
+                  <span className="truncate">{publishFailureHint || catalog?.automation?.syncIssue?.message || 'Falha na sincronização.'}</span>
+                </div>
+                <button type="button" className="btn-primary text-xs py-1 px-2.5 shrink-0" onClick={handleSyncTiktok} disabled={syncing}>
+                  {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />} Tentar novamente
                 </button>
               </div>
             )}
 
-            {/* Métricas de Saúde Objetivas */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {/* Produtos válidos */}
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
-                  <Check className="size-5" aria-hidden="true" />
+            {/* Métricas Objetivas */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-secondary/30 p-2.5 sm:p-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
+                  <Check className="size-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-lg font-bold text-foreground">{validCount}</div>
-                  <div className="text-xs font-medium text-muted-foreground">Produtos válidos</div>
+                  <div className="text-base font-bold text-foreground tabular-nums leading-tight">{validCount}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">Válidos</div>
                 </div>
               </div>
 
-              {/* Sincronizados */}
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                  <UploadCloud className="size-5" aria-hidden="true" />
+              <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-secondary/30 p-2.5 sm:p-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                  <UploadCloud className="size-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-lg font-bold text-foreground">
+                  <div className="text-base font-bold text-foreground tabular-nums leading-tight">
                     {remoteProductCount > 0 ? remoteProductCount : catalog?.audit?.approved ?? 0}
                   </div>
-                  <div className="text-xs font-medium text-primary">Produtos no TikTok</div>
+                  <div className="text-[11px] text-primary truncate">No TikTok</div>
                 </div>
               </div>
 
-              {/* Pendentes / Erros */}
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
-                  <AlertCircle className="size-5" aria-hidden="true" />
+              <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-secondary/30 p-2.5 sm:p-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
+                  <AlertCircle className="size-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-lg font-bold text-foreground">
+                  <div className="text-base font-bold text-foreground tabular-nums leading-tight">
                     {(catalog?.audit?.pending ?? 0) + (catalog?.audit?.rejected ?? 0)}
                   </div>
-                  <div className="text-xs font-medium text-warning">
-                    Pendentes ou reprovados
-                  </div>
+                  <div className="text-[11px] text-warning truncate">Pendentes / Erros</div>
                 </div>
               </div>
             </div>
@@ -647,64 +649,73 @@ export function CatalogDetail({
             {products.some((p) => !p.valid || (p.errors && p.errors.length > 0)) && (
               <button
                 type="button"
-                className="btn-primary w-full text-xs py-2.5"
+                className="btn-primary w-full text-xs py-2"
                 onClick={handleMagicFix}
                 disabled={fixing}
               >
-                {fixing ? <Loader2 className="size-4 animate-spin mr-2" aria-hidden="true" /> : <Sparkles className="size-4 mr-2" aria-hidden="true" />}
-                Resolver erros dos produtos automaticamente ✨
+                {fixing ? <Loader2 className="size-3.5 animate-spin mr-1.5" aria-hidden="true" /> : <Sparkles className="size-3.5 mr-1.5" aria-hidden="true" />}
+                Corrigir erros dos produtos com IA
               </button>
             )}
           </div>
 
           <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} onProgress={refreshProgress} />
 
-          {catalog && <div className="surface-card rounded-2xl p-4 sm:p-5">
-            {catalog.automation?.sourceUrl && <a href={catalog.automation.sourceUrl} target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"><Link2 size={16} /> Página do produto</a>}
-            <CatalogCreatives key={catalog.id + advertiserId} value={catalog.creatives || []}
-              onBusyChange={setCreativeBusy} onPendingChange={setCreativePending}
-              onAdd={async creative => {
-                await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives`, advertiserId), 'POST', { creatives: [creative] })
-                await mutate()
-              }}
-              onRemove={async creative => {
-                await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives/${encodeURIComponent(creative.id)}`, advertiserId), 'DELETE')
-                await mutate()
-              }} />
-            {(catalog.creatives?.length || 0) > 0 && <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">{catalog.creatives!.length} vídeo(s) salvo(s) para o lançamento. Reutilizam os mesmos itens do catálogo.</p>}
-          </div>}
+          {catalog && (
+            <div className="surface-card rounded-2xl p-4 sm:p-5">
+              {catalog.automation?.sourceUrl && (
+                <a href={catalog.automation.sourceUrl} target="_blank" rel="noopener noreferrer" className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+                  <Link2 className="size-3.5" /> Página original do produto
+                </a>
+              )}
+              <CatalogCreatives
+                key={catalog.id + advertiserId}
+                value={catalog.creatives || []}
+                onBusyChange={setCreativeBusy}
+                onPendingChange={setCreativePending}
+                onAdd={async creative => {
+                  await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives`, advertiserId), 'POST', { creatives: [creative] })
+                  await mutate()
+                }}
+                onRemove={async creative => {
+                  await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/creatives/${encodeURIComponent(creative.id)}`, advertiserId), 'DELETE')
+                  await mutate()
+                }}
+              />
+            </div>
+          )}
 
           {/* ── GESTÃO DIRETA DE PRODUTOS ── */}
-          <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col gap-3.5 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-xs">
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
+                <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">Produtos</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {products.length} {products.length === 1 ? 'produto cadastrado' : 'produtos cadastrados'}
-                  </p>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground tabular-nums">
+                    {products.length}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" className="btn-secondary text-xs" onClick={() => setEditing('new')}>
-                    <Plus className="size-3.5" aria-hidden="true" /> Novo Produto
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button type="button" className="btn-secondary text-xs py-1.5 px-2.5 h-auto" onClick={() => setEditing('new')}>
+                    <Plus className="size-3.5 mr-1" aria-hidden="true" /> Adicionar
                   </button>
                   <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
-                  <button type="button" className="btn-ghost text-xs" onClick={() => fileRef.current?.click()} disabled={importing}>
-                    {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Enviar CSV
+                  <button type="button" className="btn-ghost text-xs py-1.5 px-2.5 h-auto" onClick={() => fileRef.current?.click()} disabled={importing}>
+                    {importing ? <Loader2 className="size-3.5 animate-spin mr-1" aria-hidden="true" /> : <UploadCloud className="size-3.5 mr-1" aria-hidden="true" />} CSV
                   </button>
-                  <a className="btn-ghost text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
-                    <Download className="size-3.5" aria-hidden="true" /> Baixar Modelo
+                  <a className="btn-ghost text-xs py-1.5 px-2.5 h-auto" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)} title="Baixar modelo CSV">
+                    <Download className="size-3.5 mr-1" aria-hidden="true" /> Modelo
                   </a>
                 </div>
               </div>
 
               {/* Importação Rápida por Link */}
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex gap-2">
                 <input
                   className="input-base min-w-0 flex-1 text-xs"
                   value={urlValue}
                   onChange={(event) => setUrlValue(event.target.value)}
-                  placeholder="Cole o link do produto (ex: https://sualoja.com/produto-exemplo) para importar com IA..."
+                  placeholder="Cole o link do produto da sua loja para importar com IA..."
                   inputMode="url"
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
@@ -712,33 +723,31 @@ export function CatalogDetail({
                 />
                 <button
                   type="button"
-                  className="btn-primary shrink-0 text-xs font-semibold px-4"
+                  className="btn-primary shrink-0 text-xs font-semibold px-3.5 py-1.5"
                   onClick={handleUrlPreview}
                   disabled={urlImporting || !urlValue.trim()}
                 >
                   {urlImporting ? <Loader2 className="size-3.5 animate-spin mr-1.5" aria-hidden="true" /> : <SearchCheck className="size-3.5 mr-1.5" aria-hidden="true" />}
-                  Importar Link
+                  Importar
                 </button>
               </div>
             </div>
 
             {/* A ausência de BC bloqueia a publicação, mas nunca perde produtos */}
             {!bcConfigured && (
-              <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
-                <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
-                <span className="text-pretty">
-                  A conexão com a organização TikTok ainda não foi detectada. Seus produtos permanecem salvos localmente.
-                </span>
+              <div className="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                <AlertCircle className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+                <span>Organização TikTok não conectada. Produtos salvos localmente.</span>
               </div>
             )}
 
             {/* Lista/Tabela de Produtos Clara e Visível */}
             {products.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-10 text-center">
-                <PackageOpen className="size-8 text-muted-foreground/60" aria-hidden="true" />
-                <p className="text-sm font-semibold text-foreground">Nenhum produto cadastrado</p>
-                <p className="text-xs text-muted-foreground max-w-sm">
-                  Cole o link de uma página da sua loja acima para importar automaticamente ou adicione manualmente.
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-8 text-center">
+                <PackageOpen className="size-7 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-xs font-semibold text-foreground">Nenhum produto cadastrado</p>
+                <p className="text-[11px] text-muted-foreground max-w-sm">
+                  Cole o link de um produto acima ou adicione manualmente.
                 </p>
               </div>
             ) : (
@@ -746,11 +755,11 @@ export function CatalogDetail({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-secondary/50 text-muted-foreground border-b border-border">
                     <tr>
-                      <th className="px-3 py-2.5 font-medium w-24">Status</th>
-                      <th className="px-3 py-2.5 font-medium">Produto / SKU</th>
-                      <th className="px-3 py-2.5 font-medium">Preço</th>
-                      <th className="px-3 py-2.5 font-medium hidden md:table-cell">Disponibilidade</th>
-                      <th className="px-3 py-2.5 font-medium text-right w-28">Ações</th>
+                      <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wider w-20">Status</th>
+                      <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wider">Produto</th>
+                      <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wider w-28">Preço</th>
+                      <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wider hidden md:table-cell w-28">Estoque</th>
+                      <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wider text-right w-24">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">

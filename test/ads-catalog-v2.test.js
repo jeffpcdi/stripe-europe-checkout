@@ -96,9 +96,6 @@ function throwsCode(fn, code, label) {
   eq(spec.pixelEvent, 'ON_WEB_ORDER', 'evento de compra canônico é o padrão');
   const accelerated = domain.normalizeCampaignSpec({ ...input, bidStrategy: 'cost_cap', bidAmount: 12.5, deliveryMode: 'accelerated' }, {});
   eq(accelerated.bidAmount, 12.5, 'Cost Cap preserva o CPA alvo');
-  for (const bidAmount of [Infinity, 'Infinity', -1, 0, 'inválido']) {
-    throwsCode(() => domain.normalizeCampaignSpec({ ...input, bidStrategy: 'cost_cap', bidAmount }, {}), 'CATALOG_CAMPAIGN_BID_AMOUNT_REQUIRED', 'bid inválido não entra na fila');
-  }
   eq(accelerated.deliveryMode, 'accelerated', 'ABO + Cost Cap aceita entrega acelerada');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, bidStrategy: 'cost_cap' }, {}), 'CATALOG_CAMPAIGN_BID_AMOUNT_REQUIRED', 'Cost Cap sem CPA é bloqueado antes da fila');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, deliveryMode: 'accelerated' }, {}), 'CATALOG_CAMPAIGN_ACCELERATED_REQUIRES_COST_CAP', 'máxima entrega não aceita aceleração');

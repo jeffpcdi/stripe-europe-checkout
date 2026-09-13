@@ -211,11 +211,11 @@ export function ProductEditor({
           </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-            <p className="text-[11px] text-muted-foreground">
-              {missingRequired.length > 0
-                ? `Faltam obrigatórios: ${missingRequired.map((k) => FIELD_LABELS[k] || k).join(', ')}`
-                : 'Todos os campos obrigatórios preenchidos'}
-            </p>
+            <div className="text-[11px] text-muted-foreground min-w-0">
+              {missingRequired.length > 0 ? (
+                <span className="text-warning">Campos obrigatórios: {missingRequired.map((k) => FIELD_LABELS[k] || k).join(', ')}</span>
+              ) : null}
+            </div>
             <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSave} disabled={busy || missingRequired.length > 0}>
               {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
               Salvar produto
@@ -227,7 +227,7 @@ export function ProductEditor({
     document.body,
   )
 }
-// Um campo do editor de produto: rótulo pt-BR + chave técnica como dica.
+// Um campo do editor de produto: rótulo pt-BR.
 export function ProductField({
   field,
   value,
@@ -243,8 +243,7 @@ export function ProductField({
     <label className="flex flex-col gap-1 text-xs">
       <span className="flex items-baseline gap-1.5">
         <span className="font-medium text-foreground">{label}</span>
-        {field.required && <span className="text-error">*</span>}
-        {FIELD_LABELS[field.key] && <span className="text-[10px] text-muted-foreground">{field.key}</span>}
+        {field.required && <span className="text-error font-bold">*</span>}
       </span>
       {field.enum ? (
         <select className="input-base" value={value} onChange={(e) => onChange(e.target.value)}>
@@ -284,8 +283,7 @@ export function PriceField({
     <label className="flex flex-col gap-1 text-xs">
       <span className="flex items-baseline gap-1.5">
         <span className="font-medium text-foreground">{label}</span>
-        {field.required && <span className="text-error">*</span>}
-        <span className="text-[10px] text-muted-foreground">{field.key}</span>
+        {field.required && <span className="text-error font-bold">*</span>}
       </span>
       <span className="relative flex items-center">
         <input

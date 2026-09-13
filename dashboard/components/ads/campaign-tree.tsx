@@ -35,10 +35,10 @@ import {
   ArrowUp,
   ArrowDown,
   MoreHorizontal,
-  Flame,
-  ShoppingCart,
+  RotateCcw,
+  TrendingUp,
   Zap,
-  TriangleAlert,
+  AlertCircle,
 } from 'lucide-react'
 import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list'
 import { apiSend } from '@/lib/api'
@@ -184,7 +184,7 @@ export function CampaignQuickActionsDropdown({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex size-9 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
+          className="flex size-11 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
           aria-label={`Ações rápidas da campanha ${c.campaignName || id}`}
           title="Ações rápidas e status"
         >
@@ -432,6 +432,7 @@ const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
+  { value: 'approved', label: 'Validadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
 ]
@@ -633,49 +634,45 @@ export function CampaignTree({
       return
     }
     setBulkBudgetBusy(true)
-    const selectedCampaigns = campaigns.filter((c) => selected.has(c.platformCampaignId))
-    const updates = selectedCampaigns.map((c) => {
-      const curAmount = Number(c.budget?.amount)
-      let newAmount = curAmount
-      if (bulkBudgetMode === 'percent_up') newAmount = Math.round(curAmount * (1 + val / 100))
-      else if (bulkBudgetMode === 'percent_down') newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
-      else newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
-      return {
-        platformCampaignId: c.platformCampaignId,
-        amount: newAmount,
-        type: c.budget?.type === 'lifetime' ? 'lifetime' : 'daily',
-      }
-    })
+    let updated = 0
+    let simulated = 0
+    let failed = 0
 
-    try {
-      const result = await apiSend<{
-        dryRun?: boolean
-        totals?: { updated?: number; skipped?: number; failed?: number }
-        items?: { id: string; status: string; error?: string }[]
-      }>('/api/ads/campaigns/bulk-budget', 'POST', {
-        adAccountId: selectedCampaigns[0]?.platformAdAccountId,
-        campaigns: updates,
-      })
-      const updated = Number(result.totals?.updated || 0)
-      const skipped = Number(result.totals?.skipped || 0)
-      const failed = Number(result.totals?.failed || 0)
-      if (result.dryRun) {
-        toast.info('Simulação de orçamento concluída', { hint: `${updates.length} campanha(s) avaliadas. Nada foi publicado.` })
-      } else if (failed > 0 || skipped > 0) {
-        toast.error('Atualização parcial de orçamento', { hint: `${updated} atualizada(s), ${skipped} ignorada(s), ${failed} falha(s).` })
-      } else {
-        toast.success(`${updated} orçamento(s) atualizados`, { hint: 'A sincronização do TikTok foi acionada automaticamente.' })
+    const selectedCampaigns = campaigns.filter((c) => selected.has(c.platformCampaignId))
+
+    for (const c of selectedCampaigns) {
+      try {
+        const curAmount = Number(c.budget?.amount)
+        let newAmount = curAmount
+        if (bulkBudgetMode === 'percent_up') {
+          newAmount = Math.round(curAmount * (1 + val / 100))
+        } else if (bulkBudgetMode === 'percent_down') {
+          newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
+        } else {
+          newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
+        }
+
+        const result = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
+          budget: { amount: newAmount, type: c.budget?.type || 'daily' },
+          adAccountId: c.platformAdAccountId,
+        })
+        if (result.dryRun) simulated++
+        else updated++
+      } catch {
+        failed++
       }
-      if (updated > 0) {
-        actionFeedback()
-        setSelected(new Set())
-        onMutate()
-      }
-      setBulkBudgetOpen(false)
-    } catch (e) {
-      toast.error('Falha ao atualizar orçamentos', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setBulkBudgetBusy(false)
+    }
+
+    setBulkBudgetBusy(false)
+    setBulkBudgetOpen(false)
+    if (updated > 0) {
+      toast.info(`${updated} orçamento(s) enviado(s)`, { hint: 'Aguardando atualização do TikTok.' })
+      actionFeedback()
+      onMutate()
+    }
+    if (simulated > 0) toast.info(`${simulated} orçamento(s) simulado(s)`, { hint: 'Modo teste: nenhuma alteração publicada para essas campanhas.' })
+    if (failed > 0) {
+      toast.error(`${failed} falha(s) ao atualizar orçamento`)
     }
   }
 
@@ -877,7 +874,7 @@ export function CampaignTree({
     if (viewMode === 'table') {
       return (
         <div
-          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1175px]"
+          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1305px]"
           style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
         >
           <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
@@ -1158,7 +1155,7 @@ export function CampaignTree({
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
         {/* Linha compacta: 12 colunas com alinhamento rigoroso */}
-        <div className="grid grid-cols-[34px_72px_minmax(220px,1.8fr)_165px_92px_70px_88px_78px_86px_94px_118px_58px] items-center px-3 py-2.5 text-xs min-w-[1175px]">
+        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1305px]">
           {/* 1. Checkbox */}
           <div className="flex items-center justify-center">
             <input
@@ -1294,7 +1291,7 @@ export function CampaignTree({
 
         {/* Banner de erro quando houver problema */}
         {detailedError && (
-          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1175px]">
+          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1305px]">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>{detailedError}</span>
           </div>
@@ -1429,7 +1426,7 @@ export function CampaignTree({
 
   function TableHeader() {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[34px_72px_minmax(220px,1.8fr)_165px_92px_70px_88px_78px_86px_94px_118px_58px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1175px] shadow-xs">
+      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1305px] shadow-xs">
         {/* 1. Checkbox Select All */}
         <div className="flex items-center justify-center">
           <input
@@ -1513,12 +1510,16 @@ export function CampaignTree({
 
   return (
     <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
-      <div className="campaign-toolbar">
-        <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2>Suas campanhas</h2>
-            <p>Métricas do TikTok no período selecionado</p>
+      <div className="campaign-toolbar p-3 sm:p-4 space-y-3">
+        {/* Linha 1: Título e Controles de Visualização */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm sm:text-base font-bold text-foreground">Campanhas</h2>
+            <span className="rounded-full bg-secondary/80 border border-border/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
+              {visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}
+            </span>
           </div>
+
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
               <button
@@ -1530,10 +1531,10 @@ export function CampaignTree({
                     ? 'bg-background text-foreground shadow-xs font-semibold'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
-                title="Modo Tabela: visualização compacta de alta densidade (ideal para 100+ campanhas)"
+                title="Modo Tabela: visualização compacta"
               >
                 <LayoutList className="size-3.5" />
-                <span>Tabela</span>
+                <span className="hidden sm:inline">Tabela</span>
               </button>
               <button
                 type="button"
@@ -1547,16 +1548,15 @@ export function CampaignTree({
                 title="Modo Cards: visualização em blocos"
               >
                 <LayoutGrid className="size-3.5" />
-                <span>Cards</span>
+                <span className="hidden sm:inline">Cards</span>
               </button>
             </div>
-            <span className="rounded-full bg-secondary/80 border border-border/50 px-2.5 py-1 text-xs font-medium text-foreground tabular-nums">
-              {visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}
-            </span>
           </div>
         </div>
-        <div className="campaign-status-filters" role="group" aria-label="Filtrar por status">
-          {STATUS_FILTERS.map(filter => {
+
+        {/* Linha 2: Segmented Tabs de Status com pills limpos */}
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por status">
+          {STATUS_FILTERS.map((filter) => {
             const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
             const isSelected = statusFilter === filter.value
             return (
@@ -1565,11 +1565,15 @@ export function CampaignTree({
                 type="button"
                 onClick={() => onStatusFilter(filter.value)}
                 aria-pressed={isSelected}
-                className="inline-flex items-center gap-1.5"
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-xs'
+                    : 'bg-secondary/30 text-muted-foreground border border-border/50 hover:bg-secondary hover:text-foreground'
+                }`}
               >
                 <span>{filter.label}</span>
                 <span
-                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors ${
+                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.2 text-[10px] font-bold tabular-nums ${
                     isSelected ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
                   }`}
                 >
@@ -1579,144 +1583,114 @@ export function CampaignTree({
             )
           })}
         </div>
-        <div className="campaign-search-row">
-          <label className="campaign-search">
-            <Search size={17} aria-hidden="true" />
+
+        {/* Linha 3: Busca, Atalhos rápidos com ícones e Ordenação integrados */}
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          {/* Campo de Busca Rápida */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
             <input
               type="search"
               value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder="Buscar pelo nome da campanha"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar campanha..."
               aria-label="Buscar campanha"
+              className="w-full h-8 pl-8 pr-7 rounded-lg border border-border/60 bg-background/80 text-xs text-foreground placeholder:text-muted-foreground/60 transition-colors focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
             />
             {query && (
-              <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca">
-                <X size={15} />
-              </button>
-            )}
-          </label>
-          <button
-            type="button"
-            className="campaign-secondary-action"
-            onClick={() => setShowFilters(!showFilters)}
-            aria-expanded={showFilters}
-          >
-            <SlidersHorizontal size={16} />
-            Mais filtros
-          </button>
-        </div>
-
-        {/* Atalhos de performance — sem emojis; estados semânticos e compactos. */}
-        <div className="campaign-smart-filters">
-          <span className="campaign-smart-filter-label">Atalhos</span>
-          <button
-            type="button"
-            onClick={() => setOnlyWithSpend(v => !v)}
-            aria-pressed={onlyWithSpend}
-            data-active={onlyWithSpend ? 'true' : 'false'}
-            data-tone="amber"
-            className="campaign-smart-filter"
-          >
-            <Flame className="size-3.5" aria-hidden="true" />
-            Com gasto
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuickFilter(curr => curr === 'with_sales' ? 'all' : 'with_sales')}
-            aria-pressed={quickFilter === 'with_sales'}
-            data-active={quickFilter === 'with_sales' ? 'true' : 'false'}
-            data-tone="green"
-            className="campaign-smart-filter"
-          >
-            <ShoppingCart className="size-3.5" aria-hidden="true" />
-            Com vendas
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuickFilter(curr => curr === 'high_roas' ? 'all' : 'high_roas')}
-            aria-pressed={quickFilter === 'high_roas'}
-            data-active={quickFilter === 'high_roas' ? 'true' : 'false'}
-            data-tone="cyan"
-            className="campaign-smart-filter"
-          >
-            <Zap className="size-3.5" aria-hidden="true" />
-            ROAS &gt; 2×
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuickFilter(curr => curr === 'no_sales' ? 'all' : 'no_sales')}
-            aria-pressed={quickFilter === 'no_sales'}
-            data-active={quickFilter === 'no_sales' ? 'true' : 'false'}
-            data-tone="warning"
-            className="campaign-smart-filter"
-          >
-            <TriangleAlert className="size-3.5" aria-hidden="true" />
-            Gastando sem venda
-          </button>
-          {(onlyWithSpend || quickFilter !== 'all') && (
-            <button
-              type="button"
-              onClick={() => {
-                setOnlyWithSpend(false)
-                setQuickFilter('all')
-              }}
-              className="campaign-smart-filter-clear"
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-        {/* Menu de Filtros Adicionais (simples e direto) */}
-        {showFilters && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-secondary/10 p-3 mt-1">
-            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => setOnlyWithSpend((v) => !v)}
-                aria-pressed={onlyWithSpend}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  onlyWithSpend
-                    ? 'border-primary/40 bg-primary/15 text-primary shadow-sm font-semibold'
-                    : 'border-border/50 bg-background text-muted-foreground hover:border-border hover:text-foreground'
-                }`}
+                onClick={() => setQuery('')}
+                aria-label="Limpar busca"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer p-0.5"
               >
-                Apenas com gasto
+                <X className="size-3" />
               </button>
+            )}
+          </div>
 
-              <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium">Ordenar:</span>
-                <select
-                  className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  value={sort}
-                  onChange={(e) => onSort(e.target.value)}
-                  aria-label="Ordenar campanhas"
-                >
-                  {SORTS.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          {/* Atalhos Rápidos com Ícones Intuitivos */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOnlyWithSpend((v) => !v)}
+              aria-pressed={onlyWithSpend}
+              title="Filtrar campanhas com gasto registrado"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                onlyWithSpend
+                  ? 'border border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs'
+                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <DollarSign className="size-3.5" aria-hidden="true" />
+              <span>Com gasto</span>
+            </button>
 
-              {/* Status avançado para casos especiais */}
-              <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium">Status:</span>
-                <select
-                  className="rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  value={statusFilter}
-                  onChange={(e) => onStatusFilter(e.target.value)}
-                  aria-label="Filtrar por status"
-                >
-                  {ALL_STATUS_OPTIONS.map((s) => (
-                    <option key={s.value || 'all'} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <button
+              type="button"
+              onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))}
+              aria-pressed={quickFilter === 'with_sales'}
+              title="Filtrar campanhas com vendas registradas"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                quickFilter === 'with_sales'
+                  ? 'border border-emerald-500/50 bg-emerald-500/15 text-emerald-400 font-semibold shadow-xs'
+                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <TrendingUp className="size-3.5" aria-hidden="true" />
+              <span>Com vendas</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))}
+              aria-pressed={quickFilter === 'high_roas'}
+              title="Filtrar campanhas com ROAS superior a 2x"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                quickFilter === 'high_roas'
+                  ? 'border border-cyan-500/50 bg-cyan-500/15 text-cyan-400 font-semibold shadow-xs'
+                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <Zap className="size-3.5" aria-hidden="true" />
+              <span>ROAS &gt; 2×</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setQuickFilter((curr) => (curr === 'no_sales' ? 'all' : 'no_sales'))}
+              aria-pressed={quickFilter === 'no_sales'}
+              title="Filtrar campanhas com gasto mas sem vendas"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                quickFilter === 'no_sales'
+                  ? 'border border-amber-500/50 bg-amber-500/15 text-amber-400 font-semibold shadow-xs'
+                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <AlertCircle className="size-3.5" aria-hidden="true" />
+              <span>Sem vendas</span>
+            </button>
+          </div>
+
+          {/* Ordenação Compacta e Limpeza */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <div className="relative flex items-center">
+              <ArrowUpDown className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
+              <select
+                className="h-8 pl-7 pr-3 rounded-lg border border-border/60 bg-background/80 text-xs font-medium text-foreground transition-colors hover:border-border focus:outline-none focus:border-primary/50 cursor-pointer"
+                value={sort}
+                onChange={(e) => onSort(e.target.value)}
+                aria-label="Ordenar campanhas"
+              >
+                {SORTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
+            {/* Reset rápido */}
             {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) && (
               <button
                 type="button"
@@ -1727,13 +1701,15 @@ export function CampaignTree({
                   onStatusFilter('active')
                   setQuery('')
                 }}
-                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                className="flex h-8 items-center gap-1 rounded-lg border border-border/50 bg-secondary/30 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+                title="Limpar todos os filtros e busca"
               >
-                Limpar filtros
+                <RotateCcw className="size-3" />
+                <span className="hidden sm:inline">Limpar</span>
               </button>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Resumo do que está visível + Selecionar todas */}
@@ -1870,7 +1846,7 @@ export function CampaignTree({
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: viewMode === 'table' ? '1175px' : undefined,
+                minWidth: viewMode === 'table' ? '1305px' : undefined,
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1896,7 +1872,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: viewMode === 'table' ? '1175px' : undefined }}
+              style={{ minWidth: viewMode === 'table' ? '1305px' : undefined }}
             >
               {flatRows.map((row, index) => (
                 <div

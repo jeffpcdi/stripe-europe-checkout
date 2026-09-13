@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, TrendingDown, TrendingUp, ChartNoAxesColumnIncreasing, Megaphone, Funnel, ShoppingCart, Info } from 'lucide-react'
+import { ArrowUpRight, TrendingDown, TrendingUp, CircleDollarSign, Target, Filter, LineChart, ShoppingCart, Info } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 import type { AdsRoasResponse } from '@/lib/types'
 import type { PeriodMetrics } from '@/lib/metrics'
@@ -71,7 +71,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
   return <div className="observatory-metrics" role="group" aria-label="Indicadores do período e globo de presença">
     <article className="observatory-metric observatory-metric--revenue" aria-label="Faturamento">
       <header className="observatory-metric-heading">
-        <span className="observatory-metric-icon" aria-hidden="true"><ChartNoAxesColumnIncreasing size={20} /></span>
+        <span className="observatory-metric-icon" aria-hidden="true"><CircleDollarSign size={20} /></span>
         <h3>Faturamento</h3>
         <MetricInfo title="Faturamento">
           <p>Vendas aprovadas no período, na moeda exibida. Não inclui valores de outras moedas.</p>
@@ -93,20 +93,20 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
       <div className="observatory-revenue-sales"><ShoppingCart size={14} aria-hidden="true" /><span><strong>{sales.toLocaleString('pt-BR')}</strong> {sales === 1 ? 'venda aprovada' : 'vendas aprovadas'}{otherCurrencies > 0 && ` · ${otherCurrencies + 1} moedas`}</span></div>
     </article>
 
-    <Metric title="Investimento em anúncios" name="spend" icon={<Megaphone size={19} />} monetary
+    <Metric title="Investimento em anúncios" name="spend" icon={<Target size={19} />} monetary
       value={spend !== null ? <CountUp value={spend} format={adsMoney} /> : '—'}
       description={<><p>Total da conta de anúncios, incluindo campanhas pausadas e encerradas, na moeda e no fuso do TikTok.</p><p>{allPeriod ? 'Em Tudo, os anúncios cobrem os últimos 90 dias.' : 'Os dados dependem da sincronização do TikTok, não são presença ao vivo.'}</p>{syncDate && Number.isFinite(syncDate.getTime()) && <p>Última sincronização: <time dateTime={syncDate.toISOString()}>{syncDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time> (Brasília).</p>}</>}
       action={<Link href="/ads/tiktok" className="observatory-text-link">Ver campanhas <ArrowUpRight size={14} aria-hidden="true" /></Link>}>
       <span data-warning={adsError || undefined}>{adsError ? 'Atualização pendente' : spend === null ? 'Dados indisponíveis' : allPeriod ? 'TikTok Ads · últimos 90 dias' : 'TikTok Ads · conta inteira'}</span>
     </Metric>
 
-    <Metric title="Conversão geral" name="conversion" icon={<Funnel size={19} />}
+    <Metric title="Conversão geral" name="conversion" icon={<Filter size={19} />}
       value={conversion !== null ? <CountUp value={conversion} format={value => `${decimal(value)}%`} /> : '—'}
       description={<><p>Visitantes que chegaram à compra aprovada no período.</p><p>Aprovação no checkout: <strong>{visits > 0 ? `${decimal(approval, 0)}%` : '—'}</strong>.</p></>}>
       <span><strong>{purchased.toLocaleString('pt-BR')}</strong> {purchased === 1 ? 'compra' : 'compras'} · <strong>{visits.toLocaleString('pt-BR')}</strong> {visits === 1 ? 'visita' : 'visitas'}</span>
     </Metric>
 
-    <Metric title="Retorno (ROAS)" name="return" icon={<TrendingUp size={19} />}
+    <Metric title="Retorno (ROAS)" name="return" icon={<LineChart size={19} />}
       value={roas !== null ? <CountUp value={roas} format={value => `${decimal(value, 2)}×`} /> : '—'}
       description={<><p>Receita atribuída por unidade gasta em anúncios. Não representa lucro.</p><p>O retorno exige receita e investimento na mesma moeda.{allPeriod ? ' Em Tudo, considera os últimos 90 dias dos anúncios.' : ''}</p></>}>
       {(!hasAds || ads?.currencyMismatch || roas === null) && <span>{!hasAds ? 'Dados indisponíveis' : ads?.currencyMismatch ? 'Moedas diferentes' : 'Retorno indisponível'}</span>}

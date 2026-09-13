@@ -319,7 +319,7 @@ export function ConversionsView() {
   if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
 
   return (
-    <div className="project-page project-page--conversions flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       {(pixelsError || gatewaysError || logError) && (
         <button
           type="button"

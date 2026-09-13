@@ -204,59 +204,78 @@ export function CatalogCampaignWizard({
   const previousRuns = (activeRun ? runs.filter((run) => run.id !== activeRun.id) : runs.slice(1)).slice(0, 9)
   const blockers = capabilities?.blockers ?? []
 
-  return (
-    <section id="catalog-campaign-wizard" className="scroll-mt-4 rounded-xl border border-border bg-background p-4 mt-3 shadow-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">3</div> Lançamento</h3>
-          <p className="text-[11px] text-muted ml-7">Escolha os vídeos, a quantidade de campanhas e o orçamento.</p>
-        </div>
-        {capabilities === null
-          ? <span className="rounded-md border border-border bg-secondary/50 px-2.5 py-1.5 text-[10px] font-medium text-muted">Carregando</span>
-          : !hideLaunchButton && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn-secondary text-xs"
-                onClick={() => setDialogOpen(true)}
-                disabled={!connectorReady || !ready || Boolean(activeRun)}
-              >
-                {activeRun ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
-                {activeRun ? 'Criação em andamento' : 'Criar campanhas'}
-              </button>
-            </div>
-          )}
-      </div>
+  if (hideLaunchButton && runs.length === 0) {
+    return (
+      <CatalogQuickCampaignsDialog
+        open={dialogOpen}
+        catalog={catalog}
+        advertiserId={advertiserId}
+        advertiserCurrency={advertiserCurrency}
+        capabilities={capabilities}
+        onClose={() => setDialogOpen(false)}
+        onCreated={() => {
+          setDialogOpen(false)
+          mutateRuns()
+        }}
+      />
+    )
+  }
 
-      {capabilities !== null && !connectorReady && (
-        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-warning">Criação temporariamente indisponível</p>
-          <p className="mt-1">Nada foi enviado. A dashboard verificará novamente o TikTok; não é necessário montar a campanha manualmente.</p>
-          {blockers.length > 0 && <details className="mt-2 border-t border-warning/20 pt-2">
-            <summary className="cursor-pointer font-medium text-muted-foreground">Detalhes técnicos</summary>
-            <p className="mt-1 break-all">{blockers.join(' · ')}</p>
-          </details>}
+  return (
+    <section id="catalog-campaign-wizard" className="scroll-mt-4 rounded-xl border border-border bg-background p-4 mt-3 shadow-xs">
+      {!hideLaunchButton && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-0.5">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Rocket className="size-4 text-primary" /> Lançamento de campanhas
+            </h3>
+          </div>
+          {capabilities === null ? (
+            <span className="rounded-md border border-border bg-secondary/50 px-2 py-1 text-xs font-medium text-muted">Carregando</span>
+          ) : (
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={() => setDialogOpen(true)}
+              disabled={!connectorReady || !ready || Boolean(activeRun)}
+            >
+              {activeRun ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
+              {activeRun ? 'Criação em andamento' : 'Criar campanhas'}
+            </button>
+          )}
         </div>
       )}
-      {connectorReady && (
-        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-foreground">Pronto para vídeo de catálogo</p>
-          <p className="mt-1">Todos os produtos aprovados usam o próprio Link. Pixel da conta TikTok, otimização para Compra, perfil e capa já configurados; o áudio vem do vídeo.</p>
+
+      {hideLaunchButton && runs.length > 0 && (
+        <div className="flex items-center gap-2 pb-2">
+          <Rocket className="size-4 text-primary" />
+          <h3 className="text-xs font-bold text-foreground">Campanhas geradas</h3>
         </div>
       )}
-      {capabilities !== null && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">A dashboard ainda está validando catálogo, Pixel e conta. O botão será liberado quando tudo estiver pronto.</p>}
+
+      {capabilities !== null && !connectorReady && !hideLaunchButton && (
+        <div className="mt-2.5 rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-xs text-muted-foreground">
+          <p className="font-semibold text-warning">Criação temporariamente indisponível no TikTok</p>
+          {blockers.length > 0 && (
+            <details className="mt-1.5 border-t border-warning/20 pt-1.5">
+              <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Detalhes</summary>
+              <p className="mt-1 break-all text-[11px]">{blockers.join(' · ')}</p>
+            </details>
+          )}
+        </div>
+      )}
 
       {currentRuns.length > 0 && (
-        <div className="mt-4 space-y-2 border-t border-border pt-4">
+        <div className="space-y-2">
           {currentRuns.map((run) => (
             <RunCard key={run.id} run={run} advertiserId={advertiserId} currency={advertiserCurrency} mutate={() => { void mutateRuns() }} />
           ))}
         </div>
       )}
       {previousRuns.length > 0 && (
-        <details className="mt-3 rounded-lg border border-border px-3 py-2">
-          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Histórico anterior ({previousRuns.length})</summary>
-          <div className="mt-3 space-y-2">
+        <details className="mt-2.5 rounded-lg border border-border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Histórico ({previousRuns.length})</summary>
+          <div className="mt-2.5 space-y-2">
             {previousRuns.map((run) => (
               <RunCard key={run.id} run={run} advertiserId={advertiserId} currency={advertiserCurrency} mutate={() => { void mutateRuns() }} />
             ))}

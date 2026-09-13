@@ -83,31 +83,59 @@ export function CatalogCreatives({ value, onAdd, onRemove, disabled = false, onB
   }
 
   return (
-    <section className="flex flex-col gap-3" aria-label="Criativos do catálogo" aria-busy={busy}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold"><Film size={17} className="text-primary" /> Vídeos do produto <span className="rounded-md bg-secondary px-2 py-0.5 tabular-nums text-xs">{value.length}/50</span></h3>
-          <p className="mt-1 text-xs text-muted-foreground">Todos usam este catálogo. Um vídeo por campanha.</p>
+    <section className="flex flex-col gap-2.5" aria-label="Criativos do catálogo" aria-busy={busy}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+            <Film className="size-4 text-primary" /> Vídeos do catálogo
+          </h3>
+          <span className="rounded-full bg-secondary px-2 py-0.5 tabular-nums text-xs font-semibold text-muted-foreground">
+            {value.length}/50
+          </span>
         </div>
-        <button type="button" className="btn-secondary min-h-11 gap-2 px-4 text-sm" disabled={disabled || busy || !!removing || value.length + pending.length >= 50} onClick={() => input.current?.click()}>
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {busy ? 'Enviando vídeos…' : 'Adicionar vídeos'}
+        <button
+          type="button"
+          className="btn-secondary text-xs py-1.5 px-3 h-auto gap-1.5"
+          disabled={disabled || busy || !!removing || value.length + pending.length >= 50}
+          onClick={() => input.current?.click()}
+        >
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+          {busy ? 'Enviando…' : 'Adicionar vídeos'}
         </button>
         <input ref={input} type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov" className="hidden" aria-label="Selecionar vídeos" onChange={event => { select(event.target.files); event.currentTarget.value = '' }} />
       </div>
-      {!value.length && !pending.length && <div className="rounded-xl border border-dashed border-border bg-secondary/20 p-5 text-center text-sm text-muted-foreground">Adicione agora ou depois. MP4 ou MOV, até 500 MB por vídeo.</div>}
-      {(value.length > 0 || pending.length > 0) && <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
-        {value.map(creative => <div key={creative.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-background/50 py-1 pl-3 pr-1">
-          <Check size={15} className="shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate text-sm" title={creative.name}>{creative.name}</span>
-          <button type="button" className="btn-ghost min-h-11 min-w-11" disabled={disabled || busy || !!removing} onClick={() => void remove(creative)} aria-label={`Remover ${creative.name}`}>
-            {removing === creative.id ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />}
-          </button>
-        </div>)}
-        {pending.map(item => <div key={item.id} className={`flex min-w-0 items-center gap-2 rounded-xl border py-1 pl-3 pr-1 ${item.status === 'error' ? 'border-error/40 bg-error/5' : 'border-border bg-secondary/30'}`}>
-          {item.status !== 'error' && <Loader2 size={15} className="shrink-0 animate-spin text-primary" />}
-          <div className="min-w-0 flex-1"><p className="truncate text-sm">{item.file.name}</p><p className="text-xs text-muted-foreground" role="status">{item.error || (item.status === 'saving' ? 'Salvando vínculo…' : item.status === 'queued' ? 'Na fila' : 'Enviando…')}</p></div>
-          {item.status === 'error' && <><button type="button" className="btn-ghost min-h-11 min-w-11" disabled={busy || disabled} onClick={() => void upload([item])} aria-label={`Reenviar ${item.file.name}`}><RotateCcw size={15} /></button><button type="button" className="btn-ghost min-h-11 min-w-11" disabled={busy || disabled} onClick={() => setPending(rows => rows.filter(row => row.id !== item.id))} aria-label={`Remover ${item.file.name}`}><X size={15} /></button></>}
-        </div>)}
-      </div>}
+      {!value.length && !pending.length && (
+        <div className="rounded-xl border border-dashed border-border/70 bg-secondary/15 p-3.5 text-center text-xs text-muted-foreground">
+          Nenhum vídeo vinculado ao catálogo. MP4 ou MOV (até 500 MB).
+        </div>
+      )}
+      {(value.length > 0 || pending.length > 0) && (
+        <div className="grid max-h-60 gap-1.5 overflow-y-auto sm:grid-cols-2">
+          {value.map(creative => (
+            <div key={creative.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-background/50 py-1 pl-2.5 pr-1 text-xs">
+              <span className="min-w-0 flex-1 truncate text-foreground" title={creative.name}>{creative.name}</span>
+              <button type="button" className="btn-ghost p-1 text-muted-foreground hover:text-error" disabled={disabled || busy || !!removing} onClick={() => void remove(creative)} aria-label={`Remover ${creative.name}`}>
+                {removing === creative.id ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3.5" />}
+              </button>
+            </div>
+          ))}
+          {pending.map(item => (
+            <div key={item.id} className={`flex min-w-0 items-center gap-2 rounded-lg border py-1 pl-2.5 pr-1 text-xs ${item.status === 'error' ? 'border-error/40 bg-error/5' : 'border-border bg-secondary/30'}`}>
+              {item.status !== 'error' && <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />}
+              <div className="min-w-0 flex-1">
+                <p className="truncate">{item.file.name}</p>
+                <p className="text-[10px] text-muted-foreground" role="status">{item.error || (item.status === 'saving' ? 'Salvando…' : item.status === 'queued' ? 'Na fila' : 'Enviando…')}</p>
+              </div>
+              {item.status === 'error' && (
+                <>
+                  <button type="button" className="btn-ghost p-1" disabled={busy || disabled} onClick={() => void upload([item])} aria-label={`Reenviar ${item.file.name}`}><RotateCcw className="size-3" /></button>
+                  <button type="button" className="btn-ghost p-1" disabled={busy || disabled} onClick={() => setPending(rows => rows.filter(row => row.id !== item.id))} aria-label={`Remover ${item.file.name}`}><X className="size-3" /></button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
