@@ -1492,3 +1492,34 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   `rdb.releaseLock is not a function` em `conversion-database-retry`; não declarar a suíte inteira verde.
 - Compilação e regressões da dashboard verificadas localmente. A avaliação visual/responsiva desta
   composição fica a cargo do usuário, conforme solicitado; não registrar como revisão no navegador.
+
+### Observatório integrado da Visão geral (2026-09-12)
+- A composição `.overview-observatory` substitui os quatro cards isolados e o antigo globo com
+  sidebar. `HeroGlobe` coordena cabeçalho/período, `OverviewMetrics` e a faixa inferior de atividade.
+  No desktop, Faturamento/Conversão ficam à esquerda e Investimento/ROAS à direita de um único
+  canvas; tablet/celular organizam indicadores, globo e atividade verticalmente. O carregamento
+  reserva essa mesma composição. O fundo navy/azul, estrelas discretas e divisores pertencem
+  somente ao painel, com estilos em `dashboard-refinement.css`; cabeçalho global e abas não mudam.
+- Métricas são HTML, não labels presos à esfera. `GlobeBoundary` envolve somente o slot WebGL:
+  carregamento/falha gráfica mantém números, top países e compras acessíveis. O modo `embedded`
+  de `GlobePanel` remove os espaços da antiga sidebar, preserva a mesma instância ao trocar período
+  e mantém zoom, pausa, foco e tela cheia em diálogo nativo. A tela cheia amplia o globo, com
+  atalhos dos países; não duplica os indicadores financeiros. Órbitas CSS são decorativas, nunca
+  trajetos entre países: as rotas inferidas do globo antigo ficam desativadas neste modo.
+- Hoje/7/30/Tudo afetam os indicadores, não a presença atual nem a janela de compras de 10 minutos.
+  A presença mostra horário real da leitura (Brasília), remove pontos/contagem em erro ou após
+  20s e só emite pulsos por aumento real; reconexão não simula novos acessos. Países usam proporções
+  reais, sem mínimo fictício de barra. Compras mantêm moeda/centavos e oferecem acesso ao histórico.
+  Falha de estatísticas com cache preserva a tela e explicita dados não atualizados.
+- Investimento mantém escopo da conta/fuso/moeda do TikTok; Tudo continua limitado a 90 dias para
+  anúncios, com indicação explícita. ROAS indisponível/divergência de moedas nunca vira zero.
+  Receita mantém a série filtrada pela moeda principal; a versão compacta não desenha curva para
+  zero/um dia. Valor médio fica oculto quando há múltiplas moedas para não dividir a receita de
+  uma moeda pelo total de vendas de todas. Explicações usam `details`, acessíveis por teclado,
+  fechadas ao sair do foco ou pressionar Escape. Privacidade e movimento reduzido são preservados.
+- Testes em `dashboard-refinement` verificam a árvore/handlers reais com APIs e temporizadores
+  isolados: limites temporais, foco, período sem reset do canvas, retry, expiração e reconexão.
+  `dashboard-ui-integrity` cobre as métricas, ausência de curva fictícia e retry da barreira WebGL.
+  Build de produção/TypeScript e testes da dashboard passaram; a suíte geral continua parando
+  no erro preexistente `rdb.releaseLock is not a function` em `conversion-database-retry`.
+  Sem prévia, testes no navegador, push ou deploy nesta entrega; validação visual manual do usuário.

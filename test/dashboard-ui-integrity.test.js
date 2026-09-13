@@ -104,6 +104,28 @@ assert(metricCard(html, 'Investimento em anúncios').includes('Atualização pen
 assert(!metricCard(html, 'Conversão geral').includes('0,0%'), 'sem visitas não inventa taxa');
 console.log('overview-metrics: gasto real, moeda, zero, ausência e retorno indefinido OK');
 
+// A composição não retorna os antigos cards e não duplica os indicadores no globo.
+html = renderToStaticMarkup(React.createElement(OverviewMetrics, { ...overviewProps, globe: React.createElement('div', { id: 'canvas-unico' }) }));
+assert.equal((html.match(/<article/g) || []).length, 4);
+assert(!html.includes('surface-card') && !html.includes('overview-summary-kpis'));
+assert.equal((html.match(/id="canvas-unico"/g) || []).length, 1);
+assert.equal((html.match(/<details/g) || []).length, 4, 'explicações só aparecem sob demanda');
+const { RevenueTrend } = load('components/overview/revenue-trend.tsx');
+for (const series of [[], [{ day: '2026-09-12', revenue: 90000, sales: 3, visits: 20 }]]) {
+  const trend = renderToStaticMarkup(React.createElement(RevenueTrend, { series, currency: 'BRL', compact: true }));
+  assert(!trend.includes('<svg') && !trend.includes('900,00'), 'sem curva inventada ou valor duplicado com menos de dois dias');
+}
+const { GlobeBoundary } = load('components/geo/globe-boundary.tsx');
+const boundary = new GlobeBoundary({ embedded: true, children: null });
+boundary.state = { failed: true };
+html = renderToStaticMarkup(boundary.render());
+assert(html.includes('observatory-globe-fallback') && html.includes('Tentar novamente'));
+const retry = boundary.render().props.children.props.children.find(child => child.type === 'button');
+boundary.setState = state => { boundary.state = state; };
+retry.props.onClick();
+assert.equal(boundary.state.failed, false);
+console.log('observatório: quatro métricas sem cards, curva real e recuperação isolada do WebGL OK');
+
 const { SetupGuide } = load('components/overview/setup-guide.tsx');
 const { buildOverviewHealth } = require('../overview-health');
 assert.equal(renderToStaticMarkup(React.createElement(SetupGuide)), '', 'não inventa pendências durante o carregamento');

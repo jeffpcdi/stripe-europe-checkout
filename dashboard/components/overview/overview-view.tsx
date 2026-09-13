@@ -17,7 +17,6 @@ import { adsDateRange } from '@/lib/ads-time'
 import { countryFlag, timeAgo } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
-import { OverviewMetrics } from './overview-metrics'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { toast } from '@/lib/toast'
@@ -280,7 +279,7 @@ export function OverviewView() {
   }, [overviewHealth, adsStatus, adsError, emqSummary, lastLeadAt])
 
   // Estado de Erro
-  if (error) {
+  if (error && !data) {
     return (
       <ErrorState
         title="Não foi possível carregar as métricas"
@@ -291,40 +290,20 @@ export function OverviewView() {
     )
   }
 
-  // Loading Skeleton
+  // O carregamento reserva a composição integrada, sem quatro cards antigos.
   if (isLoading || !cur) {
     return (
-      <div className="flex flex-col gap-6" aria-busy="true">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-5">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-6 w-48 rounded-lg" />
-            <Skeleton className="h-4 w-72 rounded-lg" />
-          </div>
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-9 w-28 rounded-xl" />
-            <Skeleton className="h-9 w-40 rounded-full" />
-          </div>
-        </div>
-        <Skeleton className="h-16 w-full rounded-2xl" />
-        <div className="overview-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="rounded-2xl border border-border/60 bg-secondary/20 p-5">
-              <Skeleton className="h-4 w-24 mb-3" />
-              <Skeleton className="h-8 w-36 mb-2" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-          ))}
-        </div>
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="h-96 rounded-2xl border border-border/60 bg-secondary/20 p-6">
-            <Skeleton className="size-full rounded-2xl" />
-          </div>
-          <div className="h-96 rounded-2xl border border-border/60 bg-secondary/20 p-6">
-            <Skeleton className="h-6 w-36 mb-4" />
-            <Skeleton className="h-24 w-full mb-4" />
-            <Skeleton className="h-36 w-full" />
+      <div className="overview-observatory" aria-busy="true" aria-label="Carregando visão geral">
+        <div className="observatory-header"><Skeleton className="h-10 w-36" /><Skeleton className="h-12 w-full max-w-72" /></div>
+        <div className="observatory-metrics">
+          {['revenue', 'spend', 'conversion', 'return'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}>
+            <Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" />
+          </div>)}
+          <div className="observatory-globe flex items-center justify-center">
+            <Skeleton className="aspect-square w-full max-w-96 rounded-full" />
           </div>
         </div>
+        <div className="observatory-activity">{[0, 1, 2].map(index => <section key={index}><Skeleton className="h-6 w-24 mb-4" /><Skeleton className="h-12 w-full" /></section>)}</div>
       </div>
     )
   }
@@ -355,31 +334,33 @@ export function OverviewView() {
         firstEnter ? 'stagger-fade' : ''
       }`}
     >
-      {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
+      {/* Métricas e presença compartilham a composição, não a janela de dados. */}
       <SetupGuide health={overviewHealth} />
-      {(roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
-      <OverviewMetrics
-        revenueCents={revCents}
-        currency={cur.mainCur}
-        sales={cur.sales}
-        visits={cur.visits}
-        purchased={cur.purchased}
-        approval={cur.approval}
-        otherCurrencies={otherRev.length}
-        previousRevenueCents={prevRevCents}
-        ads={roas}
-        adsError={Boolean(roasError)}
-        allPeriod={period === 'all'}
+      {(error || roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      <HeroGlobe
+        focusCode={focusCountry}
+        purchases={globePurchases}
+        purchasesStale={Boolean(error)}
+        onRefresh={handleRefreshAll}
+        refreshing={isRefreshing}
         periodPicker={<PeriodPicker value={period} onChange={setPeriod} />}
-        series={data && otherRev.length > 0
+        metrics={{
+          revenueCents: revCents,
+          currency: cur.mainCur,
+          sales: cur.sales,
+          visits: cur.visits,
+          purchased: cur.purchased,
+          approval: cur.approval,
+          otherCurrencies: otherRev.length,
+          previousRevenueCents: prevRevCents,
+          ads: roas,
+          adsError: Boolean(roasError),
+          allPeriod: period === 'all',
+          series: data && otherRev.length > 0
           ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period)).series
-          : cur.series}
+          : cur.series,
+        }}
       />
-
-      {/* ── SEÇÃO 2: GLOBO EM DESTAQUE TOTAL (LARGURA TOTAL) ───────────── */}
-      <section className="w-full" aria-label="Visitantes online em tempo real">
-        <HeroGlobe focusCode={focusCountry} purchases={globePurchases} />
-      </section>
 
       {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}
       <section

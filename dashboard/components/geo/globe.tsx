@@ -23,6 +23,8 @@ interface GlobeTexture {
 }
 interface GlobePanelProps {
   countries: Country[]
+  embedded?: boolean
+  online?: number | null
   focusCode?: string | null
   pulseCodes?: string[]
   focusRevision?: number
@@ -47,7 +49,7 @@ function angularDistanceDegrees(a: [number, number], b: [number, number]) {
 }
 
 /** Um único canvas; presença vem exclusivamente do snapshot ao vivo validado pelo pai. */
-export default function GlobePanel({ countries, focusCode, focusRevision, pulseCodes = [], onSimulateLead, children }: GlobePanelProps) {
+export default function GlobePanel({ countries, embedded = false, online, focusCode, focusRevision, pulseCodes = [], onSimulateLead, children }: GlobePanelProps) {
   const containerRef = useRef<HTMLDialogElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
@@ -505,7 +507,8 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       }
     }
 
-    if (networkCountries.length > 1) {
+    // No observatório, presença por país não implica deslocamento entre países.
+    if (!embedded && networkCountries.length > 1) {
       const hub = activeFocusCode
         ? networkCountries.find(country => country.code === activeFocusCode) ?? networkCountries[0]
         : networkCountries[0]
@@ -567,7 +570,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     }
 
     return { points: pts, rings: rgs, arcs: routes }
-  }, [countries, maxCount, pulseCodes, reduced, paused, focusCode, hoveredCountry, hoveredRouteKey, size.width])
+  }, [countries, maxCount, pulseCodes, reduced, paused, focusCode, hoveredCountry, hoveredRouteKey, size.width, embedded])
 
   useEffect(() => {
     const el = canvasRef.current
@@ -740,7 +743,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       ref={containerRef}
       onCancel={(event) => { event.preventDefault(); closeFullscreen() }}
       tabIndex={-1}
-      className={`presence-stage ${isImmersive ? 'presence-stage-immersive' : ''}`}
+      className={`presence-stage ${embedded ? 'presence-stage--embedded' : ''} ${isImmersive ? 'presence-stage-immersive' : ''}`}
       role={isImmersive ? 'dialog' : 'region'}
       aria-modal={isImmersive || undefined}
       aria-label="Globo de visitantes online"
@@ -754,15 +757,15 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
         <div className="presence-fullscreen-topbar">
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="relative flex size-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-cyan opacity-50" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-brand-cyan" />
+              {online !== null && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-cyan opacity-50" />}
+              <span className={`relative inline-flex size-2.5 rounded-full ${online === null ? 'bg-slate-400' : 'bg-brand-cyan'}`} />
             </span>
             <span className="text-xs font-semibold text-foreground">
-              Visitantes ao vivo
+              {online === null ? 'Presença não atualizada' : 'Visitantes ao vivo'}
             </span>
             <span className="hidden sm:inline-block h-3 w-px bg-white/20" />
             <span className="hidden sm:inline-block text-xs text-slate-300">
-              {totalVisitors} visitante{totalVisitors === 1 ? '' : 's'} monitorados em tempo real
+              {online === null ? 'Aguardando nova leitura' : `${online ?? totalVisitors} visitante${(online ?? totalVisitors) === 1 ? '' : 's'} agora`}
             </span>
           </div>
           <button

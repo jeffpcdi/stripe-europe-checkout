@@ -22,7 +22,10 @@ function RevenueActiveDot({ cx, cy }: { cx?: number; cy?: number }) {
 }
 
 /** Apenas a série real do período: um dia não representa uma curva. */
-export function RevenueTrend({ series, currency }: { series: PeriodMetrics['series']; currency: string }) {
+export function RevenueTrend({ series, currency, compact = false }: { series: PeriodMetrics['series']; currency: string; compact?: boolean }) {
+  if (compact && series.length < 2) {
+    return <p className="observatory-trend-empty">{series.length === 0 ? 'Sem dados no período' : 'Evolução disponível a partir de 2 dias'}</p>
+  }
   if (series.length === 0) {
     return <div className="overview-revenue-empty">Sem dados no período selecionado</div>
   }
@@ -45,7 +48,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
   return (
     <div className="overview-revenue-chart" data-sensitive>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-        <AreaChart data={series} margin={{ top: 12, right: 12, bottom: 0, left: 0 }} accessibilityLayer>
+        <AreaChart data={series} margin={{ top: compact ? 8 : 12, right: compact ? 4 : 12, bottom: 0, left: 0 }} accessibilityLayer>
           <defs>
             <linearGradient id="overviewRevenueStroke" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#25f4ee" />
@@ -60,12 +63,12 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
             </linearGradient>
           </defs>
 
-          <CartesianGrid
+          {!compact && <CartesianGrid
             vertical={false}
             stroke="rgba(182,205,223,0.16)"
             strokeWidth={1}
             strokeDasharray="2 7"
-          />
+          />}
           <XAxis
             dataKey="day"
             tickFormatter={dayLabel}
@@ -76,6 +79,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
             tick={{ fill: 'var(--refine-muted, #aebfd0)', fontSize: 12, fontWeight: 500 }}
           />
           <YAxis
+            hide={compact}
             tickFormatter={value => fmtCompact(value / 100)}
             axisLine={false}
             tickLine={false}

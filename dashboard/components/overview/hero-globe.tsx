@@ -1,20 +1,17 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, ShoppingBag, MapPin } from 'lucide-react'
+import Link from 'next/link'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { RefreshCw, ShoppingBag, MapPin, Globe2, ArrowUpRight, X } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
 import { countryFlag, fmtCurrency, timeAgo } from '@/lib/format'
 import { GlobeBoundary } from '@/components/geo/globe-boundary'
+import { OverviewMetrics, type OverviewMetricsProps } from '@/components/overview/overview-metrics'
 
-interface LatestLeadInfo {
-  code: string
-  name: string
-  flag: string
-  at: number
-}
+interface LatestLeadInfo { code: string; name: string; flag: string; at: number }
 
 export interface GlobePurchase {
   at: string
@@ -25,13 +22,24 @@ export interface GlobePurchase {
 
 const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
   ssr: false,
-  loading: () => <div className="presence-loading" role="status">Preparando o globo…</div>,
+  loading: () => <div className="observatory-globe-loading" role="status"><Globe2 size={32} aria-hidden="true" /><span>Preparando o globo…</span></div>,
 })
 
-export function HeroGlobe({ focusCode, purchases = [] }: { focusCode?: string | null; purchases?: GlobePurchase[] }) {
+interface HeroGlobeProps {
+  focusCode?: string | null
+  purchases?: GlobePurchase[]
+  metrics: OverviewMetricsProps
+  periodPicker: ReactNode
+  onRefresh: () => void
+  refreshing?: boolean
+  purchasesStale?: boolean
+}
+
+/** Um painel, um canvas. Métricas e atividade não dependem do carregamento do WebGL. */
+export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
   const { data, error, mutate, isLoading } = useLive()
   const [now, setNow] = useState(() => Date.now())
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(focusCode || null)
   const [focusRevision, setFocusRevision] = useState(0)
   const [pulseCodes, setPulseCodes] = useState<string[]>([])
   const [latestLead, setLatestLead] = useState<LatestLeadInfo | null>(null)
@@ -45,24 +53,14 @@ export function HeroGlobe({ focusCode, purchases = [] }: { focusCode?: string | 
   const live = useMemo(() => liveGlobeData(data, now, !!error), [data, now, error])
   const recentPurchases = useMemo(() => {
     const windowStart = now - 10 * 60_000
-    return purchases
-      .filter((purchase) => {
-        const timestamp = Date.parse(purchase.at)
-        return Number.isFinite(timestamp) && timestamp >= windowStart && timestamp <= now + 5_000
-      })
-      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    return purchases.filter(purchase => {
+      const timestamp = Date.parse(purchase.at)
+      return Number.isFinite(timestamp) && timestamp >= windowStart && timestamp <= now + 5_000
+    }).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
   }, [purchases, now])
+  const onlineTotal = live.countries.reduce((sum, country) => sum + country.count, 0)
 
-  const onlineTotal = useMemo(
-    () => live.countries.reduce((sum, country) => sum + country.count, 0),
-    [live.countries],
-  )
-  const selectedCountryName = useMemo(
-    () => (selected ? countryName(selected) : null),
-    [selected],
-  )
-
-  // O polling não interrompe a duração do destaque nem move a câmera do usuário.
+  // Primeira leitura/reconexão estabelece a base: somente aumento real gera pulso.
   useEffect(() => {
     const increased = live.fresh ? presenceIncreases(previous.current, live.countries) : []
     previous.current = live.fresh ? live.countries : null
@@ -86,128 +84,70 @@ export function HeroGlobe({ focusCode, purchases = [] }: { focusCode?: string | 
     setFocusRevision(value => value + 1)
   }, [focusCode])
 
-  return (
-    <div className="presence-panel">
-      <GlobeBoundary>
-      <GlobePanel
-        countries={live.countries}
-        focusCode={selected || focusCode}
-        focusRevision={focusRevision}
-        pulseCodes={pulseCodes}
-      >
-        <aside className="presence-insights" aria-label="Resumo de visitantes ao vivo">
-          <header className="presence-header">
-            <div className="presence-title-row">
-              <h2>Visitantes ao vivo</h2>
-              <span className="presence-live-state" data-fresh={live.fresh}>
-                <i aria-hidden="true" />
-                {live.fresh ? 'ao vivo' : 'atualizando'}
-              </span>
-            </div>
-          </header>
+  function focusCountry(code: string | null) {
+    setSelected(code)
+    setFocusRevision(value => value + 1)
+  }
 
-          <div className="presence-total-block">
-            <strong>{live.online ?? '—'}</strong>
-            <span>{live.online === 1 ? 'visitante agora' : 'visitantes agora'}</span>
+  return <section className="overview-observatory" aria-label="Visão geral da operação">
+    <header className="observatory-header">
+      <div className="observatory-heading">
+        <span className="observatory-emblem" aria-hidden="true"><Globe2 size={22} /></span>
+        <div><span className="observatory-eyebrow">ROI-NADOS</span><h2>Visão geral</h2></div>
+      </div>
+      <div className="observatory-period">{periodPicker}<span>Período dos indicadores</span></div>
+      <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
+        <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" /><span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>
+      </button>
+    </header>
+
+    <OverviewMetrics {...metrics} globe={
+      <GlobeBoundary embedded>
+        <GlobePanel embedded countries={live.countries} online={live.online} focusCode={selected} focusRevision={focusRevision} pulseCodes={pulseCodes}>
+          <div className="observatory-globe-caption">
+            {selected ? <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país"><MapPin size={13} aria-hidden="true" />{countryName(selected)}<X size={13} aria-hidden="true" /></button> : <span>Presença por país</span>}
           </div>
-
-          <div className="presence-insight-section">
-            <div className="presence-insight-heading">
-              <span className="presence-insight-label">Top países</span>
-              {live.countries.length > 0 && <span className="presence-insight-meta">agora</span>}
-            </div>
-            {live.countries.length > 0 ? (
-              <div className="presence-countries presence-countries--list" aria-label="Países com visitantes online">
-                {live.countries.slice(0, 3).map((country) => {
-                  const isPulse = pulseCodes.includes(country.code)
-                  const percentage = Math.round((country.count / Math.max(1, onlineTotal)) * 100)
-                  return (
-                    <button
-                      type="button"
-                      key={country.code}
-                      onClick={() => {
-                        setSelected(selected === country.code ? null : country.code)
-                        setFocusRevision(value => value + 1)
-                      }}
-                      aria-pressed={selected === country.code}
-                      data-pulse={isPulse}
-                      title={`Localizar ${countryName(country.code)} no globo`}
-                    >
-                      <span className="presence-country-flag" aria-hidden="true">{countryFlag(country.code)}</span>
-                      <span className="presence-country-name">{countryName(country.code)}</span>
-                      <span className="presence-country-track" aria-hidden="true"><i style={{ width: `${Math.max(10, percentage)}%` }} /></span>
-                      <span className="presence-country-percentage">{percentage}%</span>
-                      <strong>{country.count}</strong>
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="presence-empty-copy" role="status">
-                {isLoading ? 'Buscando visitantes…' : !live.fresh ? 'Presença não atualizada' : 'Aguardando novos visitantes…'}
-              </p>
-            )}
+          <div className="observatory-fullscreen-countries" role="group" aria-label="Localizar país no globo ampliado">
+            {live.countries.slice(0, 3).map(country => <button type="button" key={country.code} aria-pressed={selected === country.code} onClick={() => focusCountry(country.code)}><span aria-hidden="true">{countryFlag(country.code)}</span>{countryName(country.code)}<strong>{country.count}</strong></button>)}
           </div>
-
-          <div className="presence-purchases" aria-label="Compras recentes">
-            <div className="presence-purchases-heading">
-              <span><ShoppingBag size={14} aria-hidden="true" />Compras recentes</span>
-              <strong>{recentPurchases.length}</strong>
-            </div>
-            {recentPurchases.length > 0 ? (
-              <div className="presence-purchase-list">
-                {recentPurchases.slice(0, 2).map((purchase, index) => (
-                  <div className="presence-purchase-row" key={`${purchase.at}-${index}`}>
-                    <span className="presence-purchase-country">
-                      <span aria-hidden="true">{purchase.country ? countryFlag(purchase.country) : '🌐'}</span>
-                      <span>{purchase.country ? countryName(purchase.country) : 'Origem não informada'}</span>
-                    </span>
-                    <span className="presence-purchase-value" data-sensitive>
-                      {Number(purchase.amount) > 0 ? fmtCurrency(purchase.amount as number, purchase.currency) : 'Compra'}
-                    </span>
-                    <span className="presence-purchase-time">{timeAgo(purchase.at)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <span className="presence-purchase-empty">Nenhuma compra nos últimos 10 min</span>
-            )}
-          </div>
-
-          {!live.fresh && !isLoading && (
-            <button type="button" className="presence-retry" onClick={() => void mutate()}>
-              <RefreshCw size={13} />
-              Tentar novamente
-            </button>
-          )}
-        </aside>
-
-        {selectedCountryName && <div className="presence-focus-label" role="status"><MapPin size={14} aria-hidden="true" />{selectedCountryName}</div>}
-
-        {/* Banner curto aparece apenas quando um novo acesso é detectado. */}
-        {latestLead && (
-          <div className="presence-lead-banner animate-in fade-in slide-in-from-top-2 duration-300" role="status" aria-live="polite">
-            <span className="presence-lead-banner-dot" aria-hidden="true" />
-            <span className="presence-lead-banner-tag">Novo acesso</span>
-            <div className="presence-lead-banner-text">
-              <span className="presence-lead-banner-flag">{latestLead.flag}</span>
-              <strong>{latestLead.name}</strong>
-            </div>
-            <button
-              type="button"
-              className="presence-lead-banner-btn"
-              onClick={() => {
-                setSelected(latestLead.code)
-                setFocusRevision(v => v + 1)
-              }}
-              title="Localizar visitante no globo"
-            >
-              Localizar
-            </button>
-          </div>
-        )}
-      </GlobePanel>
+        </GlobePanel>
       </GlobeBoundary>
+    } />
+
+    <div className="observatory-activity" aria-label="Atividade atual, independente do período">
+      <section className="observatory-live" aria-label="Visitantes ao vivo">
+        <header className="observatory-activity-heading"><h3><span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />Visitantes ao vivo</h3><span>{live.fresh ? 'agora' : isLoading ? 'carregando' : 'sem atualização'}</span></header>
+        <div className="observatory-live-total"><strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong><span>{live.online === 1 ? 'visitante online' : 'visitantes online'}</span></div>
+        {live.fresh && data && <p className="observatory-live-time">Atualizado às <time dateTime={data.ts}>{new Date(data.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time> · Brasília</p>}
+        {!live.fresh && !isLoading && <button type="button" className="observatory-text-link" onClick={() => void mutate()}><RefreshCw size={13} aria-hidden="true" />Tentar novamente</button>}
+        {latestLead && <div className="observatory-new-access" role="status"><span>{latestLead.flag} Novo acesso · {latestLead.name}</span><button type="button" onClick={() => focusCountry(latestLead.code)} aria-label={`Localizar novo acesso em ${latestLead.name}`}><MapPin size={14} aria-hidden="true" /></button></div>}
+      </section>
+
+      <section className="observatory-countries" aria-label="Top países ao vivo">
+        <header className="observatory-activity-heading"><h3><MapPin size={15} aria-hidden="true" />Top países</h3><span>agora</span></header>
+        {live.countries.length > 0 ? <div className="observatory-country-list">
+          {live.countries.slice(0, 3).map(country => {
+            const percentage = Math.round(country.count / Math.max(1, onlineTotal) * 100)
+            return <button type="button" key={country.code} onClick={() => focusCountry(selected === country.code ? null : country.code)} aria-pressed={selected === country.code} data-pulse={pulseCodes.includes(country.code)} title={`Localizar ${countryName(country.code)} no globo`}>
+              <span aria-hidden="true">{countryFlag(country.code)}</span><span className="observatory-country-name">{countryName(country.code)}</span>
+              <span className="observatory-country-track" aria-hidden="true"><i style={{ width: `${percentage}%` }} /></span>
+              <strong>{country.count}</strong>
+            </button>
+          })}
+        </div> : <p className="observatory-empty">{isLoading ? 'Buscando visitantes…' : !live.fresh ? 'Presença não atualizada' : live.online ? 'Localização não informada' : 'Aguardando novos visitantes'}</p>}
+      </section>
+
+      <section className="observatory-purchases" aria-label="Compras recentes">
+        <header className="observatory-activity-heading"><h3><ShoppingBag size={15} aria-hidden="true" />Compras recentes</h3><span>últimos 10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver todas <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
+        {purchasesStale && <p className="observatory-empty" data-warning>Histórico não atualizado</p>}
+        {recentPurchases.length > 0 ? <div className="observatory-purchase-list">
+          {recentPurchases.slice(0, 3).map((purchase, index) => <div className="observatory-purchase" key={`${purchase.at}-${index}`}>
+            <span className="observatory-purchase-country"><span aria-hidden="true">{purchase.country ? countryFlag(purchase.country) : '🌐'}</span><span>{purchase.country ? countryName(purchase.country) : 'Origem não informada'}</span></span>
+            <strong data-sensitive>{typeof purchase.amount === 'number' && Number.isFinite(purchase.amount) && purchase.amount >= 0 ? fmtCurrency(purchase.amount, purchase.currency) : 'Compra'}</strong>
+            <time dateTime={purchase.at}>{timeAgo(purchase.at)}</time>
+          </div>)}
+        </div> : !purchasesStale && <p className="observatory-empty">Nenhuma compra nos últimos 10 min</p>}
+      </section>
     </div>
-  )
+  </section>
 }
