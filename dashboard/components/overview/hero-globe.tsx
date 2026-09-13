@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, ShoppingBag } from 'lucide-react'
+import { RefreshCw, ShoppingBag, MapPin } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
@@ -182,19 +182,7 @@ export function HeroGlobe({ focusCode, purchases = [] }: { focusCode?: string | 
           )}
         </aside>
 
-        <aside className="presence-context" aria-label="Contexto da visualização global">
-          <div className="presence-context-block">
-            <span className="presence-context-eyebrow">Visitantes em tempo real</span>
-            <strong>Conexões do mundo todo</strong>
-            <p>{live.fresh ? 'Atualização contínua da presença global.' : 'Sincronizando dados da presença global.'}</p>
-          </div>
-
-          <div className="presence-context-block">
-            <span className="presence-context-eyebrow">Visualização</span>
-            <strong>{selectedCountryName ?? 'Mapa global ativo'}</strong>
-            <p>{selectedCountryName ? 'Foco aplicado a partir da legenda de países.' : 'Use a legenda, o globo ou os controles para explorar.'}</p>
-          </div>
-        </aside>
+        {selectedCountryName && <div className="presence-focus-label" role="status"><MapPin size={14} aria-hidden="true" />{selectedCountryName}</div>}
 
         {/* Banner curto aparece apenas quando um novo acesso é detectado. */}
         {latestLead && (

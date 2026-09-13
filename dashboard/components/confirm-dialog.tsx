@@ -61,7 +61,7 @@ export function ConfirmDialog({
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
-      <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl outline-none">
+      <div ref={ref} role="alertdialog" aria-modal="true" aria-busy={busy} aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl outline-none">
         <GlassCard variant="thick" className={cn(
           "universe-confirm p-6 border shadow-2xl transition-all",
           tone === 'danger' 
@@ -116,7 +116,7 @@ export function ConfirmDialog({
               }`}
             >
               {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-              {confirmLabel}
+              {busy ? 'Processando…' : confirmLabel}
             </button>
           </div>
         </GlassCard>

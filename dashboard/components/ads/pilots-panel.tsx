@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, Check, Settings2, ShieldCheck, TrendingUp, Clock3 } from 'lucide-react'
+import { Bell, Check, Settings2, ShieldCheck, TrendingUp, Clock3, ListChecks, Zap } from 'lucide-react'
 import type { AdsAutomationAutonomy, AdsRule } from '@/lib/types'
 import { PILOTS, INTENSITIES, detectPilots, buildPilotRules, type PilotId, type Intensity } from '@/lib/pilots'
 import { fmtSpend } from '@/lib/format'
@@ -10,9 +10,9 @@ import { Switch } from '@/components/switch'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 const MODES = [
-  { value: 'notify' as const, label: 'Só avisar', hint: 'Você faz os ajustes.' },
-  { value: 'propose' as const, label: 'Pedir aprovação', hint: 'Você aprova cada ação.' },
-  { value: 'auto' as const, label: 'Aplicar sozinho', hint: 'Segue as regras e os limites.' },
+  { value: 'notify' as const, label: 'Só avisar', hint: 'Você faz os ajustes.', icon: Bell },
+  { value: 'propose' as const, label: 'Pedir aprovação', hint: 'Você aprova cada ação.', icon: ListChecks },
+  { value: 'auto' as const, label: 'Aplicar sozinho', hint: 'Segue as regras e os limites.', icon: Zap },
 ]
 const INFO = {
   protector: { title: 'Proteger orçamento', detail: 'Define quando pausar ou reduzir o investimento.', icon: ShieldCheck },
@@ -58,7 +58,7 @@ export function PilotsPanel({ currency, rules, autonomy, saving, onSetPilot, onS
   return <div className="space-y-4" data-tour="ads-pilots">
     <GlassCard className="p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div><h3 className="text-sm font-semibold">Como agir</h3><p className="mt-1 text-xs text-muted-foreground">Escolha quanto controle deseja manter.</p></div>
+        <h3 className="text-base font-semibold">Como a automação deve agir?</h3>
         {onOpenLimits && <button type="button" onClick={onOpenLimits} className="btn-secondary text-xs"><Settings2 className="size-3.5" />Limites e segurança</button>}
       </div>
       <div className="grid gap-2 sm:grid-cols-3" aria-label="Modo de execução">
@@ -67,6 +67,7 @@ export function PilotsPanel({ currency, rules, autonomy, saving, onSetPilot, onS
           if (mode.value === 'auto') { if (automaticBlockedReason) setBlocked(true); else setConfirmAuto(true) }
           else { setBlocked(false); void onSetAutonomy(mode.value) }
         }} className={`rounded-xl border p-3 text-left transition-colors ${autonomy === mode.value ? 'border-primary/50 bg-primary/10' : 'border-border hover:bg-secondary'}`}>
+          <span className="automation-mode-icon" aria-hidden="true"><mode.icon size={20} /></span>
           <span className="flex items-center justify-between gap-2 text-sm font-medium">{mode.label}{autonomy === mode.value && <Check className="size-4 text-primary" />}</span>
           <span className="mt-1 block text-xs text-muted-foreground">{mode.hint}</span>
         </button>)}

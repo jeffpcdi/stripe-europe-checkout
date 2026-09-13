@@ -65,20 +65,18 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   const [attempt, setAttempt] = useState(0)
   const material = useMemo(() => {
     const earth = new THREE.MeshStandardMaterial({
-      // PBR leve para dar materialidade real ao planeta sem pesar o WebGL.
-      // A Terra precisa continuar dark, porém mais crível, volumétrica e premium.
-      color: '#9fb0bb',
-      roughness: 0.88,
+      // Base clara preserva oceanos, nuvens e continentes sob a iluminação da cena.
+      color: '#e1edf5',
+      roughness: 0.78,
       metalness: 0.02,
       envMapIntensity: 0.24,
-      bumpScale: 0.58,
+      bumpScale: 0.34,
       emissive: '#000000',
       emissiveIntensity: 0,
       dithering: true,
     })
 
-    // O shader mantém a textura diurna natural, mas com grade frio/escuro,
-    // terminador mais longo e rim atmosférico extremamente sutil aderido à borda.
+    // Transição dia/noite suave, com relevo legível também no hemisfério escuro.
     earth.onBeforeCompile = (shader: GlobeShaderSource) => {
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <emissivemap_fragment>',
@@ -87,17 +85,17 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   float roiSunFacing = dot(normal, directionalLights[0].direction);
   float roiDaylight = smoothstep(-0.34, 0.30, roiSunFacing);
   float roiNightMask = 1.0 - smoothstep(-0.16, 0.20, roiSunFacing);
-  float roiTwilight = smoothstep(-0.28, 0.10, roiSunFacing) - smoothstep(0.08, 0.34, roiSunFacing);
-  vec3 roiNightGrade = vec3(0.23, 0.30, 0.39);
-  vec3 roiDayGrade = vec3(0.95, 0.98, 1.02);
+  vec3 roiNightGrade = vec3(0.60, 0.70, 0.84);
+  vec3 roiDayGrade = vec3(1.02, 1.03, 1.05);
   diffuseColor.rgb *= mix(roiNightGrade, roiDayGrade, roiDaylight);
   totalEmissiveRadiance *= roiNightMask;
 #endif`,
       )
       shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <output_fragment>',
-        `#include <output_fragment>
+        '#include <opaque_fragment>',
+        `#include <opaque_fragment>
 #if NUM_DIR_LIGHTS > 0
+{
   vec3 roiViewDir = normalize(vViewPosition);
   float roiFresnel = pow(clamp(1.0 - abs(dot(normal, roiViewDir)), 0.0, 1.0), 4.6);
   float roiSunFacing = dot(normal, directionalLights[0].direction);
@@ -106,10 +104,11 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
   vec3 roiAtmosphere = vec3(0.18, 0.66, 0.92) * roiFresnel * roiRimMask * 0.18;
   vec3 roiTwilightLift = vec3(0.05, 0.12, 0.18) * roiTwilight * roiFresnel * 0.42;
   gl_FragColor.rgb += roiAtmosphere + roiTwilightLift;
+}
 #endif`,
       )
     }
-    earth.customProgramCacheKey = () => 'roi-nados-earth-v22-premium-realistic'
+    earth.customProgramCacheKey = () => 'roi-nados-earth-daylight-v1'
     return earth
   }, [attempt])
 
@@ -131,7 +130,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
         nightMap.needsUpdate = true
         material.emissiveMap = nightMap
         material.emissive.set('#efb76f')
-        material.emissiveIntensity = 0.36
+        material.emissiveIntensity = 0.48
         material.needsUpdate = true
       },
       undefined,
@@ -643,12 +642,11 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       material.emissiveMap.needsUpdate = true
     }
 
-    // A rig de luz da cena permanece exatamente a mesma para não mudar pontos,
-    // rings ou outros elementos WebGL. O refinamento desta rodada fica no material.
-    const fill = new THREE.AmbientLight('#d5e5f0', 0.46)
-    const key = new THREE.DirectionalLight('#f7fbff', 2.02)
+    // Preenchimento mais aberto evita continentes apagados durante a rotação.
+    const fill = new THREE.AmbientLight('#e5efff', 1.25)
+    const key = new THREE.DirectionalLight('#f7fbff', 2.65)
     key.position.set(-162, 102, 214)
-    const coolFill = new THREE.DirectionalLight('#7faec8', 0.22)
+    const coolFill = new THREE.DirectionalLight('#9fc9e2', 0.65)
     coolFill.position.set(94, 38, 132)
     const cyanRim = new THREE.DirectionalLight('#4fe0ff', 0.42)
     cyanRim.position.set(170, -42, -154)
@@ -669,6 +667,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
     if (!globe) return
     let visible = true
     const renderVisibility = () => {
+      containerRef.current?.setAttribute('data-render-active', String(!document.hidden && visible))
       if (document.hidden || !visible) globe.pauseAnimation()
       else globe.resumeAnimation()
     }
@@ -746,6 +745,7 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
       aria-modal={isImmersive || undefined}
       aria-label="Globo de visitantes online"
       data-ready={ready}
+      data-motion-paused={paused || reduced}
       data-immersive={isImmersive}
       data-in-app-fullscreen={inAppFullscreen}
     >
@@ -780,18 +780,14 @@ export default function GlobePanel({ countries, focusCode, focusRevision, pulseC
 
       <div className="presence-sky" aria-hidden="true" />
       <div className="presence-star-depth" aria-hidden="true" />
-      <div className="presence-blackhole" aria-hidden="true"
-        style={{ '--horizon-size': `${Math.min(size.width, size.height) * 1.2}px` } as CSSProperties}>
-        <div className="presence-blackhole-lens" />
-        <div className="presence-blackhole-disc" />
-      </div>
       <div ref={canvasRef} className="presence-canvas">
+        <div className="presence-orbital-field" aria-hidden="true" />
         {size.width > 0 && <GlobeGL key={attempt} ref={globeRef} width={size.width} height={Math.max(1, size.height)}
           onGlobeReady={onReady} globeMaterial={material} backgroundColor="rgba(0,0,0,0)"
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#67d3f4" atmosphereAltitude={0.0175}
+          showAtmosphere atmosphereColor="#91dcfa" atmosphereAltitude={0.022}
           htmlElementsData={htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"

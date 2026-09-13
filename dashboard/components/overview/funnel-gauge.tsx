@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowDownRight, CheckCircle2, Funnel } from 'lucide-react'
+import { ArrowDownRight, CheckCircle2, Funnel, Eye, ShoppingCart, CreditCard } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 
 interface FunnelGaugeProps { visits: number; checkout: number; payment: number; purchased: number }
@@ -8,10 +8,10 @@ const percent = (value: number) => value.toLocaleString('pt-BR', { minimumFracti
 
 export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaugeProps) {
   const steps = [
-    { label: 'Visitas', value: visits, detail: 'Acessaram a página' },
-    { label: 'Checkout', value: checkout, detail: 'Abriram o checkout' },
-    { label: 'Pagamento', value: payment, detail: 'Iniciaram o pagamento' },
-    { label: 'Compras', value: purchased, detail: 'Pagamento aprovado' },
+    { label: 'Visitas', value: visits, detail: 'Acessaram a página', icon: Eye },
+    { label: 'Checkout', value: checkout, detail: 'Abriram o checkout', icon: ShoppingCart },
+    { label: 'Pagamento', value: payment, detail: 'Iniciaram o pagamento', icon: CreditCard },
+    { label: 'Compras', value: purchased, detail: 'Pagamento aprovado', icon: CheckCircle2 },
   ]
   const convRate = visits > 0 ? (purchased / visits) * 100 : 0
 
@@ -39,11 +39,7 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
                   className="journey-step-number"
                   aria-hidden="true"
                 >
-                  {index === 3 && step.value > 0 ? (
-                    <CheckCircle2 size={13} className="text-success" />
-                  ) : (
-                    `0${index + 1}`
-                  )}
+                  <step.icon size={17} />
                 </span>
                 <span title={step.detail} className="font-medium text-foreground text-xs">
                   {step.label}

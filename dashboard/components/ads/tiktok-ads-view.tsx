@@ -380,7 +380,7 @@ export function TikTokAdsView() {
         <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="ads-workspace-navigation flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="universe-tabs grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
                 {SUBTABS.map((item) => {
@@ -394,7 +394,7 @@ export function TikTokAdsView() {
                       value={item.value}
                       className="tiktok-section-tab touch-manipulation"
                     >
-                      <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
+                      <item.icon className="size-4 shrink-0" aria-hidden="true" />
                       <span className="truncate sm:hidden">{item.compactLabel}</span>
                       <span className="hidden sm:inline">{item.label}</span>
                       {attentionCount > 0 && (

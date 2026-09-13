@@ -82,7 +82,7 @@ export function CatalogManager({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="catalog-workspace flex flex-col gap-3">
       {(!bc?.bcId || !selectedId) && (
         <BusinessCenterBar
           advertiserId={advertiserId}

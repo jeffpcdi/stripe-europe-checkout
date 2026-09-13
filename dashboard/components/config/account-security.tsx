@@ -17,7 +17,7 @@ import {
   ShieldCheck, Loader2, Check, MonitorSmartphone, Globe2, Send,
 } from 'lucide-react'
 import useSWR from 'swr'
-import { useAccount, apiSend, fetcher } from '@/lib/api'
+import { useAccount, apiSend, fetcher, ApiError } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
 import { GlassCard } from '@/components/glass-card'
@@ -25,9 +25,9 @@ import { GlassCard } from '@/components/glass-card'
 const inputCls =
   'input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none'
 const btnGhost =
-  'flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50'
+  'btn-secondary flex min-h-11 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50'
 const btnPrimary =
-  'flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none'
+  'btn-primary flex min-h-11 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 disabled:shadow-none'
 
 /* ── Item 414: resumo do user-agent ("Chrome · Windows") ────────────────── */
 function shortUa(ua: string | null): string {
@@ -54,7 +54,7 @@ interface SessionRow {
 /* ── Conta e segurança: nome (413), senha (411), sessões (414/415) ──────── */
 export function SecurityCard() {
   const { data: account, mutate: mutateAccount } = useAccount()
-  const { data: sessions, mutate: mutateSessions } = useSWR<{ ok: boolean; sessions: SessionRow[] }>(
+  const { data: sessions, error: sessionsError, mutate: mutateSessions } = useSWR<{ ok: boolean; sessions: SessionRow[] }>(
     '/api/account/sessions',
     fetcher,
     { revalidateOnFocus: false },
@@ -114,21 +114,30 @@ export function SecurityCard() {
 
   /* item 414 — sessões */
   const [revoking, setRevoking] = useState<string | null>(null)
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null)
 
   async function revokeOne(sid: string) {
+    if (revoking) return
     setRevoking(sid)
+    setSessionMessage(null)
     try {
-      await fetch(`/api/account/sessions/${sid}`, { method: 'DELETE', credentials: 'include' })
-      mutateSessions()
+      await apiSend(`/api/account/sessions/${encodeURIComponent(sid)}`, 'DELETE')
+      await mutateSessions()
+    } catch (error) {
+      setSessionMessage(error instanceof ApiError ? error.display : 'Não foi possível encerrar a sessão. Atualize a lista antes de tentar novamente.')
     } finally {
       setRevoking(null)
     }
   }
   async function revokeOthers() {
+    if (revoking) return
     setRevoking('all')
+    setSessionMessage(null)
     try {
       await apiSend('/api/account/sessions/revoke-others', 'POST', {})
-      mutateSessions()
+      await mutateSessions()
+    } catch (error) {
+      setSessionMessage(error instanceof ApiError ? error.display : 'Não foi possível confirmar o encerramento. Atualize a lista antes de tentar novamente.')
     } finally {
       setRevoking(null)
     }
@@ -185,26 +194,17 @@ export function SecurityCard() {
       </div>
 
       {/* item 411 — trocar senha (MODAL) */}
-      <Modal isOpen={modalPw} onClose={() => setModalPw(false)} title="Trocar senha" description="As outras sessões serão encerradas por segurança.">
-        <div className="flex flex-col gap-3">
-          <input className={`${inputCls}`} type="password" placeholder="Senha atual" autoComplete="current-password" value={pwCur} onChange={(e) => setPwCur(e.target.value)} />
-          <input className={`${inputCls}`} type="password" placeholder="Nova senha (mín. 8)" autoComplete="new-password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} />
-          <input className={`${inputCls}`} type="password" placeholder="Repita a nova" autoComplete="new-password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} />
-          <div className="flex items-center justify-end gap-2 mt-2">
-             {pwMsg && (
-                <p className={`text-xs ${pwMsg.ok ? 'text-success' : 'anim-shake text-destructive'} mr-auto`} role="status">
-                  {pwMsg.text}
-                </p>
-              )}
-             <button type="button" onClick={() => setModalPw(false)} className={btnGhost}>
-                Cancelar
-             </button>
-             <button type="button" onClick={savePassword} disabled={savingPw || !pwCur || !pwNew} className={btnPrimary}>
-                {savingPw ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                Salvar nova senha
-             </button>
-          </div>
-        </div>
+      <Modal isOpen={modalPw} onClose={() => setModalPw(false)} busy={savingPw} title="Trocar senha" description="As outras sessões serão encerradas por segurança."
+        footer={<><button type="button" disabled={savingPw} onClick={() => setModalPw(false)} className={btnGhost}>Cancelar</button><button type="submit" form="account-password-form" disabled={savingPw || !pwCur || !pwNew || !pwNew2} className={btnPrimary}>{savingPw && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}{savingPw ? 'Salvando…' : 'Salvar nova senha'}</button></>}>
+        <form id="account-password-form" onSubmit={event => { event.preventDefault(); if (!savingPw) void savePassword() }}>
+          <fieldset disabled={savingPw} className="flex flex-col gap-4">
+            <legend className="sr-only">Alterar senha</legend>
+            <label className="text-sm text-muted-foreground">Senha atual<input className={`${inputCls} mt-1.5`} type="password" required autoComplete="current-password" value={pwCur} onChange={(e) => setPwCur(e.target.value)} /></label>
+            <label className="text-sm text-muted-foreground">Nova senha<input className={`${inputCls} mt-1.5`} type="password" required minLength={8} placeholder="Pelo menos 8 caracteres" autoComplete="new-password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} /></label>
+            <label className="text-sm text-muted-foreground">Confirme a nova senha<input className={`${inputCls} mt-1.5`} type="password" required minLength={8} autoComplete="new-password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} /></label>
+            {pwMsg && <p className={`text-sm ${pwMsg.ok ? 'text-success' : 'text-destructive'}`} role="status">{pwMsg.text}</p>}
+          </fieldset>
+        </form>
       </Modal>
 
       {/* item 420 — verificação em duas etapas (TOTP) (MODAL) */}
@@ -213,7 +213,8 @@ export function SecurityCard() {
       </Modal>
 
       {/* item 414 — sessões ativas (MODAL) */}
-      <Modal isOpen={modalSessions} onClose={() => setModalSessions(false)} title="Sessões Ativas" description="Onde sua conta está logada agora">
+      <Modal isOpen={modalSessions} onClose={() => setModalSessions(false)} busy={revoking !== null} title="Dispositivos conectados" description="Onde sua conta está conectada agora">
+        {(sessionMessage || sessionsError) && <div role="alert" className="mb-4 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm text-warning">{sessionMessage || 'Não foi possível atualizar os dispositivos.'}<button type="button" className={`${btnGhost} mt-2`} disabled={revoking !== null} onClick={() => { setSessionMessage(null); void mutateSessions() }}>Atualizar lista</button></div>}
         <div className="flex items-center justify-end mb-4">
           <button
             type="button"
@@ -225,7 +226,7 @@ export function SecurityCard() {
             Encerrar todas as outras
           </button>
         </div>
-        {!sessions ? (
+        {!sessions && sessionsError ? null : !sessions ? (
           <p className="py-2 text-xs text-muted-foreground">Carregando sessões…</p>
         ) : list.length === 0 ? (
           <p className="py-2 text-xs text-muted-foreground">Nenhuma sessão ativa encontrada.</p>

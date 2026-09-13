@@ -142,7 +142,7 @@ export function AdsContextBar({
       <div className="ads-command-actions">
         <div className="ads-range-switch" role="group" aria-label="Período global das métricas">
           <Clock3 className="ads-range-icon size-3.5" aria-hidden="true" />
-          {RANGE_OPTIONS.map(option => (
+          {RANGE_OPTIONS.filter(option => [1, 7, 30].includes(option.value)).map(option => (
             <button
               key={option.value}
               type="button"
@@ -153,6 +153,13 @@ export function AdsContextBar({
               {option.label}
             </button>
           ))}
+          <label className="ads-range-more">
+            <span className="sr-only">Outros períodos</span>
+            <select aria-label="Outros períodos" value={[1, 7, 30].includes(rangeDays) ? '' : rangeDays} onChange={event => { if (event.target.value) onRangeDays(Number(event.target.value)) }}>
+              <option value="" disabled>Mais</option>
+              {RANGE_OPTIONS.filter(option => ![1, 7, 30].includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
         </div>
 
         <label className="ads-range-mobile">
@@ -167,7 +174,7 @@ export function AdsContextBar({
           className="ads-refresh-button"
           onClick={onRefresh}
           disabled={refreshing || !selectedAdvertiser}
-          aria-label={syncMeta.label}
+          aria-label={refreshing ? 'Atualizando dados do TikTok' : 'Atualizar dados do TikTok'}
           title={`${syncMeta.label}. Atualizar dados do TikTok agora.`}
         >
           <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />

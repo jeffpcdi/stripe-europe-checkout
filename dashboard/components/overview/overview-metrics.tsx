@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, TrendingDown, TrendingUp, ChartNoAxesColumnIncreasing, Megaphone, Funnel, ShoppingCart } from 'lucide-react'
+import { ArrowUpRight, TrendingDown, TrendingUp, ChartNoAxesColumnIncreasing, Megaphone, Funnel, ShoppingCart, Info } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 import type { AdsRoasResponse } from '@/lib/types'
 import type { PeriodMetrics } from '@/lib/metrics'
@@ -58,7 +58,13 @@ function Metric({ title, description, index, value, footer, icon, action, moneta
       <div className="overview-metric-main">
         <div className="overview-metric-value" data-sensitive={monetary || undefined}>{value}</div>
       </div>
-      <div className="overview-metric-footer">{footer}</div>
+      <div className="overview-metric-footer">
+        {footer}
+        <details className="metric-explanation">
+          <summary><Info size={13} aria-hidden="true" /><span>Como ler</span></summary>
+          <p>{description}</p>
+        </details>
+      </div>
     </article>
   )
 }
@@ -118,7 +124,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
       </article>
       <div className="overview-summary-kpis">
         <Metric
-          title="Gasto em ADS"
+          title="Investimento em anúncios"
           description="Investimento total da conta de anúncios, incluindo campanhas pausadas e encerradas."
           index={1}
           theme="amber"
@@ -134,7 +140,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
           footer={
             <>
               <span className={adsError ? 'overview-metric-context text-warning font-medium' : 'overview-metric-context'}>
-                {adsError ? 'Atualização pendente' : spend === null ? 'Dados indisponíveis' : allPeriod ? 'TikTok Ads · últimos 90 dias' : 'TikTok Ads · todas as campanhas'}
+                {adsError ? 'Atualização pendente' : spend === null ? 'Dados indisponíveis' : allPeriod ? 'TikTok Ads · últimos 90 dias' : 'TikTok Ads · conta inteira'}
               </span>
             </>
           }
@@ -148,7 +154,7 @@ export function OverviewMetrics({ revenueCents, currency, sales, visits, purchas
           value={roas !== null ? <CountUp value={roas} format={(value) => `${decimal(value, 2)}×`} /> : '—'}
           footer={
             <>
-              <span className="overview-metric-context">{!hasAds ? 'Dados indisponíveis' : ads?.currencyMismatch ? 'Receita e gasto em moedas diferentes' : roas === null ? 'Retorno indisponível' : 'Receita atribuída aos anúncios'}</span>
+              {(!hasAds || ads?.currencyMismatch || roas === null) && <span className="overview-metric-context">{!hasAds ? 'Dados indisponíveis' : ads?.currencyMismatch ? 'Moedas diferentes' : 'Retorno indisponível'}</span>}
               {cpa !== null && <span className="overview-metric-detail">Custo por venda <strong data-sensitive>{adsMoney(cpa)}</strong></span>}
             </>
           }

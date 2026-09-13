@@ -145,6 +145,16 @@ function buildOverviewHealth(input) {
   const critical = actions.filter((action) => action.severity === 'critical').length;
   const warnings = actions.filter((action) => action.severity === 'warning').length;
 
+  // Cadastros não comprovam entrega: o guia separa configuração de atividade
+  // real e nunca pede uma compra de teste ou libera campanhas automaticamente.
+  const setupSteps = [
+    { id: 'link', label: 'Link rastreado', configured: activeLinks.length > 0, href: '/links' },
+    { id: 'pixel', label: 'Pixel de conversões', configured: readyPixels.length > 0, href: '/conversions?tab=pixels' },
+    { id: 'gateway', label: 'Gateway cadastrado', configured: gateways.length > 0, href: '/conversions?tab=gateways' }
+  ];
+  const nextSetupStep = setupSteps.find((step) => !step.configured);
+  const orderedActions = [...actions].sort((a, b) => Number(b.severity === 'critical') - Number(a.severity === 'critical'));
+
   return {
     ok: true,
     status: critical > 0 ? 'critical' : warnings > 0 ? 'warning' : 'healthy',
@@ -163,6 +173,14 @@ function buildOverviewHealth(input) {
         lastEventAt: latest(gateways.map((gateway) => gateway.lastEventAt))
       }
     },
+    guide: {
+      configured: setupSteps.filter((step) => step.configured).length,
+      total: setupSteps.length,
+      steps: setupSteps,
+      nextAction: nextSetupStep
+        ? orderedActions.find((action) => action.id === nextSetupStep.id)
+        : orderedActions[0] || null
+    },
     coverage: {
       purchases: {
         total: purchaseBase,
@@ -174,7 +192,7 @@ function buildOverviewHealth(input) {
       geography: { total: leads.length, identified: knownCountryVisits, rate: pct(knownCountryVisits, leads.length) },
       hosts: { total: hosts.length, uncovered: uncoveredHosts.length, items: hosts.slice(0, 12) }
     },
-    actions: actions.slice(0, 8)
+    actions: orderedActions.slice(0, 8)
   };
 }
 

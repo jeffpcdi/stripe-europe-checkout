@@ -976,7 +976,7 @@ só no Railway (§5.2.2).
   `legacy=1` e serve o `DASHBOARD_HTML` antigo). Não apagar `dashboard-view.js`.
 
 ### 19.2 Stack e dados
-- Next.js 16.2.11 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
+- Next.js 16.3.4 (App Router), React 19, TypeScript, Tailwind v4
   (`@import 'tailwindcss'` + tokens em `@theme`/`:root` no `globals.css`), lucide-react (ícones),
   Recharts (gráficos), `globe.gl` (globo 3D), SWR (dados).
   O override `sharp=0.35.3` corrige a versão opcional vulnerável herdada do Next; validar com
@@ -1091,15 +1091,17 @@ ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
   material em métricas, funil e atividade. Números tabulares, títulos claros, bordas com contraste
   e KPIs em grelha 4→2→1. Destaques ciano indicam ações/seleção, verde destaca receita/compra;
   tons âmbar e violeta integram o ambiente espacial sem substituir cores de erro.
-- **Layout:** `TopNav` envolve `Header` em um cabeçalho único preso ao topo, com a logo original
-  à esquerda (imagem 96px no desktop, 64px no tablet e 58px no celular, sem editar o asset).
-  Título e ações da conta dividem a primeira linha; navegação fica abaixo. Até 1099px, Menu abre
+- **Layout:** `TopNav` envolve `Header` em um cabeçalho único, com a logo original
+  à esquerda (imagem 112px no desktop, 82px no tablet e 72px no celular, sem editar o asset).
+  Em 1100–1439px, título e ações dividem a primeira linha e a navegação fica abaixo; a partir
+  de 1440px, marca, navegação e ações usam uma linha. Até 1099px, Menu abre
   uma grade com todas as áreas, fechada ao navegar, clicar fora ou pressionar Escape. O menu
   possui altura limitada em telas baixas. Notificações, privacidade e conta usam alvos consistentes;
-  conteúdo ocupa a largura disponível, sem sidebar nem carrossel de abas.
+  conteúdo ocupa a largura disponível, sem sidebar nem carrossel de abas. No celular, o cabeçalho
+  acompanha a rolagem para liberar espaço de leitura.
 - **Globo 3D** (`components/geo/globe.tsx`): texturas locais em `/dashboard/textures/`, presença
-  real, zoom e diálogo fullscreen nativo. Estrelas em SVG local e disco luminoso inclinado
-  inspirado em um buraco negro ficam atrás do canvas transparente. A expansão revela a tela
+  real, zoom e diálogo fullscreen nativo. Estrelas em SVG local, nebulosas e órbitas CSS
+  decorativas ficam atrás do canvas transparente. A expansão revela a tela
   a partir da posição do card, com entrada escalonada dos controles e saída animada, sem
   esticar a esfera. Respeita movimento reduzido e preferência de animações da dashboard.
 - **Notificações:** `NotificationBell` mostra no máximo 8 itens, diferencia prioridade crítica sem
@@ -1445,3 +1447,46 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
 
 ### Compatibilidade do build da dashboard (2026-09-12)
 - Os callbacks de shader/textura do globo mantêm tipos estruturais locais porque o pacote `three` instalado não publica declarações TypeScript. Compras enviadas ao `HeroGlobe` são produzidas diretamente como `GlobePurchase[]`, sem predicado incompatível com propriedades opcionais. Essas anotações são somente de compilação e não alteram WebGL, dados ou comportamento.
+
+### Refino compartilhado da dashboard (2026-09-12)
+- `app/dashboard-refinement.css`, importado após `globals.css` e escopado por `.refined-dashboard`,
+  concentra os novos ajustes de marca, navegação, botões, campos, cards e fundos. Manter os próximos
+  ajustes desta composição nesse arquivo, evitando novas rodadas dispersas em `globals.css`.
+  A paleta agora usa superfícies ardósia mais claras (`#263647` / `#304459`) e texto de alto
+  contraste; os tokens no `body` também atendem aos portais. A atmosfera espacial é mais discreta
+  fora do globo. Não aplicar esta composição à view legada por engano.
+- Visão geral destaca Faturamento com KPIs de mesma escala, contraste ampliado e fundos semânticos.
+  Explicações dos KPIs ficam em `details` acessíveis por teclado/toque; o funil usa ícones de etapa.
+  TikTok Ads mantém os fluxos existentes, com barra de conta maior, abas de 46px, indicadores em
+  quatro colunas (duas em telas menores) e tabela rolável. Hoje/7/30 dias ficam diretos; demais
+  períodos permanecem em Mais e no seletor móvel, sem mudar a janela nem o fuso das métricas.
+  Criação de catálogo fica no cabeçalho; IDs são recolhidos nas listas e cards. O modal de planilha
+  aceita `showTrigger=false` para não duplicar a entrada. Modos de automação têm ícones e preservam
+  os resumos reais das regras e a confirmação antes de operar automaticamente.
+- `overview-health.js` acrescenta `guide` à resposta autenticada `/api/overview/health`, derivado
+  do mesmo snapshot escopado: três cadastros (link ativo, Pixel CAPI completo, gateway), contagem
+  e próxima ação. Críticos precedem avisos; cadastro não comprova entrega de eventos. `SetupGuide`
+  renderiza um próximo passo e recolhe os detalhes, some sem pendências e aceita o backend antigo
+  sem `guide`. Não consulta fornecedores, não expõe credenciais e não modifica campanhas.
+- O globo usa material diurno mais claro, preenchimento ampliado e menos escurecimento noturno.
+  O efeito de borda usa `opaque_fragment`, disponível no Three instalado; variáveis GLSL desse
+  trecho têm escopo próprio. As órbitas são decorativas e não representam tráfego. O filtro CSS
+  que aumentava o contraste do canvas foi removido; controles, fallback e movimento reduzido permanecem.
+  O texto editorial direito foi substituído pelo foco geográfico contextual. Órbita/estrelas usam
+  `data-render-active` e `data-motion-paused`: param com a aba oculta, fora da viewport, no botão
+  Pausar e com `prefers-reduced-motion`/`data-anim=off`. Presença e pulsos continuam reais.
+- `Modal` suporta `busy` (bloqueia fechar por botão, Escape e backdrop) e `footer` fixo fora da
+  rolagem. Aplicado à troca de senha, sessões e planilha; `ConfirmDialog` anuncia processamento.
+  Exclusão de histórico usa confirmação digitada `APAGAR` e explica que visitas, eventos e vendas
+  serão removidos. Nenhuma exclusão é executada no carregamento ou na validação dos componentes.
+- Resumo diário mantém rascunho em revalidação/falha, bloqueia edição antes da carga/durante save,
+  usa seletor de 24 horas e avisa quando o WhatsApp não está configurado no servidor. A recuperação
+  de Pixel distingue erro de consulta de lista vazia; sessões usam `apiSend` e mostram erro HTTP.
+  O fallback 502/503/504 orienta conferir status antes de repetir uma mutação, sem prometer que um
+  timeout não causou efeitos externos. As proteções de orçamento/publicação continuam intactas.
+- `test/dashboard-refinement.test.js` (no `pretest`) exercita handlers reais sem navegador: modal
+  ocupado, reconsulta de Pixel e preservação do rascunho. `overview-health` e `dashboard-ui-integrity`
+  também cobrem o guia, ausência de dados e os indicadores. `npm test` ainda para no erro de base
+  `rdb.releaseLock is not a function` em `conversion-database-retry`; não declarar a suíte inteira verde.
+- Compilação e regressões da dashboard verificadas localmente. A avaliação visual/responsiva desta
+  composição fica a cargo do usuário, conforme solicitado; não registrar como revisão no navegador.

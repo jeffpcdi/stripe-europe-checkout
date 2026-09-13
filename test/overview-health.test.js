@@ -19,6 +19,39 @@ function configured(extra) {
   assert(out.actions.some((a) => a.id === 'link'));
   assert(out.actions.some((a) => a.id === 'pixel'));
   assert(out.actions.some((a) => a.id === 'gateway'));
+  assert.equal(out.guide.configured, 0);
+  assert.equal(out.guide.total, 3);
+  assert.equal(out.guide.nextAction.id, 'link');
+  assert.equal(out.guide.steps.length, 3);
+}
+
+{
+  const out = configured({ pixels: [{ active: true, pixelCode: 'PX1' }] });
+  assert.equal(out.guide.configured, 2);
+  assert.equal(out.guide.nextAction.id, 'pixel', 'credencial incompleta não conta como configuração');
+  assert.equal(JSON.stringify(out.guide).includes('accessToken'), false, 'o guia não expõe credenciais');
+}
+
+{
+  const out = configured({ links: [{ ativo: false }, { ativo: true, arquivado: true }] });
+  assert.equal(out.guide.configured, 2);
+  assert.equal(out.guide.nextAction.id, 'link', 'links pausados e arquivados não concluem a etapa');
+}
+
+{
+  const out = configured();
+  assert.equal(out.guide.configured, 3);
+  assert.equal(out.guide.nextAction, null, 'não repete onboarding em conta configurada');
+  assert.equal(out.freshness.lastPaymentAt, null, 'cadastro não inventa atividade');
+}
+
+{
+  const out = configured({
+    pixels: [{ pixelCode: 'PX1', accessToken: 'segredo' }, { pixelCode: 'PX2' }],
+    gateways: []
+  });
+  assert.equal(out.actions[0].id, 'gateway', 'pendência crítica vem antes de revisão opcional');
+  assert.equal(out.guide.nextAction.id, 'gateway');
 }
 
 {

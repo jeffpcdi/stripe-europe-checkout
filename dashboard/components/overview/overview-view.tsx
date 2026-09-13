@@ -27,6 +27,7 @@ import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
 import { ErrorState } from '@/components/error-state'
+import { SetupGuide } from './setup-guide'
 import {
   TrendingUp,
   RefreshCw,
@@ -355,6 +356,7 @@ export function OverviewView() {
       }`}
     >
       {/* ── SEÇÃO 1: 4 PRINCIPAIS KPIS CONSOLIDADOS (ALTA DENSIDADE) ───────────── */}
+      <SetupGuide health={overviewHealth} />
       {(roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <OverviewMetrics
         revenueCents={revCents}

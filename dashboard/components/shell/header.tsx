@@ -157,6 +157,7 @@ export function Header() {
     <>
       <div key={pathname} className={cn('dashboard-page-context', changed && 'anim-fade-in')}>
         <h1>{current.label}</h1>
+        <p className="dashboard-page-description">{current.description}</p>
       </div>
       <div className="dashboard-account-actions" role="group" aria-label="Ações da conta">
         <DurabilityBadge />

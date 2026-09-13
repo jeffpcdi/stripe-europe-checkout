@@ -37,7 +37,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
           <strong data-sensitive>{money(point.revenue, currency)}</strong>
         </p>
         <p>{point.sales} {point.sales === 1 ? 'venda registrada' : 'vendas registradas'} · {point.visits} {point.visits === 1 ? 'visita' : 'visitas'}</p>
-        <p className="overview-revenue-hint">Ponto único no período · o gráfico aparece a partir de 2 dias de dados</p>
+        <p className="overview-revenue-hint">Gráfico disponível com 2 dias de dados</p>
       </div>
     )
   }
@@ -62,7 +62,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
 
           <CartesianGrid
             vertical={false}
-            stroke="rgba(130,165,190,0.075)"
+            stroke="rgba(182,205,223,0.16)"
             strokeWidth={1}
             strokeDasharray="2 7"
           />
@@ -73,7 +73,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
             tickLine={false}
             minTickGap={30}
             tickMargin={9}
-            tick={{ fill: '#7890a6', fontSize: 10.5, fontWeight: 500 }}
+            tick={{ fill: 'var(--refine-muted, #aebfd0)', fontSize: 12, fontWeight: 500 }}
           />
           <YAxis
             tickFormatter={value => fmtCompact(value / 100)}
@@ -81,7 +81,7 @@ export function RevenueTrend({ series, currency }: { series: PeriodMetrics['seri
             tickLine={false}
             width={48}
             tickMargin={7}
-            tick={{ fill: '#7890a6', fontSize: 10.5, fontWeight: 500 }}
+            tick={{ fill: 'var(--refine-muted, #aebfd0)', fontSize: 12, fontWeight: 500 }}
           />
           <Tooltip
             cursor={{ stroke: 'rgba(92,178,215,0.22)', strokeWidth: 1, strokeDasharray: '3 5' }}

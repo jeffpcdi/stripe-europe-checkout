@@ -267,7 +267,6 @@ export function CatalogList({
         <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2>Seus catálogos</h2>
-            <p>Produtos, vínculos e envios ao TikTok</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
@@ -340,7 +339,7 @@ export function CatalogList({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome, ID TikTok, país ou moeda..."
+              placeholder="Buscar catálogo…"
               aria-label="Buscar catálogo"
             />
             {search && (
@@ -371,44 +370,12 @@ export function CatalogList({
               </select>
             </div>
 
-            {/* Quick Action: Import Link */}
-            <button
-              type="button"
-              onClick={() => {
-                if (magicBusy) return
-                setShowMagicImport(!showMagicImport)
-                setCreating(false)
-              }}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                showMagicImport
-                  ? 'border-primary/50 bg-primary/10 text-primary'
-                  : 'border-border/80 bg-secondary/50 text-foreground hover:bg-secondary'
-              }`}
-              title="Importar catálogo colando o link do produto"
-            >
-              <Sparkles className="size-3.5 text-primary" />
-              <span>Importar link</span>
-            </button>
-
-            {/* Quick Action: Batch Dialog */}
-            <CatalogBatchDialog openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
-
-            {/* Quick Action: New Catalog */}
-            <button
-              type="button"
-              className="btn-primary shrink-0 text-xs font-semibold px-3.5 py-1.5 shadow-xs cursor-pointer"
-              onClick={() => {
-                if (magicBusy) return
-                setCreating(true)
-                setShowMagicImport(false)
-              }}
-            >
-              <Plus className="size-3.5" aria-hidden="true" />
-              Novo catálogo
-            </button>
           </div>
         </div>
       </div>
+
+      {/* A entrada de criação é única no cabeçalho do TikTok Ads. */}
+      <CatalogBatchDialog showTrigger={false} openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
 
       {showMagicImport && <CatalogProductImport key={advertiserId} advertiserId={advertiserId}
         countries={countries.map(item => ({ code: item.code, name: item.name || item.code }))}
@@ -486,7 +453,7 @@ export function CatalogList({
           <Loader2 className="size-6 animate-spin text-primary" aria-hidden="true" />
           <span className="text-xs font-medium">Carregando catálogos...</span>
         </div>
-      ) : catalogs.length === 0 && !creating ? (
+      ) : catalogs.length === 0 && (creating || showMagicImport) ? null : catalogs.length === 0 ? (
         <div className="flex flex-col items-center gap-3 p-10 text-center">
           <div className="rounded-full bg-secondary/80 p-3 text-muted-foreground/60">
             <PackageOpen className="size-7" aria-hidden="true" />
@@ -544,8 +511,8 @@ export function CatalogList({
             <thead className="bg-secondary/40 text-muted-foreground border-b border-border/70 sticky top-0 z-10 select-none backdrop-blur-xs">
               <tr>
                 <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[140px]">Status</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[260px]">Catálogo / Identificadores</th>
-                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[220px]">Produtos & Auditoria</th>
+                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[260px]">Catálogo</th>
+                <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider min-w-[220px]">Produtos</th>
                 <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[150px]">Mercado</th>
                 <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider w-[180px]">Sincronização</th>
                 <th className="px-4 py-3 font-semibold text-[11px] uppercase tracking-wider text-right w-[140px]">Ações</th>
@@ -563,7 +530,7 @@ export function CatalogList({
                   <tr
                     key={c.id}
                     onClick={() => onOpen(c.id)}
-                    className="hover:bg-secondary/30 transition-colors cursor-pointer group"
+                    className="campaign-table-row hover:bg-secondary/30 transition-colors cursor-pointer group"
                   >
                     {/* 1. Status */}
                     <td className="px-4 py-3 align-middle whitespace-nowrap">
@@ -578,7 +545,9 @@ export function CatalogList({
                         <span className="font-bold text-foreground text-sm truncate group-hover:text-primary transition-colors" title={c.name}>
                           {c.name}
                         </span>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
+                        <details className="catalog-identifiers mt-1 text-xs text-muted-foreground" onClick={event => event.stopPropagation()}>
+                          <summary className="cursor-pointer">Identificadores</summary>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground">
                           {c.tiktokCatalogId ? (
                             <span className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
                               <span className="text-muted-foreground">TT:</span> {c.tiktokCatalogId}
@@ -591,6 +560,7 @@ export function CatalogList({
                             ID: {c.id.slice(0, 8)}…
                           </span>
                         </div>
+                        </details>
                       </div>
                     </td>
 
@@ -717,7 +687,7 @@ export function CatalogList({
             return (
               <div
                 key={c.id}
-                className="flex flex-col justify-between rounded-xl border border-border/80 bg-card/60 p-4 transition-all hover:border-primary/50 hover:bg-card/90 hover:shadow-xs group"
+                className="catalog-summary-card flex flex-col justify-between rounded-xl border border-border/80 bg-card/60 p-4 transition-all hover:border-primary/50 hover:bg-card/90 hover:shadow-xs group"
               >
                 <div>
                   {/* Card Top: Status & Badges */}
@@ -742,6 +712,8 @@ export function CatalogList({
                       {c.name}
                     </h3>
                   </button>
+                  <details className="catalog-identifiers mt-1 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">Identificadores</summary>
                   <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-muted-foreground font-mono">
                     {c.tiktokCatalogId ? (
                       <span className="text-foreground bg-secondary px-1.5 py-0.5 rounded border border-border/50">
@@ -754,6 +726,7 @@ export function CatalogList({
                     <span title={`ID local: ${c.id}`}>ID: {c.id.slice(0, 8)}…</span>
                   </div>
 
+                  </details>
                   {/* Product Audit Breakdown */}
                   <div className="mt-3.5 grid grid-cols-4 gap-1.5 rounded-lg border border-border/50 bg-secondary/30 p-2 text-center text-[11px]">
                     <div>
@@ -796,7 +769,7 @@ export function CatalogList({
                   <button
                     type="button"
                     onClick={() => onOpen(c.id)}
-                    className="btn-primary flex-1 text-xs font-semibold py-1.5 justify-center cursor-pointer"
+                    className="btn-secondary flex-1 text-xs font-semibold py-1.5 justify-center cursor-pointer"
                   >
                     Gerenciar catálogo <span aria-hidden="true">→</span>
                   </button>

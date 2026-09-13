@@ -55,7 +55,7 @@ export function TopNav({ children }: { children: ReactNode }) {
     <header ref={shellRef} className="dashboard-masthead" data-tv-hide>
       <Link href="/" className="dashboard-brand-link" aria-label="ROI-NADOS — Visão geral" onClick={() => setMenuOpen(false)}>
         <span className="dashboard-logo-frame">
-          <Image src="/dashboard/roi-nados-logo.jpg" alt="ROI-NADOS" width={96} height={96}
+          <Image src="/dashboard/roi-nados-logo.jpg" alt="ROI-NADOS" width={144} height={144}
             unoptimized priority className="dashboard-logo-image" />
         </span>
       </Link>

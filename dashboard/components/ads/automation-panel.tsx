@@ -801,7 +801,7 @@ export function AutomationPanel({
   const engineTone = engineView?.tone
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="automation-workspace flex flex-col gap-3">
       {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
 
 

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
 import useSWR from 'swr'
-import { fetcher, apiSend } from '@/lib/api'
+import { fetcher, apiSend, ApiError } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 import { WebPushCard } from '@/components/config/web-push-card'
@@ -24,6 +24,7 @@ import { usePrefs } from '@/lib/prefs'
 import { formatDateTime } from '@/lib/format'
 import { ErrorState } from '@/components/error-state'
 import { Modal } from '@/components/ui/modal'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import type { AccountSettings } from '@/lib/types'
 import { toast } from '@/lib/toast'
 
@@ -206,30 +207,41 @@ function AuditCard() {
 }
 
 function DailyReportCard() {
-  const { data, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
-  const [phone, setPhone] = useState('')
-  const [hour, setHour] = useState(8)
-  const [enabled, setEnabled] = useState(false)
+  const { data, error, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
+  const [draft, setDraft] = useState<Partial<AccountSettings>>({})
   const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [feedback, setFeedback] = useState(true)
-  useEffect(() => { setFeedback(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
-  useEffect(() => {
-    if (!data) return
-    setPhone(data.whatsappTo || '')
-    setHour(data.dailyReportHour ?? 8)
-    setEnabled(data.dailyReportEnabled === true)
-  }, [data])
+  useEffect(() => { try { setFeedback(localStorage.getItem('roi_action_feedback') !== 'off') } catch { /* Armazenamento privado: mantém o padrão. */ } }, [])
+  const phone = draft.whatsappTo ?? data?.whatsappTo ?? ''
+  const hour = draft.dailyReportHour ?? data?.dailyReportHour ?? 8
+  const enabled = draft.dailyReportEnabled ?? data?.dailyReportEnabled ?? false
+  const dirty = Object.keys(draft).length > 0
+
   async function save() {
+    if (saving || !data || !dirty) return
     setSaving(true)
+    setMessage(null)
+    const patch = { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone }
     try {
-      await apiSend('/api/settings', 'POST', { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone })
-      toast.success('Notificação diária atualizada.')
-      await mutate()
-    } catch (error) { toast.error('Falha ao salvar', { hint: error instanceof Error ? error.message : undefined }) }
+      await apiSend('/api/settings', 'POST', patch)
+      await mutate({ ...data, ...patch }, { revalidate: false })
+      setDraft({})
+      setMessage({ ok: true, text: 'Preferências salvas' })
+      toast.success('Resumo diário atualizado')
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof ApiError ? error.display : 'Não foi possível salvar. Suas alterações continuam no formulário.' })
+    }
     finally { setSaving(false) }
   }
+
+  if (error && !data) return <ErrorState title="Não foi possível carregar as notificações" onRetry={() => void mutate()} />
+
   return (
     <GlassCard className="p-5">
+      <form onSubmit={event => { event.preventDefault(); void save() }} aria-busy={!data || saving}>
+      <fieldset disabled={!data || saving} className="min-w-0">
+      <legend className="sr-only">Resumo diário</legend>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
@@ -237,30 +249,40 @@ function DailyReportCard() {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">Resumo diário</h2>
-            <p className="text-xs text-muted-foreground">Receba gasto, vendas e lucro automaticamente todos os dias.</p>
+            <p className="text-xs text-muted-foreground">Gasto e vendas no horário escolhido.</p>
           </div>
         </div>
-        <Switch checked={enabled} onChange={setEnabled} label="Ativar resumo diário" />
+        <Switch checked={enabled} onChange={value => setDraft(current => ({ ...current, dailyReportEnabled: value }))} label="Ativar resumo diário" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_100px_auto] pt-1">
+      <div className="grid gap-3 sm:grid-cols-[1fr_160px] pt-1">
         <label className="text-xs text-muted-foreground">
-          WhatsApp com DDD
-          <input className="input mt-1 w-full" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} placeholder="5511999999999" />
+          WhatsApp com código do país e DDD
+          <input className="input mt-1 w-full" type="tel" inputMode="tel" autoComplete="tel" pattern="[0-9]{8,15}" maxLength={15} title="Use de 8 a 15 números, incluindo país e DDD" value={phone} onChange={event => setDraft(current => ({ ...current, whatsappTo: event.target.value.replace(/\D/g, '') }))} placeholder="5511999999999" />
         </label>
         <label className="text-xs text-muted-foreground">
-          Hora de envio (fuso da conta)
-          <input className="input mt-1 w-full" type="number" min="0" max="23" value={hour} onChange={(event) => setHour(Number(event.target.value))} />
+          Hora de envio
+          <select className="input mt-1 w-full" value={hour} onChange={event => setDraft(current => ({ ...current, dailyReportHour: Number(event.target.value) }))}>
+            {Array.from({ length: 24 }, (_, value) => <option key={value} value={value}>{String(value).padStart(2, '0')}:00</option>)}
+          </select>
         </label>
-        <button type="button" className="btn-primary self-end text-xs" onClick={save} disabled={saving}>
-          {saving ? <Loader2 className="size-3 animate-spin" /> : null} Salvar
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">Fuso: {data?.timezone || 'America/Sao_Paulo'}</p>
+      {data?.whatsapp && (!data.whatsapp.configured || !data.whatsapp.templateConfigured) && <p className="mt-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-warning">O envio por WhatsApp ainda precisa ser configurado no servidor. Salvar o número não ativa essa integração.</p>}
+      <div className="settings-save-bar mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
+        {dirty ? <span className="mr-auto text-xs text-warning">Alterações não salvas</span> : null}
+        {message && <p role="status" className={`text-xs ${message.ok ? 'text-success' : 'text-error'}`}>{message.text}</p>}
+        <button type="submit" className="btn-primary text-xs" disabled={!dirty || saving}>
+          {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}{saving ? 'Salvando…' : 'Salvar resumo'}
         </button>
       </div>
+      </fieldset>
+      </form>
       <label className="mt-4 flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 text-xs">
         <span>
           <b className="block text-foreground font-medium">Som e vibração de confirmação</b>
           <small className="text-muted-foreground">Confirma quando uma alteração é salva.</small>
         </span>
-        <Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" />
+        <Switch checked={feedback} onChange={(next) => { setFeedback(next); try { localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') } catch { /* Mantém a escolha nesta tela. */ } }} label="Feedback sonoro e tátil" />
       </label>
     </GlassCard>
   )
@@ -272,25 +294,23 @@ function DangerCard() {
   const [done, setDone] = useState(false)
 
   async function handleReset() {
-    if (!confirming) {
-      setConfirming(true)
-      return
-    }
+    if (resetting) return
     setResetting(true)
     try {
       await apiSend('/api/reset-stats', 'POST', {})
       setDone(true)
+      setConfirming(false)
       toast.success('Estatísticas zeradas com sucesso.')
       setTimeout(() => setDone(false), 3000)
     } catch {
       toast.error('Não foi possível zerar os dados.')
     } finally {
       setResetting(false)
-      setConfirming(false)
     }
   }
 
   return (
+    <>
     <GlassCard className="p-5 border-destructive/20 bg-destructive/[0.02]">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -300,23 +320,14 @@ function DangerCard() {
           <div>
             <h2 className="text-sm font-semibold text-foreground">Apagar estatísticas</h2>
             <p className="text-xs text-muted-foreground">
-              Limpa o histórico de cliques e visitas. Links, checkouts e pixels cadastrados são mantidos.
+              Remove o histórico de visitas, eventos e vendas desta conta.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {confirming && (
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
-            >
-              Cancelar
-            </button>
-          )}
           <button
             type="button"
-            onClick={handleReset}
+            onClick={() => setConfirming(true)}
             disabled={resetting}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
               confirming
@@ -329,10 +340,12 @@ function DangerCard() {
             ) : done ? (
               <ShieldCheck className="size-3.5" />
             ) : null}
-            {done ? 'Zerado' : confirming ? 'Confirmar e Zerar Agora' : 'Zerar Histórico'}
+            {done ? 'Zerado' : 'Apagar histórico'}
           </button>
         </div>
       </div>
     </GlassCard>
+    <ConfirmDialog open={confirming} onClose={() => setConfirming(false)} onConfirm={() => void handleReset()} busy={resetting} title="Apagar todo o histórico?" description="Visitas, eventos e vendas desta conta serão removidos. Links, pixels e gateways cadastrados serão mantidos. Esta ação não pode ser desfeita pelo painel." confirmText="APAGAR" confirmLabel="Apagar histórico" />
+    </>
   )
 }
