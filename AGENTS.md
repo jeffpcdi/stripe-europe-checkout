@@ -1453,8 +1453,10 @@ Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDia
   concentra os novos ajustes de marca, navegação, botões, campos, cards e fundos. Manter os próximos
   ajustes desta composição nesse arquivo, evitando novas rodadas dispersas em `globals.css`.
   A paleta agora usa superfícies ardósia mais claras (`#263647` / `#304459`) e texto de alto
-  contraste; os tokens no `body` também atendem aos portais. A atmosfera espacial é mais discreta
-  fora do globo. Não aplicar esta composição à view legada por engano.
+  contraste; os tokens no `body` também atendem aos portais. O fundo global `.dashboard-backdrop`
+  usa ardósia neutra, luz difusa e trama CSS discreta, estáticas e iguais entre abas. Substitui as
+  oito camadas cósmicas do layout; estrelas/órbitas ficam restritas ao globo. A cor da barra do
+  navegador acompanha o fundo (`#202b36`). Não aplicar esta composição à view legada por engano.
 - Visão geral destaca Faturamento com KPIs de mesma escala, contraste ampliado e fundos semânticos.
   Explicações dos KPIs ficam em `details` acessíveis por teclado/toque; o funil usa ícones de etapa.
   TikTok Ads mantém os fluxos existentes, com barra de conta maior, abas de 46px, indicadores em

@@ -5,7 +5,7 @@
   --refine-violet: #a993fa;
   --refine-green: #71e4ad;
   --refine-amber: #f5c579;
-  --refine-ink: #1b2634;
+  --refine-ink: #202b36;
   --refine-panel: #263647;
   --refine-raised: #304459;
   --refine-line: rgb(167 203 232 / 19%);
@@ -32,34 +32,30 @@
   --active: rgb(205 229 249 / 14%);
 }
 
-/* É o espaço entre as superfícies que revela a nebulosa e a profundidade. */
-.refined-dashboard .app-bg {
-  background: var(--refine-ink);
-}
-.refined-dashboard .app-bg__deep-space {
-  position: absolute;
+/* Fundo arquitetural único: iluminação difusa e trama discreta, sem cenário
+   cósmico fora do observatório. Não varia entre abas nem exige imagens ou animação. */
+.refined-dashboard .dashboard-backdrop {
+  position: fixed;
   inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  contain: paint;
   background:
-    radial-gradient(ellipse 55% 58% at 0 12%, rgb(39 139 167 / 24%), transparent 75%),
-    radial-gradient(ellipse 46% 62% at 98% 47%, rgb(107 73 170 / 23%), transparent 73%),
-    radial-gradient(ellipse 48% 25% at 50% 100%, rgb(27 104 142 / 18%), transparent 76%);
+    radial-gradient(ellipse 86% 65% at 48% -18%, rgb(181 206 222 / 11%), transparent 76%),
+    radial-gradient(ellipse 62% 85% at -14% 50%, rgb(97 159 172 / 7%), transparent 74%),
+    linear-gradient(155deg, #263540 0%, var(--refine-ink) 54%, #1e2833 100%);
 }
-.refined-dashboard .app-bg__dots {
-  background: url('/dashboard/space-stars-deep.svg') repeat 0 0 / 1180px 890px;
-  opacity: .22;
-  animation: none;
-}
-.refined-dashboard .app-bg__stars-near {
+.refined-dashboard .dashboard-backdrop::before {
+  content: '';
   position: absolute;
   inset: 0;
-  background: url('/dashboard/space-stars-near.svg') repeat 80px 130px / 920px 740px;
-  opacity: .14;
-}
-.refined-dashboard .app-bg__nebula {
-  opacity: .65;
-}
-.refined-dashboard .app-bg__vignette {
-  background: radial-gradient(ellipse at 50% 40%, transparent 25%, rgb(3 5 9 / 30%) 100%);
+  background-image:
+    linear-gradient(rgb(221 237 248 / 2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(221 237 248 / 2%) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: linear-gradient(#000, transparent 78%);
+  -webkit-mask-image: linear-gradient(#000, transparent 78%);
 }
 .refined-dashboard .dashboard-main {
   padding: 26px max(var(--refine-gutter), env(safe-area-inset-right))
@@ -766,8 +762,9 @@
 @keyframes refine-starlight { from { opacity: .4; } to { opacity: .75; } }
 @keyframes refine-dialog-enter { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
 .refined-dashboard .presence-orbital-field { animation: refine-orbit-breathe 12s ease-in-out infinite alternate; animation-play-state: paused; }
-.refined-dashboard .presence-star-depth { animation: refine-starlight 8s ease-in-out infinite alternate; animation-play-state: paused; }
+.refined-dashboard .presence-star-depth { animation: refine-starlight 8s ease-in-out infinite alternate !important; animation-play-state: paused !important; }
 .refined-dashboard .presence-stage[data-ready='true'][data-render-active='true'][data-motion-paused='false'] :is(.presence-orbital-field, .presence-star-depth) { animation-play-state: running; }
+.refined-dashboard .presence-stage[data-ready='true'][data-render-active='true'][data-motion-paused='false'] .presence-star-depth { animation-play-state: running !important; }
 .refined-dashboard .dialog-surface { animation: refine-dialog-enter 180ms ease-out; }
 .refined-dashboard :is(.btn-primary, .btn-secondary, .setup-guide-steps a) { transition: translate 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
