@@ -90,19 +90,30 @@ export function CloakStatsPanel() {
   const blockPct = agg && agg.total ? Math.round(agg.blockRate * 100) : 0
 
   async function confirmReset() {
-    if (!resetting) return
+    if (!resetting || resetBusy) return
+    const target = resetting
     setResetBusy(true)
+    let reset = false
     try {
-      await apiSend('/api/cloak/stats/reset', 'POST', resetting.key ? { key: resetting.key } : {})
-      toast.success(resetting.key ? `Contadores de "${resetting.nome}" zerados.` : 'Todos os contadores zerados.')
+      await apiSend('/api/cloak/stats/reset', 'POST', target.key ? { key: target.key } : {})
+      reset = true
       setResetting(null)
-      mutate()
+      toast.success(target.key ? `Contadores de "${target.nome}" zerados.` : 'Todos os contadores zerados.')
     } catch (err) {
       toast.error('Falha ao zerar os contadores.', {
         hint: err instanceof Error ? err.message : undefined,
       })
     } finally {
       setResetBusy(false)
+    }
+    if (reset) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('Contadores zerados, mas os números da tela não atualizaram completamente', {
+          hint: error instanceof Error ? error.message : undefined,
+        })
+      }
     }
   }
 

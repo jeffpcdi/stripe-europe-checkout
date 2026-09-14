@@ -73,27 +73,56 @@ export interface SourceRank {
 
 export const APP_TIME_ZONE = 'America/Sao_Paulo'
 
-const appDayFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: APP_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-})
+const dayFormatterCache = new Map<string, Intl.DateTimeFormat>()
+const partsFormatterCache = new Map<string, Intl.DateTimeFormat>()
 
-const appPartsFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: APP_TIME_ZONE,
-  hourCycle: 'h23',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-})
+function safeTimeZone(timeZone?: string | null): string {
+  const candidate = String(timeZone || APP_TIME_ZONE)
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date())
+    return candidate
+  } catch {
+    return APP_TIME_ZONE
+  }
+}
 
-function appParts(date: Date) {
+function dayFormatter(timeZone?: string | null) {
+  const tz = safeTimeZone(timeZone)
+  let formatter = dayFormatterCache.get(tz)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    dayFormatterCache.set(tz, formatter)
+  }
+  return formatter
+}
+
+function partsFormatter(timeZone?: string | null) {
+  const tz = safeTimeZone(timeZone)
+  let formatter = partsFormatterCache.get(tz)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    partsFormatterCache.set(tz, formatter)
+  }
+  return formatter
+}
+
+function appParts(date: Date, timeZone?: string | null) {
   const parts = Object.fromEntries(
-    appPartsFormatter.formatToParts(date).map((part) => [part.type, part.value]),
+    partsFormatter(timeZone).formatToParts(date).map((part) => [part.type, part.value]),
   )
   return {
     year: Number(parts.year),
@@ -105,36 +134,37 @@ function appParts(date: Date) {
   }
 }
 
-function appOffsetMs(date: Date) {
-  const p = appParts(date)
+function appOffsetMs(date: Date, timeZone?: string | null) {
+  const p = appParts(date, timeZone)
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime()
 }
 
-function appMidnight(year: number, month: number, day: number) {
+export function appMidnight(year: number, month: number, day: number, timeZone: string = APP_TIME_ZONE) {
+  const tz = safeTimeZone(timeZone)
   const utc = Date.UTC(year, month - 1, day)
-  let result = new Date(utc - appOffsetMs(new Date(utc)))
-  // Uma segunda passagem cobre transições de horário de verão caso a regra do
-  // fuso mude no futuro; hoje Brasília não aplica DST.
-  result = new Date(utc - appOffsetMs(result))
+  let result = new Date(utc - appOffsetMs(new Date(utc), tz))
+  // Uma segunda passagem cobre mudanças de offset/DST no fuso escolhido.
+  result = new Date(utc - appOffsetMs(result, tz))
   return result
 }
 
-export function appDateKey(date: Date): string {
-  return appDayFormatter.format(date)
+export function appDateKey(date: Date, timeZone: string = APP_TIME_ZONE): string {
+  return dayFormatter(timeZone).format(date)
 }
 
-export function periodStart(period: Period, now = new Date()): Date | null {
+export function periodStart(period: Period, now = new Date(), timeZone: string = APP_TIME_ZONE): Date | null {
   if (period === 'all') return null
-  const p = appParts(now)
-  // Janelas de calendário inclusivas e coerentes com o TikTok Ads:
-  // hoje = 00:00 de Brasília; 7d = hoje + 6 dias anteriores; 30d = +29.
+  const tz = safeTimeZone(timeZone)
+  const p = appParts(now, tz)
+  // Janelas de calendário inclusivas no fuso configurado da conta:
+  // hoje = 00:00; 7d = hoje + 6 dias anteriores; 30d = +29.
   const back = period === 'today' ? 0 : period === '7d' ? 6 : 29
   const target = new Date(Date.UTC(p.year, p.month - 1, p.day - back))
-  return appMidnight(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate())
+  return appMidnight(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate(), tz)
 }
 
-export function prevWindow(period: Period, now = new Date()) {
-  const start = periodStart(period, now)
+export function prevWindow(period: Period, now = new Date(), timeZone: string = APP_TIME_ZONE) {
+  const start = periodStart(period, now, timeZone)
   if (!start) return null
   const span = now.getTime() - start.getTime()
   return {
@@ -157,6 +187,7 @@ export function aggregate(
   data: StatsResponse,
   from: Date | null,
   to: Date | null = null,
+  timeZone: string = APP_TIME_ZONE,
 ): PeriodMetrics {
   const events: StatsEvent[] = data.events.filter((e) => within(e.at, from, to))
   const leads: Lead[] = data.leads.filter(
@@ -177,7 +208,7 @@ export function aggregate(
   const dayMap = new Map<string, { revenue: number; sales: number; visits: number }>()
   const dayOf = (at: string) => {
     const t = new Date(at)
-    return Number.isNaN(t.getTime()) ? at.slice(0, 10) : appDateKey(t)
+    return Number.isNaN(t.getTime()) ? at.slice(0, 10) : appDateKey(t, timeZone)
   }
   const bump = (at: string, key: 'revenue' | 'sales' | 'visits', v: number) => {
     const d = dayOf(at)
@@ -223,15 +254,27 @@ export function aggregate(
   }
 
   const visits = leads.length
-  const reachedCheckout = leads.filter(
-    (l) => l.stage === 'checkout' || l.stage === 'purchased',
-  ).length
+
+  // Um lead guarda o estágio ATUAL. Sem conferir o timestamp do estágio, um
+  // lead que visitou na semana passada e comprou hoje aparecia como compra na
+  // semana passada quando calculávamos janelas históricas. Isso contaminava
+  // comparações e taxas do funil com informação do futuro.
+  const checkoutInWindow = (l: Lead) => {
+    if (l.stage !== 'checkout' && l.stage !== 'purchased') return false
+    return within(l.checkoutAt || l.purchasedAt || l.at, from, to)
+  }
+  const paymentInWindow = (l: Lead) => {
+    if (!l.paymentStartedAt && l.stage !== 'purchased') return false
+    return within(l.paymentStartedAt || l.purchasedAt || l.at, from, to)
+  }
+  const purchaseInWindow = (l: Lead) =>
+    l.stage === 'purchased' && within(l.purchasedAt || l.at, from, to)
+
+  const reachedCheckout = leads.filter(checkoutInWindow).length
   // Item 302: submeteu o pagamento no gateway (PIX gerado/cartão enviado,
   // aprovado OU recusado) — separa "olhou o checkout" de "tentou pagar"
-  const paymentStarted = leads.filter(
-    (l) => l.paymentStartedAt || l.stage === 'purchased',
-  ).length
-  const purchased = leads.filter((l) => l.stage === 'purchased').length
+  const paymentStarted = leads.filter(paymentInWindow).length
+  const purchased = leads.filter(purchaseInWindow).length
 
   // Fase 2: vendas órfãs no mesmo recorte. Varremos data.leads COMPLETO (a var
   // `leads` acima já excluiu !orphan e é consumida por todo o resto). O backend
@@ -262,18 +305,17 @@ export function aggregate(
       purchased: 0,
     }
     c.count++
-    if (l.stage === 'purchased') c.purchased++
+    if (purchaseInWindow(l)) c.purchased++
     countryMap.set(l.country, c)
   }
 
   // Funil por gateway — mesma lógica do byGateway do stats.js, mas por período
   const gwMap = new Map<string, { name: string; checkout: number; purchased: number }>()
   for (const l of leads) {
-    if (!l.gateway) continue
-    if (l.stage !== 'checkout' && l.stage !== 'purchased') continue
+    if (!l.gateway || !checkoutInWindow(l)) continue
     const g = gwMap.get(l.gateway) ?? { name: l.gateway, checkout: 0, purchased: 0 }
     g.checkout++
-    if (l.stage === 'purchased') g.purchased++
+    if (purchaseInWindow(l)) g.purchased++
     gwMap.set(l.gateway, g)
   }
 
@@ -286,7 +328,7 @@ export function aggregate(
       if (!name) continue
       const r = map.get(name) ?? { name, leads: 0, purchased: 0 }
       r.leads++
-      if (l.stage === 'purchased') r.purchased++
+      if (purchaseInWindow(l)) r.purchased++
       map.set(name, r)
     }
     return [...map.values()]

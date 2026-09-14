@@ -86,8 +86,10 @@ export function UniversalLauncherDialog({
   // Lista de vídeos
   const [items, setItems] = useState<VideoItem[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const retryingRef = useRef(false)
 
   // Polling para lote
   const { data: job, mutate: mutateJob } = useAdsBulkJob(jobId)
@@ -199,7 +201,8 @@ export function UniversalLauncherDialog({
 
   // Lançamento
   async function handleLaunch() {
-    if (validationError) return
+    if (validationError || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
 
     try {
@@ -287,12 +290,14 @@ export function UniversalLauncherDialog({
         hint: e instanceof Error ? e.message : undefined,
       })
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
 
   async function handleRetryFailed() {
-    if (!jobId) return
+    if (!jobId || retryingRef.current) return
+    retryingRef.current = true
     setRetrying(true)
     notifiedRef.current = false
     try {
@@ -302,6 +307,7 @@ export function UniversalLauncherDialog({
     } catch (e) {
       toast.error('Falha ao reprocessar', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      retryingRef.current = false
       setRetrying(false)
     }
   }

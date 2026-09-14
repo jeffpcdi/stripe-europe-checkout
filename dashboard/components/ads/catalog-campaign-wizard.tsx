@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Loader2, Rocket, RotateCcw, Trash2, X, Sparkles } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, useAdsCatalogCampaignRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -47,6 +47,7 @@ function RunCard({
   const active = ACTIVE_STATUSES.includes(run.status)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const actionBusyRef = useRef(false)
   const requestedCampaignName = String(run.spec.name || 'Campanha sem nome')
   const campaignName = String(run.result?.name || run.createdIds.campaignName || requestedCampaignName)
   const campaignWasRenamed = campaignName !== requestedCampaignName
@@ -92,18 +93,33 @@ function RunCard({
     ? 'Vídeo preparado'
     : RUN_STATUS[run.status]
 
-  async function action(kind: 'resume' | 'cleanup') {
+  async function action(kind: 'resume' | 'cleanup'): Promise<boolean> {
+    if (actionBusyRef.current) return false
+    actionBusyRef.current = true
     setActionBusy(true)
+    let completed = false
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-campaign-runs/${encodeURIComponent(run.id)}/${kind}`, advertiserId), 'POST', {})
+      completed = true
+      if (kind === 'cleanup') setConfirmCleanup(false)
       toast.success(kind === 'resume' ? 'Criação colocada novamente na fila' : 'Estrutura parcial removida')
-      mutate()
     } catch (error) {
+      // Em cleanup, mantém o diálogo aberto quando a exclusão falha.
       toast.error('Ação não concluída', { hint: error instanceof Error ? error.message : undefined })
     } finally {
+      actionBusyRef.current = false
       setActionBusy(false)
-      setConfirmCleanup(false)
     }
+    if (completed) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('A ação foi concluída, mas o status não atualizou completamente', {
+          hint: error instanceof Error ? error.message : 'Atualize a página para recarregar o status.',
+        })
+      }
+    }
+    return completed
   }
 
   return (

@@ -41,18 +41,19 @@ import {
 import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus } from '@/lib/types'
+import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus, AdsCampaignDecisionsResponse, AdsCampaignDecisionEntry } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { AdEditDialog } from './ad-edit-dialog'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
-import { fmtCompact, cleanCampaignName } from '@/lib/format'
+import { fmtCompact, cleanCampaignName, timeAgo } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
 import { CampaignMetricGrid } from './campaign-metric-grid'
 import { campaignMetrics, campaignBudget, campaignStatusOutcome, type CampaignStatusResult } from '@/lib/campaign-metrics'
 import { actionFeedback } from '@/lib/action-feedback'
+import { cn } from '@/lib/utils'
 
 function fmtMoney(v: number | undefined, currency: string): string {
   if (v == null) return '—'
@@ -61,6 +62,102 @@ function fmtMoney(v: number | undefined, currency: string): string {
   } catch {
     return v.toFixed(2)
   }
+}
+
+
+type CampaignAutomationView = {
+  label: string
+  detail: string
+  tone: 'success' | 'warning' | 'error' | 'primary' | 'muted'
+  actionable: boolean
+}
+
+const AUTOMATION_ACTION = {
+  pause: { proposal: 'Sugere pausar', done: 'Pausou' },
+  budget_down: { proposal: 'Sugere reduzir', done: 'Reduziu orçamento' },
+  budget_up: { proposal: 'Sugere escalar', done: 'Escalou orçamento' },
+  activate: { proposal: 'Sugere ativar', done: 'Ativou' },
+} as const
+
+function campaignAutomationView(
+  decisions: AdsCampaignDecisionsResponse | undefined,
+  decision: AdsCampaignDecisionEntry | undefined,
+): CampaignAutomationView {
+  if (!decisions) return { label: 'Carregando…', detail: 'Automação', tone: 'muted', actionable: false }
+
+  const proposal = decision?.automation.pendingProposal
+  if (proposal) {
+    const action = AUTOMATION_ACTION[proposal.action as keyof typeof AUTOMATION_ACTION]
+    return {
+      label: action?.proposal || 'Decisão pendente',
+      detail: proposal.detail ? proposal.detail : proposal.createdAt ? `Proposta ${timeAgo(proposal.createdAt)}` : 'Aguardando sua aprovação',
+      tone: 'warning',
+      actionable: true,
+    }
+  }
+
+  const event = decision?.automation.lastEvent
+  if (event) {
+    const action = AUTOMATION_ACTION[event.action as keyof typeof AUTOMATION_ACTION]
+    if (!event.ok) {
+      return {
+        label: 'Ação falhou',
+        detail: event.at ? timeAgo(event.at) : 'Ver automações',
+        tone: 'error',
+        actionable: true,
+      }
+    }
+    if (event.simulated) {
+      return {
+        label: action ? `Simulou: ${action.done.toLowerCase()}` : 'Simulação concluída',
+        detail: event.at ? timeAgo(event.at) : 'Modo teste',
+        tone: 'muted',
+        actionable: false,
+      }
+    }
+    if (event.proposed) {
+      return {
+        label: action?.proposal || 'Proposta criada',
+        detail: event.at ? timeAgo(event.at) : 'Aguardando decisão',
+        tone: 'warning',
+        actionable: true,
+      }
+    }
+    return {
+      label: action?.done || 'Automação agiu',
+      detail: event.result ? `${event.result}${event.at ? ` · ${timeAgo(event.at)}` : ''}` : event.at ? timeAgo(event.at) : 'Ação registrada',
+      tone: 'success',
+      actionable: false,
+    }
+  }
+
+  const engine = decisions.automation
+  if (engine.actionsPaused || engine.state === 'blocked' || engine.state === 'paused') {
+    return { label: 'Automação pausada', detail: 'Ver proteção', tone: 'error', actionable: true }
+  }
+  if (engine.state === 'degraded') {
+    return { label: 'Automação com atenção', detail: 'Ver diagnóstico', tone: 'warning', actionable: true }
+  }
+  if (engine.rulesEnabled > 0) {
+    return {
+      label: 'Monitorando',
+      detail: engine.autonomy === 'auto' ? 'Pode agir sozinha' : engine.autonomy === 'propose' ? 'Pede aprovação' : 'Regras ativas',
+      tone: 'primary',
+      actionable: false,
+    }
+  }
+  if (engine.autonomy === 'notify' || engine.alertsEnabled) {
+    return { label: 'Só avisar', detail: 'Sem ações automáticas', tone: 'muted', actionable: false }
+  }
+  return { label: 'Sem automação', detail: 'Nenhuma regra ativa', tone: 'muted', actionable: true }
+}
+
+function automationToneClass(tone: CampaignAutomationView['tone']) {
+  if (tone === 'success') return 'text-success'
+  if (tone === 'warning') return 'text-warning'
+  if (tone === 'error') return 'text-error'
+  if (tone === 'primary') return 'text-brand-cyan'
+  return 'text-muted-foreground'
 }
 
 // ── Status → cor/rótulo ──
@@ -494,7 +591,8 @@ export function CampaignTree({
   onRetry,
   onOpenDetail,
   onDuplicate,
-  attribution,
+  decisions,
+  onOpenAutomations,
 }: {
   tree?: AdsTreeResponse
   loading: boolean
@@ -511,8 +609,9 @@ export function CampaignTree({
   onOpenDetail?: (c: AdsTreeCampaign) => void
   // Abre o dialog de duplicação durável na mesma conta de anúncio.
   onDuplicate?: (c: AdsTreeCampaign) => void
-  // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
-  attribution?: Record<string, { revenueCents: number; sales: number; currency?: string | null }>
+  // Modelo de decisão: vendas/receita first-party + estado da automação.
+  decisions?: AdsCampaignDecisionsResponse
+  onOpenAutomations?: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -538,7 +637,6 @@ export function CampaignTree({
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
-  const [detailedMetrics, setDetailedMetrics] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
   useEffect(() => {
     const apply = (value: string) => {
@@ -696,14 +794,23 @@ export function CampaignTree({
   async function handleDeleteAd() {
     const ad = deleteAd?.ad
     const adId = ad?.platformAdId || ad?._id
-    if (!adId) return
+    if (!adId || deleting) return
     setDeleting(true)
     try {
-      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'DELETE', { adAccountId: deleteAd?.adAccountId })
-      toast.success('Anúncio excluído')
+      const result = await apiSend<{ ok?: boolean; dryRun?: boolean; simulated?: boolean }>(
+        `/api/ads/${encodeURIComponent(adId)}`,
+        'DELETE',
+        { adAccountId: deleteAd?.adAccountId },
+      )
       setDeleteAd(null)
+      if (result.dryRun || result.simulated) {
+        toast.info('Simulação concluída', { hint: 'Modo teste: o anúncio não foi excluído do TikTok.' })
+      } else {
+        toast.success('Anúncio excluído')
+      }
       onMutate()
     } catch (e) {
+      // Falha real: mantém a confirmação aberta para retry.
       toast.error('Falha ao excluir anúncio', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setDeleting(false)
@@ -729,10 +836,16 @@ export function CampaignTree({
       return false
     if (onlyWithSpend && !(Number(c.metrics?.spend) > 0)) return false
     const spend = Number(c.metrics?.spend) || 0
-    const attr = attribution?.[c.platformCampaignId]
+    const attr = decisions?.byCampaign[c.platformCampaignId]
     const sales = Number(attr?.sales) || 0
     const roas = attr?.currency && attr.currency === (c.currency || currency) && spend > 0 ? (Number(attr.revenueCents) || 0) / 100 / spend : null
     const ctr = Number(c.metrics?.ctr) || 0
+    const needsRealDecision = quickFilter !== 'all'
+      || natural.roasAbove != null
+      || natural.roasBelow != null
+      || natural.noSales
+      || natural.withSales
+    if (needsRealDecision && !decisions) return false
 
     // Filtros rápidos
     if (quickFilter === 'with_sales' && sales <= 0) return false
@@ -760,15 +873,26 @@ export function CampaignTree({
     let review = 0
     let problem = 0
     let spend = 0
+    let sales = 0
+    let revenue = 0
+    let revenueComparable = true
     for (const c of visible) {
       if (c.status === 'active') active++
       else if (c.status === 'paused') paused++
       else if (c.status === 'pending_review') review++
       else if (c.status === 'rejected' || c.status === 'error') problem++
       spend += Number(c.metrics?.spend) || 0
+      const decision = decisions?.byCampaign[c.platformCampaignId]
+      sales += Number(decision?.sales) || 0
+      const cents = Number(decision?.revenueCents) || 0
+      if (cents > 0) {
+        if (decision?.currency && decision.currency === (c.currency || currency)) revenue += cents / 100
+        else revenueComparable = false
+      }
     }
-    return { active, paused, review, problem, spend }
-  }, [visible])
+    const roas = decisions && spend > 0 && revenueComparable ? revenue / spend : null
+    return { active, paused, review, problem, spend, sales, roas, revenueComparable }
+  }, [visible, decisions, currency])
 
   const allVisibleSelected = visible.length > 0 && visible.every((c) => selected.has(c.platformCampaignId))
 
@@ -853,7 +977,7 @@ export function CampaignTree({
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, index?: number) {
     return (
       <div
-        className="flex h-8 min-w-[1305px] items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+        className="flex h-8 min-w-[1160px] items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
         <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
@@ -868,7 +992,7 @@ export function CampaignTree({
   // Bloco expandido: métricas completas + grupos/anúncios (compartilhado entre Tabela e Cards)
   function renderExpandedContent(c: AdsTreeCampaign) {
     const id = c.platformCampaignId
-    const attr = attribution?.[id]
+    const attr = decisions?.byCampaign[id]
     const spend = Number(c.metrics?.spend) || 0
     const sales = Number(attr?.sales) || 0
     const realRevenue = (Number(attr?.revenueCents) || 0) / 100
@@ -934,7 +1058,8 @@ export function CampaignTree({
           <CampaignMetricGrid
             campaign={c}
             currency={currency}
-            attribution={attribution?.[id] || attribution?.[c.platformCampaignId]}
+            attribution={decisions?.byCampaign[id] || decisions?.byCampaign[c.platformCampaignId]}
+            attributionLoaded={Boolean(decisions)}
           />
         </div>
 
@@ -1076,15 +1201,30 @@ export function CampaignTree({
     )
   }
 
-  // Linha em formato Tabela: alta densidade, perfeita para dezenas/centenas de campanhas
+  // Linha principal = leitura de decisão: gasto do TikTok + vendas reais do
+  // ROINADOS + ação da automação. CPC/CPM/CTR continuam no detalhe expandido.
   function renderCampaignTableRow(c: AdsTreeCampaign, index?: number) {
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
     const metrics = campaignMetrics(c.metrics)
     const budget = campaignBudget(c)
-    const money = (value: number | null) => value === null ? '—' : fmtMoney(value, c.currency || currency)
-    const number = (value: number | null) => value === null ? '—' : value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+    const campaignCurrency = c.currency || currency
+    const money = (value: number | null) => value === null ? '—' : fmtMoney(value, campaignCurrency)
+    const decision = decisions?.byCampaign[id]
+    const decisionsLoaded = Boolean(decisions)
+    const realSales = decisionsLoaded ? Number(decision?.sales) || 0 : null
+    const realRevenue = decisionsLoaded ? (Number(decision?.revenueCents) || 0) / 100 : null
+    const realCpa = realSales !== null && realSales > 0 && metrics.spend !== null ? metrics.spend / realSales : null
+    const revenueComparable = realRevenue === 0 || (decision?.currency && decision.currency === campaignCurrency)
+    const realRoas = decisionsLoaded && metrics.spend !== null && metrics.spend > 0 && realRevenue !== null && revenueComparable
+      ? realRevenue / metrics.spend
+      : null
+    const automation = campaignAutomationView(decisions, decision)
+    const automationTitle = decision?.automation.pendingProposal?.detail
+      || decision?.automation.lastEvent?.result
+      || decision?.automation.lastEvent?.detail
+      || automation.detail
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
     const adSetCount = c.adSetCount ?? c.adSets?.length ?? 0
     const adCount = c.adCount ?? 0
@@ -1116,6 +1256,28 @@ export function CampaignTree({
       detailedError = 'Problema na conta ou orçamento (Verifique o TikTok Ads)'
     }
 
+    const automationContent = (
+      <>
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              'size-1.5 shrink-0 rounded-full',
+              automation.tone === 'success' && 'bg-success',
+              automation.tone === 'warning' && 'bg-warning',
+              automation.tone === 'error' && 'bg-error',
+              automation.tone === 'primary' && 'bg-brand-cyan',
+              automation.tone === 'muted' && 'bg-muted-foreground/60',
+            )}
+            aria-hidden="true"
+          />
+          <span className={cn('truncate text-[11px] font-semibold', automationToneClass(automation.tone))}>
+            {automation.label}
+          </span>
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{automation.detail}</span>
+      </>
+    )
+
     return (
       <div
         key={id}
@@ -1124,9 +1286,7 @@ export function CampaignTree({
         } ${isError ? 'border-l-2 border-l-error' : ''}`}
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
-        {/* Linha compacta: 12 colunas com alinhamento rigoroso */}
-        <div className="grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center px-3 py-2.5 text-xs min-w-[1305px]">
-          {/* 1. Checkbox */}
+        <div className="grid grid-cols-[38px_68px_minmax(230px,2fr)_150px_95px_70px_95px_80px_160px_110px_60px] items-center px-3 py-2.5 text-xs min-w-[1160px]">
           <div className="flex items-center justify-center">
             <input
               type="checkbox"
@@ -1138,7 +1298,6 @@ export function CampaignTree({
             />
           </div>
 
-          {/* 2. Status & Quick Toggle */}
           <div className="flex items-center">
             <CampaignActivationToggle
               status={c.status}
@@ -1153,20 +1312,19 @@ export function CampaignTree({
             />
           </div>
 
-          {/* 3. Campanha: Nome, ID, Badges */}
           <div className="min-w-0 pr-3">
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 aria-expanded={isOpen}
-                className="font-semibold text-left text-foreground truncate cursor-pointer hover:text-primary transition-colors text-sm"
+                className="truncate text-left text-sm font-semibold text-foreground transition-colors hover:text-primary"
                 onClick={() => toggle(id)}
                 title={c.campaignName || id}
               >
                 {cleanCampaignName(c.campaignName || id)}
               </button>
               {c.campaignKind === 'smart_plus' && (
-                <span className="shrink-0 rounded bg-secondary px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground border border-border/50">
+                <span className="shrink-0 rounded border border-border/50 bg-secondary px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground">
                   Smart+
                 </span>
               )}
@@ -1181,7 +1339,7 @@ export function CampaignTree({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
               {isOpen && <span className="font-mono">ID: {id}</span>}
               {c.childStatus && c.childStatus !== c.status && (
                 <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>
@@ -1189,15 +1347,14 @@ export function CampaignTree({
             </div>
           </div>
 
-          {/* 4. Orçamento */}
-          <div className="text-right pr-2">
+          <div className="pr-2 text-right">
             {c.budgetOwner === 'campaign' && c.budget?.amount != null ? (
               <BudgetControl
                 entityId={id}
                 amount={Number(c.budget.amount)}
                 type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
                 adAccountId={c.platformAdAccountId || ''}
-                currency={c.currency || currency}
+                currency={campaignCurrency}
                 label="Orçamento"
                 onSaved={onMutate}
                 compact
@@ -1205,30 +1362,43 @@ export function CampaignTree({
             ) : (
               <span className="text-[11px] text-muted-foreground" title="Orçamento definido no nível dos conjuntos (ABO)">
                 {budget.amount === null ? 'Conjuntos' : money(budget.amount)}
-                <span className="block text-[11px]">{budget.detail}</span>
+                <span className="block text-[10px]">{budget.detail}</span>
               </span>
             )}
           </div>
 
-          <div className="text-right font-mono tabular-nums pr-2">{money(metrics.spend)}</div>
-          <div className="text-right font-mono tabular-nums pr-2" title="Compras informadas pelo TikTok">{number(metrics.conversions)}</div>
-          <div className="text-right font-mono tabular-nums pr-2" title="Custo por clique">{money(metrics.cpc)}</div>
-          <div className="text-right font-mono tabular-nums pr-2" title="Custo por mil exibições">{money(metrics.cpm)}</div>
-          <div className="text-right font-mono tabular-nums pr-2" title="Custo por compra informada pelo TikTok">{money(metrics.cpa)}</div>
-          <div className="text-right font-mono tabular-nums pr-2">
-            <div>{metrics.ctr === null ? '—' : number(metrics.ctr) + '%'}</div>
-            <div className="text-[11px] text-muted-foreground">{number(metrics.clicks)} cliques</div>
+          <div className="pr-2 text-right font-mono tabular-nums" title="Investimento informado pelo TikTok">{money(metrics.spend)}</div>
+          <div className="pr-2 text-right font-mono tabular-nums" title="Vendas rastreadas pelo ROINADOS">
+            {realSales === null ? '—' : realSales.toLocaleString('pt-BR')}
+          </div>
+          <div className="pr-2 text-right font-mono tabular-nums" title="Gasto TikTok ÷ vendas reais rastreadas pelo ROINADOS">
+            {money(realCpa)}
+          </div>
+          <div
+            className={cn('pr-2 text-right font-mono font-semibold tabular-nums', realRoas !== null && realRoas >= 2 ? 'text-success' : realRoas !== null && realRoas < 1 ? 'text-warning' : 'text-foreground')}
+            title={!decisionsLoaded ? 'Carregando atribuição real' : !revenueComparable ? 'Receita em moeda diferente ou múltiplas moedas' : 'Receita real ÷ gasto TikTok'}
+          >
+            {realRoas === null ? '—' : `${realRoas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}
           </div>
 
-          {/* 11. Estrutura (Conjuntos e Anúncios) */}
-          <div className="text-center px-1">
+          <div className="min-w-0 pr-2" title={automationTitle}>
+            {automation.actionable && onOpenAutomations ? (
+              <button type="button" onClick={onOpenAutomations} className="block w-full rounded-md text-left hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {automationContent}
+              </button>
+            ) : (
+              <div>{automationContent}</div>
+            )}
+          </div>
+
+          <div className="px-1 text-center">
             <button
               type="button"
               onClick={() => toggle(id)}
-              className={`inline-flex items-center justify-center gap-1 w-full py-1 px-2 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              className={`inline-flex w-full items-center justify-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-all ${
                 isOpen
-                  ? 'bg-primary/20 text-primary border border-primary/30 font-semibold'
-                  : 'bg-secondary/60 text-muted-foreground hover:text-foreground hover:bg-secondary border border-border/40'
+                  ? 'border-primary/30 bg-primary/20 font-semibold text-primary'
+                  : 'border-border/40 bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
               title={isOpen ? 'Recolher estrutura' : 'Ver conjuntos e anúncios'}
               aria-expanded={isOpen}
@@ -1239,7 +1409,6 @@ export function CampaignTree({
             </button>
           </div>
 
-          {/* 12. Ações rápidas */}
           <div className="flex items-center justify-end">
             <CampaignQuickActionsDropdown
               campaign={c}
@@ -1259,15 +1428,13 @@ export function CampaignTree({
           </div>
         </div>
 
-        {/* Banner de erro quando houver problema */}
         {detailedError && (
-          <div className="flex items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error min-w-[1305px]">
+          <div className="flex min-w-[1160px] items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>{detailedError}</span>
           </div>
         )}
 
-        {/* Accordion Expandido */}
         {isOpen && renderExpandedContent(c)}
       </div>
     )
@@ -1373,7 +1540,8 @@ export function CampaignTree({
               {detailedError}
             </p>
           )}
-          <CampaignMetricGrid campaign={c} currency={currency} attribution={attribution?.[id] || attribution?.[c.platformCampaignId]} />
+          <CampaignMetricGrid campaign={c} currency={currency} attribution={decisions?.byCampaign[id] || decisions?.byCampaign[c.platformCampaignId]}
+            attributionLoaded={Boolean(decisions)} />
           <button
             type="button"
             className="campaign-expand-action"
@@ -1396,37 +1564,28 @@ export function CampaignTree({
 
   function TableHeader() {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[38px_82px_minmax(240px,2fr)_190px_105px_75px_100px_80px_95px_100px_130px_70px] items-center border-b border-border bg-card/95 backdrop-blur px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider min-w-[1305px] shadow-xs">
-        {/* 1. Checkbox Select All */}
+      <div className="sticky top-0 z-10 grid grid-cols-[38px_68px_minmax(230px,2fr)_150px_95px_70px_95px_80px_160px_110px_60px] items-center border-b border-border bg-card/95 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shadow-xs backdrop-blur min-w-[1160px]">
         <div className="flex items-center justify-center">
           <input
             type="checkbox"
             checked={allVisibleSelected}
             onChange={toggleSelectAll}
             aria-label="Selecionar todas as campanhas visíveis"
-            className="size-3.5 rounded accent-primary cursor-pointer"
+            className="size-3.5 cursor-pointer rounded accent-primary"
           />
         </div>
-
-        {/* 2. Status */}
         <div>Status</div>
-
-        {/* 3. Campanha */}
         <div
-          className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors pr-3"
+          className="flex cursor-pointer items-center gap-1 pr-3 transition-colors hover:text-foreground"
           onClick={() => onSort(sort === 'newest' ? 'oldest' : 'newest')}
           title="Clique para alternar ordenação por data"
         >
           <span>Campanha</span>
           <ArrowUpDown className="size-3" />
         </div>
-
-        {/* 4. Orçamento */}
-        <div className="text-right pr-2">Orçamento</div>
-
-        {/* 5. Gasto */}
+        <div className="pr-2 text-right">Orçamento</div>
         <div
-          className="flex items-center justify-end gap-1 cursor-pointer hover:text-foreground transition-colors pr-2"
+          className="flex cursor-pointer items-center justify-end gap-1 pr-2 transition-colors hover:text-foreground"
           onClick={() => onSort(sort === 'spend_desc' ? 'spend_asc' : 'spend_desc')}
           title="Clique para ordenar por gasto (maior / menor)"
         >
@@ -1439,35 +1598,20 @@ export function CampaignTree({
             <ArrowUpDown className="size-3" />
           )}
         </div>
-
-        {/* 6. Vendas */}
-        <div className="text-right pr-2" title="Compras informadas pelo TikTok">Compras</div>
-
-        {/* 7. Receita */}
-        <div className="text-right pr-2">CPC</div>
-
-        {/* 8. ROAS */}
-        <div className="text-right pr-2">CPM</div>
-
-        {/* 9. CPA */}
-        <div className="text-right pr-2">CPA</div>
-
-        {/* 10. CTR / Cliq. */}
-        <div className="text-right pr-2">CTR / Cliq.</div>
-
-        {/* 11. Estrutura */}
+        <div className="pr-2 text-right" title="Vendas rastreadas pelo ROINADOS">Vendas</div>
+        <div className="pr-2 text-right" title="Gasto TikTok ÷ vendas reais">CPA real</div>
+        <div className="pr-2 text-right" title="Receita real ÷ gasto TikTok">ROAS real</div>
+        <div className="pr-2 text-left">Automação</div>
         <div className="text-center">
           <button
             type="button"
             onClick={toggleAllExpanded}
-            className="text-[10px] lowercase text-muted-foreground hover:text-foreground hover:underline transition-colors cursor-pointer"
+            className="text-[10px] lowercase text-muted-foreground transition-colors hover:text-foreground hover:underline"
             title={allExpanded ? 'Recolher todas as campanhas' : 'Expandir todas as campanhas'}
           >
-            {allExpanded ? 'recolher tudo' : 'expandir tudo'}
+            {allExpanded ? 'recolher tudo' : 'estrutura'}
           </button>
         </div>
-
-        {/* 12. Ações */}
         <div className="text-right">Ações</div>
       </div>
     )
@@ -1479,9 +1623,8 @@ export function CampaignTree({
   }
 
   return (
-    <GlassCard className={`campaign-workspace min-w-0 overflow-hidden p-0 ${detailedMetrics ? 'campaign-metrics-detailed' : 'campaign-metrics-essential'}`}>
+    <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
       <div className="campaign-toolbar p-3 sm:p-4 space-y-3">
-        <button type="button" className="btn-ghost text-xs" aria-pressed={detailedMetrics} onClick={() => setDetailedMetrics(!detailedMetrics)}>{detailedMetrics ? 'Mostrar métricas essenciais' : 'Mostrar CPC, CPM e cliques'}</button>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1503,7 +1646,7 @@ export function CampaignTree({
               )}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Orçamento, gasto e compras da janela selecionada.
+              Gasto do TikTok + vendas, CPA e ROAS reais rastreados pelo ROINADOS.
             </p>
           </div>
 
@@ -1529,6 +1672,7 @@ export function CampaignTree({
               type="button"
               onClick={() => setQuickFilter((curr) => (curr === 'no_sales' ? 'all' : 'no_sales'))}
               aria-pressed={quickFilter === 'no_sales'}
+              disabled={!decisions}
               className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
                 quickFilter === 'no_sales'
                   ? 'border-warning/40 bg-warning/10 text-warning'
@@ -1576,10 +1720,10 @@ export function CampaignTree({
             <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} aria-pressed={onlyWithSpend} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
               <DollarSign className="size-3.5" aria-hidden="true" /> Com gasto
             </button>
-            <button type="button" onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))} aria-pressed={quickFilter === 'with_sales'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'with_sales' ? 'border-success/30 bg-success/10 text-success' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
+            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))} aria-pressed={quickFilter === 'with_sales'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'with_sales' ? 'border-success/30 bg-success/10 text-success' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
               <TrendingUp className="size-3.5" aria-hidden="true" /> Com vendas
             </button>
-            <button type="button" onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))} aria-pressed={quickFilter === 'high_roas'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'high_roas' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
+            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))} aria-pressed={quickFilter === 'high_roas'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'high_roas' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
               <Zap className="size-3.5" aria-hidden="true" /> ROAS &gt; 2×
             </button>
 
@@ -1638,8 +1782,12 @@ export function CampaignTree({
               {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
             </span>
           )}
-          <span className="ml-auto font-medium text-foreground">
-            Gasto neste filtro: {fmtMoney(summary.spend, currency)}
+          <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 font-medium text-foreground">
+            <span>Gasto: {fmtMoney(summary.spend, currency)}</span>
+            <span>Vendas reais: {decisions ? summary.sales.toLocaleString('pt-BR') : '—'}</span>
+            <span title={!summary.revenueComparable ? 'ROAS indisponível por divergência de moeda' : 'Receita real ÷ gasto TikTok'}>
+              ROAS real: {summary.roas === null ? '—' : `${summary.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}
+            </span>
           </span>
         </div>
       )}
@@ -1685,7 +1833,7 @@ export function CampaignTree({
               setQuery('')
               onStatusFilter('')
               setOnlyWithSpend(false)
-                  setQuickFilter('all')
+              setQuickFilter('all')
             }}
           >
             Limpar busca e filtros
@@ -1732,7 +1880,7 @@ export function CampaignTree({
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: detailedMetrics ? '1305px' : '1000px',
+                minWidth: '1160px',
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1758,7 +1906,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: detailedMetrics ? '1305px' : '1000px' }}
+              style={{ minWidth: '1160px' }}
             >
               {flatRows.map((row, index) => (
                 <div

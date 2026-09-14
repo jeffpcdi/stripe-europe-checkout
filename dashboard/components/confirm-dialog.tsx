@@ -35,30 +35,53 @@ export function ConfirmDialog({
   confirmText?: string
   tone?: 'danger' | 'default'
   busy?: boolean
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   onClose: () => void
 }) {
   const id = useId()
   const ref = useRef<HTMLDivElement>(null)
   const [typed, setTyped] = useState('')
-  useModalA11y(open, ref, busy ? () => {} : onClose)
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+  const effectiveBusy = busy || submitting
+  useModalA11y(open, ref, effectiveBusy ? () => {} : onClose)
 
   // Limpa o campo sempre que reabrir.
   useEffect(() => {
-    if (open) setTyped('')
+    if (open) {
+      setTyped('')
+      submittingRef.current = false
+    } else {
+      setSubmitting(false)
+      submittingRef.current = false
+    }
   }, [open])
 
   if (!open) return null
 
   const needsMatch = Boolean(confirmText)
   const matched = !needsMatch || typed.trim() === confirmText!.trim()
-  const canConfirm = matched && !busy
+  const canConfirm = matched && !effectiveBusy
+
+  async function handleConfirm() {
+    if (!canConfirm || submittingRef.current) return
+    // Ref fecha a janela entre o primeiro clique e o próximo render do React.
+    // Sem isso, um duplo clique muito rápido ainda podia disparar duas ações.
+    submittingRef.current = true
+    setSubmitting(true)
+    try {
+      await onConfirm()
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
+  }
 
   return (
     <DialogPortal><div
       className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose()
+        if (e.target === e.currentTarget && !effectiveBusy) onClose()
       }}
     >
       <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl outline-none">
@@ -100,14 +123,14 @@ export function ConfirmDialog({
             <button
               type="button"
               onClick={onClose}
-              disabled={busy}
+              disabled={effectiveBusy}
               className="min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
             >
               {cancelLabel}
             </button>
             <button
               type="button"
-              onClick={onConfirm}
+              onClick={handleConfirm}
               disabled={!canConfirm}
               className={`flex items-center gap-1.5 min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
                 tone === 'danger'
@@ -115,7 +138,7 @@ export function ConfirmDialog({
                   : 'bg-brand-cyan text-black hover:brightness-105'
               }`}
             >
-              {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+              {effectiveBusy && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
               {confirmLabel}
             </button>
           </div>

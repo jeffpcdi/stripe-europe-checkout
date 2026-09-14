@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Plus, RefreshCw, Trash2, Copy, Loader2, Globe } from 'lucide-react'
-import { useDomains, apiSend } from '@/lib/api'
+import { ApiError, useDomains, apiSend } from '@/lib/api'
 import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
@@ -15,6 +15,10 @@ function hostInvalidReason(raw: string): string | null {
   if (!host) return 'Informe o domínio.'
   if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return 'Use apenas o endereço, como link.sualoja.com, sem https:// ou barras.'
   return null
+}
+function apiErrorHint(error: unknown): string | undefined {
+  if (error instanceof ApiError) return error.display
+  return error instanceof Error ? error.message : undefined
 }
 function DnsInstructions({ dns }: { dns: DomainDnsRecords | null | undefined }) {
   const records = [
@@ -48,7 +52,7 @@ export function DomainsView() {
     setAdding(true); setError(null)
     const normalized = host.trim().toLowerCase()
     try {
-      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: 'ambos' })
+      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: 'ambos', _baseUpdatedAt: data?.configUpdatedAt || undefined })
       if (!result.ok) throw new Error(result.providerNote || 'Não foi possível cadastrar o domínio.')
       setAddedDns(previous => ({ ...previous, [normalized]: result.dnsRecords }))
       setHost('')
@@ -66,15 +70,41 @@ export function DomainsView() {
       if (result.verified) toast.success('Domínio verificado')
       else toast.info('Conexão ainda pendente', { hint: result.dnsPropagating ? 'O registro ainda está se espalhando pela rede. Tente mais tarde.' : result.dnsDetail || result.httpDetail })
       await mutate()
-    } catch (err) { toast.error('Não foi possível verificar', { hint: err instanceof Error ? err.message : undefined }) }
+    } catch (err) { toast.error('Não foi possível verificar', { hint: apiErrorHint(err) }) }
     finally { setVerifying(null) }
   }
   async function remove() {
-    if (!deleting) return
+    if (!deleting || deleteBusy) return
+    const removed = deleting
     setDeleteBusy(true)
-    try { await apiSend(`/api/domains/${encodeURIComponent(deleting)}`, 'DELETE'); setDeleting(null); await mutate(); toast.success('Domínio removido') }
-    catch (err) { toast.error('Não foi possível remover', { hint: err instanceof Error ? err.message : undefined }) }
-    finally { setDeleteBusy(false) }
+    let deleted = false
+    try {
+      await apiSend(`/api/domains/${encodeURIComponent(removed)}`, 'DELETE')
+      deleted = true
+      setDeleting(null)
+      setChecks((current) => {
+        const next = { ...current }
+        delete next[removed]
+        return next
+      })
+      setAddedDns((current) => {
+        const next = { ...current }
+        delete next[removed]
+        return next
+      })
+      toast.success('Domínio removido')
+    } catch (err) {
+      toast.error('Não foi possível remover', { hint: apiErrorHint(err) })
+    } finally {
+      setDeleteBusy(false)
+    }
+    if (deleted) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('Domínio removido, mas a lista não atualizou completamente', { hint: apiErrorHint(error) })
+      }
+    }
   }
   return (
     <div className="space-y-4">
@@ -143,7 +173,7 @@ export function DomainsView() {
                   </button>
                 </div>
               </div>
-              {!ready && domain.lastError && <p className="mt-3 text-xs text-warning">{domain.lastError}</p>}
+              {!ready && (domain.lastError || domain.providerNote) && <p className="mt-3 text-xs text-warning">{domain.lastError || domain.providerNote}</p>}
               <details className="mt-3 border-t border-border/50 pt-3" open={!ready}>
                 <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">Como conectar</summary>
                 <div className="mt-3"><DnsInstructions dns={dns} /></div>
@@ -152,7 +182,7 @@ export function DomainsView() {
           )
         })
       )}
-      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Os links que usam este domínio poderão parar de funcionar. O domínio continuará registrado no seu provedor." confirmLabel="Remover domínio" confirmText={data?.domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
+      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="O ROINADOS não remove domínios que ainda estejam sendo usados por links. O domínio continuará registrado no seu provedor." confirmLabel="Remover domínio" confirmText={data?.domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
     </div>
   )
 }

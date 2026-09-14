@@ -329,8 +329,12 @@ function normalizeConversion(body, query) {
   const amountCents = pickAmountCents(b, { amountInCents: !!(query && query.amountInCents) });
   const hasAmount = amountCents != null;
   if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price, charge_amount…)' };
-  // moeda: Hotmart manda currency_value, outros currency/currency_code
+  // moeda: Hotmart manda currency_value, outros currency/currency_code.
+  // Se o provedor omitir a moeda, usa a moeda conhecida da conta passada pelo
+  // chamador; no webhook legado sem contexto, o fallback do produto é BRL.
   const curRaw = String(b.currency || b.currency_value || b.currency_code || '');
+  const fallbackCurrency = String((query && query.currency) || 'brl').trim().toLowerCase();
+  const safeFallbackCurrency = /^[a-z]{3}$/.test(fallbackCurrency) ? fallbackCurrency : 'brl';
   const moneyOpts = { amountInCents: !!(query && query.amountInCents) };
   const feeCents = pickOptionalMoneyCents(body,
     ['fee_cents', 'fees_cents', 'platform_fee_cents', 'gateway_fee_cents', 'transaction_fee_cents', 'processor_fee_cents'],
@@ -350,7 +354,7 @@ function normalizeConversion(body, query) {
     gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
     orderId: String(orderId).slice(0, 120),
     amountCents: hasAmount ? amountCents : 0,
-    currency: /^[a-zA-Z]{3}$/.test(curRaw) ? curRaw.toLowerCase() : 'eur',
+    currency: /^[a-zA-Z]{3}$/.test(curRaw) ? curRaw.toLowerCase() : safeFallbackCurrency,
     feeCents,
     taxCents,
     netAmountCents,

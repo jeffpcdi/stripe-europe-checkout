@@ -114,21 +114,32 @@ export function SecurityCard() {
 
   /* item 414 — sessões */
   const [revoking, setRevoking] = useState<string | null>(null)
+  const [sessionMsg, setSessionMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function revokeOne(sid: string) {
+    if (revoking) return
     setRevoking(sid)
+    setSessionMsg(null)
     try {
-      await fetch(`/api/account/sessions/${sid}`, { method: 'DELETE', credentials: 'include' })
-      mutateSessions()
+      await apiSend(`/api/account/sessions/${encodeURIComponent(sid)}`, 'DELETE')
+      await mutateSessions()
+      setSessionMsg({ ok: true, text: 'Sessão encerrada.' })
+    } catch (e) {
+      setSessionMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível encerrar a sessão.' })
     } finally {
       setRevoking(null)
     }
   }
   async function revokeOthers() {
+    if (revoking) return
     setRevoking('all')
+    setSessionMsg(null)
     try {
-      await apiSend('/api/account/sessions/revoke-others', 'POST', {})
-      mutateSessions()
+      const result = await apiSend<{ ok: boolean; revoked?: number }>('/api/account/sessions/revoke-others', 'POST', {})
+      await mutateSessions()
+      setSessionMsg({ ok: true, text: result.revoked ? `${result.revoked} sessão(ões) encerrada(s).` : 'Não havia outras sessões ativas.' })
+    } catch (e) {
+      setSessionMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível encerrar as outras sessões.' })
     } finally {
       setRevoking(null)
     }
@@ -214,7 +225,12 @@ export function SecurityCard() {
 
       {/* item 414 — sessões ativas (MODAL) */}
       <Modal isOpen={modalSessions} onClose={() => setModalSessions(false)} title="Sessões Ativas" description="Onde sua conta está logada agora">
-        <div className="flex items-center justify-end mb-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          {sessionMsg ? (
+            <p className={`text-xs ${sessionMsg.ok ? 'text-success' : 'text-destructive'}`} role="status">
+              {sessionMsg.text}
+            </p>
+          ) : <span />}
           <button
             type="button"
             onClick={revokeOthers}
@@ -448,6 +464,7 @@ interface SettingsData {
   dailyReportHour: number
   notificationTemplate: string
   apiScope: string
+  updatedAt?: string | null
 }
 
 export function AccountPrefsCard() {
@@ -468,6 +485,7 @@ export function AccountPrefsCard() {
     setSaveMsg(null)
     try {
       await apiSend('/api/settings', 'POST', {
+        _baseUpdatedAt: data?.updatedAt || undefined,
         timezone: v('timezone') || 'America/Sao_Paulo',
         revenueGoal: Number(v('revenueGoal')) || 0,
         lgpdDays: Number(v('lgpdDays')) || 0,

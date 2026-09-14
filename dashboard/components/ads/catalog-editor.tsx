@@ -15,7 +15,7 @@ import {
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
   useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
-  adsCatalogApiUrl, apiSend, ApiError,
+  adsCatalogApiUrl, apiSend, adsUpload, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -113,6 +113,7 @@ export function ProductEditor({
     return { sku_id: generateSku(), condition: 'new', availability: 'in stock' }
   })
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [showOptional, setShowOptional] = useState(false)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -127,6 +128,8 @@ export function ProductEditor({
   const optionalFields = useMemo(() => fields.filter((f) => !f.required), [fields])
 
   async function handleSave() {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     try {
       // Preços viram "9.99 BRL" (moeda do catálogo) na hora de salvar — o
@@ -134,16 +137,18 @@ export function ProductEditor({
       const data: Record<string, string> = { ...form }
       if (data.price) data.price = formatPriceForFeed(data.price, currency)
       if (data.sale_price) data.sale_price = formatPriceForFeed(data.sale_price, currency)
+      const persistedProductId = product && product.id !== 'preview' && product.id !== 'duplicate' ? product.id : undefined
       await apiSend(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products`, advertiserId),
         'POST',
-        { data },
+        { data, productId: persistedProductId, createOnly: !persistedProductId },
       )
       toast.success('Produto salvo como rascunho', { hint: 'Use Sincronizar quando quiser enviar as alterações ao TikTok.' })
       onSaved()
     } catch (e) {
       toast.error('Falha ao salvar produto', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -333,12 +338,7 @@ export function ImageField({
       if (dimensions.width < 500 || dimensions.height < 500) {
         throw new Error(`A imagem tem ${dimensions.width}×${dimensions.height}px; o mínimo é 500×500px`)
       }
-      const res = await fetch(
-        `/api/ads/upload?kind=image&filename=${encodeURIComponent(file.name)}`,
-        { method: 'POST', body: file, credentials: 'include' },
-      )
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || `Erro ${res.status}`)
+      const data = await adsUpload(file, 'image')
       onChange(data.url)
       toast.success('Foto enviada — URL preenchida')
     } catch (e) {

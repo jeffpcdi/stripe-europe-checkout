@@ -105,13 +105,15 @@ export function CloakEntriesPanel() {
 
   // Itens 146/184: exclusão via ConfirmDialog; com tráfego, exige o nome digitado
   async function confirmDelete() {
-    if (!deleting) return
+    if (!deleting || deleteBusy) return
+    const target = deleting
     setDeleteBusy(true)
+    let removed = false
     try {
-      await apiSend(`/api/cloak/entries/${encodeURIComponent(deleting.slug)}`, 'DELETE')
-      toast.success(`Link de cloaking "${deleting.nome}" removido.`)
+      await apiSend(`/api/cloak/entries/${encodeURIComponent(target.slug)}`, 'DELETE')
+      removed = true
       setDeleting(null)
-      mutate()
+      toast.success(`Link de cloaking "${target.nome}" removido.`)
     } catch (err) {
       toast.error('Falha ao remover o link.', {
         hint: err instanceof Error ? err.message : undefined,
@@ -119,14 +121,28 @@ export function CloakEntriesPanel() {
     } finally {
       setDeleteBusy(false)
     }
+    if (removed) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('Link removido, mas a lista não atualizou completamente', {
+          hint: error instanceof Error ? error.message : undefined,
+        })
+      }
+    }
   }
 
   // Item 134: simula o julgamento DESTE /c/:slug com o request atual do admin
   async function handleTest(e: CloakEntry) {
+    if (testing) return
     setTesting(e.slug)
     try {
       const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', { slug: e.slug })
       setTestResult((prev) => ({ ...prev, [e.slug]: r }))
+    } catch (err) {
+      toast.error(`Falha ao testar "${e.nome}"`, {
+        hint: err instanceof Error ? err.message : undefined,
+      })
     } finally {
       setTesting(null)
     }
@@ -135,15 +151,19 @@ export function CloakEntriesPanel() {
   // Item 137: liga/desliga inline (otimista com rollback), reusa o POST de entries
   async function toggleEnabled(e: CloakEntry) {
     const next = !e.enabled
-    mutate(
+    const previous = data
+    await mutate(
       data ? { ...data, entries: entries.map((x) => (x.slug === e.slug ? { ...x, enabled: next } : x)) } : data,
-      false,
+      { revalidate: false },
     )
     try {
       await apiSend('/api/cloak/entries', 'POST', { slug: e.slug, enabled: next })
-      mutate()
-    } catch {
-      mutate() // rollback ao estado do servidor
+      await mutate()
+    } catch (err) {
+      if (previous) await mutate(previous, { revalidate: false })
+      toast.error(`Não foi possível ${next ? 'ativar' : 'pausar'} "${e.nome}"`, {
+        hint: err instanceof Error ? err.message : undefined,
+      })
     }
   }
 
@@ -157,27 +177,55 @@ export function CloakEntriesPanel() {
   }
 
   async function bulkSet(enabled: boolean) {
+    if (bulkBusy || selected.size === 0) return
     setBulkBusy(true)
+    const pending = [...selected]
+    const failed = new Set<string>()
     try {
-      for (const slug of selected) {
-        await apiSend('/api/cloak/entries', 'POST', { slug, enabled })
+      for (const slug of pending) {
+        try {
+          await apiSend('/api/cloak/entries', 'POST', { slug, enabled })
+        } catch {
+          failed.add(slug)
+        }
       }
-      setSelected(new Set())
-      mutate()
+      setSelected(failed)
+      await mutate()
+      if (failed.size) {
+        toast.error('Alguns links não foram atualizados', {
+          hint: `${pending.length - failed.size} concluído(s) · ${failed.size} falhou(aram). Os que falharam continuam selecionados.`,
+        })
+      } else {
+        toast.success(enabled ? 'Links ativados' : 'Links pausados')
+      }
     } finally {
       setBulkBusy(false)
     }
   }
 
   async function bulkDelete() {
+    if (bulkBusy || selected.size === 0) return
     setBulkBusy(true)
+    const pending = [...selected]
+    const failed = new Set<string>()
     try {
-      for (const slug of selected) {
-        await apiSend(`/api/cloak/entries/${encodeURIComponent(slug)}`, 'DELETE')
+      for (const slug of pending) {
+        try {
+          await apiSend(`/api/cloak/entries/${encodeURIComponent(slug)}`, 'DELETE')
+        } catch {
+          failed.add(slug)
+        }
       }
-      setSelected(new Set())
+      setSelected(failed)
       setConfirmingBulkDelete(false)
-      mutate()
+      await mutate()
+      if (failed.size) {
+        toast.error('Alguns links não puderam ser removidos', {
+          hint: `${pending.length - failed.size} removido(s) · ${failed.size} falhou(aram). Os que falharam continuam selecionados.`,
+        })
+      } else {
+        toast.success('Links removidos')
+      }
     } finally {
       setBulkBusy(false)
     }

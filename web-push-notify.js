@@ -35,10 +35,13 @@ async function ensureVapid() {
         // 3) Gera e persiste (primeira vez)
         if (!vapid) {
           vapid = webpush.generateVAPIDKeys();
-          try { await db.saveConfig('_webpush', vapid); } catch (err) {
+          try {
+            const persisted = await db.saveConfig('_webpush', vapid);
+            if (persisted) console.log('[webpush] Chaves VAPID geradas e persistidas.');
+            else console.error('[webpush] VAPID gerado, mas a persistência não foi confirmada; inscrições podem invalidar no restart.');
+          } catch (err) {
             console.error('[webpush] Falha ao persistir VAPID (inscrições podem invalidar no restart):', err.message);
           }
-          console.log('[webpush] Chaves VAPID geradas e persistidas.');
         }
       }
       webpush.setVapidDetails(SUBJECT, vapid.publicKey, vapid.privateKey);
@@ -60,12 +63,14 @@ function subsFor(accountId) {
   } catch (_) { return []; }
 }
 
-function removeSub(accountId, endpoint) {
+async function removeSub(accountId, endpoint) {
   try {
     const config = require('./config');
-    const wp = config.get(accountId).webPush || {};
-    const subs = (Array.isArray(wp.subs) ? wp.subs : []).filter((s) => s.endpoint !== endpoint);
-    config.set(accountId, { webPush: Object.assign({}, wp, { subs }) });
+    await config.setDurable(accountId, (latest) => {
+      const wp = latest.webPush || {};
+      const subs = (Array.isArray(wp.subs) ? wp.subs : []).filter((s) => s.endpoint !== endpoint);
+      return { webPush: Object.assign({}, wp, { subs }) };
+    });
   } catch (err) { console.error('[webpush] Falha ao remover inscrição morta:', err.message); }
 }
 
@@ -124,7 +129,7 @@ async function sendWebPush(accountId, note) {
       const code = err && err.statusCode;
       if (code === 404 || code === 410) {
         // Inscrição morta (app removido / permissão revogada) — limpa.
-        removeSub(accountId, sub.endpoint);
+        await removeSub(accountId, sub.endpoint);
         console.log('[webpush] Inscrição expirada removida (' + code + ').');
       } else {
         console.error('[webpush] Falha no envio:', code || err.message);

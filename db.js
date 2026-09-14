@@ -1090,7 +1090,7 @@ async function loadState(accountId, limitLeads, limitEvents) {
 }
 
 async function reset(accountId) {
-  if (!enabled) return;
+  if (!enabled) return true;
   try {
     if (accountId) {
       await sql`DELETE FROM leads WHERE account_id = ${accountId}`;
@@ -1100,7 +1100,11 @@ async function reset(accountId) {
     } else {
       await sql`TRUNCATE leads, events, variants, sessions`;
     }
-  } catch (err) { console.error('[db] reset:', err.message); }
+    return true;
+  } catch (err) {
+    console.error('[db] reset:', err.message);
+    return false;
+  }
 }
 
 // ── Sessões ao vivo (heartbeat, por conta) ──���─────────────────────────────
@@ -1127,13 +1131,20 @@ async function upsertSession(accountId, s) {
 
 // ── Config durável (por conta) ────────────────────────────────────────────
 async function saveConfig(accountId, data) {
-  if (!enabled || !data) return;
+  if (!enabled || !data) return false;
   const key = accountId || 'main';
-  try {
-    await sql`INSERT INTO config (key, data, updated_at)
-      VALUES (${key}, ${JSON.stringify(data)}::jsonb, now())
-      ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-  } catch (err) { console.error('[db] saveConfig:', err.message); }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await sql`INSERT INTO config (key, data, updated_at)
+        VALUES (${key}, ${JSON.stringify(data)}::jsonb, now())
+        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+      return true;
+    } catch (err) {
+      console.error('[db] saveConfig (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+  return false;
 }
 
 // Retorna { ok, data }: ok=false significa ERRO de leitura (não sobrescrever
@@ -1319,19 +1330,27 @@ async function getPixelByToken(token) {
 
 // ── Links de checkout externos (por conta; PK namespaced) ─────────────────
 async function upsertLink(accountId, slug, data) {
-  if (!enabled || !slug) return;
+  if (!enabled || !slug) return !enabled;
   try {
     await sql`INSERT INTO links (slug, account_id, data, updated_at)
       VALUES (${nsKey(accountId, slug)}, ${accountId || null}, ${JSON.stringify(data)}::jsonb, now())
-      ON CONFLICT (slug) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-  } catch (err) { console.error('[db] upsertLink:', err.message); }
+      ON CONFLICT (slug) DO UPDATE SET account_id = EXCLUDED.account_id, data = EXCLUDED.data, updated_at = now()`;
+    return true;
+  } catch (err) {
+    console.error('[db] upsertLink:', err.message);
+    return false;
+  }
 }
 
 async function deleteLink(accountId, slug) {
-  if (!enabled || !slug) return;
+  if (!enabled || !slug) return !enabled;
   try {
     await sql`DELETE FROM links WHERE slug = ${nsKey(accountId, slug)}`;
-  } catch (err) { console.error('[db] deleteLink:', err.message); }
+    return true;
+  } catch (err) {
+    console.error('[db] deleteLink:', err.message);
+    return false;
+  }
 }
 
 // Mesmo contrato do loadConfig: { ok, data }.

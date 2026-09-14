@@ -14,7 +14,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
-import useSWR from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetcher, apiSend } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
@@ -226,11 +226,11 @@ function DailyReportCard() {
     setSaving(true)
     setStatus(null)
     try {
-      const payload = { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone }
-      await apiSend('/api/settings', 'POST', payload)
+      const payload = { dailyReportEnabled: enabled, dailyReportHour: hour, whatsappTo: phone, _baseUpdatedAt: data?.updatedAt || undefined }
+      const saved = await apiSend<AccountSettings>('/api/settings', 'POST', payload)
       toast.success('Notificação diária atualizada.')
       setDirty(false)
-      await mutate(data ? { ...data, ...payload } : undefined)
+      await mutate(saved, { revalidate: false })
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Tente novamente'
       setStatus(msg)
@@ -281,6 +281,7 @@ function DailyReportCard() {
 }
 
 function DangerCard() {
+  const { mutate: mutateCache } = useSWRConfig()
   const [confirming, setConfirming] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [done, setDone] = useState(false)
@@ -293,11 +294,19 @@ function DangerCard() {
     setResetting(true)
     try {
       await apiSend('/api/reset-stats', 'POST', {})
+      // O reset afeta dados compartilhados por Visão Geral, Funil, Atividade
+      // e indicadores de saúde. Revalida imediatamente para nenhuma tela
+      // continuar mostrando o snapshot anterior até o próximo polling.
+      await Promise.all([
+        mutateCache('/api/stats'),
+        mutateCache('/api/overview/health'),
+        mutateCache('/api/live'),
+      ])
       setDone(true)
       toast.success('Estatísticas zeradas com sucesso.')
       setTimeout(() => setDone(false), 3000)
-    } catch {
-      toast.error('Não foi possível zerar os dados.')
+    } catch (error) {
+      toast.error('Não foi possível zerar os dados.', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setResetting(false)
       setConfirming(false)

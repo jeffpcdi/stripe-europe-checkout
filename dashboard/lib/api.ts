@@ -37,6 +37,7 @@ import type {
   AdsLibraryResponse,
   AdsAlertsConfig,
   AdsAttributionResponse,
+  AdsCampaignDecisionsResponse,
   AdsRulesResponse,
   AdsProposalsResponse,
   AdsTemplatesResponse,
@@ -334,9 +335,9 @@ export function useAccount() {
 }
 
 // Configurações da conta (moeda padrão dos disparos/testes)
-export function useAccountSettings() {
-  return useSWR<AccountSettings>('/api/settings', fetcher, {
-    revalidateOnFocus: false,
+export function useAccountSettings(active = true) {
+  return useSWR<AccountSettings>(active ? '/api/settings' : null, fetcher, {
+    revalidateOnFocus: true,
     keepPreviousData: true,
   })
 }
@@ -480,6 +481,27 @@ export function useAdsAttribution(
     active && adAccountId ? `/api/ads/attribution?${qs}` : null,
     fetcher,
     { refreshInterval: 60_000, keepPreviousData: false },
+  )
+}
+
+
+// Modelo de decisão da lista de campanhas: atribuição real + estado da
+// automação. Mantém polling mais lento que a árvore; gasto/status continuam
+// vindo do espelho TikTok e não são buscados de novo por este endpoint.
+export function useAdsCampaignDecisions(
+  active: boolean,
+  adAccountId: string,
+  range?: { fromDate?: string; toDate?: string },
+) {
+  const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  const qs = params.toString()
+  return useSWR<AdsCampaignDecisionsResponse>(
+    active && adAccountId ? `/api/ads/campaign-decisions?${qs}` : null,
+    fetcher,
+    { refreshInterval: 60_000, keepPreviousData: false, revalidateOnFocus: true },
   )
 }
 

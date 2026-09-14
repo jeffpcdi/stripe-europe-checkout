@@ -34,6 +34,10 @@ const QUEUE_CAP = 2000;
 const JOB_TTL_S = 24 * 3600; // 24h — o job é efêmero por natureza
 const RATE_LIMIT_PAUSE_MS = Math.max(1000, Number(process.env.ADS_BULK_RATE_LIMIT_PAUSE_MS) || 5 * 60 * 1000);
 const PAUSE_KEY = QUEUE + ':paused';
+const WORKER_LEASE_NAME = 'ads-bulk-worker:' + (queueNamespace || 'production');
+const WORKER_LEASE_TTL_SEC = Math.max(120, Number(process.env.ADS_BULK_WORKER_LEASE_TTL_SEC) || 10 * 60);
+const WORKER_LEASE_RENEW_MS = Math.max(15_000, Math.min(60_000, Math.floor(WORKER_LEASE_TTL_SEC * 1000 / 3)));
+const RETRY_LEASE_TTL_SEC = 30;
 
 const redis = redisMod.redis;
 const redisOn = () => !!(redisMod.enabled && redis);
@@ -75,11 +79,24 @@ async function reserveBulkItems(max) {
   if (redisOn()) {
     try {
       for (let i = 0; i < n; i++) {
-        const raw = await redis.lmove(QUEUE, PROC, 'right', 'left');
-        if (raw == null) break;
+        const moved = await redis.lmove(QUEUE, PROC, 'right', 'left');
+        if (moved == null) break;
+        const movedRaw = typeof moved === 'string' ? moved : JSON.stringify(moved);
         let env = null;
-        try { env = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { env = null; }
-        out.push({ raw, env });
+        try { env = typeof moved === 'string' ? JSON.parse(moved) : moved; } catch (_) { env = null; }
+        // LMOVE preserva o timestamp original de enqueue. Sem carimbar a
+        // reserva, um item que passou >5 min esperando na fila podia ser
+        // "reclamado" imediatamente enquanto ainda estava sendo processado.
+        // Substituímos a entrada em :proc por uma versão com reservedAt atual.
+        const reservedEnv = Object.assign({}, env || {}, { reservedAt: Date.now() });
+        const reservedRaw = JSON.stringify(reservedEnv);
+        if (reservedRaw !== movedRaw) {
+          const pipe = redis.pipeline();
+          pipe.lrem(PROC, 1, movedRaw);
+          pipe.lpush(PROC, reservedRaw);
+          await pipe.exec();
+        }
+        out.push({ raw: reservedRaw, env: reservedEnv });
       }
       return out;
     } catch (err) {
@@ -125,9 +142,14 @@ async function reclaimBulkItems(olderThanMs) {
         try { env = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { env = null; }
         const at = env && (env.reservedAt || env.at) ? (env.reservedAt || env.at) : 0;
         if (now - at > cut) {
+          const procRaw = typeof raw === 'string' ? raw : JSON.stringify(raw);
+          const queuedEnv = Object.assign({}, env || {});
+          delete queuedEnv.reservedAt;
+          queuedEnv.at = Date.now();
+          const queueRaw = JSON.stringify(queuedEnv);
           const pipe = redis.pipeline();
-          pipe.lrem(PROC, 1, typeof raw === 'string' ? raw : JSON.stringify(raw));
-          pipe.lpush(QUEUE, typeof raw === 'string' ? raw : JSON.stringify(raw));
+          pipe.lrem(PROC, 1, procRaw);
+          pipe.lpush(QUEUE, queueRaw);
           await pipe.exec();
           moved++;
         }
@@ -144,7 +166,10 @@ async function reclaimBulkItems(olderThanMs) {
     const at = env && (env.reservedAt || env.at) ? (env.reservedAt || env.at) : 0;
     if (now - at > cut) {
       memProc.splice(i, 1);
-      memQueue.unshift(raw);
+      const queuedEnv = Object.assign({}, env || {});
+      delete queuedEnv.reservedAt;
+      queuedEnv.at = Date.now();
+      memQueue.unshift(JSON.stringify(queuedEnv));
       moved++;
     }
   }
@@ -297,9 +322,11 @@ async function createBulkJob(accountId, { kind, adAccountId, items, meta }) {
 
 async function getBulkJob(accountId, jobId) {
   const hit = memJobs.get(accountId + ':' + jobId);
-  // Em múltiplas instâncias, outro worker pode ter atualizado o Neon. Um job
-  // não terminal em memória nunca é fonte definitiva para o polling.
-  if (hit && hit.status === 'done') return hit;
+  // Em múltiplas instâncias até um job terminal pode voltar a `running` depois
+  // de um retry iniciado em outra aba/instância. Portanto, com Neon ativo, o
+  // espelho durável é sempre consultado antes do cache em memória; caso
+  // contrário uma instância poderia devolver `done` antigo e fazer a UI parar
+  // o polling enquanto o retry já estava em andamento.
   if (adsOps.enabled) {
     try {
       const job = await adsOps.getBulkSnapshot(accountId, jobId);
@@ -336,6 +363,39 @@ async function updateBulkItem(accountId, jobId, idx, patch) {
   return job;
 }
 
+// Reprocessa falhas sob lease distribuído por job. O endpoint de retry pode
+// ser clicado em duas abas ou atendido por duas instâncias; sem esta seção
+// crítica, ambas enxergavam o mesmo item `failed` e o colocavam duas vezes na
+// fila. O lease também falha fechado quando Redis foi configurado e caiu.
+async function retryFailedBulkItems(accountId, jobId, indexes) {
+  const wanted = Array.isArray(indexes) ? new Set(indexes.map(Number)) : null;
+  const lease = await redisMod.acquireLease(
+    'ads-bulk-retry:' + String(accountId).slice(0, 120) + ':' + String(jobId).slice(0, 160),
+    RETRY_LEASE_TTL_SEC,
+  );
+  if (!lease || !lease.acquired) {
+    return { ok: false, busy: lease && lease.reason === 'busy', reason: lease && lease.reason, requeued: 0 };
+  }
+  try {
+    const job = await getBulkJob(accountId, jobId);
+    if (!job) return { ok: false, notFound: true, requeued: 0 };
+    let requeued = 0;
+    for (const it of job.items || []) {
+      if (it.status !== 'failed') continue;
+      if (wanted && !wanted.has(Number(it.idx))) continue;
+      if (!it.task) continue;
+      // Persiste primeiro o estado não-falhado; chamadas concorrentes que
+      // vierem depois do lease verão `queued` e não reenfileirarão este item.
+      await updateBulkItem(accountId, job.id, it.idx, { status: 'queued', error: null, retryAt: null });
+      await enqueueBulkItem({ accountId, jobId: job.id, idx: it.idx, task: it.task });
+      requeued++;
+    }
+    return { ok: true, requeued };
+  } finally {
+    await redisMod.releaseLease(lease).catch(() => {});
+  }
+}
+
 // ── Worker sequencial (1 item por vez + backoff) ────────────────────────────
 // ads-routes.js registra o processador via startBulkWorker(processItem).
 // `processItem(env)` deve resolver { resultId? } ou lançar Error (vira failed).
@@ -348,8 +408,21 @@ function startBulkWorker(processItem, { intervalMs, backoffMs } = {}) {
   const tick = async () => {
     if (draining) return;
     draining = true;
+    let workerLease = null;
+    let renewTimer = null;
     try {
-      // resgata órfãos a cada ~2min (worker morto no meio de um item)
+      // "1 item por vez" precisa valer para TODAS as instâncias do servidor,
+      // não só para este processo. Sem o lease, dois deploys podiam reservar
+      // itens diferentes simultaneamente e ultrapassar o rate limit do TikTok.
+      workerLease = await redisMod.acquireLease(WORKER_LEASE_NAME, WORKER_LEASE_TTL_SEC);
+      if (!workerLease || !workerLease.acquired) return;
+      renewTimer = setInterval(() => {
+        redisMod.renewLease(workerLease, WORKER_LEASE_TTL_SEC).catch(() => {});
+      }, WORKER_LEASE_RENEW_MS);
+      if (renewTimer.unref) renewTimer.unref();
+
+      // Reclaim também fica sob o mesmo lease. Assim outra instância não pode
+      // recolocar na fila um item que este worker ainda está processando.
       if (Date.now() - lastReclaimAt > 120000) {
         lastReclaimAt = Date.now();
         await reclaimBulkItems();
@@ -399,6 +472,8 @@ function startBulkWorker(processItem, { intervalMs, backoffMs } = {}) {
     } catch (err) {
       console.error('[ads-bulk] worker:', err.message);
     } finally {
+      if (renewTimer) clearInterval(renewTimer);
+      if (workerLease && workerLease.acquired) await redisMod.releaseLease(workerLease).catch(() => {});
       draining = false;
     }
   };
@@ -415,7 +490,7 @@ function stopBulkWorker() {
 module.exports = {
   enqueueBulkItem, reserveBulkItems, ackBulkItem, reclaimBulkItems, bulkQueueDepth,
   bulkQueueStatus, getBulkQueuePause, pauseBulkQueue, isRateLimitError,
-  createBulkJob, getBulkJob, updateBulkItem,
+  createBulkJob, getBulkJob, updateBulkItem, retryFailedBulkItems,
   startBulkWorker, stopBulkWorker,
   _internals: { queue: QUEUE, processing: PROC, pauseKey: PAUSE_KEY, namespace: queueNamespace, RATE_LIMIT_PAUSE_MS },
 };

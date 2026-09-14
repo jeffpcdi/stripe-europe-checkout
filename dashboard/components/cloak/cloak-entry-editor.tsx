@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Loader2, ShieldAlert, Scale, ShieldOff, Check, ExternalLink } from 'lucide-react'
 import { apiSend, useDomains } from '@/lib/api'
@@ -69,6 +69,8 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const [paises, setPaises] = useState<string[]>(entry?.paises ?? [])
   const [idiomas, setIdiomas] = useState<string[]>(entry?.idiomas ?? [])
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const createRequestRef = useRef<{ signature: string; key: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // O modal é renderizado via portal no <body>. Sem isso ele fica preso dentro
@@ -84,13 +86,26 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
 
   async function handleSave() {
+    if (savingRef.current) return
     setError(null)
     if (!nome.trim() && !entry) return setError('Dê um nome ao link')
     if (!/^https:\/\//.test(offerUrl.trim())) return setError('A offer precisa ser uma URL https:// válida')
+
+    const signature = JSON.stringify({
+      nome: nome.trim(), offerUrl: offerUrl.trim(), whitePageUrl: whitePageUrl.trim(),
+      dominio: dominio.trim(), enabled, mobileOnly, requireAdClick, sensitivity, paises, idiomas,
+    })
+    if (!entry && (!createRequestRef.current || createRequestRef.current.signature !== signature)) {
+      createRequestRef.current = { signature, key: crypto.randomUUID() }
+    }
+
+    savingRef.current = true
     setSaving(true)
     try {
       await apiSend('/api/cloak/entries', 'POST', {
         slug: entry?.slug,
+        _baseUpdatedAt: entry?.updatedAt,
+        _createKey: entry ? undefined : createRequestRef.current?.key,
         nome: nome.trim(),
         offerUrl: offerUrl.trim(),
         whitePageUrl: whitePageUrl.trim(),
@@ -106,6 +121,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

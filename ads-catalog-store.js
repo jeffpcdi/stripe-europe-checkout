@@ -458,19 +458,25 @@ async function deleteCatalog(accountId, advertiserId, catalogId) {
   const catalog = await getCatalog(accountId, advertiserId, value);
   if (!catalog) return false;
   // As tabelas foram criadas sem FK para preservar compatibilidade com bancos
-  // antigos. Por isso a limpeza precisa ser explícita: antes, excluir o
-  // catálogo deixava publicações e jobs órfãos no Neon.
-  await sql`DELETE FROM ads_catalog_campaign_runs
-    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
-  await sql`DELETE FROM ads_catalog_sync_runs
-    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
-  await sql`DELETE FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${value}`;
-  await sql`DELETE FROM ads_catalog_feed_snapshots
-    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
-  await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${value}`;
-  const rows = await sql`DELETE FROM ads_catalogs
-    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${value}
-    RETURNING id`;
+  // antigos. A limpeza precisa ser explícita, mas também ATÔMICA: se uma das
+  // remoções falhar, nenhuma parte do catálogo pode desaparecer isoladamente.
+  const statements = [
+    sql`DELETE FROM ads_catalog_campaign_runs
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`,
+    sql`DELETE FROM ads_catalog_sync_runs
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`,
+    sql`DELETE FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${value}`,
+    sql`DELETE FROM ads_catalog_feed_snapshots
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`,
+    sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${value}`,
+    sql`DELETE FROM ads_catalogs
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${value}
+      RETURNING id`,
+  ];
+  const result = typeof sql.transaction === 'function'
+    ? await sql.transaction(statements)
+    : await Promise.all(statements); // adaptadores de teste; Neon sempre usa transaction
+  const rows = Array.isArray(result) ? (result[result.length - 1] || []) : [];
   return rows.length > 0;
 }
 
@@ -533,21 +539,80 @@ async function upsertProduct(accountId, advertiserId, catalogId, product, valida
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const catalog = await getCatalog(accountId, advertiserId, catalogId);
-  if (!catalog) throw new Error('Catálogo não encontrado');
-  const data = (product && product.data) || {};
+  if (!catalog) throw Object.assign(new Error('Catálogo não encontrado'), { status: 404, code: 'CATALOG_NOT_FOUND' });
+
+  const input = product || {};
+  const data = Object.assign({}, input.data || {});
   assertCatalogProductUrl(catalog, data);
-  const skuId = String(data.sku_id || (product && product.skuId) || '').trim().slice(0, 100);
-  if (!skuId) throw new Error('sku_id obrigatório');
+  const skuId = String(data.sku_id || input.skuId || '').trim().slice(0, 100);
+  if (!skuId) throw Object.assign(new Error('sku_id obrigatório'), { status: 400, code: 'CATALOG_SKU_REQUIRED' });
   data.sku_id = skuId;
   if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
   const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
-  const rows = await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
-    VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
-      COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
-    ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
-      data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()
-    RETURNING id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at`;
-  await refreshProductCount(accountId, advertiserId, catalogId);
+  const productId = String(input.productId || input.id || '').trim();
+  const createOnly = input.createOnly === true;
+
+  // Edição explícita é por ID do produto, não por SKU. Antes, alterar o SKU no
+  // editor executava o UPSERT por sku_id e criava uma segunda linha, deixando o
+  // produto original para trás. O ID mantém a identidade da linha durante a edição.
+  if (productId) {
+    const existingRows = await sql`SELECT id, sku_id FROM ads_catalog_products
+      WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${productId} LIMIT 1`;
+    if (!existingRows.length) {
+      throw Object.assign(new Error('Produto não encontrado. Atualize o catálogo e tente novamente.'), { status: 404, code: 'CATALOG_PRODUCT_NOT_FOUND' });
+    }
+    const skuConflict = await sql`SELECT id FROM ads_catalog_products
+      WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}
+        AND sku_id = ${skuId} AND id <> ${productId} LIMIT 1`;
+    if (skuConflict.length) {
+      throw Object.assign(new Error('Já existe outro produto com este SKU neste catálogo.'), { status: 409, code: 'CATALOG_SKU_CONFLICT' });
+    }
+
+    const statements = [
+      sql`UPDATE ads_catalog_products SET sku_id = ${skuId}, data = ${JSON.stringify(data)},
+          valid = ${result.valid}, errors = ${JSON.stringify(result.errors)}, updated_at = now()
+        WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${productId}
+        RETURNING id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at`,
+      sql`UPDATE ads_catalogs SET
+          product_count = (SELECT count(*)::int FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}),
+          updated_at = now()
+        WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`,
+    ];
+    const tx = typeof sql.transaction === 'function' ? await sql.transaction(statements) : await Promise.all(statements);
+    const rows = Array.isArray(tx) ? (tx[0] || []) : [];
+    if (!rows.length) throw Object.assign(new Error('Produto não encontrado durante a edição.'), { status: 404, code: 'CATALOG_PRODUCT_NOT_FOUND' });
+    return mapProduct(rows[0]);
+  }
+
+  // O editor de "Novo produto" é create-only. Digitar por engano um SKU que
+  // já existe não pode sobrescrever a ficha atual sem o usuário perceber.
+  // Importações continuam usando bulkUpsertProducts, onde UPSERT por SKU é a
+  // semântica esperada.
+  const insertStatement = createOnly
+    ? sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+        VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
+          COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
+        ON CONFLICT (catalog_id, sku_id) DO NOTHING
+        RETURNING id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at`
+    : sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+        VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
+          COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
+        ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
+          data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()
+        RETURNING id, catalog_id, sku_id, data, valid, errors, sort_order, created_at, updated_at`;
+  const statements = [
+    insertStatement,
+    sql`UPDATE ads_catalogs SET
+        product_count = (SELECT count(*)::int FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}),
+        updated_at = now()
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`,
+  ];
+  const tx = typeof sql.transaction === 'function' ? await sql.transaction(statements) : await Promise.all(statements);
+  const rows = Array.isArray(tx) ? (tx[0] || []) : [];
+  if (!rows.length && createOnly) {
+    throw Object.assign(new Error('Já existe um produto com este SKU neste catálogo.'), { status: 409, code: 'CATALOG_SKU_CONFLICT' });
+  }
+  if (!rows.length) throw Object.assign(new Error('Não foi possível salvar o produto.'), { status: 500, code: 'CATALOG_PRODUCT_SAVE_FAILED' });
   return mapProduct(rows[0]);
 }
 
@@ -559,28 +624,43 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const catalog = await getCatalog(accountId, advertiserId, catalogId);
-  if (!catalog) throw new Error('Catálogo não encontrado');
+  if (!catalog) throw Object.assign(new Error('Catálogo não encontrado'), { status: 404, code: 'CATALOG_NOT_FOUND' });
   let imported = 0;
   let validCount = 0;
   const skipped = [];
-  // Valida o lote inteiro antes da primeira escrita para evitar importação parcial.
+  const prepared = [];
+
+  // Prepara e valida TODO o lote antes da primeira escrita. A gravação abaixo
+  // também é transacional: falha no item 37 não deixa os 36 anteriores salvos
+  // enquanto a API informa erro para o lote inteiro.
   for (const product of products || []) assertCatalogProductUrl(catalog, (product && product.data) || product || {});
   for (const product of products || []) {
-    const data = (product && product.data) || product || {};
+    const data = Object.assign({}, (product && product.data) || product || {});
     const skuId = String(data.sku_id || '').trim().slice(0, 100);
     if (!skuId) { skipped.push({ reason: 'sku_id ausente' }); continue; }
     data.sku_id = skuId;
     if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
     const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
-    await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
-      VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
-        COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
-      ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
-        data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()`;
+    prepared.push({ data, skuId, result });
     imported += 1;
     if (result.valid) validCount += 1;
   }
-  await refreshProductCount(accountId, advertiserId, catalogId);
+
+  if (prepared.length) {
+    const statements = prepared.map(({ data, skuId, result }) => sql`INSERT INTO ads_catalog_products
+      (id, catalog_id, account_id, sku_id, data, valid, errors, sort_order)
+      VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)},
+        COALESCE((SELECT MAX(sort_order) + 1 FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogId}), 0))
+      ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
+        data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()`);
+    statements.push(sql`UPDATE ads_catalogs SET
+        product_count = (SELECT count(*)::int FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}),
+        updated_at = now()
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`);
+    if (typeof sql.transaction === 'function') await sql.transaction(statements);
+    else await Promise.all(statements); // adaptadores de teste; Neon usa transaction
+  }
+
   return { imported, valid: validCount, invalid: imported - validCount, skipped };
 }
 
@@ -588,19 +668,37 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
 // original. O clone nasce sem vínculo TikTok (tiktokCatalogId, syncedAt, audit)
 // — a sincronização cria um catálogo NOVO no TikTok para não sobrepor o
 // original. Útil para replicar um catálogo já configurado em 1 clique.
-async function cloneCatalog(accountId, advertiserId, catalogId) {
+async function cloneCatalog(accountId, advertiserId, catalogId, options = {}) {
   accountId = cleanAccountId(accountId);
   advertiserId = cleanAdvertiserId(advertiserId);
+  catalogId = String(catalogId || '').trim();
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const original = await getCatalog(accountId, advertiserId, catalogId);
-  if (!original) throw new Error('Catálogo não encontrado');
+  if (!original) throw Object.assign(new Error('Catálogo não encontrado'), { status: 404, code: 'CATALOG_NOT_FOUND' });
   const products = await listProducts(accountId, advertiserId, catalogId);
+
+  // Se a resposta HTTP de uma clonagem se perder e o usuário repetir a ação,
+  // a chave estável reaproveita o MESMO catálogo. O catálogo de origem entra
+  // no hash para impedir que a chave do cliente seja reutilizada por engano em
+  // outra origem.
+  const requestKey = String(options.idempotencyKey || '').trim();
+  const batchKey = requestKey
+    ? `clone:${crypto.createHash('sha256').update(`${catalogId}|${requestKey}`).digest('hex')}`
+    : null;
+  if (batchKey) {
+    const replay = await getProductCatalogRequest(accountId, advertiserId, batchKey);
+    if (replay) {
+      const replayProducts = await listProducts(accountId, advertiserId, replay.id);
+      return { catalog: replay, productCount: replayProducts.length, replayed: true };
+    }
+  }
   const clone = await createCatalog(accountId, advertiserId, {
     name: original.name + ' \u2014 c\u00f3pia',
     currency: original.currency,
     catalogType: original.catalogType,
-    country: original.country
+    country: original.country,
+    batchKey,
   });
   if (products.length > 0) {
     const productData = products.map((p) => ({ data: { ...p.data } }));
@@ -608,7 +706,7 @@ async function cloneCatalog(accountId, advertiserId, catalogId) {
   }
   // Relê o clone com a contagem atualizada.
   const result = await getCatalog(accountId, advertiserId, clone.id);
-  return { catalog: result || clone, productCount: products.length };
+  return { catalog: result || clone, productCount: products.length, replayed: false };
 }
 
 async function deleteProduct(accountId, advertiserId, catalogId, productId) {
@@ -618,8 +716,23 @@ async function deleteProduct(accountId, advertiserId, catalogId, productId) {
   await ensureSchema();
   const catalog = await getCatalog(accountId, advertiserId, catalogId);
   if (!catalog) return false;
-  const rows = await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${String(productId)} RETURNING id`;
-  await refreshProductCount(accountId, advertiserId, catalogId);
+  const catalogValue = String(catalogId);
+  // Produto + contador do catálogo formam uma única alteração lógica. Antes o
+  // DELETE podia confirmar e a atualização do contador falhar em seguida,
+  // fazendo a API reportar erro apesar de o produto já ter desaparecido.
+  const statements = [
+    sql`DELETE FROM ads_catalog_products
+      WHERE account_id = ${accountId} AND catalog_id = ${catalogValue} AND id = ${String(productId)}
+      RETURNING id`,
+    sql`UPDATE ads_catalogs SET
+        product_count = (SELECT count(*)::int FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${catalogValue}),
+        updated_at = now()
+      WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${catalogValue}`,
+  ];
+  const result = typeof sql.transaction === 'function'
+    ? await sql.transaction(statements)
+    : await Promise.all(statements); // adaptadores de teste; Neon sempre usa transaction
+  const rows = Array.isArray(result) ? (result[0] || []) : [];
   return rows.length > 0;
 }
 
@@ -981,6 +1094,19 @@ async function claimNextSyncRun(workerId) {
 // confirmar o contrato de criação do catálogo. Esses jobs não são claimáveis
 // até a confirmação; a promoção atômica evita duplicar a sincronização em
 // workers concorrentes.
+async function heartbeatSyncRun(accountId, runId, workerId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return false;
+  await ensureSchema();
+  const worker = String(workerId || '').trim().slice(0, 120);
+  if (!worker) return false;
+  const rows = await sql`UPDATE ads_catalog_sync_runs SET locked_at = now(), updated_at = now()
+    WHERE account_id = ${accountId} AND id = ${String(runId || '')}
+      AND status = 'running' AND locked_by = ${worker}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
 async function promoteSyncRunsAwaitingConnectorConfirmation(limit = 20) {
   if (!enabled) return [];
   await ensureSchema();
@@ -1127,6 +1253,19 @@ async function claimNextCampaignRun(workerId) {
 // Campanhas enfileiradas por um lote não podem sair antes de o TikTok aceitar
 // os produtos do catálogo. Esta promoção é atômica: vários workers podem
 // consultar ao mesmo tempo, mas cada run muda de espera para fila uma vez só.
+async function heartbeatCampaignRun(accountId, runId, workerId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return false;
+  await ensureSchema();
+  const worker = String(workerId || '').trim().slice(0, 120);
+  if (!worker) return false;
+  const rows = await sql`UPDATE ads_catalog_campaign_runs SET locked_at = now(), updated_at = now()
+    WHERE account_id = ${accountId} AND id = ${String(runId || '')}
+      AND status = 'running' AND locked_by = ${worker}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
 async function promoteCampaignRunsAwaitingReview(limit = 20) {
   if (!enabled) return [];
   await ensureSchema();
@@ -1248,10 +1387,10 @@ async function recoverCatalogRuns() {
   await ensureSchema();
   const syncRows = await sql`UPDATE ads_catalog_sync_runs SET status = 'retrying', locked_at = null, locked_by = null,
     error = COALESCE(error, ${JSON.stringify({ code: 'WORKER_RESTARTED', userMessage: 'Publicação retomada após reinício do servidor', retryable: true })}::jsonb), updated_at = now()
-    WHERE status = 'running' AND updated_at < now() - interval '2 minutes' RETURNING id`;
+    WHERE status = 'running' AND updated_at < now() - interval '5 minutes' RETURNING id`;
   const campaignRows = await sql`UPDATE ads_catalog_campaign_runs SET status = 'retrying', locked_at = null, locked_by = null,
     error = COALESCE(error, ${JSON.stringify({ code: 'WORKER_RESTARTED', userMessage: 'Criação retomada após reinício do servidor', retryable: true })}::jsonb), updated_at = now()
-    WHERE status = 'running' AND updated_at < now() - interval '2 minutes' RETURNING id`;
+    WHERE status = 'running' AND updated_at < now() - interval '5 minutes' RETURNING id`;
   return { sync: syncRows.length, campaign: campaignRows.length };
 }
 
@@ -1296,6 +1435,7 @@ module.exports = {
   getSyncRun,
   listSyncRuns,
   claimNextSyncRun,
+  heartbeatSyncRun,
   promoteSyncRunsAwaitingConnectorConfirmation,
   listCatalogsAwaitingTikTokAudit,
   updateSyncRun,
@@ -1304,6 +1444,7 @@ module.exports = {
   getCampaignRun,
   listCampaignRuns,
   claimNextCampaignRun,
+  heartbeatCampaignRun,
   promoteCampaignRunsAwaitingReview,
   promoteCampaignRunsAwaitingConnectorConfirmation,
   listCatalogsAwaitingCampaignReview,

@@ -133,18 +133,24 @@ async function save(accountId, input) {
   if (!PROVIDERS[provider]) throw new Error('provider inválido: ' + provider);
   const existing = input.id ? get(accountId, input.id) : null;
   if (input.id && !existing) { const err = new Error('Checkout não encontrado. Atualize a lista.'); err.status = 404; throw err; }
+  const providerChanged = !!(existing && existing.provider !== provider);
   const g = {
     id: existing ? existing.id : newId(),
     accountId,
     provider,
     name: String(input.name || PROVIDERS[provider].label).slice(0, 80),
     webhookToken: existing ? existing.webhookToken : newToken(),
-    secret: input.secret != null ? String(input.secret).slice(0, 200) || null : (existing ? existing.secret : null),
-    // merge-patch: preserva chaves de config já existentes ao editar (ex.: um
-    // toggle não apaga outro). config.amountInCents = valor já vem em centavos.
+    // Credencial nunca atravessa uma troca de provedor. Antes, editar Stripe
+    // → Kiwify deixando o campo vazio reaproveitava o whsec_ antigo como se
+    // fosse token Kiwify. No mesmo provedor, campo ausente continua sendo patch.
+    secret: input.secret != null
+      ? String(input.secret).slice(0, 200) || null
+      : (providerChanged ? null : (existing ? existing.secret : null)),
+    // Configuração também parte limpa numa troca de provedor; dentro do mesmo
+    // provedor continua merge-patch para não apagar opções não exibidas na UI.
     config: input.config && typeof input.config === 'object'
-      ? Object.assign({}, existing ? existing.config : {}, input.config)
-      : (existing ? existing.config : {}),
+      ? Object.assign({}, providerChanged ? {} : (existing ? existing.config : {}), input.config)
+      : (providerChanged ? {} : (existing ? existing.config : {})),
     lastEventAt: existing ? existing.lastEventAt : null,
     lastEventStatus: existing ? existing.lastEventStatus : null,
     createdAt: existing ? existing.createdAt : new Date().toISOString()
@@ -200,14 +206,29 @@ function touch(id, status) {
 // Rotaciona o webhook token (item 100): gera um token novo, invalidando a URL
 // antiga. Usado quando o segredo/URL vaza. Mantém o resto do registro.
 async function rotateToken(accountId, id) {
-  const g = get(accountId, id);
-  if (!g) return null;
-  g.webhookToken = newToken();
-  const idx = cache.findIndex((x) => x.id === g.id);
-  if (idx >= 0) cache[idx] = g;
-  if (db.enabled) await db.upsertGateway(g);
-  await redis.saveGatewaySnapshot(accountId, g.id, g); // item 48: espelho durável
-  return { ...g };
+  const current = get(accountId, id);
+  if (!current) return null;
+
+  // A rotação é uma escrita de segurança: a URL antiga só pode parar de
+  // funcionar DEPOIS que a nova credencial estiver confirmada nas fontes
+  // duráveis. Antes o cache era alterado primeiro; uma falha do Neon/Redis
+  // deixava esta instância usando um token que não sobreviveria ao restart.
+  const next = { ...current, webhookToken: newToken() };
+  if (db.enabled && !(await db.upsertGateway(next))) {
+    const err = new Error('Não foi possível confirmar a rotação do webhook no banco.');
+    err.status = 503;
+    throw err;
+  }
+  const snapshotOk = await redis.saveGatewaySnapshot(accountId, next.id, next);
+  if (!db.enabled && ((redis.enabled && !snapshotOk) || (!redis.enabled && process.env.NODE_ENV === 'production'))) {
+    const err = new Error('Armazenamento indisponível. O link de integração não foi alterado.');
+    err.status = 503;
+    throw err;
+  }
+
+  const idx = cache.findIndex((x) => x.id === next.id && x.accountId === accountId);
+  if (idx >= 0) cache[idx] = next;
+  return { ...next };
 }
 
 // ── Verificação de assinatura por provider ─────────────────────────────────

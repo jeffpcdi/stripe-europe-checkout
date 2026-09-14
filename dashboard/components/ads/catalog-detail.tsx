@@ -17,7 +17,7 @@ import {
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
   useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
-  adsCatalogApiUrl, apiSend, ApiError,
+  adsCatalogApiUrl, apiSend, fetcher, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -133,6 +133,7 @@ export function CatalogDetail({
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const cloneRequestKeyRef = useRef<string | null>(null)
   const [fixing, setFixing] = useState(false)
   const [quickCampaignsOpen, setQuickCampaignsOpen] = useState(false)
   const [creativeBusy, setCreativeBusy] = useState(false)
@@ -346,11 +347,7 @@ export function CatalogDetail({
   async function handleRefreshAudit() {
     setAuditing(true)
     try {
-      const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId), { credentials: 'include' })
-      if (!res.ok) {
-        const auditData = await res.json().catch(() => ({}))
-        throw new Error(auditData.error || `Erro ${res.status}`)
-      }
+      await fetcher(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId))
       await Promise.all([mutate(), mutateReadiness()])
     } catch (e) {
       toast.error('Falha ao atualizar status', { hint: e instanceof Error ? e.message : undefined })
@@ -362,15 +359,7 @@ export function CatalogDetail({
   async function handleMagicFix() {
     setFixing(true)
     try {
-      const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/magic-fix`, advertiserId), {
-        method: 'POST',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || `Erro ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await apiSend<{ fixedCount?: number }>(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/magic-fix`, advertiserId), 'POST', {})
       if (data.fixedCount > 0) {
         toast.success(`${data.fixedCount} produto(s) corrigido(s) com sucesso!`)
         await refreshAndAutoSync()
@@ -403,8 +392,7 @@ export function CatalogDetail({
     const timer = window.setTimeout(async () => {
       try {
         auditAttemptsRef.current += 1
-        const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId), { credentials: 'include' })
-        if (!res.ok) throw new Error(`Erro ${res.status}`)
+        await fetcher(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId))
         if (!cancelled) await Promise.all([mutate(), mutateReadiness()])
       } catch {
         // Falha silenciosa no polling: a atualização sob demanda continua disponível e
@@ -452,11 +440,12 @@ export function CatalogDetail({
 
   async function confirmDelete() {
     const target = deleteTarget
-    if (!target) return
+    if (!target || deleting) return
     setDeleting(true)
     try {
       if (target.kind === 'catalog') {
         await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, advertiserId), 'DELETE')
+        setDeleteTarget(null)
         toast.success('Catálogo local excluído', { hint: 'O catálogo remoto do TikTok não foi apagado.' })
         onDeleted()
       } else {
@@ -464,16 +453,26 @@ export function CatalogDetail({
           adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/${encodeURIComponent(target.id)}`, advertiserId),
           'DELETE',
         )
+        // A exclusão já foi confirmada pelo backend; uma falha posterior de
+        // refresh/sincronização não pode ser apresentada como se o produto
+        // tivesse sido preservado.
+        setDeleteTarget(null)
         toast.success('Produto removido')
-        await refreshAndAutoSync()
+        try {
+          await refreshAndAutoSync()
+        } catch (refreshError) {
+          toast.info('Produto removido, mas a tela não atualizou completamente', {
+            hint: refreshError instanceof Error ? refreshError.message : 'Atualize a página para conferir o estado mais recente.',
+          })
+        }
       }
     } catch (e) {
+      // Falha da exclusão em si: mantém o diálogo/contexto aberto para retry.
       toast.error(target.kind === 'catalog' ? 'Falha ao excluir catálogo' : 'Falha ao remover produto', {
         hint: e instanceof Error ? e.message : undefined,
       })
     } finally {
       setDeleting(false)
-      setDeleteTarget(null)
     }
   }
 
@@ -498,10 +497,13 @@ export function CatalogDetail({
   async function handleClone() {
     if (cloning) return
     setCloning(true)
+    const idempotencyKey = cloneRequestKeyRef.current || crypto.randomUUID()
+    cloneRequestKeyRef.current = idempotencyKey
     try {
       const res = await apiSend<{ catalog: AdsCatalog; productCount: number; syncStarted: boolean }>(
-        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', {},
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', { idempotencyKey },
       )
+      cloneRequestKeyRef.current = null
       if (res.syncStarted) {
         toast.success(`Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`, {
           hint: 'Acompanhe o progresso no catálogo clonado.',

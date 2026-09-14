@@ -66,7 +66,7 @@ console.log('Vídeos em massa — conversão automática e segura');
 console.log('Período global');
 {
   ok(/adsDateRange\(rangeDays, advertiserTimeZone\)/.test(view), 'Campanhas calcula o período no fuso do advertiser');
-  ok(/useAdsAttribution\(treeActive, effectiveAdvertiser, \{ fromDate, toDate \}\)/.test(view), 'atribuição acompanha o período global');
+  ok(/useAdsCampaignDecisions\(campaignsActive, effectiveAdvertiser, \{ fromDate, toDate \}\)/.test(view), 'decisão de campanha acompanha o período global');
   ok(/count - 1/.test(adsTime), 'período diário não inclui o dia anterior');
   ok(/formatToParts/.test(adsTime) && /safeAdsTimeZone/.test(adsTime), 'datas usam um fuso IANA validado, sem UTC implícito');
 }

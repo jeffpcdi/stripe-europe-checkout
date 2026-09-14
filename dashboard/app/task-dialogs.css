@@ -62,13 +62,8 @@
 .conversion-guide ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 16px 0; font-size: 14px; }
 .conversion-guide p { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
 .operation-settings :is(button, select, summary) { min-height: 44px; }
-.campaign-metrics-essential .campaign-table-row > .grid,
-.campaign-metrics-essential .campaign-table-container > .sticky { grid-template-columns: 38px 82px minmax(220px, 2fr) 170px 100px 75px 95px 110px 70px; min-width: 1000px; }
-.campaign-metrics-essential [class*='min-w-[1305px]'] { min-width: 1000px; }
 .task-dialog-footer > .flex { flex-wrap: wrap; }
 .task-dialog-footer .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
-.campaign-metrics-essential .campaign-table-row > .grid > :is(:nth-child(7), :nth-child(8), :nth-child(10)),
-.campaign-metrics-essential .campaign-table-container > .sticky > :is(:nth-child(7), :nth-child(8), :nth-child(10)) { display: none; }
 @media (max-width: 639px) {
   .conversion-guide ol { grid-template-columns: 1fr; }
   .task-dialog { border-radius: 14px; }

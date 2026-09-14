@@ -36,6 +36,7 @@ const automation = require('./ads-automation'); // regras/alertas/dayparting 24/
 const automationWindow = require('./ads-automation-window');
 const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
+const { buildCampaignDecisions } = require('./ads-campaign-decisions');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
 const pixelStore = require('./pixel-store');
 const config = require('./config');
@@ -1113,6 +1114,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   app.post('/api/ads/create', dashboardAuth, async (req, res) => {
+    let idempotencyJobId = null;
     try {
       // F1: gate via Pipeboard (a Zernio está morta — o gate antigo por
       // st.accountId deixaria a rota em 409 p/ sempre). O buildCreatePayload
@@ -1132,6 +1134,41 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
       }
+
+      // O launcher já envia uma chave estável por formulário. Antes o backend
+      // ignorava essa chave: se o TikTok criasse a campanha e a resposta HTTP
+      // se perdesse, clicar novamente podia criar outra campanha idêntica.
+      // Reservamos a tentativa DURAVELMENTE antes de tocar o provedor externo.
+      const headerIdempotencyKey = typeof req.get === 'function' ? req.get('Idempotency-Key') : '';
+      const clientIdempotencyKey = String(b.idempotencyKey || headerIdempotencyKey || '').trim().slice(0, 200);
+      if (clientIdempotencyKey && adsOps.enabled) {
+        const scopedKey = 'manual-create:' + crypto.createHash('sha256')
+          .update(prepared.advertiserId + '|' + clientIdempotencyKey)
+          .digest('hex');
+        const reservation = await adsOps.reserveIdempotentOperation(req.account.id, {
+          idempotencyKey: scopedKey,
+          kind: 'idempotency:manual_campaign_create',
+          advertiserId: prepared.advertiserId,
+          payload: { name, goal: payload.goal },
+        });
+        if (!reservation.reserved) {
+          const previous = reservation.job;
+          const progress = previous && previous.progress && typeof previous.progress === 'object' ? previous.progress : {};
+          if (previous && previous.status === 'completed' && progress.result) {
+            return res.status(200).json(Object.assign({}, progress.result, { replayed: true }));
+          }
+          if (previous && ['partial', 'failed'].includes(previous.status) && progress.errorResponse) {
+            return res.status(Number(progress.httpStatus) || 409).json(Object.assign({}, progress.errorResponse, { replayed: true }));
+          }
+          return res.status(409).json({
+            error: 'Esta criação já foi enviada e ainda não pode ser repetida com segurança.',
+            code: 'CAMPAIGN_CREATE_IN_PROGRESS',
+            hint: 'Atualize a lista de campanhas antes de iniciar uma nova tentativa.',
+          });
+        }
+        idempotencyJobId = reservation.job && reservation.job.id;
+      }
+
       // F1: criação composta via Pipeboard (campaign → adgroup → upload → ad).
       // O provider SEMPRE cria em PAUSED; sem "status: active" aqui — a rota de
       // criação entrega material p/ revisão humana, nunca delivery imediato.
@@ -1159,6 +1196,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         promotedObject: payload.promotedObject,
         status: 'paused',
       });
+      const responseBody = {
+        id: result.campaignId,
+        campaignId: result.campaignId,
+        adGroupId: result.adGroupId,
+        adId: result.adId,
+        videoId: result.videoId,
+        name,
+        status: 'paused',
+        warnings: result.warnings,
+      };
+      // Persistir o resultado da chave é best-effort depois que o TikTok já
+      // confirmou a criação. Uma indisponibilidade do ledger não transforma uma
+      // campanha criada em erro falso; a chave permanece reservada e bloqueia
+      // um retry potencialmente duplicador.
+      if (idempotencyJobId) {
+        await adsOps.setJobStatus(req.account.id, idempotencyJobId, 'completed', {
+          progress: { total: 1, completed: 1, failed: 0, result: responseBody },
+        }).catch((ledgerErr) => {
+          console.warn('[ads-create] não foi possível finalizar ledger idempotente:', ledgerErr && ledgerErr.message);
+        });
+      }
       // Auditoria durável da criação real (afterState = IDs criados; "desfazer
       // criação" = pausar/apagar em cadeia esses IDs).
       await adsOps.appendAuditEvent(req.account.id, {
@@ -1169,12 +1227,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }).catch(() => {});
       adsSync.syncAfterWrite(req.account.id, payload.adAccountId);
       stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok criada (PAUSED): ' + name + ' [' + result.campaignId + ']' });
-      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId, name, status: 'paused', warnings: result.warnings });
+      res.status(201).json(responseBody);
     } catch (err) {
-      // Falha no meio da composição: reporta o passo e o que já existe (pausado).
+      // Falha no meio da composição: grava o resultado parcial da MESMA chave.
+      // Retry automático não pode criar outra campanha se já há IDs no TikTok.
       if (err && err.step) {
+        const errorBody = {
+          error: err.message,
+          step: err.step,
+          createdIds: err.createdIds || {},
+          note: err.createdIds && err.createdIds.campaignId
+            ? 'A campanha parcial foi pausada — nada está gastando. Revise e apague na dashboard se não quiser mantê-la.'
+            : undefined,
+        };
+        if (idempotencyJobId) {
+          const hasCreatedIds = err.createdIds && Object.keys(err.createdIds).length > 0;
+          await adsOps.setJobStatus(req.account.id, idempotencyJobId, hasCreatedIds ? 'partial' : 'failed', {
+            error: String(err.message || 'Falha ao criar campanha'),
+            progress: { total: 1, completed: 0, failed: 1, httpStatus: err.status || 502, errorResponse: errorBody },
+          }).catch(() => {});
+        }
         stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
-        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada está gastando. Revise e apague na dashboard se não quiser mantê-la.' : undefined });
+        return res.status(err.status || 502).json(errorBody);
+      }
+      if (idempotencyJobId) {
+        const errorBody = { error: String(err && err.message || 'Falha ao criar campanha') };
+        await adsOps.setJobStatus(req.account.id, idempotencyJobId, 'failed', {
+          error: errorBody.error,
+          progress: { total: 1, completed: 0, failed: 1, httpStatus: Number(err && err.status) || 502, errorResponse: errorBody },
+        }).catch(() => {});
       }
       fail(res, err);
     }
@@ -1437,7 +1518,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'rejections', 'pixels']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'campaign-decisions', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'rejections', 'pixels']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -1861,9 +1942,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.json({ config: config.get(req.account.id).profitability || {} });
   });
 
-  app.put('/api/ads/profitability/config', dashboardAuth, (req, res) => {
+  app.put('/api/ads/profitability/config', dashboardAuth, async (req, res) => {
     try {
-      const saved = config.set(req.account.id, { profitability: (req.body || {}).config || req.body || {} });
+      const saved = await config.setDurable(req.account.id, { profitability: (req.body || {}).config || req.body || {} });
       res.json({ ok: true, config: saved.profitability });
     } catch (err) { fail(res, err); }
   });
@@ -1905,8 +1986,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // extrai só o nome do arquivo da URL e valida que pertence à conta
       const m = url.match(new RegExp('/uploads/' + seg.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '/([a-zA-Z0-9._-]+)$'));
       if (!m) return res.status(403).json({ error: 'Criativo não pertence a esta conta' });
-      await fs.promises.unlink(path.join(adsStorage.accountDir(req.account.id), m[1])).catch(() => {});
-      res.json({ ok: true });
+      const filePath = path.join(adsStorage.accountDir(req.account.id), m[1]);
+      let alreadyMissing = false;
+      try {
+        await fs.promises.unlink(filePath);
+      } catch (err) {
+        if (err && err.code === 'ENOENT') alreadyMissing = true;
+        else throw err;
+      }
+      // DELETE é idempotente para arquivo já ausente, mas falhas reais de I/O
+      // sobem para o handler e nunca são apresentadas como sucesso silencioso.
+      res.json({ ok: true, alreadyMissing });
     } catch (err) { fail(res, err); }
   });
 
@@ -1933,11 +2023,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
       await cloudVideo.exchangeCode(req.account.id, providerName, req.query.code, req.query.state);
-      const source = config.get(req.account.id).cloudVideo || {};
-      config.set(req.account.id, { cloudVideo: {
-        ...source,
-        [providerName]: { ...(source[providerName] || {}), enabled: true },
-      } });
+      await config.setDurable(req.account.id, (latest) => {
+        const source = latest.cloudVideo || {};
+        return { cloudVideo: {
+          ...source,
+          [providerName]: { ...(source[providerName] || {}), enabled: true },
+        } };
+      });
       res.redirect('/dashboard?adsCloudVideo=connected');
     } catch (err) {
       res.redirect('/dashboard?adsCloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
@@ -1958,7 +2050,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (providerName === 'dropbox' && Object.prototype.hasOwnProperty.call(req.body || {}, 'folderPath')) {
         patch.folderPath = String((req.body || {}).folderPath || '');
       }
-      const saved = config.set(req.account.id, { cloudVideo: { ...source, [providerName]: { ...current, ...patch } } });
+      const saved = await config.setDurable(req.account.id, (latest) => {
+        const latestSource = latest.cloudVideo || {};
+        const latestCurrent = latestSource[providerName] || {};
+        return { cloudVideo: { ...latestSource, [providerName]: { ...latestCurrent, ...patch } } };
+      });
       res.json({ ok: true, source: saved.cloudVideo[providerName] });
     } catch (err) { fail(res, err); }
   });
@@ -2297,6 +2393,50 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+
+  // ── Modelo de decisão por campanha ──────────────────────────────────────────
+  // Une a atribuição first-party (vendas/receita reais) ao estado operacional
+  // da automação. A árvore continua responsável pelo gasto/métricas do TikTok;
+  // o frontend combina ambos sem fazer o usuário interpretar duas fontes.
+  // Não lê a árvore novamente, evitando duplicar o custo do /api/ads/tree.
+  app.get('/api/ads/campaign-decisions', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const q = req.query || {};
+      const advertiserId = q.adAccountId
+        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+        : await resolveAdv(req, '');
+      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
+      const defaultWindow = automationWindow.inclusiveWindow(new Date(), 7, timeZone);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
+        ? q.fromDate
+        : defaultWindow.fromDate;
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || ''))
+        ? q.toDate
+        : defaultWindow.toDate;
+
+      const attribution = computeAttribution(req.account.id, fromDate, toDate, timeZone, true);
+      const [snapshot, pendingProposals] = await Promise.all([
+        automation.getAutomationSnapshot(req.account.id, advertiserId, { worker: adsSync.getRuntimeStatus() }),
+        adsOps.listRuleProposals(req.account.id, { status: 'pending', advertiserId, limit: 100 }).catch(() => []),
+      ]);
+
+      const decisions = buildCampaignDecisions({ attribution, snapshot, pendingProposals });
+
+      res.json({
+        advertiserId,
+        fromDate,
+        toDate,
+        timeZone,
+        generatedAt: new Date().toISOString(),
+        byCampaign: decisions.byCampaign,
+        unattributed: attribution.unattributed,
+        automation: decisions.automation,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Regras automáticas — motor em ads-automation.js ────────────────────────
   // Métricas: cpa_max | spend_no_conv | roas_min | ctr_min | cpm_max |
   // roas_scale (escala vencedoras com teto) | schedule (dayparting).
@@ -2313,7 +2453,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const name = ticket.advertiserName || ticket.advertiserId;
     const date = new Date().toLocaleDateString('pt-BR');
     return 'Prezada equipe do TikTok for Business,\n\n'
-      + 'Solicito a revisão da suspensão da conta de an��ncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
+      + 'Solicito a revisão da suspensão da conta de anúncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
       + 'Acredito que a suspensão tenha sido aplicada por engano. Nossa conta segue as Políticas de Publicidade do TikTok: os criativos divulgam produtos/serviços legítimos, as páginas de destino correspondem ao conteúdo anunciado e não utilizamos práticas enganosas.\n\n'
       + 'Estamos à disposição para fornecer qualquer documentação adicional que comprove a conformidade da conta (informações do negócio, notas fiscais, comprovantes de entrega).\n\n'
       + 'Solicito, por gentileza, a reativação da conta ou um detalhamento específico da violação identificada para que possamos corrigi-la imediatamente.\n\n'
@@ -2871,19 +3011,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // Reprocessa os itens que FALHARAM (todos, ou só os índices informados)
   app.post('/api/ads/bulk/:jobId/retry', dashboardAuth, async (req, res) => {
     try {
-      const job = await bulk.getBulkJob(req.account.id, String(req.params.jobId || ''));
-      if (!job) return res.status(404).json({ error: 'Job não encontrado (expira em 24h)' });
+      const jobId = String(req.params.jobId || '');
       const wanted = Array.isArray((req.body || {}).indexes) ? req.body.indexes.map(Number) : null;
-      let requeued = 0;
-      for (const it of job.items) {
-        if (it.status !== 'failed') continue;
-        if (wanted && !wanted.includes(it.idx)) continue;
-        if (!it.task) continue;
-        await bulk.updateBulkItem(req.account.id, job.id, it.idx, { status: 'queued', error: null });
-        await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: it.idx, task: it.task });
-        requeued++;
+      const retried = await bulk.retryFailedBulkItems(req.account.id, jobId, wanted);
+      if (retried.notFound) return res.status(404).json({ error: 'Job não encontrado (expira em 24h)' });
+      if (!retried.ok) {
+        return res.status(retried.busy ? 409 : 503).json({
+          error: retried.busy ? 'Este job já está sendo reprocessado' : 'Não foi possível reservar o reprocessamento agora',
+          code: retried.busy ? 'BULK_RETRY_ALREADY_RUNNING' : 'BULK_RETRY_LOCK_UNAVAILABLE',
+          retryable: true,
+        });
       }
-      res.json({ ok: true, requeued });
+      res.json({ ok: true, requeued: retried.requeued });
     } catch (err) { fail(res, err); }
   });
 
@@ -3474,8 +3613,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const accId = req.account.id;
       const advertiserId = await catalogAdvertiserId(req);
-      const { catalog, productCount } = await catalogStore.cloneCatalog(accId, advertiserId, req.params.catalogId);
-      stats.logEvent('info', { acc: accId, title: 'Catálogo clonado', ref: catalog.id, meta: { from: req.params.catalogId, products: productCount } });
+      const cloneRequest = req.body || {};
+      const idempotencyKey = String(cloneRequest.idempotencyKey || '').trim().slice(0, 200);
+      const { catalog, productCount, replayed } = await catalogStore.cloneCatalog(accId, advertiserId, req.params.catalogId, { idempotencyKey });
+      if (!replayed) {
+        stats.logEvent('info', { acc: accId, title: 'Catálogo clonado', ref: catalog.id, meta: { from: req.params.catalogId, products: productCount } });
+      }
 
       // Tenta iniciar a sincronização automática (mesma lógica de sync-tiktok).
       // Condições: Pipeboard habilitado + BC configurado + killSwitch/dryRun off + produtos > 0.
@@ -3507,7 +3650,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         }
       }
       const updatedCatalog = await catalogStore.getCatalog(accId, advertiserId, catalog.id);
-      res.status(201).json({ catalog: updatedCatalog || catalog, productCount, syncStarted, syncRun });
+      res.status(replayed ? 200 : 201).json({ catalog: updatedCatalog || catalog, productCount, syncStarted, syncRun, replayed: !!replayed });
     } catch (err) { fail(res, err); }
   });
 
@@ -3627,9 +3770,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const advertiserId = await catalogAdvertiserId(req);
       const body = req.body || {};
+      const data = body.data && typeof body.data === 'object' ? body.data : Object.assign({}, body);
+      if (!body.data) { delete data.productId; delete data.createOnly; }
       const product = await catalogStore.upsertProduct(
         req.account.id, advertiserId, req.params.catalogId,
-        { data: body.data || body }, catalogFeed.validateProduct
+        { data, productId: body.productId, createOnly: body.createOnly === true }, catalogFeed.validateProduct
       );
       res.json({ product });
     } catch (err) { fail(res, err); }

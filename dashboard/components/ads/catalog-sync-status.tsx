@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Clock, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -98,13 +98,21 @@ export function CatalogSyncStatus({
       ? LABELS[run.status] || 'Sincronização interrompida'
       : LABELS[run.stage] || run.stage
   const uploadWarnings = affectedWarnings.length
+  const [resuming, setResuming] = useState(false)
+  const resumingRef = useRef(false)
   async function resume() {
+    if (resumingRef.current) return
+    resumingRef.current = true
+    setResuming(true)
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
       toast.success('Sincronização colocada novamente na fila')
       await mutate()
     } catch (error) {
       toast.error('Não foi possível retomar', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      resumingRef.current = false
+      setResuming(false)
     }
   }
   if ((remoteReadyWithDifference || run.status === 'completed') && uploadErrors === 0 && affectedWarnings.length === 0) return null
@@ -120,7 +128,7 @@ export function CatalogSyncStatus({
                 <span className={`font-semibold ${waitingConnector ? 'text-primary' : 'text-error'}`}>{run.error.userMessage}</span>
                 {run.error.suggestedAction ? ` ${run.error.suggestedAction}` : ''}
               </p>
-              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1 text-xs" onClick={resume}><RotateCcw className="size-3" /> Retomar</button>}
+              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1 text-xs" onClick={resume} disabled={resuming}>{resuming ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />} Retomar</button>}
             </>
           ) : (
             <p className="mt-0.5 text-[11px] text-muted-foreground">

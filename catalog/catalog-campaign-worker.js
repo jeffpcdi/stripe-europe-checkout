@@ -14,6 +14,7 @@ const reviewCheckedAt = new Map();
 const REVIEW_REFRESH_MS = 60 * 1000;
 let connectorCheckedAt = 0;
 const CONNECTOR_REFRESH_MS = 60 * 1000;
+const RUN_HEARTBEAT_MS = 30 * 1000;
 const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 
 function hasVerifiedProductLinkHierarchy(result) {
@@ -188,7 +189,17 @@ async function processRun(row) {
     adsSync.syncAfterWrite(accountId, row.advertiser_id);
     return completed;
   } catch (err) {
-    const createdIds = (err && err.createdIds) || row.created_ids || {};
+    // onProgress persiste IDs parciais durante a criação. Se uma etapa seguinte
+    // falhar sem repetir esses IDs no Error, `row.created_ids` ainda é o
+    // snapshot antigo do claim e podia apagar o progresso durável com {}.
+    let persistedCreatedIds = row.created_ids || {};
+    if (typeof store.getCampaignRun === 'function') {
+      try {
+        const latest = await store.getCampaignRun(accountId, row.advertiser_id, runId);
+        if (latest && latest.createdIds) persistedCreatedIds = latest.createdIds;
+      } catch (_) { /* mantém o snapshot do claim */ }
+    }
+    const createdIds = { ...persistedCreatedIds, ...((err && err.createdIds) || {}) };
     const structured = serializeCatalogError(err, err && err.step);
     const failedStage = String(structured.stage || err && err.step || '').toLowerCase();
     if (['CATALOG_PURCHASE_EVENT_NOT_READY', 'CATALOG_PIXEL_STATUS_UNAVAILABLE'].includes(structured.code)) {
@@ -300,7 +311,20 @@ async function tick() {
       await store.promoteCampaignRunsAwaitingReview(20);
     }
     const row = await store.claimNextCampaignRun(workerId);
-    if (row) await processRun(row);
+    if (row) {
+      let heartbeat = null;
+      try {
+        heartbeat = setInterval(() => {
+          if (typeof store.heartbeatCampaignRun === 'function') {
+            store.heartbeatCampaignRun(row.account_id, row.id, workerId).catch(() => {});
+          }
+        }, RUN_HEARTBEAT_MS);
+        if (heartbeat.unref) heartbeat.unref();
+        await processRun(row);
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+      }
+    }
   } catch (err) {
     console.warn('[catalog-campaign-worker] tick falhou:', String(err && err.message || err).slice(0, 240));
   } finally {

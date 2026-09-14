@@ -13,6 +13,7 @@ const { neon } = require('@neondatabase/serverless');
 const config = require('./config');
 const storage = require('./ads-storage');
 const adsProvider = require('./ads-provider');
+const redisMod = require('./redis');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
@@ -20,6 +21,8 @@ const sql = (!isPlaceholder && URL) ? neon(URL) : null;
 const PROVIDERS = ['googleDrive', 'dropbox'];
 const MAX_VIDEO_BYTES = Math.max(10, Math.min(2000, Number(process.env.CLOUD_VIDEO_MAX_MB) || 500)) * 1024 * 1024;
 const SYNC_MS = Math.max(60_000, Number(process.env.CLOUD_VIDEO_SYNC_MS) || 2 * 60_000);
+const SYNC_LEASE_TTL_SEC = Math.max(120, Number(process.env.CLOUD_VIDEO_SYNC_LEASE_TTL_SEC) || 10 * 60);
+const SYNC_LEASE_RENEW_MS = Math.max(15_000, Math.min(60_000, Math.floor(SYNC_LEASE_TTL_SEC * 1000 / 3)));
 let schemaReady = null;
 let timer = null;
 let running = false;
@@ -202,7 +205,7 @@ async function alreadyProcessed(accountId, providerName, fileId, advertiserId, m
 async function downloadFile(accountId, providerName, file, accessToken) {
   if (file.size && file.size > MAX_VIDEO_BYTES) throw new Error('Arquivo excede o limite de ' + Math.round(MAX_VIDEO_BYTES / 1024 / 1024) + ' MB');
   const dir = await storage.ensureAccountDir(accountId);
-  const filename = Date.now() + '-cloud-' + storage.safeName(file.name || 'video.mp4');
+  const filename = Date.now() + '-' + crypto.randomBytes(4).toString('hex') + '-cloud-' + storage.safeName(file.name || 'video.mp4');
   const target = path.join(dir, filename);
   const response = providerName === 'googleDrive'
     ? await fetch(file.downloadUrl, { headers: { authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(120_000) })
@@ -231,36 +234,79 @@ async function downloadFile(accountId, providerName, file, accessToken) {
 
 async function syncOne(accountId, providerName, advertiserId) {
   providerName = assertProvider(providerName);
+  advertiserId = String(advertiserId || '').trim();
   await ensureSchema();
   const con = await connection(accountId, providerName);
   if (!con) return { skipped: true, reason: 'not_connected' };
   const pref = (config.get(accountId).cloudVideo || {})[providerName] || {};
   if (!pref.enabled) return { skipped: true, reason: 'disabled' };
-  const accessToken = await validAccessToken(accountId, providerName, con);
-  const files = await listFiles(accountId, providerName, accessToken);
-  const origin = storage.publicOrigin();
-  if (!origin) throw new Error('PRIMARY_HOST público é obrigatório para o TikTok baixar vídeos');
-  const results = [];
-  for (const file of files.slice(0, 20)) {
-    if (await alreadyProcessed(accountId, providerName, file.id, advertiserId, file.modifiedAt)) continue;
-    let local = null;
-    try {
-      await sql`INSERT INTO cloud_video_files (account_id, provider, file_id, advertiser_id, name, source_modified_at, status, updated_at)
-        VALUES (${accountId}, ${providerName}, ${file.id}, ${advertiserId}, ${file.name}, ${file.modifiedAt || null}, 'downloading', now())
-        ON CONFLICT (account_id, provider, file_id, advertiser_id) DO UPDATE SET name = EXCLUDED.name, source_modified_at = EXCLUDED.source_modified_at, status = 'downloading', error = NULL, updated_at = now()`;
-      local = await downloadFile(accountId, providerName, file, accessToken);
-      const videoUrl = origin + '/uploads/' + storage.safeSegment(accountId) + '/' + encodeURIComponent(local.filename);
-      const uploaded = await adsProvider.uploadVideoAsset(advertiserId, videoUrl);
-      await sql`UPDATE cloud_video_files SET status = 'uploaded', tiktok_video_id = ${uploaded.videoId}, error = NULL, processed_at = now(), updated_at = now()
-        WHERE account_id = ${accountId} AND provider = ${providerName} AND file_id = ${file.id} AND advertiser_id = ${advertiserId}`;
-      results.push({ fileId: file.id, name: file.name, videoId: uploaded.videoId, ok: true });
-    } catch (error) {
-      await sql`UPDATE cloud_video_files SET status = 'failed', error = ${String(error.message || error).slice(0, 400)}, updated_at = now()
-        WHERE account_id = ${accountId} AND provider = ${providerName} AND file_id = ${file.id} AND advertiser_id = ${advertiserId}`.catch(() => {});
-      results.push({ fileId: file.id, name: file.name, ok: false, error: String(error.message || error) });
-    }
+  if (!advertiserId) return { skipped: true, reason: 'advertiser_missing' };
+
+  // O timer e o botão "Sincronizar" chamam a mesma rotina. Em múltiplas
+  // instâncias, sem exclusão distribuída, o mesmo arquivo podia passar pelo
+  // SELECT de alreadyProcessed em dois workers antes de qualquer um gravar
+  // `uploaded`, causando dois uploads do mesmo vídeo para o TikTok.
+  const leaseName = [
+    'cloud-video', String(accountId).slice(0, 100), providerName,
+    advertiserId.slice(0, 100),
+  ].join(':');
+  const lease = await redisMod.acquireLease(leaseName, SYNC_LEASE_TTL_SEC);
+  if (!lease || !lease.acquired) {
+    return {
+      skipped: true,
+      reason: lease && lease.reason === 'busy' ? 'already_running' : 'lock_unavailable',
+      retryable: true,
+    };
   }
-  return { ok: true, files: results, checked: files.length };
+  let renewTimer = null;
+  try {
+    renewTimer = setInterval(() => {
+      redisMod.renewLease(lease, SYNC_LEASE_TTL_SEC).catch(() => {});
+    }, SYNC_LEASE_RENEW_MS);
+    if (renewTimer.unref) renewTimer.unref();
+
+    // Recarrega a conexão depois de adquirir o lease: outra aba pode ter
+    // desconectado o provedor enquanto este request aguardava a seção crítica.
+    const latestConnection = await connection(accountId, providerName);
+    if (!latestConnection) return { skipped: true, reason: 'not_connected' };
+    const latestPref = (config.get(accountId).cloudVideo || {})[providerName] || {};
+    if (!latestPref.enabled) return { skipped: true, reason: 'disabled' };
+
+    const accessToken = await validAccessToken(accountId, providerName, latestConnection);
+    const files = await listFiles(accountId, providerName, accessToken);
+    const origin = storage.publicOrigin();
+    if (!origin) throw new Error('PRIMARY_HOST público é obrigatório para o TikTok baixar vídeos');
+    const results = [];
+    for (const file of files.slice(0, 20)) {
+      if (await alreadyProcessed(accountId, providerName, file.id, advertiserId, file.modifiedAt)) continue;
+      let local = null;
+      try {
+        await sql`INSERT INTO cloud_video_files (account_id, provider, file_id, advertiser_id, name, source_modified_at, status, updated_at)
+          VALUES (${accountId}, ${providerName}, ${file.id}, ${advertiserId}, ${file.name}, ${file.modifiedAt || null}, 'downloading', now())
+          ON CONFLICT (account_id, provider, file_id, advertiser_id) DO UPDATE SET name = EXCLUDED.name, source_modified_at = EXCLUDED.source_modified_at, status = 'downloading', error = NULL, updated_at = now()`;
+        local = await downloadFile(accountId, providerName, file, accessToken);
+        const videoUrl = origin + '/uploads/' + storage.safeSegment(accountId) + '/' + encodeURIComponent(local.filename);
+        const uploaded = await adsProvider.uploadVideoAsset(advertiserId, videoUrl);
+        await sql`UPDATE cloud_video_files SET status = 'uploaded', tiktok_video_id = ${uploaded.videoId}, error = NULL, processed_at = now(), updated_at = now()
+          WHERE account_id = ${accountId} AND provider = ${providerName} AND file_id = ${file.id} AND advertiser_id = ${advertiserId}`;
+        results.push({ fileId: file.id, name: file.name, videoId: uploaded.videoId, ok: true });
+      } catch (error) {
+        await sql`UPDATE cloud_video_files SET status = 'failed', error = ${String(error.message || error).slice(0, 400)}, updated_at = now()
+          WHERE account_id = ${accountId} AND provider = ${providerName} AND file_id = ${file.id} AND advertiser_id = ${advertiserId}`.catch(() => {});
+        results.push({ fileId: file.id, name: file.name, ok: false, error: String(error.message || error) });
+      } finally {
+        // O arquivo local existe apenas para o TikTok buscá-lo durante o upload.
+        // Mantê-lo indefinidamente fazia o worker consumir o Volume a cada sync.
+        if (local && local.target) await fs.promises.unlink(local.target).catch((error) => {
+          if (!error || error.code !== 'ENOENT') console.warn('[cloud-video] limpeza local:', error && error.message);
+        });
+      }
+    }
+    return { ok: true, files: results, checked: files.length };
+  } finally {
+    if (renewTimer) clearInterval(renewTimer);
+    await redisMod.releaseLease(lease).catch(() => {});
+  }
 }
 
 async function status(accountId) {
@@ -284,9 +330,14 @@ async function disconnect(accountId, providerName) {
   providerName = assertProvider(providerName);
   if (!sql) return false;
   await ensureSchema();
+  // Desabilita de forma durável antes de remover a credencial. Assim um erro
+  // de persistência não deixa a UI acreditar que desconectou enquanto o worker
+  // continua autorizado a sincronizar em outra instância.
+  await config.setDurable(accountId, (latest) => {
+    const cloud = latest.cloudVideo || {};
+    return { cloudVideo: { ...cloud, [providerName]: { ...(cloud[providerName] || {}), enabled: false } } };
+  });
   await sql`DELETE FROM cloud_video_connections WHERE account_id = ${accountId} AND provider = ${providerName}`;
-  const cloud = config.get(accountId).cloudVideo || {};
-  config.set(accountId, { cloudVideo: { ...cloud, [providerName]: { ...(cloud[providerName] || {}), enabled: false } } });
   return true;
 }
 

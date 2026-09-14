@@ -301,6 +301,7 @@ export interface CustomDomain {
   criadoEm: string
   providerId?: string
   provider?: 'cloudflare' | 'railway' | string
+  providerNote?: string | null
   dns?: DomainDnsRecords | null
   // B1.4: estados explícitos de provisionamento (alimentam o stepper A9.1)
   status?: DomainStatus
@@ -311,6 +312,7 @@ export interface CustomDomain {
 
 export interface DomainsResponse {
   domains: CustomDomain[]
+  configUpdatedAt?: string | null
   appHost: string
   // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
   // exige adição manual no painel da hospedagem — a UI mostra um aviso.
@@ -589,6 +591,7 @@ export interface CloakConfig {
   autoBlockWindowMin?: number
   autoBlockTtlHours?: number
   capiBotSignalEnabled?: boolean
+  configUpdatedAt?: string | null
 }
 
 // ── /api/cloak/test — julgamento do request atual ──
@@ -720,10 +723,18 @@ export interface Account {
 export interface AccountSettings {
   defaultCurrency: string // ex.: 'BRL' — fallback de moeda dos disparos/testes
   timezone?: string
+  revenueGoal?: number
+  outboundWebhook?: string
+  lgpdDays?: number
   dailyReportHour?: number
   dailyReportEnabled?: boolean
   whatsappTo?: string
   whatsapp?: { configured: boolean; templateConfigured: boolean; apiVersion: string }
+  notificationTemplate?: string
+  pushcutTemplate?: string
+  apiScope?: string
+  raw?: { defaultCurrency?: string | null }
+  updatedAt?: string | null
 }
 
 // ── /api/pixels/test — resultado do teste de disparo ──
@@ -1210,6 +1221,54 @@ export interface AdsAttributionResponse {
   toDate: string
   byCampaign: Record<string, AdsAttributionEntry>
   unattributed: AdsAttributionEntry // veio do TikTok mas sem ID de campanha
+}
+
+
+// ── GET /api/ads/campaign-decisions — leitura operacional por campanha ──
+// A árvore traz gasto/estado do TikTok; este contrato traz a verdade first-party
+// de venda/receita e o que a automação está fazendo naquela campanha.
+export interface AdsCampaignDecisionAutomationEvent {
+  at: string | null
+  action: string | null
+  detail: string | null
+  result: string | null
+  ok: boolean
+  proposed: boolean
+  simulated: boolean
+  approvedProposal: boolean
+}
+
+export interface AdsCampaignDecisionProposal {
+  id: string
+  action: string | null
+  metric: string | null
+  detail: string | null
+  createdAt: string | null
+}
+
+export interface AdsCampaignDecisionEntry extends AdsAttributionEntry {
+  automation: {
+    pendingProposal: AdsCampaignDecisionProposal | null
+    lastEvent: AdsCampaignDecisionAutomationEvent | null
+  }
+}
+
+export interface AdsCampaignDecisionsResponse {
+  advertiserId: string
+  fromDate: string
+  toDate: string
+  timeZone?: string
+  generatedAt: string
+  byCampaign: Record<string, AdsCampaignDecisionEntry>
+  unattributed: AdsAttributionEntry
+  automation: {
+    autonomy: AdsAutomationAutonomy | 'custom'
+    state: AdsAutomationEngineState
+    executionMode: AdsAutomationExecutionMode
+    actionsPaused: boolean
+    rulesEnabled: number
+    alertsEnabled: boolean
+  }
 }
 
 // ── GET/PUT /api/ads/rules — regras automáticas de otimização ──

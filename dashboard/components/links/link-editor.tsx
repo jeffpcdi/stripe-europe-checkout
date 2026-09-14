@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Check, Tag, Shield, ShieldAlert, Plus, Trash2, FlaskConical } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { useRef, useState } from 'react'
+import { X, Tag, Shield, Plus, Trash2, FlaskConical } from 'lucide-react'
+import { ApiError, apiSend } from '@/lib/api'
 import type { CheckoutLink, CustomDomain } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 
@@ -35,10 +35,10 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   }]).map((variant) => ({ ...variant })))
   const [experimentEnabled, setExperimentEnabled] = useState(link?.experiment?.enabled ?? false)
   const [autoStop, setAutoStop] = useState(link?.experiment?.autoStop ?? true)
-  const [escudoMaximo, setEscudoMaximo] = useState(true)
   
   const [ativo, setAtivo] = useState(link?.ativo ?? true)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
   const isValidUrl = (u: string) => /^https:\/\/[^\s]+\.[^\s]+/i.test(u.trim())
@@ -50,23 +50,31 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   }
 
   async function handleSave() {
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     setError(null)
     try {
       await apiSend('/api/links', 'POST', {
         slug: slug || nome,
+        _createOnly: !link,
         _baseUpdatedAt: link?.updatedAt || undefined,
         nome,
         dominio: dominio || null,
         urlWhitePage: urlWhitePage || null,
-        paises: [], // Escudo máximo assume a inteligência de geo no backend/borda
-        idiomas: [],
-        pixelSlug: '', // Padrão vazio (pega global)
+        // Estes campos continuam existindo no backend, mas não estão expostos
+        // neste editor simplificado. Em edição, preservamos o valor existente
+        // para não apagar silenciosamente configurações feitas em versões
+        // anteriores/por outros fluxos.
+        paises: link?.paises ?? [],
+        idiomas: link?.idiomas ?? [],
+        pixelSlug: link?.pixelSlug ?? '',
         ativo,
         variantes: variantes.map((variant, index) => ({
           id: variant.id || 'v' + (index + 1),
           nome: variant.nome || `Variante ${String.fromCharCode(65 + index)}`,
           url: variant.url.trim(), urlMobile: variant.urlMobile || null,
+          urlWhitePage: variant.urlWhitePage || null,
           peso: Number(variant.peso) || Math.round(100 / variantes.length),
         })),
         experiment: {
@@ -76,12 +84,19 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           minConversions: link?.experiment?.minConversions || 6,
           confidence: link?.experiment?.confidence || 0.95,
           minLiftPct: link?.experiment?.minLiftPct || 5,
+          // Salvar nome/domínio/destino não deve reiniciar silenciosamente um
+          // experimento já concluído nem apagar a última avaliação.
+          status: link?.experiment?.status,
+          winnerId: link?.experiment?.winnerId ?? null,
+          concludedAt: link?.experiment?.concludedAt ?? null,
+          lastEvaluation: link?.experiment?.lastEvaluation ?? null,
         },
       })
       onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar')
+      setError(e instanceof ApiError ? e.display : e instanceof Error ? e.message : 'Erro ao salvar')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -195,21 +210,6 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
             {link?.experiment?.lastEvaluation?.reason && <p className={`mt-3 rounded-lg px-3 py-2 text-[11px] ${link.experiment.status === 'concluded' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}`}>{link.experiment.lastEvaluation.reason}{link.experiment.winnerId ? ` Vencedora: ${link.variantes.find((variant) => variant.id === link.experiment?.winnerId)?.nome || link.experiment.winnerId}.` : ''}</p>}
           </div>
 
-          {/* Toggle Mágico do Escudo */}
-          <div className={`flex items-center justify-between rounded-xl border p-4 transition-colors ${escudoMaximo ? 'border-[color:var(--brand-cyan)]/50 bg-[color:var(--brand-cyan)]/5' : 'border-border/50 bg-secondary/20'}`}>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                {escudoMaximo ? <Shield className="size-4 text-[color:var(--brand-cyan)] drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" /> : <ShieldAlert className="size-4 text-muted-foreground" />}
-                <span className="font-semibold text-sm text-foreground">Escudo Máximo Ativo</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Bloqueia VPNs, Proxies e IPs suspeitos automaticamente.</p>
-            </div>
-            <label className="relative inline-flex cursor-pointer items-center">
-              <input type="checkbox" className="peer sr-only" checked={escudoMaximo} onChange={(e) => setEscudoMaximo(e.target.checked)} />
-              <div className="peer h-6 w-11 rounded-full bg-secondary/80 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-[color:var(--brand-cyan)] peer-checked:after:translate-x-full peer-focus:outline-none"></div>
-            </label>
-          </div>
-
           {error && (
             <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
               <span className="font-bold mr-1">Erro:</span> {error}
@@ -226,7 +226,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida}
               className={`relative flex items-center gap-2 overflow-hidden rounded-full bg-[color:var(--brand-cyan)] px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50`}
             >
-              {saving ? 'Salvando...' : 'Criar Link de venda'}
+              {saving ? 'Salvando...' : link ? 'Salvar alterações' : 'Criar Link de venda'}
             </button>
           </div>
         </div>

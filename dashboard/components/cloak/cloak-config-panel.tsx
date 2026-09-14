@@ -8,6 +8,7 @@ import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Switch } from '@/components/ui/switch'
 import { SectionTitle } from '@/components/section-title'
+import { toast } from '@/lib/toast'
 
 // Camadas de detecção expostas na UI — rótulo + descrição curta.
 const LAYERS: { key: keyof CloakConfig; label: string; hint: string }[] = [
@@ -86,24 +87,42 @@ export function CloakConfigPanel() {
   }
 
   async function handleSave() {
-    if (!draft) return
+    if (!draft || saving) return
     setSaving(true)
     try {
-      await apiSend('/api/cloak-config', 'POST', draft)
+      const saved = await apiSend<{ ok: boolean; cloak: CloakConfig }>('/api/cloak-config', 'POST', {
+        ...draft,
+        _baseUpdatedAt: data?.configUpdatedAt || undefined,
+      })
+      // O backend sanitiza/clampa alguns valores. A tela passa a refletir
+      // exatamente a configuração confirmada, em vez de manter um draft que
+      // pode divergir do que realmente foi persistido.
+      const confirmed = saved.cloak ?? draft
+      setDraft(confirmed)
+      await mutate(confirmed, { revalidate: false })
       setSavedAt(Date.now())
-      mutate()
       setTimeout(() => setSavedAt(null), 2000)
+      toast.success('Proteção atualizada')
+    } catch (err) {
+      toast.error('Não foi possível salvar a proteção', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
     } finally {
       setSaving(false)
     }
   }
 
   async function handleTest() {
+    if (testing) return
     setTesting(true)
     setTest(null)
     try {
       const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST')
       setTest(r)
+    } catch (err) {
+      toast.error('Não foi possível testar o filtro', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
     } finally {
       setTesting(false)
     }

@@ -434,6 +434,32 @@ async function findJobByIdempotencyKey(accountId, key) {
   return rows[0] || null;
 }
 
+
+// Ledger interno para operações síncronas que já possuem uma chave de retry no
+// frontend. Diferente de createJob(), não entra na fila nem aplica a política de
+// automação: apenas reserva atomicamente a chave antes de tocar um provedor
+// externo e permite devolver o mesmo resultado se a resposta HTTP se perder.
+async function reserveIdempotentOperation(accountId, input) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return { reserved: true, job: null };
+  await ensureSchema();
+  const value = input || {};
+  const key = String(value.idempotencyKey || '').trim().slice(0, 200);
+  if (!key) throw new Error('Idempotency key obrigatória');
+  const kind = String(value.kind || 'idempotency:operation').slice(0, 80);
+  const advertiserId = String(value.advertiserId || '').trim().slice(0, 120) || null;
+  const rows = await sql`INSERT INTO ads_jobs
+    (id, account_id, kind, status, idempotency_key, advertiser_id, payload, progress)
+    VALUES (${id('job_')}, ${accountId}, ${kind}, 'running', ${key}, ${advertiserId},
+      ${JSON.stringify(value.payload || {})}, ${JSON.stringify({})})
+    ON CONFLICT (account_id, idempotency_key) DO NOTHING
+    RETURNING *`;
+  if (rows.length) return { reserved: true, job: rows[0] };
+  const existing = await sql`SELECT * FROM ads_jobs
+    WHERE account_id = ${accountId} AND idempotency_key = ${key} LIMIT 1`;
+  return { reserved: false, job: existing[0] || null };
+}
+
 async function listJobs(accountId, limit, advertiserId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
@@ -441,9 +467,9 @@ async function listJobs(accountId, limit, advertiserId) {
   const size = Math.min(100, Math.max(1, Number(limit) || 30));
   const scope = String(advertiserId || '').trim().slice(0, 120);
   if (scope) {
-    return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} AND advertiser_id = ${scope} ORDER BY created_at DESC LIMIT ${size}`;
+    return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} AND advertiser_id = ${scope} AND kind NOT LIKE 'idempotency:%' ORDER BY created_at DESC LIMIT ${size}`;
   }
-  return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${size}`;
+  return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} AND kind NOT LIKE 'idempotency:%' ORDER BY created_at DESC LIMIT ${size}`;
 }
 
 async function persistBulkSnapshot(job) {
@@ -806,7 +832,17 @@ async function setJobStatus(accountId, jobId, status, patch) {
 // usuário vê o motivo no painel de Operações e pode reprocessar.
 async function reconcileOrphanJobs() {
   if (!enabled) return 0;
-  const rows = await sql`UPDATE ads_jobs SET status = CASE WHEN COALESCE((progress->>'completed')::int, 0) > 0 THEN 'partial' ELSE 'failed' END, error = 'Interrompido por reinício do servidor — reprocesse as falhas', locked_at = null, locked_by = null, updated_at = now(), completed_at = now() WHERE status IN ('running', 'queued', 'retrying') AND updated_at < now() - interval '2 minutes' RETURNING id, account_id`;
+  // Jobs de bulk possuem fila própria durável (Redis + reclaim) e podem estar
+  // legitimamente `queued`/`running` enquanto OUTRA instância processa o item.
+  // Marcá-los como órfãos no boot de cada instância fazia jobs saudáveis virarem
+  // `failed/partial`. Aqui reconciliamos apenas jobs in-process sem mecanismo
+  // próprio de retomada; ledgers de idempotência também ficam fora.
+  const rows = await sql`UPDATE ads_jobs SET status = CASE WHEN COALESCE((progress->>'completed')::int, 0) > 0 THEN 'partial' ELSE 'failed' END, error = 'Interrompido por reinício do servidor — reprocesse as falhas', locked_at = null, locked_by = null, updated_at = now(), completed_at = now()
+    WHERE status IN ('running', 'queued', 'retrying')
+      AND updated_at < now() - interval '2 minutes'
+      AND kind NOT IN ('bulk_create', 'duplicate')
+      AND kind NOT LIKE 'idempotency:%'
+    RETURNING id, account_id`;
   for (const row of rows) {
     await sql`UPDATE ads_job_items SET status = 'failed', error = 'Interrompido por reinício do servidor', updated_at = now() WHERE job_id = ${row.id} AND status IN ('queued', 'running')`;
   }
@@ -1285,4 +1321,4 @@ async function releaseAdAppealReservation(accountId, rejectionId, error) {
   return mapAdRejection(rows[0]);
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, releaseProposalApproval, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, updateActionDeadLetterPlan, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, deletePixelBindingsBySlug, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, releaseAdAppealReservation, PROPOSAL_TTL_MS };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, reserveIdempotentOperation, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, releaseProposalApproval, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, updateActionDeadLetterPlan, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, deletePixelBindingsBySlug, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, releaseAdAppealReservation, PROPOSAL_TTL_MS };

@@ -124,6 +124,8 @@ export function ConversionsView() {
   const [editingGateway, setEditingGateway] = useState<Gateway | null | 'new'>(null)
   const [deletingPixel, setDeletingPixel] = useState<Pixel | null>(null)
   const [deletingGateway, setDeletingGateway] = useState<Gateway | null>(null)
+  const [deletingPixelBusy, setDeletingPixelBusy] = useState(false)
+  const [deletingGatewayBusy, setDeletingGatewayBusy] = useState(false)
   const [linkingPixel, setLinkingPixel] = useState<Pixel | null>(null)
 
   // Ações de teste e cópia
@@ -256,32 +258,46 @@ export function ConversionsView() {
   }
 
   async function handleDeletePixel() {
-    if (!deletingPixel) return
+    if (!deletingPixel || deletingPixelBusy) return
+    const target = deletingPixel
+    setDeletingPixelBusy(true)
     try {
-      await apiSend(`/api/pixels/${deletingPixel.slug}`, 'DELETE')
-      toast.success(`Pixel "${deletingPixel.name}" excluído`)
-      mutatePixels()
+      const result = await apiSend<{ ok: boolean; warning?: string | null }>(`/api/pixels/${target.slug}`, 'DELETE')
+      setDeletingPixel(null)
+      if (result.warning) toast.info(`Pixel "${target.name}" excluído`, { hint: result.warning })
+      else toast.success(`Pixel "${target.name}" excluído`)
+      // Pixels alimentam a matriz de roteamento e os cartões de checkout.
+      // Revalida as duas fontes depois da exclusão confirmada para não deixar
+      // outra aba/cartão apontando para um vínculo que já não existe.
+      await Promise.allSettled([mutatePixels(), mutateGateways()])
     } catch (e) {
+      // Mantém o diálogo aberto: o usuário pode corrigir o vínculo informado
+      // pelo backend e tentar de novo sem perder o contexto.
       toast.error('Erro ao excluir pixel', {
         hint: e instanceof Error ? e.message : undefined,
       })
     } finally {
-      setDeletingPixel(null)
+      setDeletingPixelBusy(false)
     }
   }
 
   async function handleDeleteGateway() {
-    if (!deletingGateway) return
+    if (!deletingGateway || deletingGatewayBusy) return
+    const target = deletingGateway
+    setDeletingGatewayBusy(true)
     try {
-      await apiSend(`/api/gateways/${deletingGateway.id}`, 'DELETE')
-      toast.success(`Checkout "${deletingGateway.name}" excluído`)
-      mutateGateways()
+      await apiSend(`/api/gateways/${target.id}`, 'DELETE')
+      setDeletingGateway(null)
+      toast.success(`Checkout "${target.name}" excluído`)
+      await Promise.allSettled([mutateGateways(), mutatePixels(), mutateLog()])
     } catch (e) {
+      // Em especial, o backend pode bloquear a remoção enquanto houver Pixels
+      // explicitamente vinculados a este checkout. Não escondemos esse erro.
       toast.error('Erro ao excluir checkout', {
         hint: e instanceof Error ? e.message : undefined,
       })
     } finally {
-      setDeletingGateway(null)
+      setDeletingGatewayBusy(false)
     }
   }
 
@@ -801,6 +817,7 @@ export function ConversionsView() {
         description="Esta ação removerá a configuração deste pixel e suas vinculações. Compras já registradas no TikTok permanecerão salvas lá."
         confirmLabel="Excluir Pixel"
         tone="danger"
+        busy={deletingPixelBusy}
         onConfirm={handleDeletePixel}
         onClose={() => setDeletingPixel(null)}
       />
@@ -811,6 +828,7 @@ export function ConversionsView() {
         description="O link de webhook exclusivo deixará de responder e novas compras deste checkout não serão mais capturadas."
         confirmLabel="Excluir Checkout"
         tone="danger"
+        busy={deletingGatewayBusy}
         onConfirm={handleDeleteGateway}
         onClose={() => setDeletingGateway(null)}
       />
@@ -991,7 +1009,7 @@ function PixelEditorWithGatewaySync({
     try {
       const finalGatewayIds = gatewayIds
 
-      await apiSend('/api/pixels', 'POST', {
+      const saved = await apiSend<{ ok: boolean; durable?: boolean; warning?: string | null }>('/api/pixels', 'POST', {
         slug: pixel?.slug,
         name: cleanName,
         pixelCode: cleanCode,
@@ -1001,7 +1019,14 @@ function PixelEditorWithGatewaySync({
         events,
         testEventCode,
       })
-      toast.success(pixel ? 'Pixel atualizado com sucesso!' : 'Pixel criado com sucesso!')
+      if (saved.warning) {
+        toast.info(pixel ? 'Pixel atualizado com aviso' : 'Pixel criado com aviso', {
+          hint: saved.warning,
+          duration: 7000,
+        })
+      } else {
+        toast.success(pixel ? 'Pixel atualizado com sucesso!' : 'Pixel criado com sucesso!')
+      }
       onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar pixel')

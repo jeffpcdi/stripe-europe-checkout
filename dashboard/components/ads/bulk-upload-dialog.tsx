@@ -56,8 +56,10 @@ export function BulkUploadDialog({
 
   const [items, setItems] = useState<BulkFormItem[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const retryingRef = useRef(false)
 
   // Polling do progresso — para sozinho quando o job conclui
   const { data: job, mutate: mutateJob } = useAdsBulkJob(jobId)
@@ -153,6 +155,8 @@ export function BulkUploadDialog({
   }
 
   async function handleSubmit() {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       const countryList = countries
@@ -194,12 +198,14 @@ export function BulkUploadDialog({
     } catch (e) {
       toast.error('Falha ao iniciar o lote', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
 
   async function handleRetryFailed() {
-    if (!jobId) return
+    if (!jobId || retryingRef.current) return
+    retryingRef.current = true
     setRetrying(true)
     notifiedRef.current = false
     try {
@@ -208,6 +214,7 @@ export function BulkUploadDialog({
     } catch (e) {
       toast.error('Falha ao reprocessar', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      retryingRef.current = false
       setRetrying(false)
     }
   }

@@ -147,6 +147,16 @@ async function save(accountId, input) {
   const slug = slugify(input.slug || input.nome);
   if (!slug) throw new Error('nome é obrigatório');
   const existing = get(accountId, slug);
+  // Criação explícita nunca vira edição silenciosa. Se a primeira resposta se
+  // perder (timeout/rede) e o cliente repetir o mesmo formulário, o registro
+  // já existente é preservado e a API devolve conflito em vez de sobrescrever.
+  const createOnly = input._createOnly === true;
+  delete input._createOnly;
+  if (createOnly && existing) {
+    const err = new Error('Já existe um link com este endereço. Atualize a lista antes de tentar criar novamente.');
+    err.code = 'conflict';
+    throw err;
+  }
   // Item 235: concorrência otimista — se o cliente informou o updatedAt que
   // viu ao abrir o formulário e o registro mudou nesse meio-tempo (outra aba,
   // outro usuário da conta), avisa em vez de sobrescrever silenciosamente.
@@ -175,16 +185,39 @@ async function save(accountId, input) {
     merged.dominioValidado = true;
     merged.dominioValidadoEm = validatedDomains.get(merged.dominio);
   }
+  // Persistência primeiro, cache depois. Antes a UI podia receber sucesso e o
+  // cache mudar mesmo quando o Neon falhava; após restart o link voltava para
+  // a versão antiga. Em modo sem banco, mantém o comportamento em memória.
+  if (db.enabled) {
+    const durable = await db.upsertLink(accountId, slug, merged);
+    if (!durable) {
+      const err = new Error('Não foi possível persistir o link agora. Nenhuma alteração foi aplicada.');
+      err.code = 'persistence_failed';
+      throw err;
+    }
+  }
   const idx = cache.findIndex((l) => l.slug === slug && l.acc === accountId);
   if (idx >= 0) cache[idx] = merged; else cache.push(merged);
-  if (db.enabled) await db.upsertLink(accountId, slug, merged);
   return merged;
 }
 
 async function remove(accountId, slug) {
   slug = slugify(slug);
+  const existing = get(accountId, slug);
+  if (!existing) {
+    const err = new Error('link não encontrado');
+    err.code = 'not_found';
+    throw err;
+  }
+  if (db.enabled) {
+    const durable = await db.deleteLink(accountId, slug);
+    if (!durable) {
+      const err = new Error('Não foi possível remover o link agora. Tente novamente.');
+      err.code = 'persistence_failed';
+      throw err;
+    }
+  }
   cache = cache.filter((l) => !(l.slug === slug && l.acc === accountId));
-  if (db.enabled) await db.deleteLink(accountId, slug);
   return true;
 }
 

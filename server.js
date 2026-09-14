@@ -72,13 +72,14 @@ async function refreshDefaultAccount() {
   try { _defaultAccountId = await db.getFirstAccountId(); }
   catch (_) { _defaultAccountId = null; }
 }
-function publicAccountId(req) {
+function publicDomainOwner(req) {
   try {
     const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    const byDomain = config.accountForDomain(host);
-    if (byDomain) return byDomain;
-  } catch (_) {}
-  return _defaultAccountId;
+    return config.accountForDomain(host) || null;
+  } catch (_) { return null; }
+}
+function publicAccountId(req) {
+  return publicDomainOwner(req) || _defaultAccountId;
 }
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -545,6 +546,22 @@ function apiError(res, status, error, code, hint) {
   return res.status(status).json({ ok: false, error, code: code || undefined, hint: hint || undefined });
 }
 
+function configMutationError(res, err) {
+  if (err && err.code === 'CONFIG_REVISION_CONFLICT') {
+    return apiError(res, 409,
+      'Esta configuração foi alterada em outra aba ou por outro usuário.',
+      'config_revision_conflict',
+      'Atualize a tela, confira a versão mais recente e tente novamente.');
+  }
+  if (err && err.status && err.status < 500) {
+    return apiError(res, err.status, err.message || 'A alteração não pôde ser aplicada.', err.code || 'config_conflict', err.hint);
+  }
+  return apiError(res, (err && err.status) || 503,
+    'Não foi possível confirmar a alteração no armazenamento durável.',
+    (err && err.code) || 'config_persist_failed',
+    'Nada foi publicado no cache da aplicação. Tente novamente em instantes.');
+}
+
 // Reconstrói o objeto de sinais do browser a partir do lead persistido pelo
 // /api/cloakcheck, para alimentar botFilter.judge() no /go/ e no /c/ sem repetir
 // o mapeamento em dois lugares. Inclui os sinais 2026 (webview, coerência, entropia).
@@ -933,8 +950,13 @@ function linkErrorPage(res, status) {
 // registra o clique, dispara InitiateCheckout na CAPI e repassa o leadId
 // para o checkout externo — a conversão volta pelo webhook universal.
 app.get('/go/:slug', async (req, res) => {
-  // resolve por conta: domínio personalizado → conta dona; senão 1º match
-  const link = linkStore.resolve(req.params.slug, publicAccountId(req));
+  // Em domínio personalizado o isolamento é estrito: um slug inexistente
+  // nessa conta NUNCA pode cair em um link homônimo de outra conta. No host
+  // compartilhado, sem domínio dono, mantemos a resolução global legada.
+  const domainOwner = publicDomainOwner(req);
+  const link = domainOwner
+    ? linkStore.get(domainOwner, req.params.slug)
+    : linkStore.resolve(req.params.slug, publicAccountId(req));
   if (!link || !link.ativo || link.arquivado || !link.variantes.length) {
     return linkErrorPage(res, 404); // itens 500/501: página amigável; 531: arquivado = indisponível
   }
@@ -1190,12 +1212,19 @@ app.get('/go/:slug', async (req, res) => {
 function resolveCloakEntry(req) {
   const slug = _ckSlugify(req.params.slug);
   if (!slug) return null;
-  const pref = publicAccountId(req);
+  const domainOwner = publicDomainOwner(req);
+  const pref = domainOwner || publicAccountId(req);
   const tryAcc = (acc) => {
     const e = (config.get(acc).cloakLinks || []).find((l) => l.slug === slug);
     return e ? { acc, entry: e } : null;
   };
-  if (pref) { const r = tryAcc(pref); if (r) return r; }
+  // Em host personalizado, o domínio já identifica a conta: não procure em
+  // nenhuma outra. Isso evita servir offer/white de outro tenant por colisão
+  // de slug. No host compartilhado, preserva o fallback global legado.
+  if (pref) {
+    const r = tryAcc(pref);
+    if (r || domainOwner) return r;
+  }
   for (const acc of config.accountIds()) { const r = tryAcc(acc); if (r) return r; }
   return null;
 }
@@ -1502,7 +1531,7 @@ app.get('/api/shortlinks', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ shortlinks: config.get(req.account.id).shortlinks || [] });
 });
-app.post('/api/shortlinks', dashboardAuth, (req, res) => {
+app.post('/api/shortlinks', dashboardAuth, async (req, res) => {
   const b = req.body || {};
   const slug = String(b.slug || b.nome || '').toLowerCase().trim()
     .replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 60);
@@ -1511,12 +1540,15 @@ app.post('/api/shortlinks', dashboardAuth, (req, res) => {
   if (!/^https?:\/\/.+/i.test(url)) return res.status(400).json({ error: 'URL inválida — use http(s)://' });
   const list = (config.get(req.account.id).shortlinks || []).filter((s) => s.slug !== slug);
   list.unshift({ slug, nome: String(b.nome || slug).slice(0, 80), url: url.slice(0, 500), clicks: 0, createdAt: new Date().toISOString() });
-  config.set(req.account.id, { shortlinks: list });
+  try { await config.setDurable(req.account.id, { shortlinks: list }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, shortlink: list[0] });
 });
-app.delete('/api/shortlinks/:slug', dashboardAuth, (req, res) => {
+app.delete('/api/shortlinks/:slug', dashboardAuth, async (req, res) => {
   const slug = String(req.params.slug || '').toLowerCase();
-  config.set(req.account.id, { shortlinks: (config.get(req.account.id).shortlinks || []).filter((s) => s.slug !== slug) });
+  try {
+    await config.setDurable(req.account.id, (latest) => ({ shortlinks: (latest.shortlinks || []).filter((s) => s.slug !== slug) }));
+  } catch (err) { return configMutationError(res, err); }
   res.json({ ok: true });
 });
 
@@ -1525,7 +1557,7 @@ app.get('/api/notes', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ notes: config.get(req.account.id).notes || [] });
 });
-app.post('/api/notes', dashboardAuth, (req, res) => {
+app.post('/api/notes', dashboardAuth, async (req, res) => {
   const b = req.body || {};
   const d = String(b.d || '').slice(0, 10);
   const text = String(b.text || '').trim().slice(0, 200);
@@ -1534,11 +1566,14 @@ app.post('/api/notes', dashboardAuth, (req, res) => {
   const notes = (config.get(req.account.id).notes || []).filter((n) => n.d !== d); // 1 nota por dia
   notes.push({ d, text });
   notes.sort((a, b2) => a.d < b2.d ? -1 : 1);
-  config.set(req.account.id, { notes });
+  try { await config.setDurable(req.account.id, { notes }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true });
 });
-app.delete('/api/notes/:d', dashboardAuth, (req, res) => {
-  config.set(req.account.id, { notes: (config.get(req.account.id).notes || []).filter((n) => n.d !== String(req.params.d)) });
+app.delete('/api/notes/:d', dashboardAuth, async (req, res) => {
+  try {
+    await config.setDurable(req.account.id, (latest) => ({ notes: (latest.notes || []).filter((n) => n.d !== String(req.params.d)) }));
+  } catch (err) { return configMutationError(res, err); }
   res.json({ ok: true });
 });
 
@@ -1547,22 +1582,27 @@ app.delete('/api/notes/:d', dashboardAuth, (req, res) => {
 // Item 418: rotação do token da API pública — revoga o atual e gera um novo.
 // Quem usava a URL antiga (planilha, BI…) para de funcionar na hora; a UI
 // avisa antes com confirmação. Auditado como ação sensível.
-app.post('/api/public-token/rotate', dashboardAuth, (req, res) => {
+app.post('/api/public-token/rotate', dashboardAuth, async (req, res) => {
   if (rateLimited('tokrot|' + req.account.id, 'tokrot', 5)) {
     return res.status(429).json({ ok: false, error: 'Muitas rotações. Aguarde um minuto.' });
   }
   const token = crypto.randomBytes(24).toString('hex');
-  config.set(req.account.id, { api: { token } });
+  try {
+    await config.setDurable(req.account.id, (latest) => ({ api: Object.assign({}, latest.api || {}, { token }) }));
+  } catch (err) { return configMutationError(res, err); }
   audit(req, req.account.id, 'token_api_rotacionado', 'Token da API pública revogado e regenerado');
   res.json({ ok: true, token });
 });
 
-app.get('/api/public-token', dashboardAuth, (req, res) => {
+app.get('/api/public-token', dashboardAuth, async (req, res) => {
   let cfg = config.get(req.account.id);
   let token = (cfg.api || {}).token;
   if (!token) {
     token = crypto.randomBytes(24).toString('hex');
-    config.set(req.account.id, { api: { token } });
+    try {
+      const saved = await config.setDurable(req.account.id, (latest) => ({ api: Object.assign({}, latest.api || {}, { token }) }));
+      token = (saved.api || {}).token || token;
+    } catch (err) { return configMutationError(res, err); }
   }
   res.set('Cache-Control', 'no-store');
   res.json({ token });
@@ -1612,13 +1652,14 @@ app.get('/api/v1/summary', (req, res) => {
 });
 
 // Item 419: alternar o escopo do token público (stats | stats+leads).
-app.post('/api/public-token/scope', dashboardAuth, (req, res) => {
+app.post('/api/public-token/scope', dashboardAuth, async (req, res) => {
   const scope = String((req.body || {}).scope || '');
   if (!['stats', 'stats+leads'].includes(scope)) {
     return res.status(400).json({ ok: false, error: "Escopo inválido — use 'stats' ou 'stats+leads'." });
   }
-  const api = Object.assign({}, config.get(req.account.id).api || {}, { scope });
-  config.set(req.account.id, { api });
+  try {
+    await config.setDurable(req.account.id, (latest) => ({ api: Object.assign({}, latest.api || {}, { scope }) }));
+  } catch (err) { return configMutationError(res, err); }
   audit(req, req.account.id, 'token_api_escopo', 'Escopo do token público: ' + scope);
   res.json({ ok: true, scope });
 });
@@ -1837,7 +1878,10 @@ async function checkDailyReportFor(accId) {
     const delivered = (await Promise.all(deliveries)).some(Boolean);
     // Marca só depois de pelo menos um canal confirmar; uma indisponibilidade
     // temporária volta a ser tentada no próximo tick, sem perder o relatório.
-    if (delivered) config.set(accId, { lastDailyReport: today });
+    if (delivered) {
+      try { await config.setDurable(accId, { lastDailyReport: today }); }
+      catch (persistErr) { console.warn('[relatório-diário] envio confirmado, mas marcador durável falhou:', persistErr.message); }
+    }
   } catch (error) {
     console.warn('[relatório-diário] falhou para a conta ' + accId + ': ' + String(error && error.message || error).slice(0, 180));
   }
@@ -2157,7 +2201,7 @@ app.post('/api/account/delete', dashboardAuth, async (req, res) => {
   console.log('[account] EXCLUSÃO da conta ' + acc + ' (' + req.account.email + ') solicitada e confirmada');
   const ok = await db.deleteAccountCascade(acc);
   if (!ok) return res.status(500).json({ ok: false, error: 'Falha ao excluir. Tente novamente.' });
-  stats.reset(acc);            // limpa o espelho em memória
+  await stats.reset(acc);      // limpa também o espelho em memória
   auth.clearSessionCache();    // nenhuma sessão da conta sobrevive
   appendCookie(res, auth.clearCookie());
   res.json({ ok: true });
@@ -2341,54 +2385,102 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
 // ���═����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
 // Itens 230/232: auditoria de integridade referencial + dados órfãos.
 // Reporta (sem alterar nada): links apontando para pixel/domínio inexistente
-// e stats de cloak de slugs que não existem mais. O modo ?fix=1 limpa os
-// órfãos seguros (somente referências, nunca dados de venda).
-app.get('/api/ops/integrity', dashboardAuth, async (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  const acc = req.account.id;
-  const cfg = config.get(acc);
-  const pixels = new Set(pixelStore.list(acc).map((p) => p.slug));
+// e stats de cloak de slugs que não existem mais. GET é somente leitura;
+// POST limpa os órfãos seguros (somente referências, nunca dados de venda).
+async function readAccountIntegrity(accountId) {
+  const cfg = config.get(accountId);
+  const pixels = new Set(pixelStore.list(accountId).map((p) => p.slug));
   const domains = new Set((cfg.customDomains || []).map((d) => d.host));
   const cloakSlugs = new Set((cfg.cloakLinks || []).map((c) => c.slug));
   const problemas = [];
-  for (const l of linkStore.list(acc)) {
-    // pixel referenciado que não existe mais
+
+  for (const l of linkStore.list(accountId)) {
     if (l.pixelSlug && !pixels.has(l.pixelSlug)) {
-      problemas.push({ tipo: 'link-pixel', slug: l.slug, ref: l.pixelSlug,
-        msg: 'Link "' + l.nome + '" aponta para o pixel "' + l.pixelSlug + '", que não existe mais.' });
+      problemas.push({
+        tipo: 'link-pixel', slug: l.slug, ref: l.pixelSlug,
+        msg: 'Link "' + l.nome + '" aponta para o pixel "' + l.pixelSlug + '", que não existe mais.'
+      });
     }
-    // domínio personalizado que sumiu da lista global
     if (l.dominio && domains.size > 0 && !domains.has(l.dominio)) {
-      problemas.push({ tipo: 'link-dominio', slug: l.slug, ref: l.dominio,
-        msg: 'Link "' + l.nome + '" usa o domínio "' + l.dominio + '", que não está mais cadastrado.' });
+      problemas.push({
+        tipo: 'link-dominio', slug: l.slug, ref: l.dominio,
+        msg: 'Link "' + l.nome + '" usa o domínio "' + l.dominio + '", que não está mais cadastrado.'
+      });
     }
   }
-  // stats de cloak de slugs apagados (órfãos no Redis). O prefixo 'cloak:'
-  // vem do bumpDecision ('cloak:' + slug) — remove antes de comparar.
+
   let orfaosCloak = [];
   try {
-    const statSlugs = await redis.listCloakStatSlugs(acc);
+    const statSlugs = await redis.listCloakStatSlugs(accountId);
     orfaosCloak = statSlugs
       .map((s) => s.replace(/^cloak:/, ''))
       .filter((slug) => !cloakSlugs.has(slug));
-  } catch (_) {}
-  const fix = req.query.fix === '1';
+  } catch (_) {
+    // Falha de diagnóstico do Redis não pode transformar o GET em mutação ou
+    // esconder os demais problemas encontrados em configuração durável.
+  }
+
+  return { problemas, orfaosCloak };
+}
+
+async function repairAccountIntegrity(accountId, snapshot) {
   let corrigidos = 0;
-  if (fix) {
-    // limpar referência de pixel fantasma nos links (ação segura e reversível)
-    for (const p of problemas.filter((x) => x.tipo === 'link-pixel')) {
-      try { await linkStore.save(acc, { slug: p.slug, pixelSlug: '' }); corrigidos++; } catch (_) {}
-    }
-    // apagar contadores e histórico de decisões de slugs de cloak apagados
-    if (orfaosCloak.length) {
-      const prefixed = orfaosCloak.map((s) => 'cloak:' + s);
-      try {
-        corrigidos += await redis.clearCloakStats(acc, prefixed);
-        await redis.clearCloakDecisionLogs(acc, prefixed);
-      } catch (_) {}
+  const falhas = [];
+
+  // Só referências de pixel inexistente são removidas automaticamente. Domínio
+  // ausente pode representar uma configuração temporariamente incompleta e
+  // continua exigindo decisão explícita do usuário.
+  for (const problem of snapshot.problemas.filter((item) => item.tipo === 'link-pixel')) {
+    try {
+      await linkStore.save(accountId, { slug: problem.slug, pixelSlug: '' });
+      corrigidos += 1;
+    } catch (error) {
+      falhas.push(`Link ${problem.slug}: ${error && error.message ? error.message : 'falha ao remover referência de pixel'}`);
     }
   }
-  res.json({ ok: true, problemas, orfaosCloak, corrigidos: fix ? corrigidos : undefined });
+
+  if (snapshot.orfaosCloak.length) {
+    const prefixed = snapshot.orfaosCloak.map((slug) => 'cloak:' + slug);
+    try {
+      corrigidos += await redis.clearCloakStats(accountId, prefixed);
+      await redis.clearCloakDecisionLogs(accountId, prefixed);
+    } catch (error) {
+      falhas.push(`Cloak: ${error && error.message ? error.message : 'falha ao limpar dados órfãos'}`);
+    }
+  }
+
+  return { corrigidos, falhas };
+}
+
+// Diagnóstico é estritamente de leitura. A correção usa POST abaixo para que
+// prefetch, cache, reload ou inspeção de URL nunca executem exclusões.
+app.get('/api/ops/integrity', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const result = await readAccountIntegrity(req.account.id);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message || 'Falha ao verificar integridade' });
+  }
+});
+
+app.post('/api/ops/integrity', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const accountId = req.account.id;
+    const before = await readAccountIntegrity(accountId);
+    const repaired = await repairAccountIntegrity(accountId, before);
+    const after = await readAccountIntegrity(accountId);
+    res.json({
+      ok: repaired.falhas.length === 0,
+      problemas: after.problemas,
+      orfaosCloak: after.orfaosCloak,
+      corrigidos: repaired.corrigidos,
+      falhas: repaired.falhas,
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message || 'Falha ao corrigir integridade' });
+  }
 });
 
 // Item 231: backup self-service da configuração da conta em JSON.
@@ -2451,7 +2543,7 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
     if (Array.isArray(b.cloakLinks) && b.cloakLinks.length) patch.cloakLinks = b.cloakLinks.slice(0, 100);
     if (b.cloak && typeof b.cloak === 'object') patch.cloak = b.cloak;
     if (Object.keys(patch).length) {
-      config.set(acc, patch);
+      await config.setDurable(acc, patch);
       report.cloakLinks = (patch.cloakLinks || []).length;
     }
     stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
@@ -2469,19 +2561,38 @@ app.get('/api/links', dashboardAuth, (req, res) => {
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
   try {
+    const body = Object.assign({}, req.body || {});
+    const accountDomains = config.get(req.account.id).customDomains || [];
+    // Se o frontend escolheu um domínio personalizado, ele precisa pertencer
+    // à conta e estar habilitado para checkout. Antes qualquer hostname podia
+    // ser salvo no link e a UI gerava uma URL pública que nunca funcionaria.
+    if (Object.prototype.hasOwnProperty.call(body, 'dominio') && body.dominio) {
+      const host = normHost(body.dominio);
+      const domain = accountDomains.find((d) => d.host === host);
+      if (!host || !domain) {
+        return apiError(res, 422, 'O domínio selecionado não está cadastrado nesta conta.', 'link_domain_not_found', 'Cadastre ou escolha um domínio disponível antes de salvar o link.');
+      }
+      if (domain.uso === 'cloaker') {
+        return apiError(res, 422, 'Este domínio está reservado para o filtro de bots.', 'link_domain_wrong_usage', 'Escolha um domínio com uso em Checkout ou Ambos.');
+      }
+      body.dominio = host;
+    }
     // Um domínio já verificado na aba "Domínio personalizado" conta como
     // validado para o link — sem precisar revalidar por link (era a origem do
     // "Domínio não validado" apesar do domínio estar verificado).
-    (config.get(req.account.id).customDomains || [])
+    accountDomains
       .filter((d) => d.verificado)
       .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
-    const saved = await linkStore.save(req.account.id, req.body || {});
+    const saved = await linkStore.save(req.account.id, body);
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
     audit(req, req.account.id, 'link_salvo', 'Link ' + saved.slug + ' (' + saved.nome + ')'); // item 417
     res.json({ ok: true, link: saved });
   } catch (err) {
-    // Item 235: conflito de edição concorrente → 409 com mensagem acionável
-    res.status(err.code === 'conflict' ? 409 : 400).json({ error: err.message, code: err.code });
+    // Conflito = 409; falha de persistência = indisponibilidade temporária,
+    // nunca erro de formulário. Isso permite ao frontend orientar retry sem
+    // culpar dados válidos do usuário.
+    const status = err.code === 'conflict' ? 409 : err.code === 'persistence_failed' ? 503 : 400;
+    res.status(status).json({ error: err.message, code: err.code });
   }
 });
 
@@ -2492,7 +2603,8 @@ app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
     audit(req, req.account.id, 'link_removido', 'Link ' + req.params.slug); // item 417
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.code === 'not_found' ? 404 : err.code === 'persistence_failed' ? 503 : 500;
+    res.status(status).json({ ok: false, error: err.message, code: err.code || undefined });
   }
 });
 
@@ -2586,11 +2698,11 @@ function accountCurrency(accId) {
   return /^[A-Z]{3}$/.test(cur) ? cur : 'BRL';
 }
 
-app.get('/api/settings', dashboardAuth, (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  const s = config.get(req.account.id).settings || {};
-  res.json({
-    defaultCurrency: accountCurrency(req.account.id),
+function accountSettingsPayload(accId) {
+  const cfg = config.get(accId);
+  const s = cfg.settings || {};
+  return {
+    defaultCurrency: accountCurrency(accId),
     // Itens 422/423/424/425/429/430: preferências avançadas da conta
     timezone: s.timezone || 'America/Sao_Paulo',
     revenueGoal: s.revenueGoal || 0,
@@ -2603,40 +2715,69 @@ app.get('/api/settings', dashboardAuth, (req, res) => {
     notificationTemplate: s.notificationTemplate || s.pushcutTemplate || '',
     pushcutTemplate: s.notificationTemplate || s.pushcutTemplate || '', // compatibilidade com UI antiga
     // Item 419: escopo atual do token público (para a UI refletir o valor)
-    apiScope: (config.get(req.account.id).api || {}).scope || 'stats',
-    raw: { defaultCurrency: s.defaultCurrency || null }
-  });
+    apiScope: (cfg.api || {}).scope || 'stats',
+    raw: { defaultCurrency: s.defaultCurrency || null },
+    updatedAt: cfg.updatedAt || null
+  };
+}
+
+app.get('/api/settings', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(accountSettingsPayload(req.account.id));
 });
 
-app.post('/api/settings', dashboardAuth, (req, res) => {
+app.post('/api/settings', dashboardAuth, async (req, res) => {
   const body = req.body || {};
-  // Itens 422/423/424/425/429/430: campos opcionais — só sobrescreve o que
-  // veio no body; a sanitização final é do config.set (fonte única de regras).
+  // Todos os campos já existentes são tratados no MESMO patch. Antes, enviar
+  // moeda junto de outra preferência fazia o servidor ignorar silenciosamente
+  // as demais alterações porque havia dois ramos mutuamente exclusivos.
   const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'dailyReportEnabled', 'whatsappTo', 'notificationTemplate', 'pushcutTemplate'];
-  const hasExtra = patchable.some((k) => Object.prototype.hasOwnProperty.call(body, k));
-  if (hasExtra && !body.defaultCurrency) {
-    const s = Object.assign({}, config.get(req.account.id).settings || {});
-    patchable.forEach((k) => {
-      if (!Object.prototype.hasOwnProperty.call(body, k)) return;
-      // string vazia / 0 = "limpar o campo" (o sanitizador descarta)
-      if (body[k] === '' || body[k] === null || (body[k] === 0 && k !== 'dailyReportHour')) delete s[k];
-      else s[k] = body[k];
+  const s = Object.assign({}, config.get(req.account.id).settings || {});
+  let changed = false;
+
+  patchable.forEach((k) => {
+    if (!Object.prototype.hasOwnProperty.call(body, k)) return;
+    changed = true;
+    // string vazia / 0 = "limpar o campo" (dailyReportHour aceita 0)
+    if (body[k] === '' || body[k] === null || (body[k] === 0 && k !== 'dailyReportHour')) delete s[k];
+    else s[k] = body[k];
+  });
+
+  let currencyChanged = false;
+  if (Object.prototype.hasOwnProperty.call(body, 'defaultCurrency')) {
+    const cur = String(body.defaultCurrency || '').toUpperCase();
+    if (!/^[A-Z]{3}$/.test(cur)) {
+      return res.status(400).json({ error: 'moeda inválida — use um código de 3 letras (BRL, USD, EUR…)' });
+    }
+    s.defaultCurrency = cur;
+    changed = true;
+    currencyChanged = true;
+  }
+
+  if (!changed) {
+    return res.status(400).json({ error: 'nenhuma preferência reconhecida para atualizar' });
+  }
+
+  let savedCfg;
+  try {
+    savedCfg = await config.setDurable(req.account.id, { settings: s }, {
+      expectedUpdatedAt: body._baseUpdatedAt || null,
     });
-    const saved = (config.set(req.account.id, { settings: s }).settings || {});
-    audit(req, req.account.id, 'settings_alterados', 'Preferências da conta atualizadas');
-    return res.json({ ok: true, settings: saved });
+  } catch (err) {
+    return configMutationError(res, err);
   }
-  const cur = String(body.defaultCurrency || '').toUpperCase();
-  if (!/^[A-Z]{3}$/.test(cur)) {
-    return res.status(400).json({ error: 'moeda inválida — use um código de 3 letras (BRL, USD, EUR…)' });
+  const saved = savedCfg.settings || {};
+  if (currencyChanged) {
+    // A config é a fonte de verdade. O espelho em accounts.currency é
+    // secundário; só roda depois que o commit principal foi confirmado.
+    if (db.enabled) {
+      const mirrored = await db.setAccountCurrency(req.account.id, saved.defaultCurrency || s.defaultCurrency);
+      if (!mirrored) console.error('[settings] falha ao atualizar espelho accounts.currency');
+    }
+    stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + accountCurrency(req.account.id) });
   }
-  const s = Object.assign({}, config.get(req.account.id).settings || {}, { defaultCurrency: cur });
-  config.set(req.account.id, { settings: s });
-  // Item 242: espelha em accounts.currency (write-through assíncrono — a
-  // moeda sobrevive mesmo se a config jsonb for recriada/perdida).
-  db.setAccountCurrency(req.account.id, cur);
-  stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
-  res.json({ ok: true, defaultCurrency: cur });
+  audit(req, req.account.id, 'settings_alterados', 'Preferências da conta atualizadas');
+  res.json(Object.assign({ ok: true, settings: saved }, accountSettingsPayload(req.account.id)));
 });
 
 // Item 424: teste de disparo do webhook de saída — envia uma venda fictícia
@@ -2671,8 +2812,10 @@ app.post('/api/settings/webhook-test', dashboardAuth, async (req, res) => {
 app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const domainProvider = activeDomainProvider();
+  const accountConfig = config.get(req.account.id);
   res.json({
-    domains: config.get(req.account.id).customDomains || [],
+    domains: accountConfig.customDomains || [],
+    configUpdatedAt: accountConfig.updatedAt || null,
     // Alvo amigável do CNAME. Com Cloudflare for SaaS, o alvo é o Managed CNAME
     // target (CLOUDFLARE_CNAME_TARGET) — NUNCA a origem Railway, que serve o
     // certificado errado. Sem Cloudflare, mantém o host principal legado.
@@ -2689,13 +2832,18 @@ app.get('/api/domains', dashboardAuth, (req, res) => {
 });
 
 app.post('/api/domains', dashboardAuth, async (req, res) => {
-  const host = normHost((req.body || {}).host);
+  const body = req.body || {};
+  const host = normHost(body.host);
   if (!host) return res.status(400).json({ error: 'domínio inválido (ex.: link.seudominio.com)' });
   // domínio precisa ser único ENTRE TODAS as contas: ele identifica a conta
   // dona do tráfego público (publicAccountId) — duas contas não podem tê-lo
   const owner = config.accountForDomain(host);
   if (owner && owner !== req.account.id) return res.status(400).json({ error: 'domínio já cadastrado em outra conta' });
-  const cur = config.get(req.account.id).customDomains || [];
+  const configSnapshot = config.get(req.account.id);
+  if (body._baseUpdatedAt && configSnapshot.updatedAt && body._baseUpdatedAt !== configSnapshot.updatedAt) {
+    return configMutationError(res, Object.assign(new Error('configuração desatualizada'), { code: 'CONFIG_REVISION_CONFLICT', status: 409 }));
+  }
+  const cur = configSnapshot.customDomains || [];
   if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
   if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
 
@@ -2720,7 +2868,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // s�� precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
-        limite: 'limite de domínios simultâneos atingido ��� domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
+        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
         duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
         auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
         offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
@@ -2739,11 +2887,30 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   const entry = { host, uso, verificado: false, verificadoEm: null, status: providerStatus || 'pending_dns', lastCheckedAt: null, lastError: null, criadoEm: new Date().toISOString() };
   if (providerId) entry.providerId = providerId;
   if (providerName) entry.provider = providerName;
+  if (providerNote) entry.providerNote = providerNote;
   // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
   // deles a qualquer momento (não só na resposta do cadastro), para o lojista
   // reabrir as instruções sem depender de acesso à hospedagem.
   if (dnsRecords) entry.dns = dnsRecords;
-  config.set(req.account.id, { customDomains: cur.concat([entry]) });
+  try {
+    await config.setDurable(req.account.id, (latest) => {
+      const currentDomains = Array.isArray(latest.customDomains) ? latest.customDomains : [];
+      if (currentDomains.some((d) => d.host === host)) {
+        const err = new Error('domínio já cadastrado'); err.status = 409; err.code = 'domain_conflict'; throw err;
+      }
+      if (currentDomains.length >= 20) {
+        const err = new Error('limite de 20 domínios'); err.status = 409; err.code = 'domain_limit'; throw err;
+      }
+      return { customDomains: currentDomains.concat([entry]) };
+    }, { expectedUpdatedAt: body._baseUpdatedAt || null });
+  } catch (err) {
+    // Se o provider foi criado antes do commit local e a persistência falhou,
+    // remove o registro remoto para não deixar um domínio órfão consumindo cota.
+    if (providerId && domainProvider.enabled) {
+      try { await domainProvider.remove(providerId, host); } catch (_) {}
+    }
+    return configMutationError(res, err);
+  }
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
   // aqui cont��m segredo — são valores públicos de DNS. providerNote avisa quando
@@ -2758,13 +2925,35 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const host = normHost(req.params.host);
   const cur = config.get(req.account.id).customDomains || [];
   const found = cur.find((d) => d.host === host);
-  // Remove também na hospedagem, para não acumular contra o teto do provedor.
-  const domainProvider = activeDomainProvider();
-  if (found && found.providerId && domainProvider.enabled) {
-    try { await domainProvider.remove(found.providerId, found.host); }
-    catch (_) { /* best-effort — segue removendo localmente */ }
+  if (!host || !found) return apiError(res, 404, 'Domínio não encontrado nesta conta.', 'domain_not_found');
+
+  // Não cria referências órfãs. Um domínio usado por um link público ou por
+  // uma entrada do Cloak precisa ser trocado antes de ser removido.
+  const checkoutRefs = linkStore.list(req.account.id).filter((link) => link.dominio === host);
+  const cloakRefs = (config.get(req.account.id).cloakLinks || []).filter((link) => link.dominio === host);
+  if (checkoutRefs.length || cloakRefs.length) {
+    const refs = [];
+    if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
+    if (cloakRefs.length) refs.push(cloakRefs.length + ' link' + (cloakRefs.length === 1 ? '' : 's') + ' do filtro de bots');
+    return apiError(res, 409, 'Este domínio ainda está em uso.', 'domain_in_use', 'Troque o domínio em ' + refs.join(' e ') + ' antes de removê-lo.');
   }
-  config.set(req.account.id, { customDomains: cur.filter((d) => d.host !== host) });
+
+  // Primeiro confirma a remoção na fonte durável; só depois altera o provider.
+  // Assim uma falha de banco não deixa a UI/config dizendo que o domínio existe
+  // enquanto o registro remoto já foi apagado.
+  try {
+    await config.setDurable(req.account.id, (latest) => ({
+      customDomains: (latest.customDomains || []).filter((d) => d.host !== host),
+    }));
+  } catch (err) {
+    return configMutationError(res, err);
+  }
+
+  const domainProvider = activeDomainProvider();
+  if (found.providerId && domainProvider.enabled) {
+    try { await domainProvider.remove(found.providerId, found.host); }
+    catch (_) { /* best-effort: o registro local já foi removido com sucesso */ }
+  }
   res.json({ ok: true });
 });
 
@@ -2814,6 +3003,10 @@ async function dohResolve(host, type) {
 app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   const host = normHost((req.body || {}).host);
   if (!host) return res.status(400).json({ error: 'domínio inválido' });
+  const registeredDomain = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
+  if (!registeredDomain) {
+    return apiError(res, 404, 'Domínio não cadastrado nesta conta.', 'domain_not_found', 'Adicione o domínio nesta conta antes de verificar a conexão.');
+  }
   const appHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '');
   const out = { host, appHost, dnsOk: false, dnsDetail: '', httpOk: false, httpDetail: '' };
 
@@ -2838,8 +3031,14 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         if (reg && reg.providerId) {
           const patch = { providerId: reg.providerId, provider: reg.provider || domainProvider.name || null };
           if (reg.dns) patch.dns = reg.dns; // instruções ficam disponíveis no tutorial
-          const next = cur0.map((d) => d.host === host ? Object.assign({}, d, patch) : d);
-          config.set(req.account.id, { customDomains: next });
+          try {
+            await config.setDurable(req.account.id, (latest) => ({
+              customDomains: (latest.customDomains || []).map((d) => d.host === host ? Object.assign({}, d, patch) : d),
+            }));
+          } catch (persistErr) {
+            try { await domainProvider.remove(reg.providerId, host); } catch (_) {}
+            return configMutationError(res, persistErr);
+          }
           out.reconectado = true;
           out.dnsRecords = reg.dns || null;
         }
@@ -2886,8 +3085,11 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         };
         const needsDnsSync = st.dns && JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns);
         if (needsDnsSync || nextStatus !== prevStatus || statusPatch.lastError) {
-          const cur1 = config.get(req.account.id).customDomains || [];
-          config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, statusPatch, needsDnsSync ? { dns: st.dns, provider: st.provider || domainProvider.name || d.provider } : {}) : d) });
+          await config.setDurable(req.account.id, (latest) => ({
+            customDomains: (latest.customDomains || []).map((d) => d.host === host
+              ? Object.assign({}, d, statusPatch, needsDnsSync ? { dns: st.dns, provider: st.provider || domainProvider.name || d.provider } : {})
+              : d),
+          }));
         }
         if (st.dns && st.dns.cname && st.dns.cname.target) {
           const t = String(st.dns.cname.target).toLowerCase().replace(/\.$/, '');
@@ -2961,7 +3163,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       if (out.cloudflareProxy) {
         out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
       } else if (gerenciado) {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro autom��tico foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
       } else if (!domainProvider.enabled) {
         // HONESTIDADE: sem automação configurada NÃO existe "reconexão
         // automática" — dizer isso deixava o lojista clicando em Verificar
@@ -2996,16 +3198,38 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // (era o falso "Verificado" que deixava os links quebrados).
   out.ok = out.httpOk;
   out.dnsPronto = out.dnsOk && !out.httpOk; // DNS ok mas app ainda não atende
-  if (out.ok) {
+  {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
-    const has = cur.some((d) => d.host === host);
-    // Prova forte confirmada (HTTPS + marcador) ��� status 'active' persistido,
-    // além do espelho legado `verificado` para a UI antiga.
-    const next = has
-      ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null }) : d)
-      : cur.concat([{ host, verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null, criadoEm: now }]);
-    config.set(req.account.id, { customDomains: next });
+    // O domínio já foi validado como pertencente à conta no início da rota.
+    // Persiste também tentativas PENDENTES: antes, em provider manual/degradado,
+    // Verificar atualizava a resposta da tela mas o refresh voltava ao estado
+    // anterior porque lastCheckedAt/status só eram gravados no sucesso forte.
+    const next = cur.map((d) => {
+      if (d.host !== host) return d;
+      if (out.ok) {
+        return Object.assign({}, d, {
+          verificado: true, verificadoEm: now, status: 'active',
+          lastCheckedAt: now, lastError: null,
+        });
+      }
+      // Um domínio já ativo não regride por timeout/transiente local. Erro
+      // explícito do provider, quando houver, já foi persistido acima.
+      const keepActive = d.verificado === true && d.status === 'active';
+      const status = keepActive ? 'active' : d.status === 'error' ? 'error' : out.dnsOk ? 'pending_ssl' : 'pending_dns';
+      return Object.assign({}, d, { status, lastCheckedAt: now });
+    });
+    try {
+      await config.setDurable(req.account.id, (latest) => {
+        const latestDomains = latest.customDomains || [];
+        const byHost = new Map(next.map((domain) => [domain.host, domain]));
+        return {
+          customDomains: latestDomains.map((domain) => byHost.get(domain.host) || domain),
+        };
+      });
+    } catch (err) {
+      return configMutationError(res, err);
+    }
   }
   res.json(out);
 });
@@ -3095,7 +3319,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
   });
 });
 
-app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
+app.post('/api/pushcut-config', dashboardAuth, async (req, res) => {
   const b = req.body || {};
   const cur = config.get(req.account.id);
   const pc = Object.assign({}, cur.pushcut || {});
@@ -3103,7 +3327,7 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
   if (typeof b.url === 'string' && b.url.indexOf('••••') === -1) {
     const u = b.url.trim();
     if (u === '' || /^https:\/\/api\.pushcut\.io\/.+/i.test(u)) pc.url = u.slice(0, 300);
-    else return res.status(400).json({ error: 'URL inválida �� use o webhook do app Pushcut (https://api.pushcut.io/...)' });
+    else return res.status(400).json({ error: 'URL inválida — use o webhook do app Pushcut (https://api.pushcut.io/...)' });
   }
   if (b.events && typeof b.events === 'object') {
     pc.events = {};
@@ -3113,20 +3337,26 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     pc.events.login = b.events.login === true; // item 442: opt-in explícito (novo login)
     pc.events.watchdog = b.events.watchdog === true; // item 464: opt-in explícito (alerta de anomalia)
   }
-  config.set(req.account.id, { pushcut: pc });
-  res.json({ ok: true });
+  try {
+    await config.setDurable(req.account.id, { pushcut: pc }, { expectedUpdatedAt: b._baseUpdatedAt || null });
+  } catch (err) {
+    return configMutationError(res, err);
+  }
+  res.json({ ok: true, updatedAt: config.get(req.account.id).updatedAt || null });
 });
 
 // ── Filtro de Bots / Revisores TikTok (cloaking, por conta) ────────────────
 app.get('/api/cloak-config', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const c = config.get(req.account.id).cloak || {};
+  const cfg = config.get(req.account.id);
+  const c = cfg.cloak || {};
   res.json(Object.assign({}, botFilter.DEFAULT_CONFIG, c, {
-    sensitivityThresholds: botFilter.SENSITIVITY_THRESHOLDS
+    sensitivityThresholds: botFilter.SENSITIVITY_THRESHOLDS,
+    configUpdatedAt: cfg.updatedAt || null,
   }));
 });
 
-app.post('/api/cloak-config', dashboardAuth, (req, res) => {
+app.post('/api/cloak-config', dashboardAuth, async (req, res) => {
   const b = req.body || {};
   const cur = config.get(req.account.id).cloak || {};
   const next = Object.assign({}, cur);
@@ -3146,8 +3376,15 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   ['autoBlockThreshold', 'autoBlockWindowMin', 'autoBlockTtlHours'].forEach((key) => {
     if (b[key] != null && !isNaN(Number(b[key]))) next[key] = Number(b[key]);
   });
-  config.set(req.account.id, { cloak: next });
-  res.json({ ok: true, cloak: config.get(req.account.id).cloak });
+  let saved;
+  try {
+    saved = await config.setDurable(req.account.id, { cloak: next }, {
+      expectedUpdatedAt: b._baseUpdatedAt || null,
+    });
+  } catch (err) {
+    return configMutationError(res, err);
+  }
+  res.json({ ok: true, cloak: Object.assign({}, saved.cloak, { configUpdatedAt: saved.updatedAt || null }) });
 });
 
 app.get('/api/cloak/blocks', dashboardAuth, async (req, res) => {
@@ -3255,7 +3492,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   let entry = null;
   if (slug) {
     entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
-    if (!entry) return res.status(404).json({ error: 'link de cloaking n��o encontrado' });
+    if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
     cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
   }
 
@@ -3414,7 +3651,7 @@ app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
   if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
-    return apiError(res, 400, 'Informe um IP v��lido para liberar do limite de acessos.', 'bad_ip');
+    return apiError(res, 400, 'Informe um IP válido para liberar do limite de acessos.', 'bad_ip');
   }
   const cleared = await redis.clearVelocity(ip);
   stats.logEvent('info', { acc: req.account.id, title: '[cloak] limite de acessos liberado para IP', ref: ip });
@@ -3474,43 +3711,76 @@ app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   });
 });
 
-app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
+app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
   const b = req.body || {};
-  const nome = String(b.nome || '').trim();
-  if (!_ckValidHttps(b.offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
-
   const cur = config.get(req.account.id).cloakLinks || [];
-  // Edição: usa o slug enviado (já existe). Criação: gera slug ALEATÓRIO único.
-  let slug;
-  if (b.slug) {
-    slug = _ckSlugify(b.slug);
-  } else {
-    if (!nome) return res.status(400).json({ error: 'dê um nome ao link' });
+  const baseUpdatedAt = b._baseUpdatedAt ? String(b._baseUpdatedAt) : '';
+  const createKey = String(b._createKey || '').trim().slice(0, 120);
+
+  // Edição funciona como MERGE-PATCH. A UI usa este mesmo endpoint para o
+  // switch ligado/desligado e para ações em massa, então exigir offerUrl em
+  // toda chamada fazia esses controles falharem com 400 embora parecessem
+  // toggles simples no frontend.
+  const requestedSlug = b.slug ? _ckSlugify(b.slug) : '';
+  const existing = requestedSlug ? cur.find((l) => l.slug === requestedSlug) : null;
+  if (requestedSlug && !existing) {
+    return res.status(404).json({ error: 'link de cloaking não encontrado — atualize a lista e tente novamente' });
+  }
+  if (existing && baseUpdatedAt && existing.updatedAt && existing.updatedAt !== baseUpdatedAt) {
+    return apiError(res, 409,
+      'Este link foi alterado em outra aba ou por outro usuário.',
+      'cloak_revision_conflict',
+      'Atualize a lista, confira a versão atual e tente salvar novamente.');
+  }
+
+  const nome = b.nome !== undefined ? String(b.nome || '').trim() : (existing ? existing.nome : '');
+  const offerUrl = b.offerUrl !== undefined ? String(b.offerUrl || '').trim() : (existing ? existing.offerUrl : '');
+  if (!existing && !nome) return res.status(400).json({ error: 'dê um nome ao link' });
+  if (!_ckValidHttps(offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
+
+  // Criação: o cliente manda uma chave estável por tentativa. Dela derivamos
+  // um slug aleatório-looking e determinístico: se a resposta se perder e o
+  // mesmo formulário for reenviado, devolvemos a entidade já criada em vez de
+  // gerar um segundo link. Clientes antigos continuam no slug aleatório.
+  let slug = requestedSlug;
+  if (!slug && createKey) {
+    slug = crypto.createHash('sha256').update(req.account.id + '|' + createKey).digest('hex').slice(0, 16);
+    const replay = cur.find((l) => l.slug === slug);
+    if (replay) return res.json({ ok: true, entry: replay, replayed: true });
+  }
+  if (!slug) {
     do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug));
   }
-  if (!slug) return res.status(400).json({ error: 'slug inválido' });
 
-  const existing = cur.find((l) => l.slug === slug);
-  const isNew = !existing;
+  const validSensitivity = ['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)
+    ? b.sensitivity
+    : (existing ? existing.sensitivity : 'balanced');
+  const nextThreshold = b.threshold !== undefined && Number.isFinite(Number(b.threshold))
+    ? Number(b.threshold)
+    : (existing ? existing.threshold : undefined);
+  const nextDeadline = b.deadlineMs !== undefined && Number.isFinite(Number(b.deadlineMs))
+    ? Number(b.deadlineMs)
+    : (existing ? existing.deadlineMs : undefined);
 
   const entry = Object.assign({}, existing || {}, {
     slug,
-    nome: nome || (existing ? existing.nome : slug),
-    // Domínio personalizado (opcional): a URL do link vira https://<dominio>/c/<slug>.
-    // O domínio precisa apontar (DNS) para este app para o /c/:slug responder lá.
+    nome: nome || slug,
+    // Domínio personalizado (opcional): campo AUSENTE preserva o atual;
+    // string vazia remove o domínio customizado de forma explícita.
     dominio: b.dominio !== undefined ? _ckHost(b.dominio) : (existing ? existing.dominio || '' : ''),
-    offerUrl: String(b.offerUrl).trim(),
-    whitePageUrl: _ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '',
-    enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled : true),
-    // Novos gates (default LIGADO, inclusive retroativo para links antigos):
+    offerUrl,
+    whitePageUrl: b.whitePageUrl !== undefined
+      ? (_ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '')
+      : (existing ? existing.whitePageUrl || '' : ''),
+    enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled !== false : true),
     mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : true),
     requireAdClick: typeof b.requireAdClick === 'boolean' ? b.requireAdClick : (existing ? existing.requireAdClick !== false : true),
-    sensitivity: b.sensitivity,
-    threshold: b.threshold,
-    deadlineMs: b.deadlineMs,
-    paisPreset: typeof b.paisPreset === 'string' ? b.paisPreset : (existing ? existing.paisPreset : ''),
-    paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises : []),
-    idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas : []),
+    sensitivity: validSensitivity,
+    threshold: nextThreshold,
+    deadlineMs: nextDeadline,
+    paisPreset: b.paisPreset !== undefined ? String(b.paisPreset || '') : (existing ? existing.paisPreset || '' : ''),
+    paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises || [] : []),
+    idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas || [] : []),
     criadoEm: existing ? existing.criadoEm : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
@@ -3520,17 +3790,31 @@ app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
     if (typeof b[k] === 'boolean') entry[k] = b[k];
   });
 
-  const nextList = isNew ? cur.concat([entry]) : cur.map((l) => (l.slug === slug ? entry : l));
-  config.set(req.account.id, { cloakLinks: nextList });
-  const saved = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug);
+  const nextList = existing ? cur.map((l) => (l.slug === slug ? entry : l)) : cur.concat([entry]);
+  let savedCfg;
+  try {
+    savedCfg = await config.setDurable(req.account.id, { cloakLinks: nextList });
+  } catch (err) {
+    return configMutationError(res, err);
+  }
+  const saved = (savedCfg.cloakLinks || []).find((l) => l.slug === slug);
   stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking salvo: ' + saved.nome, ref: saved.slug });
-  res.json({ ok: true, entry: saved });
+  res.json({ ok: true, entry: saved, configUpdatedAt: savedCfg.updatedAt || null });
 });
 
-app.delete('/api/cloak/entries/:slug', dashboardAuth, (req, res) => {
+app.delete('/api/cloak/entries/:slug', dashboardAuth, async (req, res) => {
   const slug = _ckSlugify(req.params.slug);
   const cur = config.get(req.account.id).cloakLinks || [];
-  config.set(req.account.id, { cloakLinks: cur.filter((l) => l.slug !== slug) });
+  if (!cur.some((l) => l.slug === slug)) {
+    return res.status(404).json({ error: 'link de cloaking não encontrado' });
+  }
+  try {
+    await config.setDurable(req.account.id, (latest) => ({
+      cloakLinks: (latest.cloakLinks || []).filter((l) => l.slug !== slug),
+    }));
+  } catch (err) {
+    return configMutationError(res, err);
+  }
   stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking removido', ref: slug });
   res.json({ ok: true });
 });
@@ -3557,7 +3841,7 @@ app.get('/api/webpush/public-key', dashboardAuth, async (_req, res) => {
 });
 
 // Inscreve o aparelho atual (subscription vem do PushManager do navegador)
-app.post('/api/webpush/subscribe', dashboardAuth, (req, res) => {
+app.post('/api/webpush/subscribe', dashboardAuth, async (req, res) => {
   const sub = (req.body || {}).subscription;
   if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
     return res.status(400).json({ ok: false, error: 'subscription inválida' });
@@ -3572,18 +3856,20 @@ app.post('/api/webpush/subscribe', dashboardAuth, (req, res) => {
     ua: String(req.headers['user-agent'] || '').slice(0, 120),
     createdAt: new Date().toISOString()
   });
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { subs }) });
+  try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { subs }) }); }
+  catch (err) { return configMutationError(res, err); }
   stats.logEvent('info', { acc: req.account.id, title: '[webpush] Novo aparelho inscrito para notificações' });
   res.json({ ok: true, devices: subs.length });
 });
 
 // Remove a inscrição do aparelho atual
-app.post('/api/webpush/unsubscribe', dashboardAuth, (req, res) => {
+app.post('/api/webpush/unsubscribe', dashboardAuth, async (req, res) => {
   const endpoint = String((req.body || {}).endpoint || '');
   if (!endpoint) return res.status(400).json({ ok: false, error: 'endpoint obrigatório' });
   const wp = config.get(req.account.id).webPush || { subs: [] };
   const subs = (wp.subs || []).filter((s) => s.endpoint !== endpoint);
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { subs }) });
+  try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { subs }) }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, devices: subs.length });
 });
 
@@ -3600,23 +3886,25 @@ app.get('/api/webpush/status', dashboardAuth, (req, res) => {
 });
 
 // Tom descontraído é opcional; o padrão é curto e direto.
-app.post('/api/webpush/funmode', dashboardAuth, (req, res) => {
+app.post('/api/webpush/funmode', dashboardAuth, async (req, res) => {
   const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
   const funMode = (req.body || {}).funMode === true;
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { funMode }) });
+  try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { funMode }) }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, funMode });
 });
 
 const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation'];
 
-app.post('/api/webpush/preferences', dashboardAuth, (req, res) => {
+app.post('/api/webpush/preferences', dashboardAuth, async (req, res) => {
   const body = (req.body || {}).preferences || {};
   const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
   const preferences = Object.assign({}, nativePreferencesFor(req.account.id));
   for (const group of NATIVE_PREFERENCE_GROUPS) {
     if (typeof body[group] === 'boolean') preferences[group] = body[group];
   }
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { preferences }) });
+  try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { preferences }) }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
 });
 
@@ -3631,7 +3919,7 @@ app.get('/api/webpush/events', dashboardAuth, (req, res) => {
   } });
 });
 
-app.post('/api/webpush/events', dashboardAuth, (req, res) => {
+app.post('/api/webpush/events', dashboardAuth, async (req, res) => {
   const body = (req.body || {}).events || {};
   const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
   const preferences = Object.assign({}, nativePreferencesFor(req.account.id));
@@ -3640,7 +3928,8 @@ app.post('/api/webpush/events', dashboardAuth, (req, res) => {
     preferences.risks = [body.failed, body.refund, body.dispute, body.login, body.system].some((v) => v === true);
   }
   if (typeof body.ads === 'boolean') preferences.automation = body.ads;
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { preferences }) });
+  try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { preferences }) }); }
+  catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
 });
 
@@ -3929,7 +4218,7 @@ async function notifyPushcut(event, n) {
   const isPix = String(n.paymentMethod || '').toLowerCase() === 'pix';
   const isPendingPix = isPix && map.key === 'checkout';
   if (isPendingPix && rdb && typeof rdb.seenWebhookOrder === 'function') {
-    const seen = await rdb.seenWebhookOrder(n.acc, n.gateway, n.orderId, 'pix_pending');
+    const seen = await rdb.seenWebhookOrder(n.acc, 'pix_pending', n.orderId, n.gateway);
     if (seen) return;
   }
   const valor = fmtMoney(n.amountCents, n.currency);
@@ -4513,7 +4802,7 @@ app.post('/hook/:token', checkoutCurrencyMiddleware, async (req, res) => {
 
   // 2. adapta payload específico do provider → normalizador genérico
   const adapted = gatewayStore.adaptPayload(gw.provider, req.body);
-  const n = normalizeConversion(adapted, { gateway: gw.provider, amountInCents: !!(gw.config && gw.config.amountInCents) });
+  const n = normalizeConversion(adapted, { gateway: gw.provider, amountInCents: !!(gw.config && gw.config.amountInCents), currency: accountCurrency(gw.accountId) });
   if (n.ignored) {
     gatewayStore.touch(gw.id, 'ignorado: saque/transferência');
     rdb.pushConversionLog({
@@ -4537,7 +4826,7 @@ app.post('/hook/:token', checkoutCurrencyMiddleware, async (req, res) => {
   // 3. idempotência por order_id (item 45): gateways REENVIAM webhooks em
   // retry — o mesmo pedido não pode disparar CompletePayment duas vezes.
   // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
-  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
+  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId, n.gateway || gw.provider).catch(() => false);
   if (dup) {
     rdb.bumpWebhookDedup(gw.accountId).catch(() => {}); // item 195
     gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
@@ -4614,15 +4903,41 @@ app.post('/api/gateways', dashboardAuth, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(Number(err && err.status) || 400).json({ error: err.message });
   }
 });
 
 app.delete('/api/gateways/:id', dashboardAuth, async (req, res) => {
-  const ok = await gatewayStore.remove(req.account.id, String(req.params.id || ''));
-  if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
-  stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: req.params.id });
-  res.json({ ok: true });
+  try {
+    const gatewayId = String(req.params.id || '');
+    const gateway = gatewayStore.get(req.account.id, gatewayId);
+    if (!gateway) return res.status(404).json({ error: 'gateway não encontrado' });
+
+    // Não deixa uma exclusão de checkout quebrar silenciosamente o roteamento
+    // de vendas dos Pixels. Um Pixel com gatewayIds explícito passaria a ficar
+    // preso a um ID inexistente e deixaria de receber compras dos gateways que
+    // continuam ativos. O operador precisa retirar o vínculo antes de apagar.
+    const linkedPixels = pixelStore.list(req.account.id).filter((pixel) =>
+      Array.isArray(pixel.gatewayIds) && pixel.gatewayIds.includes(gatewayId)
+    );
+    if (linkedPixels.length) {
+      const names = linkedPixels.slice(0, 3).map((pixel) => '"' + pixel.name + '"').join(', ');
+      return apiError(
+        res,
+        409,
+        'Este checkout ainda está vinculado a ' + linkedPixels.length + ' pixel(s): ' + names + '.',
+        'gateway_in_use_by_pixels',
+        'Abra Pixels, remova este checkout dos vínculos e tente excluir novamente.'
+      );
+    }
+
+    const ok = await gatewayStore.remove(req.account.id, gatewayId);
+    if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
+    stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: gatewayId });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(Number(err && err.status) || 503).json({ error: String(err && err.message || err).slice(0, 200) });
+  }
 });
 
 // Rotaciona o webhook token (item 100): a URL antiga PARA de funcionar —
@@ -4636,7 +4951,7 @@ app.post('/api/gateways/:id/rotate', dashboardAuth, async (req, res) => {
     const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
     res.json({ ok: true, webhookUrl: proto + '://' + host + '/hook/' + g.webhookToken });
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err).slice(0, 200) });
+    res.status(Number(err && err.status) || 500).json({ error: String(err && err.message || err).slice(0, 200) });
   }
 });
 
@@ -4716,7 +5031,10 @@ app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
 // Filtra por conta: cada usuário só vê os webhooks dos SEUS gateways.
 app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
   const log = await rdb.loadConversionLog(200);
-  const own = (log || []).filter((r) => !r.acc || r.acc === req.account.id).slice(0, 50);
+  // Registros legados sem account_id só podem aparecer para admin. Antes,
+  // qualquer conta autenticada via essas entradas globais, quebrando o
+  // isolamento justamente no histórico financeiro dos webhooks.
+  const own = (log || []).filter((r) => r && (r.acc === req.account.id || (!r.acc && req.account.role === 'admin'))).slice(0, 50);
   res.json({
     configured: !!process.env.CONVERSION_WEBHOOK_SECRET,
     secret: req.account.role === 'admin' ? (process.env.CONVERSION_WEBHOOK_SECRET || '') : '',
@@ -4982,8 +5300,32 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
 
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
-    const b = req.body || {};
+    const b = Object.assign({}, req.body || {});
+    const createOnly = b._createOnly === true;
+    const baseUpdatedAt = b._baseUpdatedAt ? String(b._baseUpdatedAt) : '';
+    delete b._createOnly;
+    delete b._baseUpdatedAt;
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
+
+    // Criar e editar são operações distintas. Antes, criar um pixel com um
+    // nome que gerava o mesmo slug de outro registro atualizava o pixel antigo
+    // silenciosamente. Em retry após timeout isso era especialmente perigoso.
+    const requestedSlug = pixelStore.slugify(b.slug || b.name);
+    const requestedExisting = pixelStore.get(req.account.id, requestedSlug);
+    if (createOnly && requestedExisting) {
+      return apiError(res, 409,
+        'Já existe um pixel com este nome/endereço interno.',
+        'pixel_create_conflict',
+        'Atualize a lista ou escolha outro nome antes de criar novamente.');
+    }
+    if (!createOnly && b.slug && requestedExisting && baseUpdatedAt
+        && requestedExisting.updatedAt && requestedExisting.updatedAt !== baseUpdatedAt) {
+      return apiError(res, 409,
+        'Este pixel foi alterado em outra aba ou por outro usuário.',
+        'pixel_revision_conflict',
+        'Recarregue a lista, confira a versão atual e tente salvar novamente.');
+    }
+
     // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
     // payload preservam o valor atual (merge-patch). Permite toggles inline
     // (ex.: ativo/pausado) sem reenviar token/eventos e sem risco de apagá-los.
@@ -5047,7 +5389,11 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(Number(err && err.status) || 500).json({
+      error: String(err && err.message || 'Falha ao salvar pixel').slice(0, 300),
+      code: err && err.code || undefined,
+      hint: err && err.hint || undefined,
+    });
   }
 });
 
@@ -5255,7 +5601,7 @@ async function buscarPaginaSegura(rawUrl) {
     }
     return { html, finalUrl: u.href };
   }
-  return { error: 'a p��gina redirecionou demais' };
+  return { error: 'a página redirecionou demais' };
 }
 
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
@@ -5523,8 +5869,9 @@ app.get('/api/audit', dashboardAuth, async (req, res) => {
   });
 });
 
-app.post('/api/reset-stats', dashboardAuth, (req, res) => {
-  stats.reset(req.account.id); // zera SÓ os dados da conta logada
+app.post('/api/reset-stats', dashboardAuth, async (req, res) => {
+  const ok = await stats.reset(req.account.id); // zera SÓ os dados da conta logada
+  if (!ok) return apiError(res, 503, 'Não foi possível persistir a exclusão agora.', 'reset_persistence_failed', 'Nenhum dado foi removido. Tente novamente em instantes.');
   audit(req, req.account.id, 'reset_stats', 'Estatísticas zeradas'); // item 417
   res.json({ ok: true });
 });
@@ -5744,8 +6091,8 @@ stats.hydrate()
     console.warn('[cloud-video] ensureSchema falhou:', e.message);
   }))
   .then(() => { try { require('./cloud-video-sync').start(); } catch (e) { console.warn('[cloud-video] start falhou:', e.message); } })
-  // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
-  // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
+  // Jobs in-process presos de ANTES do reinício não continuam. Bulk fica fora:
+  // sua fila Redis possui reclaim próprio e pode estar rodando em outra instância.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {
     console.warn('[ads-ops] reconciliação de jobs órfãos falhou:', e.message);
   }))

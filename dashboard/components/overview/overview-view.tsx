@@ -9,12 +9,14 @@ import {
   useAdsStatus,
   useAdsRoas,
   useAdsTree,
+  useAdsCampaignDecisions,
+  useAccountSettings,
   useOverviewHealth,
 } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { aggregate, periodStart, prevWindow } from '@/lib/metrics'
 import { adsDateRange } from '@/lib/ads-time'
-import { countryFlag, timeAgo } from '@/lib/format'
+import { countryFlag } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { Skeleton } from '@/components/skeleton'
@@ -28,9 +30,7 @@ import { EmqGauge } from './emq-gauge'
 import { ErrorState } from '@/components/error-state'
 import {
   TrendingUp,
-  RefreshCw,
   ShieldCheck,
-  Target,
   ArrowUpRight,
   Globe2,
 } from 'lucide-react'
@@ -48,24 +48,6 @@ function fmtAdsMoney(v: number, currency: string): string {
   }
 }
 
-/** Formata data e hora no fuso de Brasília de forma segura */
-function formatLocalTimestamp(date: Date | string): string {
-  try {
-    const d = typeof date === 'string' ? new Date(date) : date
-    if (isNaN(d.getTime())) return 'recentemente'
-    return new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(d)
-  } catch {
-    return 'recentemente'
-  }
-}
-
 function periodToAdsRange(period: Period, timeZone?: string): { fromDate: string; toDate: string } {
   const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90
   return adsDateRange(days, timeZone)
@@ -78,6 +60,12 @@ function initialPeriod(): Period {
   if (typeof window === 'undefined') return 'today'
   const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
   if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
+  try {
+    const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
+    if (saved && PERIODS.includes(saved)) return saved
+  } catch {
+    /* modo privado */
+  }
   return 'today'
 }
 
@@ -93,16 +81,23 @@ export function OverviewView() {
   const firstEnter = useOncePerSession('overview-enter')
 
   const afterFirstPaint = useAfterFirstPaint()
+  const { data: accountSettings } = useAccountSettings(afterFirstPaint)
+  const accountTimeZone = accountSettings?.timezone || 'America/Sao_Paulo'
   const { data: adsStatus, error: adsError, mutate: mutateAdsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const [calendarTick, setCalendarTick] = useState(0)
   useEffect(() => { const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000); return () => clearInterval(timer) }, [])
   const adsRange = useMemo(
-    () => periodToAdsRange(period, adsStatus?.timeZone),
-    [period, adsStatus?.timeZone, calendarTick],
+    () => periodToAdsRange(period, adsStatus?.timeZone || accountTimeZone),
+    [period, adsStatus?.timeZone, accountTimeZone, calendarTick],
   )
   const { data: roas, error: roasError, mutate: mutateRoas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+  const { data: campaignDecisions, error: decisionsError, mutate: mutateDecisions } = useAdsCampaignDecisions(
+    adsConnected,
+    adAccountId,
+    adsRange,
+  )
 
   // Campanhas em destaque sincronizadas com a aba TikTok Ads
   const { data: adsTree, mutate: mutateAdsTree } = useAdsTree(adsConnected, {
@@ -116,25 +111,35 @@ export function OverviewView() {
 
   const tikTokCampaigns = useMemo(() => {
     if (!adsTree?.campaigns || adsTree.campaigns.length === 0) return []
+    const adCurrency = String(roas?.currency || adsStatus?.currency || '').toUpperCase()
     return adsTree.campaigns
       .map((c) => {
+        const campaignId = String(c.platformCampaignId || '')
         const spend = c.metrics?.spend ?? 0
-        const conversions = c.metrics?.conversions ?? 0
-        const cpa = c.metrics?.cpa ?? (conversions > 0 && spend > 0 ? spend / conversions : null)
-        const campaignRoas = c.metrics?.roas ?? null
+        const decision = campaignDecisions?.byCampaign?.[campaignId]
+        const sales = decision ? Number(decision.sales) || 0 : null
+        const revenueCents = decision ? Number(decision.revenueCents) || 0 : null
+        const decisionCurrency = String(decision?.currency || adCurrency || 'BRL').toUpperCase()
+        const comparableCurrency = !adCurrency || decisionCurrency === adCurrency
+        const cpa = sales != null && sales > 0 && spend > 0 ? spend / sales : null
+        const campaignRoas = revenueCents != null && spend > 0 && comparableCurrency
+          ? (revenueCents / 100) / spend
+          : null
         return {
-          id: c.platformCampaignId,
-          name: c.campaignName || c.platformCampaignId,
+          id: campaignId,
+          name: c.campaignName || campaignId,
           status: c.status,
-          conversions,
+          sales,
+          revenueCents,
+          currency: decisionCurrency,
           spend,
           cpa,
           roas: campaignRoas,
         }
       })
-      .sort((a, b) => b.conversions - a.conversions || b.spend - a.spend)
+      .sort((a, b) => (b.sales ?? -1) - (a.sales ?? -1) || (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || b.spend - a.spend)
       .slice(0, 5)
-  }, [adsTree?.campaigns])
+  }, [adsTree?.campaigns, campaignDecisions?.byCampaign, roas?.currency, adsStatus?.currency])
 
   // EMQ CAPI
   const { data: emqData, error: emqError, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
@@ -152,7 +157,7 @@ export function OverviewView() {
   }, [emqData])
 
   // Saúde do pipeline geral
-  const { data: overviewHealth, mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
+  const { mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
 
   function setPeriod(next: Period) {
     setPeriodState(next)
@@ -175,6 +180,7 @@ export function OverviewView() {
         mutateAdsStatus(),
         mutateRoas(),
         mutateAdsTree(),
+        mutateDecisions(),
         mutateEmq(),
         mutateHealth(),
       ])
@@ -184,98 +190,18 @@ export function OverviewView() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateAdsTree, mutateEmq, mutateHealth])
+  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateAdsTree, mutateDecisions, mutateEmq, mutateHealth])
 
   // Métricas do período ATUAL e ANTERIOR
   const { cur, prev } = useMemo(() => {
     if (!data) return { cur: null, prev: null }
-    const curMetrics = aggregate(data, periodStart(period))
-    const pw = prevWindow(period)
-    const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo) : null
+    const now = new Date()
+    const curMetrics = aggregate(data, periodStart(period, now, accountTimeZone), null, accountTimeZone)
+    const pw = prevWindow(period, now, accountTimeZone)
+    const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo, accountTimeZone) : null
     return { cur: curMetrics, prev: prevMetrics }
-  }, [data, period])
+  }, [data, period, accountTimeZone])
 
-  // Países dos leads para o globo: consolida dados do período selecionado,
-  // com fallback gracioso para hoje ou para os totais de países retornados pela API
-  const lastLeadAt = useMemo(() => {
-    let max = ''
-    for (const l of data?.leads ?? []) {
-      if (l.at && l.at > max) max = l.at
-    }
-    return max || null
-  }, [data])
-
-  // ── Validação Visual de Sincronização e Detecção de Falhas ──
-  const syncValidation = useMemo(() => {
-    let lastSuccessDate: Date | null = null
-    let lastSuccessOrigin = ''
-    let failureTitle = ''
-    let failureDescription = ''
-    let hasFailure = false
-
-    // 1. Data mais recente de sincronização bem-sucedida
-    const candidateDates: { date: Date; origin: string }[] = []
-
-    if (overviewHealth?.freshness?.lastDataAt) {
-      const d = new Date(overviewHealth.freshness.lastDataAt)
-      if (!isNaN(d.getTime())) {
-        candidateDates.push({ date: d, origin: 'Jornada Rastreada' })
-      }
-    }
-    if (overviewHealth?.freshness?.lastPaymentAt) {
-      const d = new Date(overviewHealth.freshness.lastPaymentAt)
-      if (!isNaN(d.getTime())) {
-        candidateDates.push({ date: d, origin: 'Conversão de Checkout' })
-      }
-    }
-    if (lastLeadAt) {
-      const d = new Date(lastLeadAt)
-      if (!isNaN(d.getTime())) {
-        candidateDates.push({ date: d, origin: 'Visita / Lead' })
-      }
-    }
-
-    if (candidateDates.length > 0) {
-      candidateDates.sort((a, b) => b.date.getTime() - a.date.getTime())
-      lastSuccessDate = candidateDates[0].date
-      lastSuccessOrigin = candidateDates[0].origin
-    }
-
-    // 2. Verificação de falhas no ecossistema
-    if (overviewHealth?.status === 'critical') {
-      hasFailure = true
-      failureTitle = 'Falha na Cobertura de Dados do Funil'
-      failureDescription =
-        overviewHealth.actions[0]?.detail ||
-        'Ações necessárias para garantir a integridade do rastreamento.'
-    } else if (adsError) {
-      hasFailure = true
-      failureTitle = 'Falha na Sincronização do TikTok Ads'
-      failureDescription =
-        (adsError instanceof Error ? adsError.message : String(adsError)) ||
-        'Token de acesso expirado ou sem autorização do advertiser.'
-    } else if (adsStatus?.enabled && !adsStatus?.connected) {
-      hasFailure = true
-      failureTitle = 'Conta de TikTok Ads Desconectada'
-      failureDescription =
-        'Conexão com a Business API do TikTok requer autenticação ou seleção de conta.'
-    } else if (emqSummary && emqSummary.alerts > 0) {
-      hasFailure = true
-      failureTitle = 'Alerta na Dados de conversão'
-      failureDescription = `${emqSummary.alerts} ${
-        emqSummary.alerts === 1 ? 'alerta identificado' : 'alertas identificados'
-      } nos envios para o TikTok.`
-    }
-
-    return {
-      lastSuccessDate,
-      lastSuccessOrigin,
-      hasFailure,
-      failureTitle,
-      failureDescription,
-      healthStatus: overviewHealth?.status,
-    }
-  }, [overviewHealth, adsStatus, adsError, emqSummary, lastLeadAt])
 
   // Estado de Erro
   if (error && !data) {
@@ -334,7 +260,7 @@ export function OverviewView() {
       }`}
     >
       {/* Métricas e presença compartilham a composição, não a janela de dados. */}
-      {(error || roasError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      {(error || roasError || decisionsError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <HeroGlobe
         focusCode={focusCountry}
         purchases={globePurchases}
@@ -355,7 +281,7 @@ export function OverviewView() {
           adsError: Boolean(roasError),
           allPeriod: period === 'all',
           series: data && otherRev.length > 0
-          ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period)).series
+          ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period, new Date(), accountTimeZone), null, accountTimeZone).series
           : cur.series,
         }}
       />
@@ -395,7 +321,7 @@ export function OverviewView() {
                   <button
                     type="button"
                     onClick={() => setCampaignTab('tiktok')}
-                    data-tooltip="Métricas oficiais lidas da API do TikTok Ads (gasto, compras e ROAS)."
+                    data-tooltip="Gasto e status do TikTok Ads combinados com vendas reais atribuídas pelo ROINADOS."
                     className={`rounded-md px-2 py-0.5 transition-all cursor-pointer ${
                       campaignTab === 'tiktok'
                         ? 'bg-brand-cyan/20 text-brand-cyan font-bold shadow-[0_0_8px_rgba(37,244,238,0.2)]'
@@ -471,10 +397,10 @@ export function OverviewView() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2 text-right">
                     <span
-                      data-tooltip="Compras aprovadas atribuídas a esta campanha."
+                      data-tooltip="Vendas reais atribuídas pelo rastreamento do ROINADOS a esta campanha."
                       className="font-mono text-xs font-bold text-success cursor-help"
                     >
-                      {c.conversions} {c.conversions === 1 ? 'venda' : 'vendas'}
+                      {c.sales == null ? '— vendas' : `${c.sales} ${c.sales === 1 ? 'venda' : 'vendas'}`}
                     </span>
                     {c.roas !== null && c.roas > 0 && (
                       <span

@@ -141,6 +141,9 @@ export function CatalogList({
   const [showMagicImport, setShowMagicImport] = useState(false)
   const [magicBusy, setMagicBusy] = useState(false)
   const [batchRequest, setBatchRequest] = useState(0)
+  const manualCreateRef = useRef<{ signature: string; key: string } | null>(null)
+  const manualCreateBusyRef = useRef(false)
+  const cloneRequestKeysRef = useRef<Record<string, string>>({})
 
   useEffect(() => {
     if (!request || busy || magicBusy) return
@@ -151,7 +154,12 @@ export function CatalogList({
   }, [request, busy, magicBusy, onRequestHandled])
 
   async function handleCreate() {
-    if (!name.trim() || busy) return
+    if (!name.trim() || busy || manualCreateBusyRef.current) return
+    const signature = JSON.stringify({ advertiserId, name: name.trim(), currency, catalogType, country })
+    if (!manualCreateRef.current || manualCreateRef.current.signature !== signature) {
+      manualCreateRef.current = { signature, key: `manual:${crypto.randomUUID()}` }
+    }
+    manualCreateBusyRef.current = true
     setBusy(true)
     try {
       const res = await apiSend<{ catalog: AdsCatalog }>(adsCatalogApiUrl('/api/ads/catalogs', advertiserId), 'POST', {
@@ -159,7 +167,11 @@ export function CatalogList({
         currency,
         catalogType,
         country,
+        // createCatalog já possui unicidade durável por batchKey. Reusar a
+        // mesma chave em retry evita dois catálogos quando a resposta se perde.
+        batchKey: manualCreateRef.current.key,
       })
+      manualCreateRef.current = null
       toast.success('Catálogo criado')
       setName('')
       setCreating(false)
@@ -168,6 +180,7 @@ export function CatalogList({
     } catch (e) {
       toast.error('Falha ao criar catálogo', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      manualCreateBusyRef.current = false
       setBusy(false)
     }
   }
@@ -175,10 +188,16 @@ export function CatalogList({
   async function handleCloneFromList(catalogId: string) {
     if (cloningId) return
     setCloningId(catalogId)
+    const idempotencyKey = cloneRequestKeysRef.current[catalogId] || crypto.randomUUID()
+    cloneRequestKeysRef.current[catalogId] = idempotencyKey
     try {
       const res = await apiSend<{ catalog: AdsCatalog; productCount: number; syncStarted: boolean }>(
-        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', {},
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', { idempotencyKey },
       )
+      // Só libera uma nova chave depois de o servidor confirmar o clone. Se a
+      // resposta se perder, o retry usa a mesma chave e o backend reaproveita
+      // o clone que já foi persistido.
+      delete cloneRequestKeysRef.current[catalogId]
       toast.success(
         res.syncStarted
           ? `Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`
@@ -522,7 +541,7 @@ export function CatalogList({
         confirmLabel="Excluir catálogo"
         confirmText={deleteTarget?.name}
         busy={deleting}
-        onConfirm={() => void handleDeleteFromList()}
+        onConfirm={handleDeleteFromList}
         onClose={() => { if (!deleting) setDeleteTarget(null) }}
       />
     </>

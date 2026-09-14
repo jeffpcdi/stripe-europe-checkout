@@ -114,6 +114,7 @@ export function PixelsView() {
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null)
 
   const [editing, setEditing] = useState<Pixel | null>(null)
+  const [cloning, setCloning] = useState<Pixel | null>(null)
   const [installing, setInstalling] = useState<Pixel | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -148,18 +149,12 @@ export function PixelsView() {
       description: 'Os eventos dele param de disparar imediatamente. Esta ação não pode ser desfeita.',
       confirmLabel: 'Remover pixel',
       run: async () => {
+        let result: { ok: boolean; warning?: string | null }
         try {
-          const result = await apiSend<{ ok: boolean; warning?: string | null }>(
+          result = await apiSend<{ ok: boolean; warning?: string | null }>(
             `/api/pixels/${encodeURIComponent(p.slug)}`,
             'DELETE',
           )
-          await mutate(
-            (current) => current
-              ? { ...current, pixels: current.pixels.filter((pixel) => pixel.slug !== p.slug) }
-              : current,
-          )
-          if (result.warning) toast.info(`Pixel "${p.name}" removido`, { hint: result.warning })
-          else toast.success(`Pixel "${p.name}" removido`)
         } catch (error) {
           toast.error(
             error instanceof Error ? error.message : 'Não foi possível remover o pixel',
@@ -167,29 +162,30 @@ export function PixelsView() {
           )
           return false
         }
+
+        if (result.warning) toast.info(`Pixel "${p.name}" removido`, { hint: result.warning })
+        else toast.success(`Pixel "${p.name}" removido`)
+        try {
+          await mutate(
+            (current) => current
+              ? { ...current, pixels: current.pixels.filter((pixel) => pixel.slug !== p.slug) }
+              : current,
+          )
+        } catch (error) {
+          toast.info('Pixel removido, mas a lista não atualizou completamente', {
+            hint: error instanceof Error ? error.message : 'Atualize a página para confirmar o estado.',
+          })
+        }
       },
     })
   }
 
-  // Item 92: duplicar pixel — clona nome/código/eventos SEM o Access Token
-  // (cada conta de anúncio tem o seu). A cópia nasce pausada e sem token,
-  // pronta para receber as credenciais da outra conta.
-  async function handleDuplicate(p: Pixel) {
-    const base = `${p.slug}-copia`
-    let slug = base
-    let n = 2
-    while (pixels.some((x) => x.slug === slug)) slug = `${base}-${n++}`
-    await apiSend('/api/pixels', 'POST', {
-      slug,
-      name: `${p.name} (cópia)`,
-      pixelCode: p.pixelCode,
-      accessToken: '',
-      testEventCode: '',
-      events: p.events,
-      gatewayIds: p.gatewayIds ?? [],
-      active: false,
-    })
-    mutate()
+  // Duplicar reutiliza a configuração operacional (eventos + vínculos), mas
+  // exige um NOVO Pixel Code e um NOVO Access Token. O backend bloqueia Pixel
+  // Code duplicado de propósito; a ação antiga tentava salvar o mesmo código e
+  // por isso falhava 100% das vezes.
+  function handleDuplicate(p: Pixel) {
+    setCloning(p)
   }
 
   // Item 49: toggle ativo/pausado inline com atualização OTIMISTA — o backend
@@ -203,9 +199,12 @@ export function PixelsView() {
     )
     try {
       await apiSend('/api/pixels', 'POST', { slug: p.slug, active: next })
-      mutate()
-    } catch {
-      mutate() // reverte para o estado do servidor em caso de erro
+      await mutate()
+    } catch (err) {
+      await mutate() // reverte para o estado do servidor em caso de erro
+      toast.error(`Não foi possível ${next ? 'ativar' : 'pausar'} o pixel`, {
+        hint: err instanceof Error ? err.message : undefined,
+      })
     }
   }
 
@@ -1043,16 +1042,19 @@ export function PixelsView() {
         </div>
       </div>
 
-      {(creating || editing) && (
+      {(creating || editing || cloning) && (
         <PixelEditor
-          pixel={editing}
+          pixel={editing ?? cloning}
+          clone={Boolean(cloning)}
           onClose={() => {
             setCreating(false)
             setEditing(null)
+            setCloning(null)
           }}
           onSaved={(warning) => {
             setCreating(false)
             setEditing(null)
+            setCloning(null)
             mutate()
             if (warning) toast.info('Pixel salvo com aviso', { hint: warning, duration: 7000 })
             else toast.success('Pixel salvo')
@@ -1335,10 +1337,12 @@ function PasteButton({ label, onPaste }: { label: string; onPaste: (text: string
 // ── Editor inline (modal) — Pixel Auto-Bind ────────────────────
 function PixelEditor({
   pixel,
+  clone = false,
   onClose,
   onSaved,
 }: {
   pixel: Pixel | null
+  clone?: boolean
   onClose: () => void
   onSaved: (warning?: string | null) => void
 }) {
@@ -1346,12 +1350,13 @@ function PixelEditor({
   useModalA11y(true, dialogRef, onClose)
 
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState(pixel?.name ?? '')
-  const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
-  const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
+  const [name, setName] = useState(clone && pixel ? `${pixel.name} (cópia)` : pixel?.name ?? '')
+  const [pixelCode, setPixelCode] = useState(clone ? '' : pixel?.pixelCode ?? '')
+  const [accessToken, setAccessToken] = useState(clone ? '' : pixel?.accessToken ?? '')
   const [showToken, setShowToken] = useState(false)
-  const [active, setActive] = useState(pixel?.active ?? true)
+  const [active, setActive] = useState(clone ? false : pixel?.active ?? true)
   const [events] = useState<PixelEvents>(
     pixel?.events ?? {
       ViewContent: true,
@@ -1402,6 +1407,7 @@ function PixelEditor({
   }
 
   async function handleSave() {
+    if (savingRef.current) return
     const cleanName = name.trim()
     const cleanCode = pixelCode.trim()
     if (!cleanName) {
@@ -1413,12 +1419,15 @@ function PixelEditor({
       return
     }
 
+    savingRef.current = true
     setSaving(true)
     setError(null)
 
     try {
       const r = await apiSend<{ ok: boolean; durable?: boolean; warning?: string | null }>('/api/pixels', 'POST', {
-        slug: pixel?.slug,
+        slug: clone ? undefined : pixel?.slug,
+        _createOnly: clone || !pixel,
+        _baseUpdatedAt: !clone ? pixel?.updatedAt : undefined,
         name: cleanName,
         pixelCode: cleanCode,
         accessToken: accessToken.trim() || undefined,
@@ -1429,6 +1438,8 @@ function PixelEditor({
       onSaved(r.warning)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar o pixel')
+    } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -1441,7 +1452,7 @@ function PixelEditor({
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
-      aria-label={pixel ? `Editar pixel ${pixel.name}` : 'Criar novo pixel TikTok'}
+      aria-label={clone ? `Duplicar configuração de ${pixel?.name || 'pixel'}` : pixel ? `Editar pixel ${pixel.name}` : 'Criar novo pixel TikTok'}
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
@@ -1450,10 +1461,10 @@ function PixelEditor({
         <div className="flex items-center justify-between border-b border-border/60 px-6 py-5">
           <div>
             <h2 className="text-base font-semibold text-foreground">
-              {pixel ? `Editar Pixel: ${pixel.name}` : 'Novo Pixel TikTok & Gateway'}
+              {clone ? `Duplicar configuração: ${pixel?.name || 'Pixel'}` : pixel ? `Editar Pixel: ${pixel.name}` : 'Novo Pixel TikTok & Gateway'}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Configure seu pixel e sincronize com seu gateway de checkout.
+              {clone ? 'Informe o novo Pixel Code e token. Eventos e vínculos foram copiados do original.' : 'Configure seu pixel e sincronize com seu gateway de checkout.'}
             </p>
           </div>
           <button

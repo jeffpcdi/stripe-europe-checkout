@@ -35,15 +35,18 @@ export function RetentionPanel() {
   const [clearing, setClearing] = useState<string | null>(null)
   const [confirmScope, setConfirmScope] = useState<string | null>(null)
 
-  async function handleClear(scope: string) {
+  async function handleClear(scope: string): Promise<boolean> {
+    if (clearing) return false
     setClearing(scope)
     try {
       const r = await apiSend<{ ok: boolean; removed: number }>('/api/ops/clear-log', 'POST', { scope })
       toast.success(
         r.removed > 0 ? `${r.removed} entrada(s) removida(s)` : 'Nada para limpar neste log',
       )
+      return true
     } catch (e) {
       toast.error('Falha ao limpar o log', { hint: e instanceof Error ? e.message : undefined })
+      return false
     } finally {
       setClearing(null)
     }
@@ -87,10 +90,12 @@ export function RetentionPanel() {
         title={confirmed ? `Limpar ${confirmed.label.toLowerCase()}?` : 'Limpar log?'}
         description="A limpeza remove apenas os dados da sua conta e é irreversível. Os logs voltam a acumular normalmente a partir de agora."
         confirmLabel="Limpar agora"
-        onClose={() => setConfirmScope(null)}
-        onConfirm={() => {
-          if (confirmScope) handleClear(confirmScope)
-          setConfirmScope(null)
+        busy={Boolean(clearing)}
+        onClose={() => { if (!clearing) setConfirmScope(null) }}
+        onConfirm={async () => {
+          if (!confirmScope) return
+          const ok = await handleClear(confirmScope)
+          if (ok) setConfirmScope(null)
         }}
       />
     </GlassCard>
@@ -106,6 +111,7 @@ interface IntegrityResponse {
   problemas: { tipo: string; slug: string; ref: string; msg: string }[]
   orfaosCloak: string[]
   corrigidos?: number
+  falhas?: string[]
 }
 
 export function IntegrityPanel() {
@@ -118,18 +124,29 @@ export function IntegrityPanel() {
   const total = (data?.problemas?.length ?? 0) + (data?.orfaosCloak?.length ?? 0)
   if (!data || total === 0) return null
 
-  async function handleFix() {
+  async function handleFix(): Promise<boolean> {
+    if (fixing) return false
     setFixing(true)
     try {
-      const r = await fetcher<IntegrityResponse>('/api/ops/integrity?fix=1')
-      toast.success(
-        r.corrigidos && r.corrigidos > 0
-          ? `${r.corrigidos} problema(s) corrigido(s)`
-          : 'Nada para corrigir automaticamente',
-      )
-      mutate()
+      // Correção altera estado: usa POST. O GET fica estritamente de leitura
+      // para não repetir uma exclusão por prefetch/cache/reload acidental.
+      const r = await apiSend<IntegrityResponse>('/api/ops/integrity', 'POST', {})
+      if (r.falhas?.length) {
+        toast.error('A correção foi apenas parcial', {
+          hint: `${r.corrigidos ?? 0} corrigido(s) · ${r.falhas.length} falha(s). ${r.falhas[0]}`,
+        })
+      } else {
+        toast.success(
+          r.corrigidos && r.corrigidos > 0
+            ? `${r.corrigidos} problema(s) corrigido(s)`
+            : 'Nada para corrigir automaticamente',
+        )
+      }
+      await mutate()
+      return !r.falhas?.length
     } catch (e) {
       toast.error('Falha ao corrigir os problemas', { hint: e instanceof Error ? e.message : undefined })
+      return false
     } finally {
       setFixing(false)
     }
@@ -175,10 +192,11 @@ export function IntegrityPanel() {
         title="Corrigir problemas de integridade?"
         description="Referências de pixel apagado serão removidas dos links e as estatísticas de cloaker órfãs serão limpas. Dados de venda não são tocados."
         confirmLabel="Corrigir agora"
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={() => {
-          setConfirmOpen(false)
-          handleFix()
+        busy={fixing}
+        onClose={() => { if (!fixing) setConfirmOpen(false) }}
+        onConfirm={async () => {
+          const ok = await handleFix()
+          if (ok) setConfirmOpen(false)
         }}
       />
     </GlassCard>

@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   Copy,
@@ -153,7 +153,7 @@ export function GatewaysView() {
     description: React.ReactNode
     confirmLabel: string
     confirmText?: string
-    run: () => Promise<void>
+    run: () => Promise<boolean>
   } | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
 
@@ -179,12 +179,18 @@ export function GatewaysView() {
   function handleDelete(g: Gateway) {
     // Item 184: gateway com tráfego exige digitar o nome (mesma trava do link, item 76)
     const hasTraffic = Boolean(g.lastEventAt)
+    const explicitlyLinked = (pixelsData?.pixels ?? []).filter((px) => px.gatewayIds?.includes(g.id))
     setConfirm({
       title: `Remover o gateway "${g.name}"?`,
       description: (
         <>
           Os eventos deste gateway deixarão de ser processados imediatamente. Esta ação não pode ser desfeita.
           {hasTraffic && ' Este gateway já recebeu eventos.'}
+          {explicitlyLinked.length > 0 && (
+            <span className="mt-2 block text-warning">
+              Antes de excluir, remova este checkout do vínculo de {explicitlyLinked.length} pixel(s): {explicitlyLinked.slice(0, 3).map((px) => px.name).join(', ')}.
+            </span>
+          )}
         </>
       ),
       confirmLabel: 'Remover gateway',
@@ -192,13 +198,21 @@ export function GatewaysView() {
       run: async () => {
         try {
           await apiSend(`/api/gateways/${encodeURIComponent(g.id)}`, 'DELETE')
-          mutate()
-          toast.success(`Gateway "${g.name}" removido`)
         } catch (e) {
           toast.error('Falha ao remover o gateway', {
             hint: e instanceof Error ? e.message : undefined,
           })
+          return false
         }
+        toast.success(`Gateway "${g.name}" removido`)
+        try {
+          await mutate()
+        } catch (error) {
+          toast.info('Gateway removido, mas a lista não atualizou completamente', {
+            hint: error instanceof Error ? error.message : 'Atualize a página para confirmar o estado.',
+          })
+        }
+        return true
       },
     })
   }
@@ -239,20 +253,39 @@ export function GatewaysView() {
       confirmLabel: 'Gerar novo link',
       run: async () => {
         setRotating(g.id)
+        let result: GatewayRotateResult
         try {
-          const r = await apiSend<GatewayRotateResult>(`/api/gateways/${encodeURIComponent(g.id)}/rotate`, 'POST')
-          if (r.ok) {
-            await navigator.clipboard.writeText(r.webhookUrl).catch(() => {})
-            mutate()
-            toast.success('Novo link de integração gerado e copiado', { hint: 'Cole no painel do seu gateway.' })
+          result = await apiSend<GatewayRotateResult>(`/api/gateways/${encodeURIComponent(g.id)}/rotate`, 'POST')
+          if (!result.ok || !result.webhookUrl) {
+            toast.error('O servidor não confirmou o novo link de integração')
+            return false
           }
         } catch (e) {
           toast.error('Falha ao gerar o link de integração', {
             hint: e instanceof Error ? e.message : undefined,
           })
+          return false
         } finally {
           setRotating(null)
         }
+
+        // A partir daqui o token JÁ foi rotacionado no backend. Falha ao copiar
+        // ou revalidar a tela não pode ser tratada como se a rotação tivesse
+        // falhado — a URL antiga já deixou de funcionar.
+        const copied = await navigator.clipboard.writeText(result.webhookUrl).then(() => true).catch(() => false)
+        toast.success(copied ? 'Novo link de integração gerado e copiado' : 'Novo link de integração gerado', {
+          hint: copied
+            ? 'Cole no painel do seu gateway.'
+            : 'Não foi possível copiar automaticamente. Atualize a tela e copie a nova URL no cartão.',
+        })
+        try {
+          await mutate()
+        } catch (error) {
+          toast.info('O link foi rotacionado, mas o cartão não atualizou completamente', {
+            hint: error instanceof Error ? error.message : 'Atualize a página antes de copiar a nova URL.',
+          })
+        }
+        return true
       },
     })
   }
@@ -736,8 +769,8 @@ export function GatewaysView() {
           if (!confirm) return
           setConfirmBusy(true)
           try {
-            await confirm.run()
-            setConfirm(null)
+            const completed = await confirm.run()
+            if (completed !== false) setConfirm(null)
           } finally {
             setConfirmBusy(false)
           }
@@ -768,11 +801,15 @@ function GatewayEditor({
   // Item 103: revelar/ocultar o que está sendo digitado no campo do segredo
   const [showSecret, setShowSecret] = useState(false)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
   const prov = providers.find((p) => p.id === provider)
+  const providerChanged = Boolean(gateway && gateway.provider !== provider)
 
   async function handleSave() {
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     setError(null)
     try {
@@ -790,6 +827,7 @@ function GatewayEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -818,6 +856,9 @@ function GatewayEditor({
                 </option>
               ))}
             </select>
+            {providerChanged ? (
+              <span className="text-[11px] text-warning">Ao trocar o provedor, o segredo antigo não será reaproveitado.</span>
+            ) : null}
           </label>
 
           <label className="flex flex-col gap-1.5">
@@ -841,7 +882,7 @@ function GatewayEditor({
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
                 placeholder={
-                  gateway?.hasSecret ? 'mantém o segredo atual se deixar em branco' : 'deixe em branco se não usar'
+                  providerChanged ? 'informe o segredo do novo provedor, se necessário' : gateway?.hasSecret ? 'mantém o segredo atual se deixar em branco' : 'deixe em branco se não usar'
                 }
                 autoComplete="off"
               />
@@ -856,7 +897,7 @@ function GatewayEditor({
                 {showSecret ? 'Ocultar' : 'Revelar'}
               </button>
             </div>
-            {gateway?.hasSecret && (
+            {gateway?.hasSecret && !providerChanged && (
               <span className="text-[11px] text-muted-foreground">
                 Este gateway já tem um segredo salvo — deixe em branco para manter ou cole um novo para substituir.
               </span>
@@ -907,7 +948,7 @@ function GatewayEditor({
               disabled={saving}
               className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
-              {saving ? 'Salvando…' : 'Criar gateway'}
+              {saving ? 'Salvando…' : gateway ? 'Salvar gateway' : 'Criar gateway'}
             </button>
           </div>
         </div>

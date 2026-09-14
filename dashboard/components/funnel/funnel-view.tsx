@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Filter, ArrowRight, DollarSign, MousePointerClick, ShoppingCart, CheckCircle2 } from 'lucide-react'
-import { useStats } from '@/lib/api'
+import { useAccountSettings, useStats } from '@/lib/api'
 import { aggregate, periodStart, isMacroCampaign } from '@/lib/metrics'
 import { GlassCard } from '@/components/glass-card'
 import { ErrorState } from '@/components/error-state'
@@ -14,6 +14,8 @@ import type { Period } from '@/lib/types'
 
 export function FunnelView() {
   const { data, error, mutate, isLoading } = useStats()
+  const { data: settings } = useAccountSettings()
+  const accountTimeZone = settings?.timezone || 'America/Sao_Paulo'
   const [period, setPeriod] = useState<Period>('7d')
 
   const [linkFilter, setLinkFilter] = useState('')
@@ -47,8 +49,8 @@ export function FunnelView() {
 
   const m = useMemo(() => {
     if (!filteredData) return null
-    return aggregate(filteredData, periodStart(period))
-  }, [filteredData, period])
+    return aggregate(filteredData, periodStart(period, new Date(), accountTimeZone), null, accountTimeZone)
+  }, [filteredData, period, accountTimeZone])
 
   const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
 

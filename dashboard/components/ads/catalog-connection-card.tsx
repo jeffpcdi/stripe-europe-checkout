@@ -52,6 +52,7 @@ export function CatalogConnectionCard({
       return
     }
     setBusy(true)
+    let linked = false
     try {
       // Persiste o BC como padrão da conta quando o usuário o corrige aqui — assim
       // publicação do feed e criação de campanha usam o mesmo Business Center.
@@ -62,28 +63,44 @@ export function CatalogConnectionCard({
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, advertiserId), 'POST',
         { tiktokCatalogId: catalogId.trim(), bcId: bc },
       )
+      linked = true
       toast.success('Catálogo TikTok verificado', { hint: result.remote?.name ? `${result.remote.name} · ${result.remote.productCount ?? 0} produto(s)` : undefined })
-      await onChanged()
     } catch (error) {
       toast.error('Não foi possível verificar o catálogo', { hint: error instanceof ApiError ? error.display : error instanceof Error ? error.message : undefined })
-      await onChanged()
     } finally {
+      if (linked) {
+        try {
+          await onChanged()
+        } catch (refreshError) {
+          toast.info('Vínculo salvo, mas a tela não atualizou completamente', {
+            hint: refreshError instanceof Error ? refreshError.message : 'Atualize a página para conferir o vínculo.',
+          })
+        }
+      }
       setBusy(false)
     }
   }
 
   async function disconnect() {
+    if (busy) return
     setBusy(true)
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, advertiserId), 'DELETE')
       setCatalogId('')
+      setConfirmDisconnect(false)
       toast.success('Vínculo removido')
-      await onChanged()
+      try {
+        await onChanged()
+      } catch (refreshError) {
+        toast.info('Vínculo removido, mas a tela não atualizou completamente', {
+          hint: refreshError instanceof Error ? refreshError.message : 'Atualize a página para conferir o estado.',
+        })
+      }
     } catch (error) {
+      // Mantém a confirmação aberta quando o DELETE falha para permitir retry.
       toast.error('Falha ao remover vínculo', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setBusy(false)
-      setConfirmDisconnect(false)
     }
   }
 

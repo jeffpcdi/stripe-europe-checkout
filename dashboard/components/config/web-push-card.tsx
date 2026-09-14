@@ -92,8 +92,10 @@ export function WebPushCard() {
       await apiSend('/api/webpush/preferences', 'POST', {
         preferences: { [group]: enabled },
       })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível salvar a preferência.' })
     } finally {
-      mutate()
+      await mutate()
     }
   }
 
@@ -101,8 +103,10 @@ export function WebPushCard() {
     mutate((current) => current ? { ...current, funMode: enabled } : current, false)
     try {
       await apiSend('/api/webpush/funmode', 'POST', { funMode: enabled })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível salvar o modo das notificações.' })
     } finally {
-      mutate()
+      await mutate()
     }
   }
 

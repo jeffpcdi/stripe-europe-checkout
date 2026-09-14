@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { Clapperboard, Loader2, Trash2, Check, X } from 'lucide-react'
-import { useAdsLibrary } from '@/lib/api'
+import { apiSend, useAdsLibrary } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsLibraryItem } from '@/lib/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -53,24 +53,22 @@ export function CreativeLibrary({
 
   async function handleDelete() {
     const item = pendingDelete
-    if (!item) return
+    if (!item || deletingUrl) return
     setDeletingUrl(item.url)
     try {
-      const res = await fetch(`/api/ads/library?url=${encodeURIComponent(item.url)}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(body.error || `HTTP ${res.status}`)
-      }
+      await apiSend(`/api/ads/library?url=${encodeURIComponent(item.url)}`, 'DELETE')
+      setPendingDelete(null)
       toast.success('Criativo removido da biblioteca')
-      mutate()
+      // O arquivo já foi removido. Uma revalidação que falhar depois não pode
+      // transformar a operação confirmada em falso erro de exclusão.
+      void mutate().catch(() => {
+        toast.info('Criativo removido, mas a biblioteca não atualizou', { hint: 'Feche e abra a biblioteca para recarregar.' })
+      })
     } catch (e) {
+      // Mantém o diálogo aberto para retry quando o DELETE falha de verdade.
       toast.error('Falha ao remover criativo', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setDeletingUrl(null)
-      setPendingDelete(null)
     }
   }
 

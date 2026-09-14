@@ -66,8 +66,11 @@ export async function subscribeDevice(): Promise<{ devices: number }> {
   await navigator.serviceWorker.ready
 
   const keyRes = await fetch("/api/webpush/public-key", { credentials: "include" })
-  const keyJson = await keyRes.json()
-  if (!keyJson.ok) throw new Error(keyJson.error || "Falha ao obter a chave do servidor")
+  const keyJson = await keyRes.json().catch(() => ({})) as { ok?: boolean; error?: string; key?: string }
+  if (!keyRes.ok || !keyJson.ok || !keyJson.key) {
+    if (keyRes.status === 401 && typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error(keyJson.error || `Falha ao obter a chave do servidor (${keyRes.status})`)
+  }
 
   const subscription =
     (await reg.pushManager.getSubscription()) ||
@@ -82,9 +85,12 @@ export async function subscribeDevice(): Promise<{ devices: number }> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ subscription: subscription.toJSON() }),
   })
-  const json = await res.json()
-  if (!json.ok) throw new Error(json.error || "Falha ao registrar o aparelho")
-  return { devices: json.devices }
+  const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; devices?: number }
+  if (!res.ok || !json.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error(json.error || `Falha ao registrar o aparelho (${res.status})`)
+  }
+  return { devices: Number(json.devices) || 0 }
 }
 
 /** Remove a inscrição deste aparelho. */
@@ -93,14 +99,19 @@ export async function unsubscribeDevice(): Promise<{ devices: number }> {
   const subscription = await reg?.pushManager.getSubscription()
   if (!subscription) return { devices: -1 }
 
-  await fetch("/api/webpush/unsubscribe", {
+  const res = await fetch("/api/webpush/unsubscribe", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ endpoint: subscription.endpoint }),
   })
+  const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; devices?: number }
+  if (!res.ok || !json.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') window.location.href = '/login'
+    throw new Error(json.error || `Falha ao remover o aparelho (${res.status})`)
+  }
   await subscription.unsubscribe()
-  return { devices: -1 }
+  return { devices: Number.isFinite(Number(json.devices)) ? Number(json.devices) : -1 }
 }
 
 /** true se ESTE aparelho já está inscrito. */

@@ -122,23 +122,37 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   }
 
   async function handleDelete(id: string) {
-    if (busy) return
+    if (busy || deletingId) return
     setDeletingId(id)
+    let removed = false
     try {
       const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'DELETE', {
         adAccountId: advertiserId,
         audienceId: id,
       })
-      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
+      if (result.dryRun) {
+        setConfirmDelete(null)
+        toast.info('Simulação concluída. Os públicos não foram alterados.')
+        return
+      }
+      removed = true
       setConfirmDelete(null)
       toast.success('Público removido')
-      await mutate()
     } catch (err) {
       toast.error('Erro ao remover público', {
         hint: err instanceof Error ? err.message : undefined,
       })
     } finally {
       setDeletingId(null)
+    }
+    if (removed) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('Público removido, mas a lista não atualizou completamente', {
+          hint: error instanceof Error ? error.message : 'Atualize a lista para confirmar o estado.',
+        })
+      }
     }
   }
 
@@ -456,6 +470,6 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
           </button>
         </div>
       </div>
-    </div><ConfirmDialog open={!!confirmDelete} title="Excluir público?" description="O público será removido do TikTok Ads. Confira se ele ainda é usado em alguma campanha." confirmLabel="Excluir público" busy={!!deletingId} onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete) }} onClose={() => setConfirmDelete(null)} /></DialogPortal>
+    </div><ConfirmDialog open={!!confirmDelete} title="Excluir público?" description="O público será removido do TikTok Ads. Confira se ele ainda é usado em alguma campanha." confirmLabel="Excluir público" busy={!!deletingId} onConfirm={async () => { if (confirmDelete) await handleDelete(confirmDelete) }} onClose={() => setConfirmDelete(null)} /></DialogPortal>
   )
 }

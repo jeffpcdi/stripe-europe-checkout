@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { Bot, Cloud, GripVertical, Loader2, RefreshCw, ShieldAlert, Sparkles, Wallet } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { toast } from '@/lib/toast'
-
-const fetcher = async <T,>(url: string): Promise<T> => {
-  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.error || `Falha na API (${response.status})`)
-  return body as T
-}
 
 type Profit = {
   currency: string; grossRevenueCents: number; adSpendCents: number; gatewayFeesCents: number
@@ -49,6 +42,7 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
   const [runningAnomaly, setRunningAnomaly] = useState(false)
   const [profitDraft, setProfitDraft] = useState<ProfitConfig>({ gatewayFeePct: 0, gatewayFixedFeeCents: 0, taxPct: 0, productCostPct: 0, productCostFixedCents: 0 })
   const [syncingCloud, setSyncingCloud] = useState<string | null>(null)
+  const syncingCloudRef = useRef<string | null>(null)
   const [driveFolder, setDriveFolder] = useState('')
   const [dropboxFolder, setDropboxFolder] = useState('')
   const [dragging, setDragging] = useState<WidgetId | null>(null)
@@ -102,23 +96,26 @@ export function MagicOpsPanel({ active, advertiserId, currency, fromDate, toDate
     } catch (error) { toast.error('Conexão indisponível', { hint: error instanceof Error ? error.message : undefined }) }
   }
   async function syncCloud(provider: 'googleDrive' | 'dropbox') {
-    if (syncingCloud) return
+    if (syncingCloudRef.current) return
+    syncingCloudRef.current = provider
     setSyncingCloud(provider)
     try {
       await apiSend(`/api/ads/cloud-video/${provider}`, 'PUT', {
         enabled: true, advertiserId,
         ...(provider === 'googleDrive' ? { folderId: driveFolder.trim() } : { folderPath: dropboxFolder.trim() }),
       })
-      const result = await apiSend<{ skipped?: boolean; files?: { ok: boolean }[] }>(`/api/ads/cloud-video/${provider}/sync`, 'POST', { advertiserId })
+      const result = await apiSend<{ skipped?: boolean; reason?: string; files?: { ok: boolean }[] }>(`/api/ads/cloud-video/${provider}/sync`, 'POST', { advertiserId })
       const uploaded = result.files?.filter(file => file.ok).length || 0
       const failed = result.files?.filter(file => !file.ok).length || 0
-      if (result.skipped) toast.info('Sincronização não iniciada. Confira a conexão e a pasta.')
+      if (result.skipped && result.reason === 'already_running') toast.info('A sincronização já está em andamento. Aguarde a conclusão.')
+      else if (result.skipped && result.reason === 'lock_unavailable') toast.info('A sincronização está temporariamente indisponível. Tente novamente em instantes.')
+      else if (result.skipped) toast.info('Sincronização não iniciada. Confira a conexão e a pasta.')
       else if (failed) toast.error('Alguns vídeos não foram enviados', { hint: `${uploaded} enviados · ${failed} com falha.` })
       else toast.success(uploaded ? `${uploaded} vídeo(s) enviado(s)` : 'Nenhum vídeo novo para enviar')
       cloudDirty.current[provider] = false
       await mutateCloud()
     } catch (error) { toast.error('Falha na sincronização', { hint: error instanceof Error ? error.message : undefined }) }
-    finally { setSyncingCloud(null) }
+    finally { syncingCloudRef.current = null; setSyncingCloud(null) }
   }
 
   async function unblock(ipHash: string) {

@@ -15,6 +15,7 @@ const CONNECTOR_REFRESH_MS = 60 * 1000;
 const auditCheckedAt = new Map();
 const AUDIT_REFRESH_MS = 60 * 1000;
 const AUDIT_MAX_ATTEMPTS = 8;
+const RUN_HEARTBEAT_MS = 30 * 1000;
 const REMOTE_READY_MIN_PRODUCTS = 4;
 const AUDIT_BACKOFF_MS = Object.freeze([
   60 * 1000,
@@ -688,7 +689,20 @@ async function tick() {
     await refreshWaitingConnectorConfirmations();
     await refreshPendingTikTokAudits();
     const row = await store.claimNextSyncRun(workerId);
-    if (row) await processRun(row);
+    if (row) {
+      let heartbeat = null;
+      try {
+        heartbeat = setInterval(() => {
+          if (typeof store.heartbeatSyncRun === 'function') {
+            store.heartbeatSyncRun(row.account_id, row.id, workerId).catch(() => {});
+          }
+        }, RUN_HEARTBEAT_MS);
+        if (heartbeat.unref) heartbeat.unref();
+        await processRun(row);
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+      }
+    }
   } catch (err) {
     console.warn('[catalog-sync-worker] tick falhou:', String(err && err.message || err).slice(0, 240));
   } finally {

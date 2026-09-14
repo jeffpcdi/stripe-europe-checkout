@@ -86,8 +86,9 @@ export function LinksView() {
     }
   }, [])
 
-  const appHost = domainsData?.appHost ?? ''
+  const appHost = domainsData?.appHost || (typeof window !== 'undefined' ? window.location.host : '')
   const links = data?.links ?? []
+  const checkoutDomains = (domainsData?.domains ?? []).filter((domain) => (domain.uso ?? 'ambos') !== 'cloaker')
   const verifiedHosts = new Set((domainsData?.domains ?? []).filter((d) => d.verificado).map((d) => d.host))
   // Item 68: mapa slug → pixel para checar existência/estado do pixel do link
   const pixelBySlug = new Map((pixelsData?.pixels ?? []).map((p) => [p.slug, p]))
@@ -115,19 +116,33 @@ export function LinksView() {
     })
   }, [links, query, sortBy, showArchived])
 
+  // Mantém a seleção em massa coerente quando outra ação/aba remove links ou
+  // quando o SWR revalida com uma lista mais nova.
+  useEffect(() => {
+    setSelected((current) => {
+      const available = new Set(links.map((link) => link.slug))
+      const next = new Set([...current].filter((slug) => available.has(slug)))
+      if (next.size === current.size && [...next].every((slug) => current.has(slug))) return current
+      return next
+    })
+  }, [links])
+
   // Item 62: toggle ativo/pausado inline com atualização otimista.
   // O save() do Express faz merge parcial — basta enviar { slug, ativo }.
   async function toggleAtivo(l: CheckoutLink) {
+    if (busySlug) return
     setBusySlug(l.slug)
-    const optimistic = { links: links.map((x) => (x.slug === l.slug ? { ...x, ativo: !l.ativo } : x)) }
+    const previous = data
+    const nextState = !l.ativo
+    const optimistic = { links: links.map((x) => (x.slug === l.slug ? { ...x, ativo: nextState } : x)) }
+    await mutate(optimistic, { revalidate: false })
     try {
-      await mutate(
-        async () => {
-          await apiSend('/api/links', 'POST', { slug: l.slug, ativo: !l.ativo })
-          return undefined // revalida do servidor
-        },
-        { optimisticData: optimistic, rollbackOnError: true, revalidate: true },
-      )
+      await apiSend('/api/links', 'POST', { slug: l.slug, ativo: nextState })
+      await mutate()
+      toast.success(nextState ? 'Link ativado' : 'Link pausado')
+    } catch (e) {
+      if (previous) await mutate(previous, { revalidate: false })
+      toast.error('Não foi possível alterar o link', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setBusySlug(null)
     }
@@ -138,10 +153,16 @@ export function LinksView() {
 
   // Item 531: arquivar/desarquivar — merge-patch { slug, arquivado } no save()
   async function toggleArquivado(l: CheckoutLink) {
+    if (busySlug) return
     setBusySlug(l.slug)
     try {
       await apiSend('/api/links', 'POST', { slug: l.slug, arquivado: !l.arquivado })
       await mutate()
+      toast.success(l.arquivado ? 'Link restaurado' : 'Link arquivado')
+    } catch (e) {
+      toast.error(l.arquivado ? 'Não foi possível restaurar o link' : 'Não foi possível arquivar o link', {
+        hint: e instanceof Error ? e.message : undefined,
+      })
     } finally {
       setBusySlug(null)
     }
@@ -169,10 +190,27 @@ export function LinksView() {
           nome: v.nome,
           url: v.url,
           urlMobile: v.urlMobile ?? null,
+          urlWhitePage: v.urlWhitePage ?? null,
           peso: v.peso,
         })),
+        experiment: l.experiment ? {
+          enabled: l.experiment.enabled,
+          autoStop: l.experiment.autoStop,
+          minVisitors: l.experiment.minVisitors,
+          minConversions: l.experiment.minConversions,
+          confidence: l.experiment.confidence,
+          minLiftPct: l.experiment.minLiftPct,
+          // A cópia herda a configuração, não o vencedor/histórico da original.
+          status: 'running',
+          winnerId: null,
+          concludedAt: null,
+          lastEvaluation: null,
+        } : undefined,
       })
-      mutate()
+      await mutate()
+      toast.success('Cópia criada e pausada para revisão')
+    } catch (e) {
+      toast.error('Não foi possível duplicar o link', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setBusySlug(null)
     }
@@ -196,13 +234,24 @@ export function LinksView() {
   }
 
   async function bulkSetAtivo(ativo: boolean) {
+    if (bulkBusy || selected.size === 0) return
     setBulkBusy(true)
+    const slugs = [...selected]
+    let completed = 0
     try {
-      for (const slug of selected) {
+      for (const slug of slugs) {
         await apiSend('/api/links', 'POST', { slug, ativo })
+        completed += 1
       }
-      mutate()
+      await mutate()
       clearSelection()
+      toast.success(`${completed} link${completed === 1 ? '' : 's'} ${ativo ? 'ativado' : 'pausado'}${completed === 1 ? '' : 's'}`)
+    } catch (e) {
+      await mutate().catch(() => undefined)
+      setSelected(new Set(slugs.slice(completed)))
+      toast.error('A ação em massa foi interrompida', {
+        hint: `${completed} de ${slugs.length} concluído(s). ${e instanceof Error ? e.message : 'Tente novamente nos itens restantes.'}`,
+      })
     } finally {
       setBulkBusy(false)
     }
@@ -214,13 +263,25 @@ export function LinksView() {
       setConfirmBulkDelete(true)
       return
     }
+    if (bulkBusy || selected.size === 0) return
     setBulkBusy(true)
+    const slugs = [...selected]
+    let completed = 0
     try {
-      for (const slug of selected) {
+      for (const slug of slugs) {
         await apiSend(`/api/links/${encodeURIComponent(slug)}`, 'DELETE')
+        completed += 1
       }
-      mutate()
+      await mutate()
       clearSelection()
+      toast.success(`${completed} link${completed === 1 ? '' : 's'} excluído${completed === 1 ? '' : 's'}`)
+    } catch (e) {
+      await mutate().catch(() => undefined)
+      setSelected(new Set(slugs.slice(completed)))
+      setConfirmBulkDelete(false)
+      toast.error('A exclusão em massa foi interrompida', {
+        hint: `${completed} de ${slugs.length} concluído(s). ${e instanceof Error ? e.message : 'Tente novamente nos itens restantes.'}`,
+      })
     } finally {
       setBulkBusy(false)
     }
@@ -250,8 +311,7 @@ export function LinksView() {
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qrFor, appHost])
+  }, [qrFor, appHost, links])
 
   function publicUrl(l: CheckoutLink) {
     const host = l.dominio || appHost
@@ -259,40 +319,59 @@ export function LinksView() {
   }
 
   async function copyUrl(l: CheckoutLink) {
-    await navigator.clipboard.writeText(publicUrl(l))
-    setCopied(l.slug)
-    toast.success('Link copiado')
-    setTimeout(() => setCopied(null), 1500)
+    try {
+      await navigator.clipboard.writeText(publicUrl(l))
+      setCopied(l.slug)
+      toast.success('Link copiado')
+      setTimeout(() => setCopied(null), 1500)
+    } catch (error) {
+      toast.error('Não foi possível copiar o link', { hint: error instanceof Error ? error.message : 'Copie a URL manualmente.' })
+    }
   }
 
   // Item 70: baixa o QR gerado no cliente como PNG (sem serviço externo).
   // Regenera em alta resolução para impressão/material de anúncio.
   async function downloadQr(l: CheckoutLink) {
-    const dataUrl = await QRCodeLib.toDataURL(publicUrl(l), {
-      width: 512,
-      margin: 2,
-      color: { dark: '#0d0d10', light: '#ffffff' },
-    })
-    const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = `qr-${l.slug}.png`
-    a.click()
+    try {
+      const dataUrl = await QRCodeLib.toDataURL(publicUrl(l), {
+        width: 512,
+        margin: 2,
+        color: { dark: '#0d0d10', light: '#ffffff' },
+      })
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `qr-${l.slug}.png`
+      a.click()
+    } catch (error) {
+      toast.error('Não foi possível gerar o QR Code', { hint: error instanceof Error ? error.message : undefined })
+    }
   }
 
   async function handleDelete(slug: string) {
+    if (deleteBusy) return
     const link = links.find((l) => l.slug === slug)
     setDeleteBusy(true)
+    let removed = false
     try {
       await apiSend(`/api/links/${encodeURIComponent(slug)}`, 'DELETE')
-      toast.success(`Link "${link?.nome ?? slug}" excluído.`)
+      removed = true
       setDeleting(null)
-      mutate()
+      toast.success(`Link "${link?.nome ?? slug}" excluído.`)
     } catch (err) {
       toast.error('Falha ao excluir o link.', {
         hint: err instanceof Error ? err.message : undefined,
       })
     } finally {
       setDeleteBusy(false)
+    }
+    if (removed) {
+      try {
+        await mutate()
+      } catch (error) {
+        toast.info('Link excluído, mas a lista não atualizou completamente', {
+          hint: error instanceof Error ? error.message : undefined,
+        })
+      }
     }
   }
 
@@ -782,7 +861,7 @@ export function LinksView() {
               confirmLabel="Excluir Permanentemente"
               confirmText={dl && dlTraffic ? dl.nome : undefined}
               busy={deleteBusy}
-              onConfirm={() => deleting && handleDelete(deleting)}
+              onConfirm={async () => { if (deleting) await handleDelete(deleting) }}
               onClose={() => setDeleting(null)}
               tone="danger"
             />
@@ -793,7 +872,7 @@ export function LinksView() {
       {(creating || editing) && (
         <LinkEditor
           link={editing}
-          domains={domainsData?.domains ?? []}
+          domains={checkoutDomains}
           appHost={appHost}
           presetDominio={presetDominio}
           onClose={() => {
@@ -805,7 +884,7 @@ export function LinksView() {
             setCreating(false)
             setEditing(null)
             setPresetDominio(null)
-            mutate()
+            void mutate()
           }}
         />
       )}

@@ -14,7 +14,7 @@ import {
   useAdsStatus,
   useAdsAccounts,
   useAdsTree,
-  useAdsAttribution,
+  useAdsCampaignDecisions,
   useAdsSafetyPolicy,
   useAdsHealth,
   useAdsSyncStatus,
@@ -116,8 +116,9 @@ export function TikTokAdsView() {
     toDate,
   })
 
-  // Vendas reais por campanha usam exatamente o mesmo período global.
-  const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser, { fromDate, toDate })
+  // Modelo de decisão da lista: vendas/receita first-party + estado da automação.
+  // Só roda na aba Campanhas; Catálogo/Automações não pagam este polling.
+  const { data: campaignDecisions } = useAdsCampaignDecisions(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
 
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
@@ -208,17 +209,30 @@ export function TikTokAdsView() {
   }, [accounts, concreteAdvertiser, tree])
 
   async function handleDisconnect() {
+    if (disconnecting) return
     setDisconnecting(true)
+    let disconnected = false
     try {
       await apiSend('/api/ads/disconnect', 'POST')
-      toast.success('Conta TikTok Ads desconectada')
+      disconnected = true
+      setConfirmDisconnect(false)
       setAdvertiserId(null)
-      mutateStatus()
+      toast.success('Conta TikTok Ads desconectada')
     } catch (e) {
+      // Mantém a confirmação aberta: o usuário pode tentar novamente e a UI
+      // não finge que a conexão foi removida quando o backend recusou.
       toast.error('Falha ao desconectar', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setDisconnecting(false)
-      setConfirmDisconnect(false)
+    }
+    if (disconnected) {
+      try {
+        await mutateStatus()
+      } catch (error) {
+        toast.info('Conta desconectada, mas o estado da tela não atualizou completamente', {
+          hint: error instanceof Error ? error.message : 'Atualize a página para confirmar o estado.',
+        })
+      }
     }
   }
 
@@ -551,7 +565,8 @@ export function TikTokAdsView() {
               onRetry={() => mutateTree()}
               onOpenDetail={setDetailCampaign}
               onDuplicate={setDuplicateCampaign}
-              attribution={attribution?.byCampaign}
+              decisions={campaignDecisions}
+              onOpenAutomations={() => changeTab('automation')}
               />
             </Tabs.Content>
           )}

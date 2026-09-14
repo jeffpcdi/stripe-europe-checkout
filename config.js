@@ -198,6 +198,8 @@ async function hydrate() {
           };
           if (['checkout', 'cloaker', 'ambos'].includes(r.uso)) out.uso = r.uso;
           if (r.providerId) out.providerId = r.providerId;
+          if (r.provider) out.provider = r.provider;
+          if (r.providerNote) out.providerNote = r.providerNote;
           if (r.dns && typeof r.dns === 'object') out.dns = r.dns;
           return out;
         });
@@ -233,14 +235,21 @@ async function hydrate() {
 }
 
 // Config de uma conta (sempre retorna algo; cria default em memória se nova).
+// A config é JSON puro; clone profundo impede que um chamador altere um bloco
+// aninhado (cloak/webPush/domains) por referência ANTES da persistência.
+function cloneConfig(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
 function get(accountId) {
   const key = accountId || LEGACY_KEY;
   if (!cache.has(key)) cache.set(key, defaults());
-  // cópia rasa defensiva — chamadores não devem mutar o cache por referência
-  return Object.assign({}, cache.get(key));
+  return cloneConfig(cache.get(key));
 }
 
-function set(accountId, patch) {
+// Constrói + sanitiza a próxima config SEM tocar no cache nem em I/O.
+// Isto permite ao caminho durável gravar primeiro e só então publicar em memória.
+function prepareSet(accountId, patch) {
   const key = accountId || LEGACY_KEY;
   const cur = cache.has(key) ? cache.get(key) : defaults();
   const next = Object.assign({}, cur, patch || {});
@@ -354,8 +363,18 @@ function set(accountId, patch) {
     // Uso do domínio: onde ele vale (checkout, cloaker ou ambos). O sanitizador
     // PRECISA preservar este campo, senão a escolha do lojista some no save.
     if (['checkout', 'cloaker', 'ambos'].includes(d.uso)) out.uso = d.uso;
-    // id do domínio na hospedagem (Railway) — usado para consultar/remover via API
+    // id/provedor do domínio na hospedagem — usados para consultar/remover via API.
     if (d.providerId) out.providerId = String(d.providerId).slice(0, 80);
+    if (d.provider) out.provider = String(d.provider).slice(0, 40);
+    if (d.providerNote) out.providerNote = String(d.providerNote).slice(0, 500);
+    // Estado operacional do provisionamento. Esses campos são atualizados por
+    // /api/domains/verify e PRECISAM sobreviver ao config.set; antes o
+    // sanitizador os descartava, então a UI voltava para "aguardando conexão"
+    // mesmo depois de o provider reportar pending_ssl/error/active.
+    if (['pending_dns', 'pending_ssl', 'active', 'error'].includes(d.status)) out.status = d.status;
+    if (d.sslStatus != null) out.sslStatus = String(d.sslStatus).slice(0, 80) || null;
+    if (d.lastCheckedAt) out.lastCheckedAt = String(d.lastCheckedAt).slice(0, 40);
+    if (d.lastError != null) out.lastError = String(d.lastError).slice(0, 500) || null;
     // Registros DNS salvos no cadastro — o tutorial da dashboard reexibe
     // as instruções sem depender de nova chamada à hospedagem.
     if (d.dns && typeof d.dns === 'object') out.dns = d.dns;
@@ -503,33 +522,125 @@ function set(accountId, patch) {
 
   next.updatedAt = new Date().toISOString();
 
-  // ── Write-through DURÁVEL de domínios (itens 241/245/252) ────────────────
-  // Além do jsonb da config, cada domínio é espelhado de forma ASSÍNCRONA
-  // (padrão stats.js — nunca bloqueia o request) na tabela custom_domains do
-  // Neon e no snapshot Redis. Remoções propagam para os dois espelhos.
-  if (patch && Object.prototype.hasOwnProperty.call(patch, 'customDomains')) {
-    const before = Array.isArray(cur.customDomains) ? cur.customDomains : [];
-    const after = next.customDomains;
-    setImmediate(() => {
-      try {
-        after.forEach((d) => {
-          db.upsertCustomDomain(key, d);
-          if (redis.enabled) redis.saveDomainSnapshot(key, d.host, Object.assign({ accountId: key }, d));
-        });
-        before
-          .filter((d) => !after.some((n) => n.host === d.host))
-          .forEach((d) => {
-            db.deleteCustomDomain(key, d.host);
-            if (redis.enabled) redis.deleteDomainSnapshot(key, d.host);
-          });
-      } catch (err) { console.error('[config] write-through de domínios:', err.message); }
-    });
+  return {
+    key,
+    cur,
+    next,
+    domainsTouched: !!(patch && Object.prototype.hasOwnProperty.call(patch, 'customDomains')),
+  };
+}
+
+async function syncDomainMirrors(prepared) {
+  if (!prepared.domainsTouched) return;
+  const key = prepared.key;
+  const before = Array.isArray(prepared.cur.customDomains) ? prepared.cur.customDomains : [];
+  const after = Array.isArray(prepared.next.customDomains) ? prepared.next.customDomains : [];
+  const removed = before.filter((d) => !after.some((n) => n.host === d.host));
+
+  // O JSON da tabela config é a fonte primária. Estes espelhos existem para
+  // lookup rápido/reconciliação e são atualizados só DEPOIS do commit primário.
+  const tasks = [];
+  if (db.enabled) {
+    after.forEach((d) => tasks.push(db.upsertCustomDomain(key, d).then((ok) => {
+      if (!ok) throw new Error('falha ao espelhar domínio ' + d.host + ' no Neon');
+    })));
+    removed.forEach((d) => tasks.push(db.deleteCustomDomain(key, d.host).then((ok) => {
+      if (!ok) throw new Error('falha ao remover espelho do domínio ' + d.host + ' no Neon');
+    })));
+  }
+  if (redis.enabled) {
+    after.forEach((d) => tasks.push(Promise.resolve(redis.saveDomainSnapshot(key, d.host, Object.assign({ accountId: key }, d)))));
+    removed.forEach((d) => tasks.push(Promise.resolve(redis.deleteDomainSnapshot(key, d.host))));
+  }
+  if (tasks.length) await Promise.all(tasks);
+}
+
+// Snapshot local imediato/atômico usado como camada durável quando não há Neon.
+// O cache só é publicado DEPOIS que rename() confirma o arquivo completo.
+async function persistDiskEntryNow(key, next) {
+  const data = {};
+  cache.forEach((v, k) => { data[k] = v; });
+  data[key] = next;
+  await fs.promises.mkdir(DATA_DIR, { recursive: true });
+  const tmp = FILE + '.tmp-' + process.pid + '-' + Date.now();
+  await fs.promises.writeFile(tmp, JSON.stringify({ __isMap: true, data }, null, 2));
+  await fs.promises.rename(tmp, FILE);
+}
+
+// Compatibilidade para caminhos antigos/background: mantém write-through
+// assíncrono. Rotas de mutação da dashboard devem usar setDurable().
+function set(accountId, patch) {
+  const prepared = prepareSet(accountId, patch);
+  cache.set(prepared.key, prepared.next);
+  void db.saveConfig(prepared.key, prepared.next);
+  persistDisk();
+  setImmediate(() => {
+    syncDomainMirrors(prepared).catch((err) => console.error('[config] write-through de domínios:', err.message));
+  });
+  return cloneConfig(prepared.next);
+}
+
+const durableQueues = new Map();
+
+async function setDurableNow(accountId, patch, options) {
+  const key = accountId || LEGACY_KEY;
+  const current = cache.has(key) ? cache.get(key) : defaults();
+  const expectedUpdatedAt = options && options.expectedUpdatedAt ? String(options.expectedUpdatedAt) : '';
+  if (expectedUpdatedAt && current.updatedAt && String(current.updatedAt) !== expectedUpdatedAt) {
+    const err = new Error('A configuração foi alterada em outra aba. Atualize os dados e tente novamente.');
+    err.code = 'CONFIG_REVISION_CONFLICT';
+    err.status = 409;
+    err.currentUpdatedAt = current.updatedAt;
+    throw err;
   }
 
-  cache.set(key, next);
-  db.saveConfig(key, next);
-  persistDisk();
-  return Object.assign({}, next);
+  const resolvedPatch = typeof patch === 'function' ? patch(cloneConfig(current)) : patch;
+  const prepared = prepareSet(key, resolvedPatch);
+  if (db.enabled) {
+    const ok = await db.saveConfig(prepared.key, prepared.next);
+    if (!ok) {
+      const err = new Error('Não foi possível confirmar a configuração no banco de dados.');
+      err.code = 'CONFIG_PERSIST_FAILED';
+      err.status = 503;
+      throw err;
+    }
+  } else {
+    try {
+      await persistDiskEntryNow(prepared.key, prepared.next);
+    } catch (cause) {
+      const err = new Error('Não foi possível confirmar a configuração no armazenamento local.');
+      err.code = 'CONFIG_PERSIST_FAILED';
+      err.status = 503;
+      err.cause = cause;
+      throw err;
+    }
+  }
+
+  // Só agora a leitura quente passa a enxergar a nova versão.
+  cache.set(prepared.key, prepared.next);
+  if (db.enabled) persistDisk();
+
+  try {
+    await syncDomainMirrors(prepared);
+  } catch (err) {
+    // O commit primário já foi confirmado. Não fazemos rollback mentiroso de
+    // cache: no boot a tabela config vence os espelhos. Registramos para reparo.
+    console.error('[config] espelho de domínios após commit:', err.message);
+  }
+  return cloneConfig(prepared.next);
+}
+
+// Serializa mutações por conta. Duas requests simultâneas deixam de fazer
+// read-modify-write em paralelo e perder blocos diferentes da mesma config.
+function setDurable(accountId, patch, options) {
+  const key = accountId || LEGACY_KEY;
+  const previous = durableQueues.get(key) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(() => setDurableNow(key, patch, options || {}));
+  durableQueues.set(key, operation);
+  operation.finally(() => {
+    if (durableQueues.get(key) === operation) durableQueues.delete(key);
+  }).catch(() => {});
+  return operation;
 }
 
 // Semeadura em memória (só boot): mescla dados dos espelhos duráveis
@@ -570,4 +681,4 @@ function migrateLegacyTo(accountId) {
   persistDisk();
 }
 
-module.exports = { get, set, seed, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };
+module.exports = { get, set, setDurable, seed, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };

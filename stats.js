@@ -946,8 +946,13 @@ function getPruneStats() {
 }
 
 // Zera SOMENTE os dados da conta informada (ou tudo, se accountId omitido).
-function reset(accountId) {
+async function reset(accountId) {
   ensureLoaded();
+  // Persistência primeiro, cache depois. Antes o endpoint respondia sucesso e
+  // limpava a UI mesmo se o DELETE no Neon falhasse; após restart os dados
+  // reapareciam. Sem banco, db.reset confirma o modo local com true.
+  const durable = await db.reset(accountId);
+  if (!durable) return false;
   if (accountId) {
     state.leads = (state.leads || []).filter((l) => l.acc !== accountId);
     state.events = (state.events || []).filter((e) => e.acc !== accountId);
@@ -959,7 +964,7 @@ function reset(accountId) {
   invalidateStatsCache();
   markDirty();
   flushToDisk();
-  db.reset(accountId);
+  return true;
 }
 
 // ── Hidratação do cache a partir do Neon (chamado no boot) ────────────────

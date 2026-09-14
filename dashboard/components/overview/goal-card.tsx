@@ -1,11 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
-import useSWR from 'swr'
 import { Target } from 'lucide-react'
-import { fetcher, useStats } from '@/lib/api'
+import { useAccountSettings, useStats } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import { aggregate, money } from '@/lib/metrics'
+import { aggregate, appMidnight, money } from '@/lib/metrics'
 import { fmtPercent } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 
@@ -20,11 +19,7 @@ export function GoalCard() {
   // Fase 4: /api/settings adiado para pós-first-paint (chave null até lá) —
   // o card de meta é secundário e não deve concorrer com o hero no load.
   const afterFirstPaint = useAfterFirstPaint()
-  const { data: settings } = useSWR<{ revenueGoal?: number; timezone?: string }>(
-    afterFirstPaint ? '/api/settings' : null,
-    fetcher,
-    { revalidateOnFocus: false },
-  )
+  const { data: settings } = useAccountSettings(afterFirstPaint)
   const { data } = useStats()
 
   const goal = settings?.revenueGoal || 0
@@ -51,8 +46,8 @@ export function GoalCard() {
       m = now.getMonth() + 1
       dayOfMonth = now.getDate()
     }
-    const monthStart = new Date(y, m - 1, 1)
-    const agg = aggregate(data, monthStart)
+    const monthStart = appMidnight(y, m, 1, tz)
+    const agg = aggregate(data, monthStart, null, tz)
     const mtd = agg.rev[agg.mainCur] || 0
     const daysInMonth = new Date(y, m, 0).getDate()
     // Projeção linear: ritmo médio até agora estendido ao mês inteiro.

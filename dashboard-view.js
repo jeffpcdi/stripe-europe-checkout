@@ -5322,7 +5322,7 @@ function loadPxLog(){
         '<td>'+timeAgo(e.at)+'</td>'+
         '<td>'+esc(e.pixel||'—')+'</td>'+
         '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
-        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'��').slice(0,10))+'</td>'+
+        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
         '<td>'+emqCell+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
@@ -5652,7 +5652,7 @@ var CMD_ITEMS=[
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
   {g:'Período',t:'Hoje',ic:I.check,act:function(){setPeriod('today');}},
-  {g:'Período',t:'��ltimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
+  {g:'Período',t:'Últimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
   {g:'Período',t:'Últimos 30 dias',ic:I.check,act:function(){setPeriod('30d');}},
   {g:'Período',t:'Todo o histórico',ic:I.check,act:function(){setPeriod('all');}},
   {g:'Período',t:'Segmentar dias e horas',h:'range personalizado',ic:I.check,act:function(){openDrPop();}},

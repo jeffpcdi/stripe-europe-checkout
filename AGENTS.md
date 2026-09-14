@@ -1,5 +1,23 @@
 # AGENTS.md — ROI-NADOS
 
+## Auditoria funcional V3 — 14/09/2026
+- Escopo desta rodada: **sem funcionalidades novas**; correções de Visão Geral, Funil, Links, Domínios e Configurações, com foco em consistência frontend↔backend, persistência e cache.
+- Períodos da Visão Geral/Funil usam o `settings.timezone` da conta; `dashboard/lib/metrics.ts` aceita fuso por chamada, mantendo `America/Sao_Paulo` como fallback. A Visão Geral volta a ler o período salvo em `roi:overview:period`.
+- Campanhas em destaque na Visão Geral combinam gasto/status do TikTok com `GET /api/ads/campaign-decisions` para vendas/receita first-party; ROAS só é calculado quando a moeda do gasto (ROAS/status TikTok) é compatível com a receita atribuída.
+- Domínios preservam `status/sslStatus/lastCheckedAt/lastError/providerNote` no sanitizador; verificar exige que o host já pertença à conta e persiste também estados pendentes. Remoção é bloqueada com `domain_in_use` enquanto links de venda ou Cloak referenciam o host.
+- Links com domínio personalizado são validados contra os domínios da própria conta e não aceitam domínio exclusivo do Cloak. `link-store` persiste no Neon antes de trocar o cache; falha durável vira 503. Editor não apaga `paises`, `idiomas`, `pixelSlug` ou `urlWhitePage` de variante só porque esses campos estão ocultos, e o switch visual “Escudo Máximo” sem contrato backend foi removido. Duplicação preserva a configuração do experimento, mas não herda vencedor/histórico.
+- `/api/settings` aplica moeda e preferências no mesmo patch (não há mais ramos que descartavam parte do payload). O reset de estatísticas confirma o DELETE durável antes de limpar o cache em memória; a UI revalida `/api/stats`, `/api/overview/health` e `/api/live` imediatamente após sucesso.
+- Validação: `node --check` em backend alterado, `npm run lint`, transpile sintático de todos os 189 TS/TSX, auditorias V1/V2/V3, `custom-domains-routes`, `ads-campaign-decisions`, `dashboard-campaign-decision` e `overview-health`. `dashboard-refinement` continua sem executar no ZIP por ausência de `dashboard/node_modules/react`; não declarar a suíte completa aprovada.
+
+## Campanhas como tela de decisão — 14/09/2026
+- `GET /api/ads/campaign-decisions` une atribuição first-party e estado da automação sem reler a árvore TikTok. A lógica pura de merge fica em `ads-campaign-decisions.js`, coberta por `test/ads-campaign-decisions.test.js`.
+- A aba Campanhas usa `useAdsCampaignDecisions` apenas enquanto a sub-aba Campanhas está ativa. O polling continua em 60s; `/api/ads/tree` permanece responsável por gasto/status e não foi encarecido com queries extras.
+- A tabela principal agora prioriza `Gasto`, `Vendas`, `CPA real`, `ROAS real` e `Automação`. CPC/CPM/CTR/cliques continuam no detalhe expandido, não competem mais com a leitura principal.
+- `Vendas`, `CPA real` e `ROAS real` vêm dos leads comprados atribuídos por `utm_campaign=__CAMPAIGN_ID__`. ROAS fica indisponível quando há receita em moeda diferente/múltipla; CPA continua válido porque depende apenas de gasto e quantidade de vendas.
+- A coluna Automação mostra proposta pendente, último evento real/simulado/falho ou o estado global do motor. Propostas/erros levam para a aba Automações; nenhuma ação é executada ao clicar na linha.
+- `CampaignMetricGrid` ganhou `attributionLoaded`: depois que a atribuição real carrega, zero venda é mostrado como zero real e o TikTok deixa de ser usado como fallback silencioso para compras/CPA.
+- Validação desta rodada: `node --check` em `ads-routes.js` e `ads-campaign-decisions.js`, transpile sintático dos TS/TSX alterados, `npm run lint`, `test/ads-campaign-decisions.test.js` e `test/dashboard-campaign-decision.test.js`. Testes que importam dependências de runtime não rodam neste ZIP porque `node_modules` não veio incluído; não declarar a suíte completa aprovada.
+
 ## Refino do observatório — 14/09/2026 (validação visual pendente)
 - `HeroGlobe` usa `overview-observatory--premium`: iluminação, estrelas e órbitas decorativas
   pertencem ao card inteiro. No modo embutido, as camadas locais de estrelas/órbitas ficam
