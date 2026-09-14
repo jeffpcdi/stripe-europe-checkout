@@ -189,7 +189,9 @@ function RunCard({
         description="A campanha e os recursos que já foram criados por esta tentativa serão removidos do TikTok. Use Retomar se quiser continuar de onde parou."
         confirmLabel="Excluir parcial"
         busy={actionBusy}
-        onConfirm={() => action('cleanup')}
+        onConfirm={async () => {
+          await action('cleanup')
+        }}
         onClose={() => setConfirmCleanup(false)}
       />
     </>
