@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import Link from 'next/link'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -54,6 +55,7 @@ import { readClipboardText } from '@/lib/clipboard'
 import { useConfirm } from '@/lib/use-confirm'
 import { cn } from '@/lib/utils'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 // Resultado da verificação de instalação por URL (server-side)
 type UrlCheck = {
@@ -96,6 +98,7 @@ function isPixelErrorStatus(status: string) {
 
 export function PixelsView() {
   const { data, mutate, isLoading, error } = usePixels()
+  const { mutate: mutateCache } = useSWRConfig()
   const { data: health } = usePixelHealth()
   const { data: log, mutate: mutateLog } = usePixelLog()
   const { data: durability } = usePixelDurability()
@@ -127,6 +130,14 @@ export function PixelsView() {
   const [urlCheck, setUrlCheck] = useState<UrlCheck | null>(null)
 
   const pixels = data?.pixels ?? []
+
+  async function refreshPixelDependents() {
+    await mutateCache((key) => apiCacheKeyMatches(key, [
+      '/api/pixels/health',
+      '/api/pixels/durability',
+      '/api/overview/health',
+    ]))
+  }
 
   // Item 93: feedback de cópia acessível — além do destaque visual no botão,
   // anunciamos via aria-live para leitores de tela.
@@ -165,15 +176,17 @@ export function PixelsView() {
 
         if (result.warning) toast.info(`Pixel "${p.name}" removido`, { hint: result.warning })
         else toast.success(`Pixel "${p.name}" removido`)
-        try {
-          await mutate(
+        const refreshResults = await Promise.allSettled([
+          mutate(
             (current) => current
               ? { ...current, pixels: current.pixels.filter((pixel) => pixel.slug !== p.slug) }
               : current,
-          )
-        } catch (error) {
+          ),
+          refreshPixelDependents(),
+        ])
+        if (refreshResults.some((item) => item.status === 'rejected')) {
           toast.info('Pixel removido, mas a lista não atualizou completamente', {
-            hint: error instanceof Error ? error.message : 'Atualize a página para confirmar o estado.',
+            hint: 'Atualize a página para confirmar todos os indicadores.',
           })
         }
       },
@@ -199,7 +212,7 @@ export function PixelsView() {
     )
     try {
       await apiSend('/api/pixels', 'POST', { slug: p.slug, active: next })
-      await mutate()
+      await Promise.allSettled([mutate(), refreshPixelDependents()])
     } catch (err) {
       await mutate() // reverte para o estado do servidor em caso de erro
       toast.error(`Não foi possível ${next ? 'ativar' : 'pausar'} o pixel`, {
@@ -226,7 +239,7 @@ export function PixelsView() {
           ? `TikTok aceitou o evento de teste (${evLabel}).`
           : r.messagePtBr || r.error || r.message || 'TikTok recusou o evento',
       })
-      mutateLog()
+      void Promise.allSettled([mutateLog(), refreshPixelDependents()])
     } catch (e) {
       setTestResult({ slug: p.slug, ok: false, msg: e instanceof Error ? e.message : 'Falha no teste' })
     } finally {
@@ -1055,7 +1068,7 @@ export function PixelsView() {
             setCreating(false)
             setEditing(null)
             setCloning(null)
-            mutate()
+            void Promise.allSettled([mutate(), refreshPixelDependents()])
             if (warning) toast.info('Pixel salvo com aviso', { hint: warning, duration: 7000 })
             else toast.success('Pixel salvo')
           }}

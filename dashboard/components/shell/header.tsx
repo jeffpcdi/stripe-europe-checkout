@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
-import { NAV_SECTIONS } from '@/lib/navigation'
+import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { useAccount } from '@/lib/api'
 import { DurabilityBadge } from '@/components/shell/durability-badge'
 import { NotificationBell } from '@/components/shell/notification-bell'
@@ -13,6 +13,11 @@ import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
 
 const ALL_ITEMS = NAV_SECTIONS.flatMap((s) => s.items)
+
+const HIDDEN_ROUTE_CONTEXT = [
+  { href: '/activity', label: 'Atividade', description: 'Histórico operacional e eventos da conta' },
+  { href: '/funnel', label: 'Funil', description: 'Leads, etapas e conversão da jornada' },
+] as const
 
 /** Item 125: modo apresentação — borra receita/valores sensíveis para demos */
 function PrivacyButton() {
@@ -135,9 +140,10 @@ function ScrollProgress() {
 export function Header() {
   const pathname = usePathname()
   const current =
-    ALL_ITEMS.find((i) =>
-      i.href === '/' ? pathname === '/' : pathname.startsWith(i.href),
-    ) ?? ALL_ITEMS[0]
+    ALL_ITEMS.find((i) => i.href === '/' ? pathname === '/' : pathname.startsWith(i.href))
+    ?? HIDDEN_ROUTE_CONTEXT.find((i) => pathname.startsWith(i.href))
+    ?? ALL_ITEMS[0]
+  const group = activeGroup(pathname)
 
   // Item 13: breadcrumb re-anima quando a página troca
   const prevPath = useRef(pathname)
@@ -147,8 +153,11 @@ export function Header() {
   return (
     <>
       <div key={pathname} className={cn('dashboard-page-context', changed && 'anim-fade-in')}>
-        <span className="dashboard-page-eyebrow">Seu painel</span>
-        <h1>{current.label}</h1>
+        <span className="dashboard-page-eyebrow">{group.label}</span>
+        <div className="dashboard-page-context__copy">
+          <h1>{current.label}</h1>
+          <p className="dashboard-page-description">{current.description}</p>
+        </div>
       </div>
       <div className="dashboard-account-actions">
         <DurabilityBadge />

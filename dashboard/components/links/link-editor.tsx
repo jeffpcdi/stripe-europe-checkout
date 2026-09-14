@@ -101,23 +101,25 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
     }
   }
 
+  const previewSlug = slug.trim() || slugify(nome) || 'seu-link'
+  const previewHost = dominio || appHost || 'seu-dominio.com'
+  const previewUrl = `https://${previewHost}/go/${previewSlug}`
+
   const inputCls =
     'w-full rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 transition-all duration-300 hover:border-[color:var(--brand-cyan)]/40 hover:bg-secondary/60 focus:border-[color:var(--brand-cyan)] focus:bg-background focus:shadow-[0_0_25px_rgba(37,244,238,0.15)] focus:outline-none'
 
   const labelCls = "text-[11px] font-semibold text-muted-foreground transition-colors duration-300 group-focus-within:text-[color:var(--brand-cyan)] group-focus-within:drop-shadow-[0_0_5px_rgba(37,244,238,0.4)]"
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 md:items-center transition-all animate-in fade-in duration-500" role="dialog">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.4)_0%,rgba(0,0,0,0.9)_100%)] backdrop-blur-3xl pointer-events-none" />
-
-      <GlassCard variant="thick" className="relative z-10 w-full max-w-xl p-6 animate-in zoom-in-[0.98] duration-300 ease-out border-[color:var(--brand-cyan)]/30 shadow-[0_0_50px_rgba(37,244,238,0.1)]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-md md:items-center" role="dialog">
+      <GlassCard variant="thick" className="relative z-10 w-full max-w-2xl p-6 animate-in zoom-in-[0.98] duration-200 border-border/80 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-8 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/20 text-[color:var(--brand-cyan)]">
               <Tag className="size-4" />
             </div>
             <h2 className="text-xl font-bold text-foreground">
-              {link ? 'Editar Link de venda' : 'Novo Link de venda'}
+              {link ? 'Editar link de venda' : 'Novo link de venda'}
             </h2>
           </div>
           <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
@@ -127,7 +129,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
 
         <div className="flex flex-col gap-5">
           <label className="group flex flex-col gap-1.5">
-            <span className={labelCls}>Nome da Campanha</span>
+            <span className={labelCls}>Nome do link</span>
             <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Oferta Black Friday" />
           </label>
 
@@ -136,36 +138,38 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               <span className={labelCls}>Domínio</span>
               <select className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
                 <option value="">Domínio padrão</option>
-                {domains.map((d) => (
-                  <option key={d.host} value={d.host}>{d.host}</option>
-                ))}
+                {domains.map((d) => <option key={d.host} value={d.host}>{d.host}</option>)}
               </select>
             </label>
             <label className="group flex flex-col gap-1.5">
-              <span className={labelCls}>Slug (URL)</span>
+              <span className={labelCls}>Identificador da URL</span>
               <input className={inputCls} value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={slugify(nome) || 'slug-aqui'} disabled={!!link} />
             </label>
           </div>
+          <div className="rounded-xl border border-border/60 bg-secondary/15 px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">URL pública</p>
+            <p className="mt-1 break-all font-mono text-xs text-brand-cyan">{previewUrl}</p>
+          </div>
 
-          <div className="relative rounded-xl border border-border/50 bg-background/50 p-4">
+          <div className="relative rounded-2xl border border-border/60 bg-secondary/10 p-4">
             <div className="mb-4 flex items-center gap-2">
               <Shield className="size-4 text-[color:var(--brand-cyan)]" />
-              <h3 className="font-semibold text-foreground text-sm">Destinos (Cloaker)</h3>
+              <h3 className="font-semibold text-foreground text-sm">Destino e distribuição</h3>
             </div>
             <div className="flex flex-col gap-4">
               <label className="group flex flex-col gap-1.5">
-                <span className={labelCls}>Página Segura (Artigo / Para Robôs)</span>
+                <span className={labelCls}>Página segura opcional</span>
                 <input
                   className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive' : ''}`}
                   value={urlWhitePage}
                   onChange={(e) => setUrlWhitePage(e.target.value)}
-                  placeholder="https://meublog.com/artigo-seguro"
+                  placeholder="https://meusite.com/pagina-segura"
                 />
               </label>
               
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <span className={labelCls}>Ofertas para teste A/B</span>
+                  <span className={labelCls}>Destinos / variantes</span>
                   <button
                     type="button" className="btn-ghost text-[11px]" disabled={variantes.length >= 5}
                     onClick={() => setVariantes((current) => current.concat([{
@@ -224,7 +228,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               type="button"
               onClick={handleSave}
               disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida}
-              className={`relative flex items-center gap-2 overflow-hidden rounded-full bg-[color:var(--brand-cyan)] px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50`}
+              className="btn-primary px-5 py-2.5 text-sm disabled:pointer-events-none disabled:opacity-50"
             >
               {saving ? 'Salvando...' : link ? 'Salvar alterações' : 'Criar Link de venda'}
             </button>

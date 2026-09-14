@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import {
-  ShieldCheck, Loader2, Check, MonitorSmartphone, Globe2, Send,
+  ShieldCheck, Loader2, Check, MonitorSmartphone, Globe2, Send, KeyRound, UserRound,
 } from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, apiSend, fetcher } from '@/lib/api'
@@ -54,6 +54,7 @@ interface SessionRow {
 /* ── Conta e segurança: nome (413), senha (411), sessões (414/415) ──────── */
 export function SecurityCard() {
   const { data: account, mutate: mutateAccount } = useAccount()
+  const { data: twofaStatus } = useSWR<{ ok: boolean; enabled: boolean }>('/api/account/2fa', fetcher, { revalidateOnFocus: false })
   const { data: sessions, mutate: mutateSessions } = useSWR<{ ok: boolean; sessions: SessionRow[] }>(
     '/api/account/sessions',
     fetcher,
@@ -149,49 +150,61 @@ export function SecurityCard() {
 
   return (
     <GlassCard className="p-5">
-      <div className="mb-4 flex items-center gap-2.5">
-        <ShieldCheck className="size-4 text-[color:var(--brand-cyan)]" />
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-brand-cyan/15 bg-brand-cyan/10 text-brand-cyan">
+          <ShieldCheck className="size-4" />
+        </span>
         <div>
           <h2 className="section-head text-sm font-semibold text-foreground">Conta e segurança</h2>
-          <p className="text-xs text-muted-foreground">Nome, senha e sessões ativas desta conta</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Identidade da conta, senha, autenticação adicional e sessões abertas.</p>
         </div>
       </div>
 
-      {/* item 413 — nome */}
-      <div className="border-t border-border pt-4">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="acc-name">
-          Nome da conta
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            id="acc-name"
-            className={`${inputCls} max-w-xs`}
-            value={nameValue}
-            maxLength={80}
-            autoComplete="name"
-            onChange={(e) => setName(e.target.value)}
-          />
-          <button type="button" onClick={saveName} disabled={savingName || !nameValue.trim()} className={btnGhost}>
-            {savingName ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-            Salvar
-          </button>
-          {nameMsg && (
-            <span className={`text-xs ${nameMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
-              {nameMsg.text}
-            </span>
-          )}
+      <div className="rounded-2xl border border-border/55 bg-secondary/15 p-4">
+        <div className="flex items-start gap-3">
+          <UserRound className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <label className="block text-xs font-medium text-foreground" htmlFor="acc-name">Nome da conta</label>
+            <p className="mt-1 text-[11px] text-muted-foreground">Usado para identificar esta operação dentro do painel.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                id="acc-name"
+                className={`${inputCls} max-w-sm`}
+                value={nameValue}
+                maxLength={80}
+                autoComplete="name"
+                onChange={(e) => setName(e.target.value)}
+              />
+              <button type="button" onClick={saveName} disabled={savingName || !nameValue.trim() || nameValue === account?.name} className={btnGhost}>
+                {savingName ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                Salvar nome
+              </button>
+              {nameMsg && <span className={`text-xs ${nameMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">{nameMsg.text}</span>}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
-        <button type="button" onClick={() => setModalPw(true)} className={btnGhost}>
-          Trocar senha
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <button type="button" onClick={() => setModalPw(true)} className="group rounded-2xl border border-border/55 bg-secondary/15 p-4 text-left transition-all hover:border-brand-cyan/20 hover:bg-secondary/25">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-white/5 bg-black/20 text-muted-foreground group-hover:text-brand-cyan"><KeyRound className="size-4" /></span>
+          <span className="mt-3 block text-xs font-semibold text-foreground">Senha</span>
+          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">Troque a senha e encerre outras sessões por segurança.</span>
+          <span className="mt-3 inline-flex text-[10px] font-medium text-brand-cyan">Alterar senha</span>
         </button>
-        <button type="button" onClick={() => setModal2FA(true)} className={btnGhost}>
-          Autenticação 2FA
+
+        <button type="button" onClick={() => setModal2FA(true)} className="group rounded-2xl border border-border/55 bg-secondary/15 p-4 text-left transition-all hover:border-brand-cyan/20 hover:bg-secondary/25">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-white/5 bg-black/20 text-muted-foreground group-hover:text-brand-cyan"><ShieldCheck className="size-4" /></span>
+          <span className="mt-3 flex items-center gap-2 text-xs font-semibold text-foreground">Autenticação 2FA <span className={`rounded-full px-2 py-0.5 text-[9px] ${twofaStatus?.enabled ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{twofaStatus?.enabled ? 'Ativa' : 'Desligada'}</span></span>
+          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">Proteja o login com um aplicativo autenticador.</span>
+          <span className="mt-3 inline-flex text-[10px] font-medium text-brand-cyan">Configurar 2FA</span>
         </button>
-        <button type="button" onClick={() => setModalSessions(true)} className={btnGhost}>
-          Dispositivos conectados
+
+        <button type="button" onClick={() => setModalSessions(true)} className="group rounded-2xl border border-border/55 bg-secondary/15 p-4 text-left transition-all hover:border-brand-cyan/20 hover:bg-secondary/25">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-white/5 bg-black/20 text-muted-foreground group-hover:text-brand-cyan"><MonitorSmartphone className="size-4" /></span>
+          <span className="mt-3 block text-xs font-semibold text-foreground">Dispositivos conectados</span>
+          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{list.length ? `${list.length} ${list.length === 1 ? 'sessão ativa' : 'sessões ativas'} nesta conta.` : 'Revise onde sua conta está conectada.'}</span>
+          <span className="mt-3 inline-flex text-[10px] font-medium text-brand-cyan">Revisar sessões</span>
         </button>
       </div>
 
@@ -455,6 +468,13 @@ const LGPD_OPTIONS: { value: number; label: string }[] = [
   { value: 730, label: '2 anos' },
 ]
 
+const CURRENCIES = [
+  { value: 'BRL', label: 'BRL · Real brasileiro' },
+  { value: 'USD', label: 'USD · Dólar americano' },
+  { value: 'EUR', label: 'EUR · Euro' },
+  { value: 'GBP', label: 'GBP · Libra esterlina' },
+] as const
+
 interface SettingsData {
   defaultCurrency: string
   timezone: string
@@ -467,7 +487,7 @@ interface SettingsData {
   updatedAt?: string | null
 }
 
-export function AccountPrefsCard() {
+export function AccountPrefsCard({ section = 'core' }: { section?: 'core' | 'integrations' } = {}) {
   const { data, error, mutate } = useSWR<SettingsData>('/api/settings', fetcher, { revalidateOnFocus: false })
 
   // edições locais: null = ainda não mexeu (usa o valor do servidor)
@@ -486,6 +506,7 @@ export function AccountPrefsCard() {
     try {
       await apiSend('/api/settings', 'POST', {
         _baseUpdatedAt: data?.updatedAt || undefined,
+        defaultCurrency: v('defaultCurrency') || 'BRL',
         timezone: v('timezone') || 'America/Sao_Paulo',
         revenueGoal: Number(v('revenueGoal')) || 0,
         lgpdDays: Number(v('lgpdDays')) || 0,
@@ -526,124 +547,140 @@ export function AccountPrefsCard() {
 
   return (
     <GlassCard className="p-5">
-      <div className="mb-4 flex items-center gap-2.5">
-        <Globe2 className="size-4 text-[color:var(--brand-cyan)]" />
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-brand-cyan/15 bg-brand-cyan/10 text-brand-cyan">
+          {section === 'core' ? <Globe2 className="size-4" /> : <Send className="size-4" />}
+        </span>
         <div>
-          <h2 className="section-head text-sm font-semibold text-foreground">Preferências da conta</h2>
-          <p className="text-xs text-muted-foreground">
-            Fuso horário, meta de receita e privacidade.
+          <h2 className="section-head text-sm font-semibold text-foreground">
+            {section === 'core' ? 'Operação da conta' : 'Integrações de saída'}
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {section === 'core'
+              ? 'Moeda, fuso, meta e retenção usados em toda a dashboard.'
+              : 'Mensagem das vendas e webhook externo para conectar o ROINADOS ao restante da sua operação.'}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-tz">
-            Fuso horário
+      {section === 'core' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5">
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Moeda padrão</span>
+            <select
+              className={`${selectCls} mt-2 w-full`}
+              value={v('defaultCurrency') ?? 'BRL'}
+              disabled={!data}
+              onChange={(e) => setDraft((d) => ({ ...d, defaultCurrency: e.target.value }))}
+            >
+              {CURRENCIES.map((currency) => <option key={currency.value} value={currency.value}>{currency.label}</option>)}
+            </select>
+            <span className="mt-2 block text-[11px] leading-relaxed text-muted-foreground">Fallback para eventos, testes e valores sem moeda informada.</span>
           </label>
-          <select
-            id="pref-tz"
-            className={`${selectCls} w-full`}
-            value={v('timezone') ?? 'America/Sao_Paulo'}
-            disabled={!data}
-            onChange={(e) => setDraft((d) => ({ ...d, timezone: e.target.value }))}
-          >
-            {TIMEZONES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">Corte do dia e horário do resumo</p>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-goal">
-            Meta de receita mensal
+
+          <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5">
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Fuso horário</span>
+            <select
+              className={`${selectCls} mt-2 w-full`}
+              value={v('timezone') ?? 'America/Sao_Paulo'}
+              disabled={!data}
+              onChange={(e) => setDraft((d) => ({ ...d, timezone: e.target.value }))}
+            >
+              {TIMEZONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <span className="mt-2 block text-[11px] leading-relaxed text-muted-foreground">Controla corte do dia, relatórios e horários operacionais.</span>
           </label>
-          <input
-            id="pref-goal"
-            type="number"
-            min={0}
-            step={100}
-            className={inputCls}
-            value={goalReais || ''}
-            placeholder="0 = sem meta"
-            disabled={!data}
-            onChange={(e) => setDraft((d) => ({ ...d, revenueGoal: Math.round((parseFloat(e.target.value) || 0) * 100) }))}
-          />
-          <p className="mt-1 text-[11px] text-muted-foreground">Em {data?.defaultCurrency || 'BRL'}, sem centavos</p>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-lgpd">
-            Guardar dados pessoais por
+
+          <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5">
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Meta mensal</span>
+            <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-input px-3">
+              <span className="text-xs text-muted-foreground">{String(v('defaultCurrency') || data?.defaultCurrency || 'BRL')}</span>
+              <input
+                type="number"
+                min={0}
+                step={100}
+                className="min-w-0 flex-1 bg-transparent py-2 text-sm text-foreground outline-none"
+                value={goalReais || ''}
+                placeholder="0"
+                disabled={!data}
+                onChange={(e) => setDraft((d) => ({ ...d, revenueGoal: Math.round((parseFloat(e.target.value) || 0) * 100) }))}
+              />
+            </div>
+            <span className="mt-2 block text-[11px] leading-relaxed text-muted-foreground">Usada nos indicadores de progresso da Overview.</span>
           </label>
-          <select
-            id="pref-lgpd"
-            className={`${selectCls} w-full`}
-            value={String(v('lgpdDays') ?? 0)}
-            disabled={!data}
-            onChange={(e) => setDraft((d) => ({ ...d, lgpdDays: parseInt(e.target.value, 10) }))}
-          >
-            {LGPD_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">Após esse prazo, remove e-mail e telefone dos registros antigos.</p>
+
+          <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5">
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Retenção de dados pessoais</span>
+            <select
+              className={`${selectCls} mt-2 w-full`}
+              value={String(v('lgpdDays') ?? 0)}
+              disabled={!data}
+              onChange={(e) => setDraft((d) => ({ ...d, lgpdDays: parseInt(e.target.value, 10) }))}
+            >
+              {LGPD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <span className="mt-2 block text-[11px] leading-relaxed text-muted-foreground">Após o prazo, e-mail e telefone deixam os registros antigos.</span>
+          </label>
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-2xl border border-border/55 bg-secondary/15 p-4">
+            <label className="block text-xs font-medium text-foreground" htmlFor="pref-notification-template">
+              Mensagem da venda
+            </label>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Personalize o texto usado nos alertas. Variáveis disponíveis: {'{{valor}} {{pais}} {{produto}} {{gateway}} {{cliente}} {{pedido}}'}
+            </p>
+            <input
+              id="pref-notification-template"
+              className={`${inputCls} mt-3 font-mono text-xs`}
+              maxLength={300}
+              value={v('notificationTemplate') ?? ''}
+              placeholder="ex.: Venda de {{valor}} aprovada no {{gateway}}"
+              disabled={!data}
+              onChange={(e) => setDraft((d) => ({ ...d, notificationTemplate: e.target.value }))}
+            />
+          </div>
 
-      <details className="mt-4 rounded-xl border border-border p-3">
-        <summary className="cursor-pointer text-xs text-muted-foreground">Mensagens e integrações</summary>
-      <div className="mt-4 border-t border-border pt-4">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-notification-template">
-          Mensagem da venda no iPhone
-          <span className="font-normal"> — variáveis: {'{{valor}} {{pais}} {{produto}} {{gateway}} {{cliente}} {{pedido}}'}</span>
-        </label>
-        <input
-          id="pref-notification-template"
-          className={`${inputCls} font-mono text-xs`}
-          maxLength={300}
-          value={v('notificationTemplate') ?? ''}
-          placeholder="ex.: Venda de {{valor}} aprovada no {{gateway}}"
-          disabled={!data}
-          onChange={(e) => setDraft((d) => ({ ...d, notificationTemplate: e.target.value }))}
-        />
-      </div>
-
-      <div className="mt-4 border-t border-border pt-4">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-webhook">
-          Enviar vendas a outro sistema <span className="font-normal">(webhook)</span>
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            id="pref-webhook"
-            className={`${inputCls} min-w-56 flex-1 font-mono text-xs`}
-            value={v('outboundWebhook') ?? ''}
-            placeholder="https://seu-endpoint.com/webhook"
-            disabled={!data}
-            onChange={(e) => setDraft((d) => ({ ...d, outboundWebhook: e.target.value }))}
-          />
-          <button type="button" onClick={testWebhook} disabled={testing || !data?.outboundWebhook} className={btnGhost}>
-            {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-            Testar disparo
-          </button>
+          <div className="rounded-2xl border border-border/55 bg-secondary/15 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <label className="block text-xs font-medium text-foreground" htmlFor="pref-webhook">Webhook externo</label>
+                <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+                  Envia as vendas do ROINADOS para outro sistema da sua operação. Deixe vazio para não disparar integrações externas.
+                </p>
+              </div>
+              <button type="button" onClick={testWebhook} disabled={testing || !data?.outboundWebhook} className={btnGhost}>
+                {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                Testar salvo
+              </button>
+            </div>
+            <input
+              id="pref-webhook"
+              className={`${inputCls} mt-3 font-mono text-xs`}
+              value={v('outboundWebhook') ?? ''}
+              placeholder="https://seu-endpoint.com/webhook"
+              disabled={!data}
+              onChange={(e) => setDraft((d) => ({ ...d, outboundWebhook: e.target.value }))}
+            />
+            {testMsg && (
+              <p className={`mt-2 text-xs ${testMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
+                {testMsg.text}
+              </p>
+            )}
+          </div>
         </div>
-        {testMsg && (
-          <p className={`mt-2 text-xs ${testMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
-            {testMsg.text}
-          </p>
-        )}
-      </div>
+      )}
 
-      </details>
-
-      <div className="mt-4 flex items-center justify-end gap-3">
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-border/50 pt-4">
         {saveMsg && (
-          <span className={`text-xs ${saveMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
+          <span className={`mr-auto text-xs ${saveMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
             {saveMsg.text}
           </span>
         )}
-        <button type="button" onClick={save} disabled={saving || !data} className={btnPrimary}>
+        <button type="button" onClick={save} disabled={saving || !data || Object.keys(draft).length === 0} className={btnPrimary}>
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          Salvar preferências
+          {section === 'core' ? 'Salvar preferências' : 'Salvar integrações'}
         </button>
       </div>
     </GlassCard>

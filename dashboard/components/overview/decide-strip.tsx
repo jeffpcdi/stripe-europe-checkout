@@ -7,6 +7,7 @@
 // Renderiza null sem propostas: quem não usa regras nunca vê a faixa.
 
 import { Component, useState, type ReactNode } from 'react'
+import { useSWRConfig } from 'swr'
 import Link from 'next/link'
 import { Check, CircleAlert, Pause, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { useAdsProposals, apiSend } from '@/lib/api'
@@ -14,6 +15,7 @@ import type { AdsRuleProposal } from '@/lib/types'
 import { cleanCampaignName, timeAgo } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { SectionTitle } from '@/components/section-title'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 // Boundary próprio (exigência do plano): se a faixa quebrar, o globo e o
 // resto da home continuam de pé. Sem fallback visual — decisão falha em
@@ -115,7 +117,22 @@ function ProposalRow({
 
 function DecideStripInner({ active }: { active: boolean }) {
   const { data, mutate } = useAdsProposals(active)
+  const { mutate: mutateCache } = useSWRConfig()
   const pending = data?.items ?? []
+
+  async function refreshAfterDecision() {
+    await Promise.allSettled([
+      mutate(),
+      mutateCache((key) => apiCacheKeyMatches(key, [
+        '/api/ads/campaign-decisions',
+        '/api/ads/rules',
+        '/api/ads/tree',
+        '/api/ads/kpis',
+        '/api/ads/roas',
+      ])),
+    ])
+  }
+
   // Sem propostas = sem faixa. Nada de card vazio ocupando a home.
   if (pending.length === 0) return null
 
@@ -136,7 +153,7 @@ function DecideStripInner({ active }: { active: boolean }) {
       </p>
       <ul className="flex flex-col divide-y divide-border/60">
         {pending.slice(0, 5).map((p) => (
-          <ProposalRow key={p.id} p={p} onDecided={() => mutate()} />
+          <ProposalRow key={p.id} p={p} onDecided={() => { void refreshAfterDecision() }} />
         ))}
       </ul>
       {pending.length > 5 ? (

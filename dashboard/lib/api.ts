@@ -192,7 +192,9 @@ export function useLead(id: string | null) {
   return useSWR<LeadDetailResponse>(id ? `/api/leads/${encodeURIComponent(id)}` : null, fetcher, {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    // O drawer troca de lead sem desmontar. Nunca carregue o perfil anterior
+    // enquanto a nova chave resolve — isso poderia exibir PII do lead errado.
+    keepPreviousData: false,
   })
 }
 
@@ -315,7 +317,12 @@ export function useCloakDecisions(key: string | null) {
   return useSWR<CloakDecisionsResponse>(
     key ? '/api/cloak/decisions?key=' + encodeURIComponent(key) : null,
     fetcher,
-    { refreshInterval: POLL_MS, keepPreviousData: true },
+    {
+      refreshInterval: POLL_MS,
+      // Ao expandir outro link, não mostre por alguns ms as decisões do link
+      // anterior com o novo título/chave. Contexto dinâmico exige cache estrito.
+      keepPreviousData: false,
+    },
   )
 }
 

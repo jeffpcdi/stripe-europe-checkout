@@ -41,7 +41,7 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className="bg-background"
     >
-      <body className="refined-dashboard font-sans antialiased">
+      <body className="refined-dashboard visual-system-v1 font-sans antialiased">
         <Suspense fallback={null}>
           <SectionAttr />
         </Suspense>

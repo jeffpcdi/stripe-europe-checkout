@@ -21,6 +21,8 @@ import {
   Scale,
   ShieldOff,
   History,
+  MoreHorizontal,
+  Activity,
 } from 'lucide-react'
 import { useCloakEntries, useCloakStats, apiSend } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity, CloakTestResult } from '@/lib/types'
@@ -253,22 +255,50 @@ export function CloakEntriesPanel() {
 
   const showControls = entries.length >= 2
 
+  const summary = useMemo(() => {
+    let total = 0
+    let white = 0
+    for (const link of statsData?.links ?? []) {
+      if (link.tipo !== 'cloak') continue
+      total += link.total || 0
+      white += link.white || 0
+    }
+    return {
+      active: entries.filter((entry) => entry.enabled).length,
+      total,
+      blocked: white,
+      blockRate: total > 0 ? (white / total) * 100 : 0,
+    }
+  }, [entries, statsData])
+
   return (
     <GlassCard className="p-5">
       {/* Item 143: anúncio acessível de cópia para leitores de tela */}
       <span className="sr-only" role="status" aria-live="polite">{copyAnnounce}</span>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <SectionTitle>Links de cloaking</SectionTitle>
-          <p className="text-xs text-muted-foreground">URLs /c/&lt;slug&gt; com proteção própria e slug aleatório</p>
+      <div className="mb-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <SectionTitle>Links protegidos</SectionTitle>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Cada URL /c/&lt;slug&gt; possui destino real, página segura e regras próprias de proteção.</p>
+          </div>
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary self-start text-xs">
+            <Plus className="size-3.5" /> Novo link protegido
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
-        >
-          <Plus className="size-3.5" /> Novo link
-        </button>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Ativos</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{summary.active}<span className="text-xs font-medium text-muted-foreground">/{entries.length}</span></p>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Decisões</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{summary.total}</p>
+          </div>
+          <div className="rounded-2xl border border-warning/20 bg-warning/5 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Bloqueados</p>
+            <p className="mt-1 text-lg font-semibold text-warning">{summary.blockRate.toFixed(0)}%</p>
+          </div>
+        </div>
       </div>
 
       {/* Item 136: busca + ordenação */}
@@ -499,71 +529,27 @@ export function CloakEntriesPanel() {
                   </div>
                 )}
 
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
-                  {/* Item 137: liga/desliga inline */}
-                  <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground">
-                    <Switch
-                      checked={e.enabled}
-                      onChange={() => toggleEnabled(e)}
-                      label={`${e.enabled ? 'Pausar' : 'Ativar'} ${e.nome}`}
-                      size="sm"
-                    />
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+                  <span className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-secondary/15 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    <Switch checked={e.enabled} onChange={() => toggleEnabled(e)} label={`${e.enabled ? 'Pausar' : 'Ativar'} ${e.nome}`} size="sm" />
                     {e.enabled ? 'Ativo' : 'Pausado'}
                   </span>
-                  {/* Item 134: testar este link */}
-                  <button
-                    type="button"
-                    onClick={() => handleTest(e)}
-                    disabled={testing === e.slug}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.4)] disabled:opacity-50"
-                  >
-                    {testing === e.slug ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                    Testar
+                  <button type="button" onClick={() => handleTest(e)} disabled={testing === e.slug} className="btn-secondary px-3 py-1.5 text-xs">
+                    {testing === e.slug ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Testar
                   </button>
-                  {/* Itens 170/171: histórico das últimas decisões deste link */}
-                  <button
-                    type="button"
-                    onClick={() => setLogOpen((cur) => (cur === 'cloak:' + e.slug ? null : 'cloak:' + e.slug))}
-                    aria-expanded={logOpen === 'cloak:' + e.slug}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors hover:bg-secondary hover:text-foreground ${
-                      logOpen === 'cloak:' + e.slug ? 'text-foreground' : 'text-muted-foreground'
-                    }`}
-                  >
-                    <History className="size-3.5" /> Histórico
+                  <button type="button" onClick={() => handleCopy(e)} className="btn-ghost px-3 py-1.5 text-xs">
+                    {copied === e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === e.slug ? 'Copiado' : 'Copiar URL'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(e)}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
-                  >
-                    {copied === e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-                    {copied === e.slug ? 'Copiado' : 'Copiar URL'}
-                  </button>
-                  {/* Item 138: abrir a white page em nova aba (só quando definida) */}
-                  {e.whitePageUrl && (
-                    <a
-                      href={e.whitePageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <ExternalLink className="size-3.5" /> Ver white
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setEditing(e)}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <Pencil className="size-3.5" /> Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeleting(e)}
-                    className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
-                  >
-                    <Trash2 className="size-3.5" /> Remover
-                  </button>
+                  <button type="button" onClick={() => setEditing(e)} className="btn-ghost px-3 py-1.5 text-xs"><Pencil className="size-3.5" /> Editar</button>
+                  <details className="relative ml-auto">
+                    <summary className="list-none cursor-pointer rounded-xl border border-border/60 bg-secondary/15 p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label={`Mais ações para ${e.nome}`}><MoreHorizontal className="size-4" /></summary>
+                    <div className="absolute right-0 z-20 mt-2 w-48 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                      <button type="button" onClick={() => setLogOpen((cur) => (cur === 'cloak:' + e.slug ? null : 'cloak:' + e.slug))} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"><History className="size-3.5" /> Histórico</button>
+                      {e.whitePageUrl && <a href={e.whitePageUrl} target="_blank" rel="noopener noreferrer" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"><ExternalLink className="size-3.5" /> Ver página segura</a>}
+                      <div className="my-1 border-t border-border/50" />
+                      <button type="button" onClick={() => setDeleting(e)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10"><Trash2 className="size-3.5" /> Remover</button>
+                    </div>
+                  </details>
                 </div>
 
                 {/* Itens 170/171: histórico de decisões expandível deste link */}

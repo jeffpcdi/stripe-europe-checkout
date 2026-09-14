@@ -1628,7 +1628,7 @@ export function CampaignTree({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground sm:text-base">Campanhas</h2>
+              <h2 className="text-sm font-bold text-foreground sm:text-base">Lista operacional</h2>
               <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
                 {visible.length}
               </span>
@@ -1646,7 +1646,7 @@ export function CampaignTree({
               )}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Gasto do TikTok + vendas, CPA e ROAS reais rastreados pelo ROINADOS.
+              Compare gasto, vendas reais e automação por campanha. Métricas secundárias ficam nos detalhes.
             </p>
           </div>
 
@@ -1782,12 +1782,8 @@ export function CampaignTree({
               {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
             </span>
           )}
-          <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 font-medium text-foreground">
-            <span>Gasto: {fmtMoney(summary.spend, currency)}</span>
-            <span>Vendas reais: {decisions ? summary.sales.toLocaleString('pt-BR') : '—'}</span>
-            <span title={!summary.revenueComparable ? 'ROAS indisponível por divergência de moeda' : 'Receita real ÷ gasto TikTok'}>
-              ROAS real: {summary.roas === null ? '—' : `${summary.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}
-            </span>
+          <span className="ml-auto text-[10px] font-medium text-muted-foreground">
+            {visible.length} {visible.length === 1 ? 'campanha nesta visão' : 'campanhas nesta visão'}
           </span>
         </div>
       )}

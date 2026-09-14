@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSWRConfig } from 'swr'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users } from 'lucide-react'
+import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users, Activity, TrendingUp, Target, AlertCircle, ArrowRight, ShieldCheck, BarChart3 } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -43,6 +43,7 @@ import { adsDateRange } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
 import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 export function TikTokAdsView() {
   const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
@@ -59,6 +60,13 @@ export function TikTokAdsView() {
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
+  // O override local existe só enquanto a seleção recém-confirmada pelo backend
+  // ainda não voltou em /api/ads/accounts. Assim que o cache confirma o mesmo
+  // advertiser, liberamos o override para mudanças feitas em outra aba também
+  // poderem aparecer no próximo focus/revalidate.
+  useEffect(() => {
+    if (advertiserId && accounts?.selected === advertiserId) setAdvertiserId(null)
+  }, [advertiserId, accounts?.selected])
   // Abre em "Ativas": há ~8 ativas e ~99 pausadas — abrir em "Todas" enterrava
   // o operador em ruído. Ele filtra para "Todas" quando quiser o histórico.
   const [statusFilter, setStatusFilter] = useState('active')
@@ -89,10 +97,10 @@ export function TikTokAdsView() {
   // Três áreas operacionais: criar/acompanhar, catálogo e automações. Smart+
   // e Spark são tipos de criação dentro de Campanhas, não destinos separados.
   type TabKey = 'campaigns' | 'automation' | 'catalog'
-  const SUBTABS: { value: TabKey; label: string; compactLabel: string; icon: typeof Megaphone }[] = [
-    { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', icon: Megaphone },
-    { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', icon: ShoppingBag },
-    { value: 'automation', label: 'Automações', compactLabel: 'Automações', icon: Bot },
+  const SUBTABS: { value: TabKey; label: string; compactLabel: string; description: string; icon: typeof Megaphone }[] = [
+    { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', description: 'Resultado, decisões e operação', icon: Megaphone },
+    { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', description: 'Produtos, feed e DPA', icon: ShoppingBag },
+    { value: 'automation', label: 'Automações', compactLabel: 'Automações', description: 'Regras, alertas e aprovações', icon: Bot },
   ]
   const [toolsExpanded, setToolsExpanded] = useState(false)
   const [tab, setTab] = useState<TabKey>('campaigns')
@@ -118,7 +126,7 @@ export function TikTokAdsView() {
 
   // Modelo de decisão da lista: vendas/receita first-party + estado da automação.
   // Só roda na aba Campanhas; Catálogo/Automações não pagam este polling.
-  const { data: campaignDecisions } = useAdsCampaignDecisions(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
+  const { data: campaignDecisions, mutate: mutateDecisions } = useAdsCampaignDecisions(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
 
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
@@ -185,6 +193,10 @@ export function TikTokAdsView() {
   const { data: syncStatus, mutate: mutateSyncStatus } = useAdsSyncStatus(treeActive, concreteAdvertiser)
   const selectedSyncState = syncStatus?.advertisers?.find((state) => state.advertiserId === concreteAdvertiser)
 
+  async function refreshCampaignSurfaces() {
+    await Promise.allSettled([mutateTree(), mutateDecisions(), mutateSyncStatus()])
+  }
+
   useEffect(() => {
     setAudiencesOpen(false)
     setLauncherOpen(false)
@@ -207,6 +219,69 @@ export function TikTokAdsView() {
     const adv = accounts?.accounts.find((a) => String(a.id) === String(concreteAdvertiser))
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'BRL'
   }, [accounts, concreteAdvertiser, tree])
+
+  const adsOperationalSummary = useMemo(() => {
+    const campaigns = tree?.campaigns ?? []
+    let active = 0
+    let spend = 0
+    let sales = 0
+    let revenue = 0
+    let comparable = true
+    let noSalesWithSpend = 0
+    let highRoas = 0
+    let pendingProposals = 0
+    let bestRoas: { id: string; name: string; value: number } | null = null
+
+    for (const campaign of campaigns) {
+      if (campaign.status === 'active') active += 1
+      const campaignSpend = Number(campaign.metrics?.spend) || 0
+      spend += campaignSpend
+      const decision = campaignDecisions?.byCampaign[campaign.platformCampaignId]
+      const campaignSales = Number(decision?.sales) || 0
+      sales += campaignSales
+      const cents = Number(decision?.revenueCents) || 0
+      const campaignCurrency = campaign.currency || currency
+      const sameCurrency = !decision?.currency || decision.currency === campaignCurrency
+      if (cents > 0 && sameCurrency) revenue += cents / 100
+      else if (cents > 0 && !sameCurrency) comparable = false
+      if (campaignSpend > 0 && campaignSales === 0) noSalesWithSpend += 1
+      const campaignRoas = campaignSpend > 0 && cents > 0 && sameCurrency ? (cents / 100) / campaignSpend : null
+      if (campaignRoas !== null && campaignRoas >= 2) {
+        highRoas += 1
+        if (!bestRoas || campaignRoas > bestRoas.value) {
+          bestRoas = { id: campaign.platformCampaignId, name: campaign.campaignName || campaign.platformCampaignId, value: campaignRoas }
+        }
+      }
+      if (decision?.automation.pendingProposal) pendingProposals += 1
+    }
+
+    return {
+      total: campaigns.length,
+      active,
+      spend,
+      sales,
+      roas: campaignDecisions && spend > 0 && comparable ? revenue / spend : null,
+      noSalesWithSpend,
+      highRoas,
+      pendingProposals,
+      bestRoas,
+    }
+  }, [tree, campaignDecisions, currency])
+
+  function formatAdsMoney(value: number) {
+    try {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
+    } catch {
+      return `${currency} ${value.toFixed(0)}`
+    }
+  }
+
+  function applyCampaignShortcut(query: string) {
+    changeTab('campaigns')
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('roi:ads-filter', { detail: query }))
+    }, 0)
+  }
 
   async function handleDisconnect() {
     if (disconnecting) return
@@ -291,6 +366,61 @@ export function TikTokAdsView() {
 
   return (
     <div className="tiktok-view min-w-0 flex flex-col gap-4">
+      <section className="rounded-[28px] border border-border/70 bg-[radial-gradient(circle_at_top_left,rgba(37,244,238,0.09),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012))] p-4 shadow-[0_28px_70px_-44px_rgba(0,0,0,0.95)] sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
+              <Activity className="size-3.5" aria-hidden="true" />
+              Operação TikTok Ads
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Campanhas, catálogo e automação em um só fluxo</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              Acompanhe resultado real, encontre o que precisa de atenção e opere a conta sem alternar entre várias ferramentas.
+            </p>
+          </div>
+          {effectiveAdvertiser ? (
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+                {selectedAdvertiserInfo?.name || 'Conta selecionada'}
+              </span>
+              <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+                {rangeDays === 1 ? 'Hoje' : `${rangeDays} dias`}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {effectiveAdvertiser && tab === 'campaigns' ? (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Campanhas ativas</span><Megaphone className="size-4 text-brand-cyan" /></div>
+              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.active}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">de {adsOperationalSummary.total} carregadas</p>
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Gasto TikTok</span><BarChart3 className="size-4 text-muted-foreground" /></div>
+              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{formatAdsMoney(adsOperationalSummary.spend)}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">no período selecionado</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80">Vendas reais</span><Target className="size-4 text-emerald-300" /></div>
+              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">rastreadas pelo ROINADOS</p>
+            </div>
+            <div className="rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3.5">
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-brand-cyan/80">ROAS real</span><TrendingUp className="size-4 text-brand-cyan" /></div>
+              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">receita first-party ÷ gasto</p>
+            </div>
+            <div className={`rounded-2xl border p-3.5 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'border-warning/25 bg-warning/8' : 'border-border/60 bg-black/15'}`}>
+              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Prioridades</span><ShieldCheck className={`size-4 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'text-warning' : 'text-success'}`} /></div>
+              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.pendingProposals + adsOperationalSummary.noSalesWithSpend + (rejections?.open ?? 0)}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">itens para revisar agora</p>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
           acima do contexto da conta. */}
       {hasAccountAlert && (
@@ -346,7 +476,9 @@ export function TikTokAdsView() {
         onAdvertiserChanged={(id) => {
           setAdvertiserId(id)
           setPage(1)
-          mutateAccounts()
+          // /api/ads/status é consumido pela Visão Geral. A seleção persistida
+          // não pode ficar presa no cache da conta anterior.
+          void Promise.allSettled([mutateAccounts(), mutateStatus()])
         }}
         onRefresh={async () => {
           if (refreshLock.current || !concreteAdvertiser) return
@@ -359,14 +491,20 @@ export function TikTokAdsView() {
               {},
             )
             if (result.ok === false) throw new Error(result.error || 'Atualização incompleta')
-            await Promise.all([
-              mutateCache(key => {
-                if (typeof key !== 'string' || !/^\/api\/ads\/(tree|kpis|roas|attribution)\?/.test(key)) return false
-                return new URLSearchParams(key.split('?')[1]).get('adAccountId') === concreteAdvertiser
-              }),
+            const refreshResults = await Promise.allSettled([
+              mutateCache((key) => apiCacheKeyMatches(key, [
+                '/api/ads/tree',
+                '/api/ads/kpis',
+                '/api/ads/roas',
+                '/api/ads/attribution',
+                '/api/ads/campaign-decisions',
+              ], { adAccountId: concreteAdvertiser })),
               mutateAccounts(), mutateSyncStatus(),
             ])
             toast.success('Dados atualizados')
+            if (refreshResults.some((item) => item.status === 'rejected')) {
+              toast.info('Sincronização concluída, mas uma parte da tela ainda está atualizando.')
+            }
           } catch (e) {
             toast.error('Não foi possível sincronizar agora', {
               hint: e instanceof Error ? e.message : undefined,
@@ -395,7 +533,7 @@ export function TikTokAdsView() {
               (pill tablist) é o mesmo da aba Atividade. */}
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 p-1 backdrop-blur-md sm:w-max">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-stretch gap-2 rounded-[22px] border border-border/70 bg-card/55 p-2 backdrop-blur-md lg:min-w-[720px]">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
@@ -405,13 +543,17 @@ export function TikTokAdsView() {
                     <Tabs.Trigger
                       key={item.value}
                       value={item.value}
-                      className="tiktok-section-tab touch-manipulation"
+                      className="tiktok-section-tab touch-manipulation !min-h-[64px] !justify-start !gap-3 !rounded-2xl !px-3.5 !py-3 text-left"
                     >
-                      <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
-                      <span className="truncate sm:hidden">{item.compactLabel}</span>
-                      <span className="hidden sm:inline">{item.label}</span>
+                      <span className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-white/8 bg-black/15 sm:flex">
+                        <item.icon className="size-4" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold sm:text-sm">{item.label}</span>
+                        <span className="mt-0.5 hidden truncate text-[10px] font-normal text-muted-foreground lg:block">{item.description}</span>
+                      </span>
                       {attentionCount > 0 && (
-                        <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
+                        <span className="flex min-w-5 items-center justify-center self-start rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
                           {attentionCount}
                         </span>
                       )}
@@ -535,6 +677,51 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" className="space-y-4 outline-none">
+              {(adsOperationalSummary.pendingProposals > 0 || adsOperationalSummary.noSalesWithSpend > 0 || adsOperationalSummary.highRoas > 0 || (rejections?.open ?? 0) > 0) && (
+                <GlassCard className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
+                        <h2 className="text-sm font-semibold text-foreground">Prioridades da operação</h2>
+                      </div>
+                      <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+                        Atalhos derivados dos dados atuais da conta. O ROINADOS só destaca o que já existe no seu fluxo.
+                      </p>
+                    </div>
+                    <div className="grid flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:max-w-4xl">
+                      {adsOperationalSummary.noSalesWithSpend > 0 ? (
+                        <button type="button" onClick={() => applyCampaignShortcut('sem venda')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
+                          <div className="flex items-center justify-between gap-2"><AlertCircle className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
+                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.noSalesWithSpend} sem venda</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">Campanhas com gasto e nenhuma venda real.</p>
+                        </button>
+                      ) : null}
+                      {adsOperationalSummary.pendingProposals > 0 ? (
+                        <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
+                          <div className="flex items-center justify-between gap-2"><Bot className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
+                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.pendingProposals} decisão{adsOperationalSummary.pendingProposals === 1 ? '' : 'ões'} pendente{adsOperationalSummary.pendingProposals === 1 ? '' : 's'}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">A automação está aguardando sua aprovação.</p>
+                        </button>
+                      ) : null}
+                      {(rejections?.open ?? 0) > 0 ? (
+                        <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-error/20 bg-error/8 p-3 text-left transition hover:border-error/40 hover:bg-error/12">
+                          <div className="flex items-center justify-between gap-2"><Ban className="size-4 text-error" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
+                          <p className="mt-2 text-sm font-semibold text-foreground">{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">Anúncios que precisam de revisão ou recurso.</p>
+                        </button>
+                      ) : null}
+                      {adsOperationalSummary.highRoas > 0 ? (
+                        <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="group rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3 text-left transition hover:border-brand-cyan/40 hover:bg-brand-cyan/12">
+                          <div className="flex items-center justify-between gap-2"><TrendingUp className="size-4 text-brand-cyan" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
+                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.highRoas} vencedora{adsOperationalSummary.highRoas === 1 ? '' : 's'}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">Campanhas com ROAS real acima de 2×.</p>
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </GlassCard>
+              )}
               <NeedsYouInbox
                 key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
                 active={treeActive}
@@ -561,8 +748,8 @@ export function TikTokAdsView() {
               }}
               page={page}
               onPage={setPage}
-              onMutate={() => mutateTree()}
-              onRetry={() => mutateTree()}
+              onMutate={() => { void refreshCampaignSurfaces() }}
+              onRetry={() => { void refreshCampaignSurfaces() }}
               onOpenDetail={setDetailCampaign}
               onDuplicate={setDuplicateCampaign}
               decisions={campaignDecisions}
@@ -611,7 +798,7 @@ export function TikTokAdsView() {
         onClose={() => setLauncherOpen(false)}
         advertiserId={concreteAdvertiser}
         currency={currency}
-        onSuccess={() => mutateTree()}
+        onSuccess={() => { void refreshCampaignSurfaces() }}
         onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}
         onSpark={() => { setLauncherOpen(false); setSparkOpen(true) }}
       />
@@ -622,7 +809,7 @@ export function TikTokAdsView() {
         currency={currency}
         onCreated={() => {
           setSparkOpen(false)
-          mutateTree()
+          void refreshCampaignSurfaces()
         }}
       />
       <SmartPlusCreateDialog key={`SmartPlusCreateDialog:${concreteAdvertiser}`}
@@ -632,7 +819,7 @@ export function TikTokAdsView() {
         currency={currency}
         onCreated={() => {
           setSmartPlusOpen(false)
-          mutateTree()
+          void refreshCampaignSurfaces()
         }}
       />
       <OpsDialog key={`OpsDialog:${concreteAdvertiser}`}
@@ -649,7 +836,7 @@ export function TikTokAdsView() {
         onClose={() => setDuplicateCampaign(null)}
         advertisers={advertisers}
         currentAdvertiserId={duplicateCampaign?.platformAdAccountId || concreteAdvertiser}
-        onFinished={() => mutateTree()}
+        onFinished={() => { void refreshCampaignSurfaces() }}
       />
       <CampaignDrawer
         key={`${concreteAdvertiser}:${detailCampaign?.platformCampaignId}:${fromDate}:${toDate}`}

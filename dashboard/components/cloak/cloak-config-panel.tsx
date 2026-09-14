@@ -53,7 +53,7 @@ function Toggle({
   hint: string
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-secondary/40 px-3 py-2.5">
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2.5 transition-colors hover:bg-secondary/35">
       <span className="min-w-0">
         <span className="block text-sm text-foreground">{label}</span>
         <span className="block text-[11px] text-muted-foreground">{hint}</span>
@@ -140,8 +140,8 @@ export function CloakConfigPanel() {
             <ShieldCheck className="size-4" />
           </span>
           <div>
-            <SectionTitle>Filtro de bots (global)</SectionTitle>
-            <p className="text-xs text-muted-foreground">Regras padrão aplicadas a todos os links protegidos</p>
+            <SectionTitle>Proteção global</SectionTitle>
+            <p className="text-xs text-muted-foreground">Defina o comportamento padrão dos links protegidos</p>
           </div>
         </div>
         <StatusBadge status={cfg.enabled ? 'success' : 'neutral'}>
@@ -155,8 +155,8 @@ export function CloakConfigPanel() {
         <div
           className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-colors duration-240 ${
             cfg.enabled
-              ? 'border-[color:var(--pink)]/30 bg-[color:var(--pink)]/8'
-              : 'border-[color:var(--warning)]/30 bg-[color:var(--warning)]/8'
+              ? 'border-success/25 bg-success/8'
+              : 'border-warning/25 bg-warning/8'
           }`}
         >
           <span className="min-w-0">
@@ -174,11 +174,9 @@ export function CloakConfigPanel() {
           />
         </div>
         {cfg.enabled ? (
-          <div className="cloak-banner anim-pop-in mt-2 flex items-center gap-2 rounded-lg px-3 py-2">
-            <ShieldCheck className="size-3.5 text-[color:var(--pink)]" aria-hidden="true" />
-            <span className="text-[11px] font-medium text-[color:var(--pink)]">
-              Cloaker ativo — tráfego suspeito será desviado
-            </span>
+          <div className="anim-pop-in mt-2 flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-3 py-2">
+            <ShieldCheck className="size-3.5 text-success" aria-hidden="true" />
+            <span className="text-[11px] font-medium text-success">Proteção ativa — acessos suspeitos seguem para a página segura.</span>
           </div>
         ) : (
           /* A8.1: estado inativo com aviso claro — todo mundo vê a offer */
@@ -264,6 +262,18 @@ export function CloakConfigPanel() {
           </span>
         )}
       </label>
+
+      <details className="mb-4 rounded-2xl border border-border/60 bg-secondary/10 p-4">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Configurações avançadas</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Limites por IP, automação e camadas técnicas de detecção.</p>
+            </div>
+            <span className="rounded-full border border-border/60 bg-secondary/20 px-2 py-0.5 text-[10px] text-muted-foreground">Opcional</span>
+          </div>
+        </summary>
+        <div className="mt-4">
 
       {/* Itens 254/260: camada de velocity (anti device-farm). Configurável
           por conta com clamp seguro no servidor (3–100 acessos, 10–600s). */}
@@ -369,6 +379,9 @@ export function CloakConfigPanel() {
           )
         })()}
 
+        </div>
+      </details>
+
       {/* Teste ao vivo do request atual */}
       {test && (
         <div className="mt-4 rounded-lg border border-border bg-secondary/40 p-3">
@@ -405,7 +418,7 @@ export function CloakConfigPanel() {
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+          className="btn-primary px-4 py-2 text-sm"
         >
           {saving ? 'Salvando…' : savedAt ? 'Salvo ✓' : 'Salvar configuração'}
         </button>

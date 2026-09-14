@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X } from 'lucide-react'
+import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X, ShieldCheck, Activity, Link2 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { apiSend, useCloakTestProfiles } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
@@ -15,47 +15,46 @@ import { describeSignal, LAYER_META, type SignalLayer } from './signal-labels'
 
 export function CloakView() {
   return (
-    <div className="flex flex-col gap-6">
-      <Tabs.Root defaultValue="overview" className="flex flex-col gap-6">
-        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar w-full max-w-full sm:w-max">
-          <Tabs.Trigger
-            value="overview"
-            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-          >
-            Resultados
+    <div className="flex flex-col gap-5">
+      <div className="max-w-3xl">
+        <div className="inline-flex items-center gap-2 rounded-full border border-brand-pink/20 bg-brand-pink/10 px-3 py-1 text-[11px] font-medium text-brand-pink">
+          <ShieldCheck className="size-3.5" />
+          Proteção de tráfego
+        </div>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Proteção, decisões e links</h1>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          Acompanhe quem está chegando à oferta, ajuste o nível de proteção e gerencie os links protegidos sem misturar diagnóstico com configuração.
+        </p>
+      </div>
+
+      <Tabs.Root defaultValue="overview" className="flex flex-col gap-5">
+        <Tabs.List className="grid gap-2 rounded-[24px] border border-border/60 bg-card/45 p-2 md:grid-cols-3">
+          <Tabs.Trigger value="overview" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Activity className="size-4" /> Resultados</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Decisões reais, bloqueios e motivos.</p>
           </Tabs.Trigger>
-          <Tabs.Trigger
-            value="rules"
-            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-          >
-            Configurações
+          <Tabs.Trigger value="rules" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><SlidersHorizontal className="size-4" /> Regras</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Sensibilidade, sinais e testes do filtro.</p>
           </Tabs.Trigger>
-          <Tabs.Trigger
-            value="traffic"
-            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-          >
-            Links protegidos
+          <Tabs.Trigger value="traffic" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Link2 className="size-4" /> Links protegidos</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">URLs, destinos e histórico por link.</p>
           </Tabs.Trigger>
         </Tabs.List>
 
-        <Tabs.Content value="overview" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div data-tour="cloak-stats">
-            <CloakStatsPanel />
+        <Tabs.Content value="overview" className="outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div data-tour="cloak-stats"><CloakStatsPanel /></div>
+        </Tabs.Content>
+
+        <Tabs.Content value="rules" className="outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <div data-tour="cloak-config"><CloakConfigPanel /></div>
+            <div data-tour="cloak-test"><CloakTestPanel /></div>
           </div>
         </Tabs.Content>
 
-        <Tabs.Content value="rules" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            <div data-tour="cloak-config">
-              <CloakConfigPanel />
-            </div>
-            <div data-tour="cloak-test">
-              <CloakTestPanel />
-            </div>
-          </div>
-        </Tabs.Content>
-
-        <Tabs.Content value="traffic" className="focus:outline-none outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <Tabs.Content value="traffic" className="outline-none animate-in fade-in slide-in-from-bottom-2 duration-200">
           <CloakEntriesPanel />
         </Tabs.Content>
       </Tabs.Root>

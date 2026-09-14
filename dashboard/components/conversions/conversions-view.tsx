@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useMemo, useCallback } from 'react'
+import { useSWRConfig } from 'swr'
 import { Modal } from '@/components/ui/modal'
 import {
   Target,
@@ -55,6 +56,7 @@ import { QueueHealthPanel, QuarantinePanel } from '@/components/gateways/queue-h
 import { GatewaySelector } from './gateway-selector'
 import { DialogPortal } from '@/components/ui/dialog-portal'
 import { LinkGatewaysModal } from './link-gateways-modal'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 // Provedores de checkout suportados e cores de marca
 const PROVIDER_COLORS: Record<string, string> = {
@@ -99,8 +101,34 @@ const PROVIDER_HELP: Record<string, string> = {
 
 type TabKey = 'pixels' | 'gateways' | 'logs'
 
+function TrackingSummaryCard({ title, value, hint, tone = 'default', icon: Icon }: { title: string; value: string; hint: string; tone?: 'default' | 'success' | 'warning' | 'accent'; icon: any }) {
+  const toneClass = tone === 'success'
+    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+    : tone === 'warning'
+      ? 'border-warning/20 bg-warning/10 text-warning'
+      : tone === 'accent'
+        ? 'border-brand-cyan/20 bg-brand-cyan/10 text-brand-cyan'
+        : 'border-border/60 bg-secondary/20 text-foreground'
+
+  return (
+    <div className={`rounded-2xl border p-3.5 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+          <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{value}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
+        </div>
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-inherit">
+          <Icon className="size-4.5" aria-hidden="true" />
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function ConversionsView() {
   const { data: pxData, mutate: mutatePixels, isLoading: loadingPixels, error: pixelsError } = usePixels()
+  const { mutate: mutateCache } = useSWRConfig()
   const { data: gwData, mutate: mutateGateways, isLoading: loadingGateways, error: gatewaysError } = useGateways()
   const { data: convLog, mutate: mutateLog, isLoading: loadingLog, error: logError } = useConversionLog()
 
@@ -134,6 +162,14 @@ export function ConversionsView() {
   const [testingGwId, setTestingGwId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const refreshConversionDependents = useCallback(async () => {
+    await mutateCache((key) => apiCacheKeyMatches(key, [
+      '/api/pixels/health',
+      '/api/pixels/durability',
+      '/api/overview/health',
+    ]))
+  }, [mutateCache])
 
   // Mapa de gateways por ID
   const gatewaysById = useMemo(() => {
@@ -204,14 +240,14 @@ export function ConversionsView() {
   const handleRefreshAll = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      await Promise.all([mutatePixels(), mutateGateways(), mutateLog()])
+      await Promise.all([mutatePixels(), mutateGateways(), mutateLog(), refreshConversionDependents()])
       toast.success('Status atualizado')
     } catch {
       toast.error('Erro ao atualizar status')
     } finally {
       setIsRefreshing(false)
     }
-  }, [mutatePixels, mutateGateways, mutateLog])
+  }, [mutatePixels, mutateGateways, mutateLog, refreshConversionDependents])
 
   async function handleTogglePixelActive(px: Pixel) {
     if (mutatingPixel) return
@@ -223,7 +259,7 @@ export function ConversionsView() {
         active: nextState,
       })
       toast.success(nextState ? `Pixel ${px.name} ativado` : `Pixel ${px.name} pausado`)
-      await mutatePixels()
+      await Promise.allSettled([mutatePixels(), refreshConversionDependents()])
     } catch (e) {
       toast.error('Erro ao alterar status do pixel', {
         hint: e instanceof Error ? e.message : undefined,
@@ -269,7 +305,7 @@ export function ConversionsView() {
       // Pixels alimentam a matriz de roteamento e os cartões de checkout.
       // Revalida as duas fontes depois da exclusão confirmada para não deixar
       // outra aba/cartão apontando para um vínculo que já não existe.
-      await Promise.allSettled([mutatePixels(), mutateGateways()])
+      await Promise.allSettled([mutatePixels(), mutateGateways(), refreshConversionDependents()])
     } catch (e) {
       // Mantém o diálogo aberto: o usuário pode corrigir o vínculo informado
       // pelo backend e tentar de novo sem perder o contexto.
@@ -289,7 +325,7 @@ export function ConversionsView() {
       await apiSend(`/api/gateways/${target.id}`, 'DELETE')
       setDeletingGateway(null)
       toast.success(`Checkout "${target.name}" excluído`)
-      await Promise.allSettled([mutateGateways(), mutatePixels(), mutateLog()])
+      await Promise.allSettled([mutateGateways(), mutatePixels(), mutateLog(), refreshConversionDependents()])
     } catch (e) {
       // Em especial, o backend pode bloquear a remoção enquanto houver Pixels
       // explicitamente vinculados a este checkout. Não escondemos esse erro.
@@ -333,6 +369,38 @@ export function ConversionsView() {
     })
   }, [convLog, logFilter])
 
+  const logSummary = useMemo(() => {
+    const rows = convLog?.log ?? []
+    let success = 0
+    let error = 0
+    let revenue = 0
+    let lastSuccessfulRow: ConversionLogRow | null = null
+    for (const row of rows) {
+      const status = conversionStatus(row).kind
+      if (status === 'success') {
+        success += 1
+        revenue += Number(row.amount || 0)
+        const currentAt = new Date(String(row.at ?? (row as any).createdAt ?? 0)).getTime()
+        const previousAt = lastSuccessfulRow ? new Date(String(lastSuccessfulRow.at ?? (lastSuccessfulRow as any).createdAt ?? 0)).getTime() : 0
+        if (!lastSuccessfulRow || currentAt > previousAt) lastSuccessfulRow = row
+      } else if (status === 'error') {
+        error += 1
+      }
+    }
+    return { total: rows.length, success, error, revenue, lastSuccessfulRow }
+  }, [convLog])
+
+  const activePixels = useMemo(() => pixels.filter((pixel) => pixel.active).length, [pixels])
+
+  const trackingReadiness = useMemo(() => {
+    const pixelReady = activePixels > 0
+    const gatewayReady = gateways.length > 0
+    if (syncValidation.hasFailure) return { label: 'Atenção', tone: 'warning' as const, hint: 'Existe ao menos uma falha recente de processamento.' }
+    if (pixelReady && gatewayReady && logSummary.success > 0) return { label: 'Operacional', tone: 'success' as const, hint: 'Pixels, checkouts e entregas estão respondendo.' }
+    if (pixelReady || gatewayReady) return { label: 'Configurando', tone: 'accent' as const, hint: 'A estrutura já começou, mas ainda faltam sinais completos.' }
+    return { label: 'Iniciar', tone: 'default' as const, hint: 'Cadastre o primeiro pixel e conecte um checkout.' }
+  }, [activePixels, gateways.length, logSummary.success, syncValidation.hasFailure])
+
   if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
 
   return (
@@ -347,177 +415,219 @@ export function ConversionsView() {
         </button>
       )}
 
-      {/* ── CABEÇALHO LIMPO E DIRETO ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-foreground tracking-tight">Pixels &amp; Conversões</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Conecte seus pixels do TikTok e vincule aos seus checkouts de venda.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleRefreshAll}
-            disabled={isRefreshing}
-            className="p-2 rounded-xl border border-border/80 bg-secondary/30 text-muted-foreground hover:text-foreground hover:bg-secondary transition-all disabled:opacity-50"
-            title="Atualizar dados"
-          >
-            <RefreshCw className={`size-4 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setEditingGateway('new')}
-            className="btn-secondary"
-          >
-            <CreditCard className="size-3.5" />
-            <span>Cadastrar checkout</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setEditingPixel('new')}
-            className="btn-primary"
-          >
-            <Plus className="size-3.5 stroke-[2.5]" />
-            <span>Novo Pixel</span>
-          </button>
-        </div>
-      </div>
-
-      <details className="conversion-guide">
-        <summary>Como conectar e verificar <span>4 passos</span></summary>
-        <ol>
-          <li><strong>1. Cadastre o Pixel</strong><p>Informe o código e token da conta TikTok.</p><button type="button" className="btn-ghost" onClick={() => setEditingPixel('new')}>Cadastrar Pixel</button></li>
-          <li><strong>2. Instale a tag</strong><p>Abra o Pixel cadastrado e copie a tag para o seu site.</p><button type="button" className="btn-ghost" onClick={() => setActiveTab('pixels')}>Ver Pixels</button></li>
-          <li><strong>3. Vincule o checkout</strong><p>Cadastre o gateway, configure seu webhook e selecione o vínculo no Pixel.</p><button type="button" className="btn-ghost" onClick={() => setEditingGateway('new')}>Cadastrar checkout</button></li>
-          <li><strong>4. Confira a entrega</strong><p>O histórico mostra os eventos recebidos e as confirmações do TikTok.</p><button type="button" className="btn-ghost" onClick={() => setActiveTab('logs')}>Ver entregas</button></li>
-        </ol>
-      </details>
-      {/* ── ALERTA DE FALHA (SE HOUVER) ── */}
-      {syncValidation.hasFailure && (
-        <div className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-3.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="status-dot status-dot--err status-dot--pulse" />
-            <span className="text-xs font-semibold text-destructive">
-              {syncValidation.failureDescription}
-            </span>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
+              <Activity className="size-3.5" />
+              Rastreamento operacional
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Conversões, Pixels e Checkouts</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              Configure a base do rastreamento, acompanhe a saúde das entregas e valide rapidamente se as vendas estão chegando ao TikTok do jeito certo.
+            </p>
           </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            {syncValidation.failedGateway && (
-              <button
-                type="button"
-                onClick={() => handleTestGateway(syncValidation.failedGateway!)}
-                disabled={testingGwId === syncValidation.failedGateway.id}
-                className="rounded-lg bg-destructive px-3 py-1 text-xs font-bold text-destructive-foreground hover:brightness-110 disabled:opacity-50 transition-all"
-              >
-                {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
-              </button>
-            )}
+
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button
               type="button"
-              onClick={() => setActiveTab('logs')}
-              className="rounded-lg border border-border/80 bg-secondary/60 px-2.5 py-1 text-xs text-foreground hover:bg-secondary transition-all"
+              onClick={handleRefreshAll}
+              disabled={isRefreshing}
+              className="btn-ghost px-3 py-2 text-xs"
+              title="Atualizar dados"
             >
-              Ver Detalhes
+              <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
+              Atualizar
+            </button>
+            <button type="button" onClick={() => setEditingGateway('new')} className="btn-secondary">
+              <CreditCard className="size-3.5" />
+              <span>Cadastrar checkout</span>
+            </button>
+            <button type="button" onClick={() => setEditingPixel('new')} className="btn-primary">
+              <Plus className="size-3.5 stroke-[2.5]" />
+              <span>Novo Pixel</span>
             </button>
           </div>
         </div>
-      )}
 
-      {/* ── NAVEGAÇÃO LIMPA POR APENAS 3 ABAS ── */}
-      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('pixels')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-            activeTab === 'pixels'
-              ? 'bg-foreground text-background shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'
-          }`}
-        >
-          <Target className="size-3.5" />
-          <span>Pixels do TikTok</span>
-          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-            activeTab === 'pixels' ? 'bg-background/20 text-background' : 'bg-secondary text-muted-foreground'
-          }`}>
-            {pixels.length}
-          </span>
-        </button>
+        <div className="grid gap-4 xl:grid-cols-[1.5fr,1fr]">
+          <GlassCard className="p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Resumo do rastreamento</p>
+                <h2 className="mt-1 text-sm font-semibold text-foreground">Leitura rápida da operação</h2>
+              </div>
+              <span className="rounded-full border border-white/10 bg-secondary/20 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+                Atualizado agora
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <TrackingSummaryCard title="Pixels ativos" value={`${activePixels}/${pixels.length || 0}`} hint={activePixels ? 'Pixels prontos para receber eventos.' : 'Cadastre o primeiro pixel.'} tone={activePixels ? 'success' : 'default'} icon={Target} />
+              <TrackingSummaryCard title="Checkouts" value={`${gateways.length}`} hint={gateways.length ? 'Plataformas prontas para enviar compras.' : 'Conecte o primeiro checkout.'} tone={gateways.length ? 'accent' : 'default'} icon={CreditCard} />
+              <TrackingSummaryCard title="Última venda" value={logSummary.lastSuccessfulRow ? timeAgo(String(logSummary.lastSuccessfulRow.at ?? (logSummary.lastSuccessfulRow as any).createdAt)) : 'Sem sinal'} hint={logSummary.success ? `${logSummary.success} entregas aprovadas` : 'Ainda sem compra confirmada'} tone={logSummary.success ? 'success' : 'default'} icon={ArrowUpRight} />
+              <TrackingSummaryCard title="Saúde" value={trackingReadiness.label} hint={trackingReadiness.hint} tone={trackingReadiness.tone} icon={ShieldCheck} />
+            </div>
+          </GlassCard>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('gateways')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-            activeTab === 'gateways'
-              ? 'bg-foreground text-background shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'
-          }`}
-        >
-          <CreditCard className="size-3.5" />
-          <span>Checkouts &amp; Webhooks</span>
-          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-            activeTab === 'gateways' ? 'bg-background/20 text-background' : 'bg-secondary text-muted-foreground'
-          }`}>
-            {gateways.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('logs')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-            activeTab === 'logs'
-              ? 'bg-foreground text-background shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'
-          }`}
-        >
-          <Clock className="size-3.5" />
-          <span>Vendas Recebidas</span>
-          {convLog?.log && convLog.log.length > 0 && (
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-              activeTab === 'logs' ? 'bg-background/20 text-background' : 'bg-secondary text-muted-foreground'
-            }`}>
-              {convLog.log.length}
-            </span>
-          )}
-        </button>
+          <GlassCard className="p-4 sm:p-5">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-brand-cyan" />
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Diagnóstico guiado</h2>
+                <p className="text-[11px] text-muted-foreground">Siga o fluxo principal para deixar a estrutura pronta sem se perder.</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">1. Pixel do TikTok</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Cadastre o pixel e instale a tag no site.</p>
+                  </div>
+                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingPixel('new')}>Abrir</button>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">2. Checkout e webhook</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Conecte a plataforma que envia as compras para o ROINADOS.</p>
+                  </div>
+                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingGateway('new')}>Conectar</button>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">3. Vinculação</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Escolha quais checkouts alimentam cada pixel ativo.</p>
+                  </div>
+                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('pixels')}>Revisar pixels</button>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">4. Entrega confirmada</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Acompanhe as compras recebidas e eventuais falhas de entrega.</p>
+                  </div>
+                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('logs')}>Ver entregas</button>
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
       </div>
+
+      {syncValidation.hasFailure ? (
+        <GlassCard className="border-destructive/30 bg-destructive/5 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 status-dot status-dot--err status-dot--pulse" />
+              <div>
+                <h3 className="text-sm font-semibold text-destructive">Existe uma falha recente no rastreamento</h3>
+                <p className="mt-1 text-xs text-destructive/90">{syncValidation.failureDescription}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              {syncValidation.failedGateway ? (
+                <button
+                  type="button"
+                  onClick={() => handleTestGateway(syncValidation.failedGateway!)}
+                  disabled={testingGwId === syncValidation.failedGateway.id}
+                  className="rounded-xl bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground hover:brightness-110 disabled:opacity-50"
+                >
+                  {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setActiveTab('logs')} className="btn-secondary text-xs">
+                Ver entregas
+              </button>
+            </div>
+          </div>
+        </GlassCard>
+      ) : null}
+
+      <GlassCard className="p-2">
+        <div className="grid gap-2 md:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('pixels')}
+            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'pixels' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-foreground">
+                <Target className="size-4" />
+                <span className="text-sm font-semibold">Pixels</span>
+              </div>
+              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{pixels.length}</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Instalação, token, vínculos e saúde dos pixels.</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('gateways')}
+            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'gateways' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-foreground">
+                <CreditCard className="size-4" />
+                <span className="text-sm font-semibold">Checkouts</span>
+              </div>
+              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{gateways.length}</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Webhooks, provedores e roteamento das vendas.</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('logs')}
+            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'logs' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-foreground">
+                <Clock className="size-4" />
+                <span className="text-sm font-semibold">Entregas</span>
+              </div>
+              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{logSummary.total}</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Compras recebidas, confirmações e falhas recentes.</p>
+          </button>
+        </div>
+      </GlassCard>
 
       {/* ── CONTEÚDO DAS ABAS ── */}
 
       {/* 1. ABA: PIXELS DO TIKTOK */}
       {activeTab === 'pixels' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Cada pixel possui seu código de instalação no site e pode receber compras de todos ou apenas de checkouts específicos.
-            </p>
-
-            <div className="flex items-center gap-2">
-              <div className="relative w-full sm:w-60">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Buscar pixel…"
-                  value={pixelSearch}
-                  onChange={(e) => setPixelSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
-                />
+          <GlassCard className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Pixels do TikTok</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  Cada pixel possui o código de instalação do site, um token opcional para envio pelo servidor e vínculos que definem quais checkouts alimentam suas conversões.
+                </p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setEditingPixel('new')}
-                className="btn-primary shrink-0 text-xs py-1.5"
-              >
-                <Plus className="size-3.5" />
-                Novo Pixel
-              </button>
+              <div className="flex items-center gap-2 self-start">
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Buscar pixel…"
+                    value={pixelSearch}
+                    onChange={(e) => setPixelSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
+                  />
+                </div>
+                <button type="button" onClick={() => setEditingPixel('new')} className="btn-primary shrink-0 text-xs py-2">
+                  <Plus className="size-3.5" />
+                  Novo Pixel
+                </button>
+              </div>
             </div>
-          </div>
+          </GlassCard>
 
           {loadingPixels ? (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -574,33 +684,32 @@ export function ConversionsView() {
       {/* 2. ABA: CHECKOUTS & WEBHOOKS */}
       {activeTab === 'gateways' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Copie o link do webhook e cole na Kiwify, Hotmart, PerfectPay ou qualquer outra plataforma para receber as compras.
-            </p>
-
-            <div className="flex items-center gap-2">
-              <div className="relative w-full sm:w-60">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Buscar checkout…"
-                  value={gatewaySearch}
-                  onChange={(e) => setGatewaySearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
-                />
+          <GlassCard className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Checkouts &amp; webhooks</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  Cadastre cada plataforma de pagamento, copie o webhook correspondente e valide se as compras estão chegando ao ROINADOS antes de seguir para o TikTok.
+                </p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setEditingGateway('new')}
-                className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-all shrink-0"
-              >
-                <Plus className="size-3.5" />
-                Conectar Checkout
-              </button>
+              <div className="flex items-center gap-2 self-start">
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Buscar checkout…"
+                    value={gatewaySearch}
+                    onChange={(e) => setGatewaySearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
+                  />
+                </div>
+                <button type="button" onClick={() => setEditingGateway('new')} className="btn-secondary shrink-0 text-xs py-2">
+                  <Plus className="size-3.5" />
+                  Conectar checkout
+                </button>
+              </div>
             </div>
-          </div>
+          </GlassCard>
 
           {loadingGateways ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -652,41 +761,53 @@ export function ConversionsView() {
       {/* 3. ABA: VENDAS RECEBIDAS */}
       {activeTab === 'logs' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Eventos recebidos dos checkouts. O envio só aparece confirmado após a resposta do TikTok.
-            </p>
-
-            <div className="flex items-center gap-1 rounded-xl bg-secondary/50 p-1 border border-border/60">
+          <GlassCard className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Entregas e confirmações</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  Aqui aparecem as compras recebidas dos checkouts. A confirmação final só é considerada concluída depois da resposta do TikTok para cada pixel associado.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Total</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{logSummary.total}</p>
+                </div>
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80">Aprovadas</p>
+                  <p className="mt-1 text-sm font-semibold text-emerald-300">{logSummary.success}</p>
+                </div>
+                <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-destructive/80">Falhas</p>
+                  <p className="mt-1 text-sm font-semibold text-destructive">{logSummary.error}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-1 rounded-xl border border-border/60 bg-secondary/35 p-1 w-fit">
               <button
                 type="button"
                 onClick={() => setLogFilter('all')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                  logFilter === 'all' ? 'bg-foreground text-background font-bold' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'all' ? 'bg-foreground text-background font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Todas
               </button>
               <button
                 type="button"
                 onClick={() => setLogFilter('success')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                  logFilter === 'success' ? 'bg-emerald-500 text-white font-bold' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'success' ? 'bg-emerald-500 text-white font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Aprovadas
               </button>
               <button
                 type="button"
                 onClick={() => setLogFilter('error')}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                  logFilter === 'error' ? 'bg-destructive text-white font-bold' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'error' ? 'bg-destructive text-white font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
               >
-                Com Falha
+                Com falha
               </button>
             </div>
-          </div>
+          </GlassCard>
 
           {filteredLogs.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center rounded-2xl border border-dashed border-border/80 bg-card/40">
@@ -697,65 +818,86 @@ export function ConversionsView() {
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {filteredLogs.map((row, idx) => {
-                const outcome = conversionStatus(row)
-                const isErr = outcome.kind === 'error'
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/45">
+              <div className="hidden grid-cols-[1.8fr,1fr,0.8fr] items-center gap-3 border-b border-border/50 bg-secondary/20 px-4 py-3 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground md:grid">
+                <span>Evento</span>
+                <span>Status</span>
+                <span className="text-right">Recebido</span>
+              </div>
+              <div className="flex flex-col gap-2 p-2">
+                {filteredLogs.map((row, idx) => {
+                  const outcome = conversionStatus(row)
+                  const isErr = outcome.kind === 'error'
+                  const eventDate = row.at ?? (row as any).createdAt
 
-                const eventDate = row.at ?? (row as any).createdAt
+                  return (
+                    <div
+                      key={row.id || idx}
+                      className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card/70 px-4 py-3 text-xs transition-all hover:border-brand-cyan/20 hover:bg-card/90"
+                    >
+                      <div className="flex flex-col gap-3 md:grid md:grid-cols-[1.8fr,1fr,0.8fr] md:items-center">
+                        <div className="flex items-start gap-3">
+                          <span className={`mt-1 status-dot ${isErr ? 'status-dot--err' : outcome.kind === 'success' ? 'status-dot--ok' : ''}`} />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-foreground">{conversionEvent(row.event)}</span>
+                              <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">{row.gateway || 'Checkout'}</span>
+                              {row.orderId ? <span className="rounded-md border border-white/5 bg-black/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">#{row.orderId}</span> : null}
+                              {row.amount != null ? <span className="font-mono text-[11px] font-semibold text-brand-cyan">{conversionAmount(row)}</span> : null}
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground">Compra recebida do checkout e encaminhada para os pixels vinculados.</p>
+                          </div>
+                        </div>
 
-                return (
-                  <div
-                    key={row.id || idx}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs py-3 px-4 rounded-2xl border border-border/50 bg-card/60 hover:bg-card/90 transition-all shadow-sm"
-                  >
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span
-                        className={`status-dot ${
-                          isErr ? 'status-dot--err' : outcome.kind === 'success' ? 'status-dot--ok' : ''
-                        }`}
-                      />
-                      <span className="font-bold text-foreground">
-                        {conversionEvent(row.event)}
-                      </span>
-                      <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                        {row.gateway || 'Checkout'}
-                      </span>
-                      {row.orderId && (
-                        <span className="font-mono text-[10px] text-muted-foreground bg-black/40 px-2 py-0.5 rounded border border-white/5">
-                          #{row.orderId}
-                        </span>
-                      )}
-                      {row.amount != null && (
-                        <span className="font-mono font-bold text-brand-cyan">
-                          {conversionAmount(row)}
-                        </span>
-                      )}
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
-                          isErr
-                            ? 'bg-destructive/15 text-destructive border border-destructive/30'
-                            : outcome.kind === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-secondary text-muted-foreground border border-border'
-                        }`}
-                      >
-                        <ShieldCheck className="size-3" />
-                        {outcome.label}
-                      </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${isErr ? 'border border-destructive/30 bg-destructive/15 text-destructive' : outcome.kind === 'success' ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border border-border bg-secondary text-muted-foreground'}`}>
+                            <ShieldCheck className="size-3" />
+                            {outcome.label}
+                          </span>
+                          {Array.isArray(row.capi) && row.capi.some(result => !result.ok) ? (
+                            <span className="text-[11px] text-destructive">{row.capi.filter(result => !result.ok).map(result => `${result.pixel}: ${result.message || 'Envio não confirmado'}`).join(' · ')}</span>
+                          ) : null}
+                        </div>
+
+                        <div className="text-left text-[11px] text-muted-foreground md:text-right">
+                          <span>{eventDate ? timeAgo(String(eventDate)) : 'recentemente'}</span>
+                        </div>
+                      </div>
                     </div>
-
-                    {Array.isArray(row.capi) && row.capi.some(result => !result.ok) && <p className="text-xs text-destructive">{row.capi.filter(result => !result.ok).map(result => `${result.pixel}: ${result.message || 'Envio não confirmado'}`).join(' · ')}</p>}
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground shrink-0">
-                      <span>{eventDate ? timeAgo(String(eventDate)) : 'recentemente'}</span>
-                    </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {activeTab === 'logs' && <><EventDeliveryPanel pixels={pixels} /><details className="rounded-xl border border-border p-4"><summary className="text-sm cursor-pointer">Fila e notificações recusadas</summary><div className="mt-4 flex flex-col gap-4"><QueueHealthPanel /><QuarantinePanel /></div></details></>}
+      {activeTab === 'logs' && (
+        <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+          <GlassCard className="p-4 sm:p-5">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-foreground">Diagnóstico de entrega</h3>
+              <p className="mt-1 text-[11px] text-muted-foreground">Cobertura dos pixels e status dos últimos envios processados.</p>
+            </div>
+            <EventDeliveryPanel pixels={pixels} />
+          </GlassCard>
+          <GlassCard className="p-4 sm:p-5">
+            <details className="group">
+              <summary className="cursor-pointer list-none text-sm font-semibold text-foreground">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Fila e notificações recusadas</span>
+                  <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                </div>
+              </summary>
+              <p className="mt-2 text-[11px] text-muted-foreground">Use este bloco quando houver atraso, erro de fila ou webhooks que precisaram ser isolados.</p>
+              <div className="mt-4 flex flex-col gap-4">
+                <QueueHealthPanel />
+                <QuarantinePanel />
+              </div>
+            </details>
+          </GlassCard>
+        </div>
+      )}
 
       {testingPixel && <PixelTestDialog pixel={testingPixel} onClose={() => setTestingPixel(null)} onSent={() => { void mutateLog(); void mutatePixels() }} />}
       {/* ── MODAL: CÓDIGO DO SITE ── */}
@@ -774,7 +916,7 @@ export function ConversionsView() {
           onClose={() => setLinkingPixel(null)}
           onSaved={() => {
             setLinkingPixel(null)
-            mutatePixels()
+            void Promise.allSettled([mutatePixels(), refreshConversionDependents()])
           }}
         />
       )}
@@ -788,8 +930,7 @@ export function ConversionsView() {
           onClose={() => setEditingPixel(null)}
           onSaved={() => {
             setEditingPixel(null)
-            mutatePixels()
-            mutateGateways()
+            void Promise.allSettled([mutatePixels(), mutateGateways(), refreshConversionDependents()])
           }}
         />
       )}
@@ -803,9 +944,7 @@ export function ConversionsView() {
           onClose={() => setEditingGateway(null)}
           onSaved={() => {
             setEditingGateway(null)
-            mutateGateways()
-            mutatePixels()
-            mutateLog()
+            void Promise.allSettled([mutateGateways(), mutatePixels(), mutateLog(), refreshConversionDependents()])
           }}
         />
       )}

@@ -98,7 +98,7 @@ function CapiReplayButton({ leadId }: { leadId: string }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-xs">
+    <div className="flex items-baseline justify-between gap-3 border-b border-border/30 py-2 text-xs last:border-b-0">
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="truncate text-right text-foreground">{children}</span>
     </div>
@@ -139,13 +139,13 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
         ref={panelRef}
         tabIndex={-1}
         className={cn(
-          "anim-drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col overflow-y-auto border-l bg-card shadow-2xl outline-none transition-all duration-500",
+          "anim-drawer-in absolute inset-y-0 right-0 flex w-full max-w-lg flex-col overflow-y-auto border-l bg-card/95 shadow-2xl outline-none backdrop-blur-xl transition-all duration-500",
           lead?.stage === 'purchased' ? 'shadow-[0_0_60px_rgba(34,197,94,0.15)] border-l-success/40' : 
           lead?.stage === 'abandoned' ? 'shadow-[0_0_60px_rgba(254,44,85,0.15)] border-l-destructive/40' : 
           'border-border/60'
         )}
       >
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/50 bg-card/95 px-5 py-4 backdrop-blur">
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/50 bg-card/90 px-5 py-4 backdrop-blur-xl">
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">
               {lead?.customer || 'Lead sem identificação'}
@@ -157,7 +157,7 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
           </button>
         </header>
 
-        <div className="flex flex-col gap-5 px-5 py-4">
+        <div className="flex flex-col gap-4 px-5 py-5">
           {isLoading && !lead ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-5 w-32" />
@@ -171,7 +171,7 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
           ) : lead ? (
             <>
               {/* etapa + marcações */}
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/60 bg-secondary/15 p-3">
                 <span
                   className={cn(
                     'rounded-md px-2 py-0.5 text-xs font-semibold',
@@ -191,16 +191,16 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
               </div>
 
               {/* identidade e contato (data-sensitive respeita modo privacidade) */}
-              <section aria-label="Contato" className="flex flex-col gap-1.5" data-sensitive>
-                <h3 className="label-mono">Contato</h3>
+              <section aria-label="Contato" className="rounded-2xl border border-border/60 bg-secondary/10 p-4" data-sensitive>
+                <h3 className="label-mono mb-2">Contato</h3>
                 <Field label="Nome">{lead.customer || '—'}</Field>
                 <Field label="E-mail">{lead.email || '—'}</Field>
                 <Field label="Telefone">{lead.phone || '—'}</Field>
               </section>
 
               {/* origem */}
-              <section aria-label="Origem" className="flex flex-col gap-1.5">
-                <h3 className="label-mono">Origem</h3>
+              <section aria-label="Origem" className="rounded-2xl border border-border/60 bg-secondary/10 p-4">
+                <h3 className="label-mono mb-2">Origem</h3>
                 <Field label="Local">
                   {lead.country ? (
                     <>
@@ -240,8 +240,8 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
               </section>
 
               {/* pagamento */}
-              <section aria-label="Pagamento" className="flex flex-col gap-1.5">
-                <h3 className="label-mono">Pagamento</h3>
+              <section aria-label="Pagamento" className="rounded-2xl border border-border/60 bg-secondary/10 p-4">
+                <h3 className="label-mono mb-2">Pagamento</h3>
                 <Field label="Gateway">{lead.gateway ? gwLabel(lead.gateway) : '—'}</Field>
                 {/* 0 centavos = gateway não reportou valor; mostrar "R$ 0,00"
                     sugeriria venda gratuita, então tratamos como ausente */}
@@ -276,8 +276,8 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
               </section>
 
               {/* jornada página a página */}
-              <section aria-label="Jornada" className="flex flex-col gap-1.5">
-                <h3 className="label-mono">Jornada</h3>
+              <section aria-label="Jornada" className="rounded-2xl border border-border/60 bg-secondary/10 p-4">
+                <h3 className="label-mono mb-2">Jornada</h3>
                 {lead.journey && lead.journey.length > 0 ? (
                   <ol className="flex flex-col">
                     {lead.journey.map((step, i) => (

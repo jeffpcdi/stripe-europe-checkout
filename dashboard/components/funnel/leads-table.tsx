@@ -317,154 +317,154 @@ export function LeadsTable({
   }
 
   return (
-    <GlassCard className="p-4">
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <h2 className="section-head text-sm font-semibold text-foreground">Leads</h2>
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {plural(filtered.length, 'lead')}
-        </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {/* Item 312: toggle de vendas órfãs — só aparece quando existem */}
-          {orphanCount > 0 ? (
+    <GlassCard className="overflow-hidden p-0">
+      <div className="border-b border-border/50 bg-secondary/[0.08] p-4 sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">Leads</h2>
+              <span className="rounded-full border border-border/50 bg-black/15 px-2 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                {plural(filtered.length, 'lead')}
+              </span>
+              {orphanCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOrphans((value) => !value)
+                    resetPage()
+                  }}
+                  aria-pressed={showOrphans}
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors',
+                    showOrphans
+                      ? 'border-warning/40 bg-warning/10 text-warning'
+                      : 'border-border/50 text-muted-foreground hover:bg-secondary hover:text-foreground',
+                  )}
+                  title="Vendas confirmadas pelo gateway sem lead rastreado"
+                >
+                  {plural(orphanCount, 'venda órfã', 'vendas órfãs')}
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+              Busque uma pessoa, filtre por etapa e abra a linha para entender origem, dispositivo, pagamento e jornada completa.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[220px] flex-1 sm:flex-none">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                ref={searchRef}
+                type="search"
+                value={rawQuery}
+                onChange={(event) => {
+                  setRawQuery(event.target.value)
+                  resetPage()
+                }}
+                placeholder="Buscar por nome, e-mail, telefone…"
+                className="h-9 w-full rounded-xl border border-border/60 bg-background/50 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+              />
+              {searching ? (
+                <span className="micro-spinner absolute right-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+              ) : null}
+            </div>
             <button
               type="button"
-              onClick={() => {
-                setShowOrphans((v) => !v)
-                resetPage()
-              }}
-              aria-pressed={showOrphans}
-              className={cn(
-                'flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors',
-                showOrphans
-                  ? 'border-warning/50 bg-warning/10 text-warning'
-                  : 'border-border/60 text-muted-foreground hover:bg-secondary hover:text-foreground',
-              )}
-              title="Vendas confirmadas pelo gateway sem lead rastreado (compra sem passar pelo link, ou de outro dispositivo)"
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="btn-ghost h-9 px-3 text-xs disabled:opacity-40"
+              title="Exportar leads filtrados como CSV"
             >
-              {plural(orphanCount, 'venda órfã', 'vendas órfãs')}
+              <Download className="size-3.5" aria-hidden="true" />
+              CSV
             </button>
-          ) : null}
-          {/* Item 130: exportar CSV discreto no canto do card */}
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={filtered.length === 0}
-            className="flex h-8 items-center gap-1.5 rounded-md border border-border/60 px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-            title="Exportar leads filtrados como CSV"
-          >
-            <Download className="size-3.5" aria-hidden="true" />
-            CSV
-          </button>
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              ref={searchRef}
-              type="search"
-              value={rawQuery}
-              onChange={(e) => {
-                setRawQuery(e.target.value)
-                resetPage()
-              }}
-              placeholder="Buscar lead… (Cmd+K)"
-              className="h-8 w-52 rounded-md border border-border/60 bg-muted/20 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-            />
-            {/* Item 180: micro-spinner enquanto o debounce roda */}
-            {searching && (
-              <span
-                className="micro-spinner absolute right-2.5 top-1/2 -translate-y-1/2"
-                aria-hidden="true"
-              />
-            )}
           </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <select
             value={stage}
-            onChange={(e) => {
-              setStage(e.target.value)
+            onChange={(event) => {
+              setStage(event.target.value)
               resetPage()
             }}
             aria-label="Filtrar por etapa"
-            className="h-8 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="h-9 rounded-xl border border-border/60 bg-background/40 px-3 text-xs text-foreground focus:border-primary/40 focus:outline-none"
           >
-            <option value="">Todas etapas</option>
-            <option value="visit">Visita</option>
+            <option value="">Todas as etapas</option>
+            <option value="visit">Visitou</option>
             <option value="checkout">Checkout</option>
             <option value="purchased">Comprou</option>
           </select>
+
           <select
             value={gateway}
-            onChange={(e) => {
-              setGateway(e.target.value)
+            onChange={(event) => {
+              setGateway(event.target.value)
               resetPage()
             }}
             aria-label="Filtrar por gateway"
-            className="h-8 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="h-9 rounded-xl border border-border/60 bg-background/40 px-3 text-xs text-foreground focus:border-primary/40 focus:outline-none"
           >
-            <option value="">Todos gateways</option>
-            {gateways.map((g) => (
-              <option key={g} value={g}>
-                {gwLabel(g)}
-              </option>
+            <option value="">Todos os gateways</option>
+            {gateways.map((item) => (
+              <option key={item} value={item}>{gwLabel(item)}</option>
             ))}
           </select>
-          {/* Item 306: filtro por país (só quando há 2+ países) */}
+
           {countries.length > 1 ? (
             <select
               value={country}
-              onChange={(e) => {
-                setCountry(e.target.value)
+              onChange={(event) => {
+                setCountry(event.target.value)
                 resetPage()
               }}
               aria-label="Filtrar por país"
-              className="h-8 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="h-9 rounded-xl border border-border/60 bg-background/40 px-3 text-xs text-foreground focus:border-primary/40 focus:outline-none"
             >
-              <option value="">Todos países</option>
+              <option value="">Todos os países</option>
               {countries.map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
+                <option key={code} value={code}>{name}</option>
               ))}
             </select>
           ) : null}
-          {/* Itens 305/309: colunas opcionais (persistem entre sessões) */}
-          <div className="flex items-center gap-1" role="group" aria-label="Colunas opcionais">
-            <button
-              type="button"
-              aria-pressed={showCampaign}
-              onClick={() => setShowCampaign(!showCampaign)}
-              className={cn(
-                'h-8 rounded-md border px-2 text-[11px] transition-colors',
-                showCampaign
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 text-muted-foreground hover:text-foreground',
-              )}
-              title="Mostrar/ocultar coluna de campanha (UTM)"
-            >
-              Campanha
-            </button>
-            <button
-              type="button"
-              aria-pressed={showEmail}
-              onClick={() => setShowEmail(!showEmail)}
-              className={cn(
-                'h-8 rounded-md border px-2 text-[11px] transition-colors',
-                showEmail
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 text-muted-foreground hover:text-foreground',
-              )}
-              title="Mostrar/ocultar coluna de e-mail (mascarado)"
-            >
-              E-mail
-            </button>
-          </div>
+
+          <details className="relative">
+            <summary className="flex h-9 cursor-pointer list-none items-center gap-1.5 rounded-xl border border-border/60 bg-background/40 px-3 text-xs text-muted-foreground transition-colors hover:text-foreground">
+              Colunas
+              <ChevronDown className="size-3.5" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-2 min-w-40 rounded-xl border border-border/70 bg-card p-2 shadow-2xl">
+              <button
+                type="button"
+                aria-pressed={showCampaign}
+                onClick={() => setShowCampaign(!showCampaign)}
+                className={cn('flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs', showCampaign ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground')}
+              >
+                Campanha
+                {showCampaign ? '✓' : ''}
+              </button>
+              <button
+                type="button"
+                aria-pressed={showEmail}
+                onClick={() => setShowEmail(!showEmail)}
+                className={cn('flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs', showEmail ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground')}
+              >
+                E-mail
+                {showEmail ? '✓' : ''}
+              </button>
+            </div>
+          </details>
         </div>
       </div>
 
       {/* Item 148: chips dos filtros ativos, removíveis com X */}
       {chips.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <div className="mx-4 mt-3 flex flex-wrap items-center gap-1.5 sm:mx-5">
           {chips.map((c) => (
             <button
               key={c.label}
@@ -482,13 +482,13 @@ export function LeadsTable({
           ))}
         </div>
       ) : (
-        <div className="mb-2" />
+        <div className="h-3" />
       )}
 
       {filtered.length > 0 ? (
         <>
           {/* V2-84: zebra sutil nas linhas pares — leitura de tabela longa */}
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto px-4 pb-2 sm:px-5">
             <table className="table-zebra w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
@@ -690,7 +690,7 @@ export function LeadsTable({
 
           {/* Item 150: paginação glass com contagem mono */}
           {pageCount > 1 ? (
-            <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-3">
+            <div className="mx-4 mt-3 flex items-center justify-between border-t border-border/40 pb-4 pt-3 sm:mx-5">
               <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
                 {from}–{to} de {filtered.length}
               </span>

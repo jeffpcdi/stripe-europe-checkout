@@ -8,6 +8,7 @@
 // Custo: zero requests novas — todos os hooks já eram pagos pela aba.
 
 import { useState } from 'react'
+import { useSWRConfig } from 'swr'
 import {
   Bell, Check, ChevronRight, CircleAlert, ListTodo, Pause, ShieldAlert,
   TrendingDown, TrendingUp, X, Inbox,
@@ -18,6 +19,7 @@ import { cleanCampaignName, timeAgo } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { GlassCard } from '@/components/glass-card'
 import { cn } from '@/lib/utils'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 const ACTION_META: Record<string, { label: string; Icon: typeof Pause }> = {
   pause: { label: 'Pausar', Icon: Pause },
@@ -128,6 +130,7 @@ export function NeedsYouInbox({
   onGoAutomations: () => void
 }) {
   const { data: proposals, mutate, error, isLoading } = useAdsProposals(active, 'pending', adAccountId)
+  const { mutate: mutateCache } = useSWRConfig()
   const { data: jobs } = useAdsOpsJobs(active, adAccountId)
   const { data: health } = useAdsHealth(active)
   const { data: alertsCfg } = useAdsAlerts(active, adAccountId)
@@ -137,6 +140,22 @@ export function NeedsYouInbox({
   const banned = (health?.health ?? []).filter((h) => h.status === 'banned').length
   const alertsOff = alertsCfg ? !alertsCfg.enabled : false
   const hasAlarms = activeJobs > 0 || banned > 0 || alertsOff
+
+  async function refreshAfterDecision() {
+    // Aprovar pode executar pause/budget e sempre altera o ledger de propostas.
+    // Rejeitar também precisa sumir das outras superfícies (Overview e coluna
+    // de decisão) imediatamente, sem depender do polling de 60s.
+    await Promise.allSettled([
+      mutate(),
+      mutateCache((key) => apiCacheKeyMatches(key, [
+        '/api/ads/campaign-decisions',
+        '/api/ads/rules',
+        '/api/ads/tree',
+        '/api/ads/kpis',
+        '/api/ads/roas',
+      ])),
+    ])
+  }
 
   if (isLoading && !proposals) return <p className="text-xs text-muted-foreground" role="status">Buscando aprovações…</p>
   if (error) return <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Não foi possível atualizar as aprovações · tentar novamente</button>
@@ -176,7 +195,7 @@ export function NeedsYouInbox({
           </p>
           <ul className="flex flex-col divide-y divide-border/60 stagger-fade">
             {pending.map((p, idx) => (
-              <ProposalRow key={p.id} p={p} onDecided={() => mutate()} index={idx} />
+              <ProposalRow key={p.id} p={p} onDecided={() => { void refreshAfterDecision() }} index={idx} />
             ))}
           </ul>
         </>

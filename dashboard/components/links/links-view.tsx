@@ -22,6 +22,8 @@ import {
   Download,
   Archive,
   ArchiveRestore,
+  MoreHorizontal,
+  Activity,
 } from 'lucide-react'
 import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
@@ -150,6 +152,33 @@ export function LinksView() {
 
   // Item 531: contagem de arquivados (para o botão só aparecer quando existem)
   const archivedCount = useMemo(() => links.filter((l) => l.arquivado).length, [links])
+
+  const linkSummary = useMemo(() => {
+    const current = links.filter((link) => !link.arquivado)
+    const verified = new Set((domainsData?.domains ?? []).filter((domain) => domain.verificado).map((domain) => domain.host))
+    const pixelsMap = new Map((pixelsData?.pixels ?? []).map((pixel) => [pixel.slug, pixel]))
+    let clicks = 0
+    let conversions = 0
+    let attention = 0
+    let active = 0
+    for (const link of current) {
+      if (link.ativo) active += 1
+      for (const variant of link.variantes) {
+        clicks += variant.clicks || 0
+        conversions += variant.conversions || 0
+      }
+      const boundPixel = link.pixelSlug ? pixelsMap.get(link.pixelSlug) : undefined
+      if ((link.dominio && !verified.has(link.dominio)) || (link.pixelSlug && (!boundPixel || !boundPixel.active))) attention += 1
+    }
+    return {
+      total: current.length,
+      active,
+      clicks,
+      conversions,
+      conversionRate: clicks > 0 ? (conversions / clicks) * 100 : 0,
+      attention,
+    }
+  }, [links, domainsData, pixelsData])
 
   // Item 531: arquivar/desarquivar — merge-patch { slug, arquivado } no save()
   async function toggleArquivado(l: CheckoutLink) {
@@ -395,77 +424,82 @@ export function LinksView() {
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
     <div className="flex flex-col gap-5">
       {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
-      <div className="relative py-1 flex flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-background transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
-        <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-          <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-secondary/80 text-foreground text-xs tabular-nums font-semibold border border-border/50">
-            <CountUp value={links.length} />
-          </span>
-          link{links.length === 1 ? '' : 's'} de venda
-          {query.trim() && visibleLinks.length !== links.length && (
-            <span className="ml-1 flex items-center text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
-               <span className="mr-1 text-muted-foreground/50">/</span> {visibleLinks.length} no filtro
-            </span>
-          )}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Item 64: busca + ordenação (só aparecem com 2+ links) */}
-          {links.length > 1 && (
-            <>
-              <label className="relative group">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground transition-all duration-300 group-focus-within:text-[color:var(--brand-cyan)] group-focus-within:-translate-y-[60%] group-focus-within:scale-110"
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar link…"
-                  aria-label="Buscar link por nome, slug ou domínio"
-                  className="w-40 rounded-lg border border-border bg-input/40 py-2 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground transition-all duration-300 ease-out focus:w-56 focus:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-cyan)] focus:shadow-[0_0_20px_rgba(37,244,238,0.1)] sm:w-48 sm:focus:w-64 backdrop-blur-md"
-                />
-                <div className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] opacity-0 blur-md transition-opacity duration-300 group-focus-within:opacity-20" />
-              </label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortKey)}
-                aria-label="Ordenar links"
-                className="rounded-lg border border-border bg-input px-2 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                  <option key={k} value={k}>
-                    {SORT_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-          {archivedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowArchived((v) => !v)}
-              aria-pressed={showArchived}
-              className={`group flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all duration-500 ease-out ${
-                showArchived
-                  ? 'border-[color:var(--brand-cyan)]/50 bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] shadow-[0_0_15px_rgba(37,244,238,0.2)]'
-                  : 'border-border bg-secondary/20 text-muted-foreground hover:bg-secondary/80 hover:text-foreground'
-              }`}
-              data-tooltip="Links arquivados ficam fora da lista e do /go, com histórico preservado"
-            >
-              <Archive className={`size-3.5 transition-transform duration-300 ${showArchived ? 'rotate-12 scale-110' : 'group-hover:-translate-y-0.5'}`} aria-hidden="true" />
-              Arquivados ({archivedCount})
-            </button>
-          )}
-          <button
-            type="button"
-            data-tour="links-new"
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-cyan px-4 py-2 text-sm font-semibold text-black transition-all hover:opacity-90 active:scale-95"
-          >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
+              <Link2 className="size-3.5" />
+              Links de venda
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Distribuição, rastreamento e conversão</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              Centralize os links usados nos anúncios, acompanhe desempenho e veja rapidamente quando um domínio ou pixel precisa de atenção.
+            </p>
+          </div>
+          <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary self-start">
             <Plus className="size-4" />
             Novo link
           </button>
         </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <GlassCard className="p-4">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Links ativos</p>
+            <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.active} /><span className="text-sm font-medium text-muted-foreground">/{linkSummary.total}</span></p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Disponíveis para receber tráfego agora.</p>
+          </GlassCard>
+          <GlassCard className="p-4">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Cliques</p>
+            <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.clicks} /></p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Tráfego acumulado nos links atuais.</p>
+          </GlassCard>
+          <GlassCard className="p-4">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Conversão</p>
+            <p className="mt-2 text-xl font-semibold text-brand-cyan">{linkSummary.conversionRate.toFixed(1).replace('.', ',')}%</p>
+            <p className="mt-1 text-[11px] text-muted-foreground"><CountUp value={linkSummary.conversions} /> conversões registradas.</p>
+          </GlassCard>
+          <GlassCard className={`p-4 ${linkSummary.attention ? 'border-warning/30 bg-warning/5' : ''}`}>
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Atenção</p>
+            <p className={`mt-2 text-xl font-semibold ${linkSummary.attention ? 'text-warning' : 'text-success'}`}>{linkSummary.attention}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{linkSummary.attention ? 'Links com domínio ou pixel para revisar.' : 'Nenhuma dependência crítica pendente.'}</p>
+          </GlassCard>
+        </div>
+
+        <GlassCard className="p-3 sm:p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Activity className="size-3.5 text-brand-cyan" />
+              <span>{showArchived ? `${archivedCount} arquivado${archivedCount === 1 ? '' : 's'}` : `${visibleLinks.length} link${visibleLinks.length === 1 ? '' : 's'} na lista`}</span>
+              {query.trim() ? <span className="text-foreground">· filtro ativo</span> : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {links.length > 1 && (
+                <>
+                  <label className="relative min-w-[210px] flex-1 lg:flex-none">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Buscar nome, slug ou domínio…"
+                      aria-label="Buscar link por nome, slug ou domínio"
+                      className="w-full rounded-xl border border-border bg-input/50 py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-brand-cyan/50 focus:outline-none"
+                    />
+                  </label>
+                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} aria-label="Ordenar links" className="rounded-xl border border-border bg-input px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+                    {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABELS[k]}</option>)}
+                  </select>
+                </>
+              )}
+              {archivedCount > 0 && (
+                <button type="button" onClick={() => setShowArchived((v) => !v)} aria-pressed={showArchived} className={`btn-ghost text-xs ${showArchived ? 'border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan' : ''}`}>
+                  <Archive className="size-3.5" aria-hidden="true" />
+                  {showArchived ? 'Voltar aos ativos' : `Arquivados (${archivedCount})`}
+                </button>
+              )}
+            </div>
+          </div>
+        </GlassCard>
       </div>
 
       {links.length === 0 ? (
@@ -576,7 +610,7 @@ export function LinksView() {
               <GlassCard
                 key={l.slug}
                 spotlight
-                className="relative group flex-col p-5 border-l-[3px] border-l-transparent transition-all duration-500 ease-out hover:-translate-y-1.5 hover:scale-[1.005] hover:border-l-[color:var(--brand-cyan)] hover:shadow-[0_20px_40px_-10px_rgba(37,244,238,0.15)] animate-in fade-in slide-in-from-bottom-8 fill-mode-both"
+                className="relative group flex-col rounded-[24px] border border-border/70 p-4 sm:p-5 transition-all duration-300 hover:border-brand-cyan/25 hover:bg-card/90 animate-in fade-in slide-in-from-bottom-4 fill-mode-both"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -601,8 +635,8 @@ export function LinksView() {
                           l.arquivado
                             ? 'bg-muted/30 text-muted-foreground border border-muted/50 backdrop-blur-sm'
                             : l.ativo
-                              ? 'bg-[color:var(--success)]/10 text-[color:var(--success)] border border-[color:var(--success)]/30 drop-shadow-[0_0_10px_var(--success-light)]'
-                              : 'bg-[color:var(--warning)]/10 text-[color:var(--warning)] border border-[color:var(--warning)]/30 drop-shadow-[0_0_10px_var(--warning)] backdrop-blur-sm'
+                              ? 'bg-[color:var(--success)]/10 text-[color:var(--success)] border border-[color:var(--success)]/25'
+                              : 'bg-[color:var(--warning)]/10 text-[color:var(--warning)] border border-[color:var(--warning)]/25'
                         }`}
                       >
                         <span className="relative flex h-2 w-2 items-center justify-center">
@@ -626,7 +660,7 @@ export function LinksView() {
                         {l.arquivado ? 'Arquivado' : l.ativo ? 'Ativo' : 'Pausado'}
                       </span>
                       {l.urlWhitePage && (
-                        <span className="rounded-full bg-gradient-to-r from-[color:var(--brand-pink)]/20 to-purple-500/20 border border-[color:var(--brand-pink)]/30 px-2 py-0.5 text-[11px] font-bold text-[color:var(--brand-pink)] drop-shadow-[0_0_8px_rgba(255,105,180,0.5)]">
+                        <span className="rounded-full border border-[color:var(--brand-pink)]/25 bg-[color:var(--brand-pink)]/10 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--brand-pink)]">
                           Cloak
                         </span>
                       )}
@@ -722,99 +756,64 @@ export function LinksView() {
                     {/* Item 66: leitura rápida do A/B — peso configurado vs. participação
                         real nas conversões de cada versão */}
                     {l.variantes.length >= 2 && (
-                      <div className="mt-3 flex flex-col gap-1.5">
-                        {l.variantes.map((v) => {
-                          const share = convs > 0 ? (v.conversions / convs) * 100 : 0
-                          return (
-                            <div key={v.id} className="flex items-center gap-2 text-[11px]">
-                              <span className="w-24 truncate text-muted-foreground" title={v.nome}>
-                                {v.nome}
-                              </span>
-                              <div
-                                className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary/80 shadow-inner"
-                                role="img"
-                                aria-label={`${v.nome}: peso ${v.peso}%, ${v.conversions} de ${convs} conversões`}
-                              >
-                                {/* trilho: peso configurado */}
-                                <div
-                                  className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/20"
-                                  style={{ width: `${Math.min(100, v.peso)}%` }}
-                                />
-                                {/* preenchimento: participação real nas conversões */}
-                                <div
-                                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-transparent via-[color:var(--brand-cyan)]/80 to-[color:var(--brand-cyan)] group-hover:drop-shadow-[0_0_5px_rgba(37,244,238,0.5)] transition-[width] duration-1000 ease-out"
-                                  style={{ width: `${Math.min(100, share)}%` }}
-                                />
+                      <details className="mt-3 rounded-xl border border-border/50 bg-secondary/15 p-3">
+                        <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
+                          Desempenho do teste A/B · {l.variantes.length} variantes
+                        </summary>
+                        <div className="mt-3 flex flex-col gap-2">
+                          {l.variantes.map((v) => {
+                            const share = convs > 0 ? (v.conversions / convs) * 100 : 0
+                            return (
+                              <div key={v.id} className="flex items-center gap-2 text-[11px]">
+                                <span className="w-24 truncate text-muted-foreground" title={v.nome}>{v.nome}</span>
+                                <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary/80" role="img" aria-label={`${v.nome}: peso ${v.peso}%, ${v.conversions} de ${convs} conversões`}>
+                                  <div className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/20" style={{ width: `${Math.min(100, v.peso)}%` }} />
+                                  <div className="absolute inset-y-0 left-0 rounded-full bg-brand-cyan/80 transition-[width] duration-700" style={{ width: `${Math.min(100, share)}%` }} />
+                                </div>
+                                <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% conv.` : <><CountUp value={v.conversions} /> conv.</>}</span>
                               </div>
-                              <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">
-                                peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% das conv.` : <><CountUp value={v.conversions} /> conv.</>}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
+                            )
+                          })}
+                        </div>
+                      </details>
                     )}
                   </div>
                   </div>
-                  {/* Ações do Card: Limpas, diretas e sempre acessíveis */}
-                  <div className="flex items-center gap-1">
-                    {/* Botão Copiar */}
-                    <button
-                      type="button"
-                      onClick={() => copyUrl(l)}
-                      className="flex items-center gap-1 rounded-lg border border-border/70 bg-secondary/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                      title="Copiar link"
-                    >
-                      {copied === l.slug ? (
-                        <>
-                          <Check className="size-3.5 text-brand-cyan" />
-                          <span className="text-brand-cyan">Copiado</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="size-3.5" />
-                          <span>Copiar</span>
-                        </>
-                      )}
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => copyUrl(l)} className="btn-secondary px-3 py-1.5 text-xs" title="Copiar link">
+                      {copied === l.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                      {copied === l.slug ? 'Copiado' : 'Copiar'}
                     </button>
-
-                    {/* Botão Ativar/Pausar */}
-                    <button
-                      type="button"
-                      onClick={() => toggleAtivo(l)}
-                      disabled={busy}
-                      className={`rounded-lg border border-border/70 p-1.5 text-xs transition-colors hover:bg-secondary disabled:opacity-40 ${
-                        l.ativo
-                          ? 'text-[color:var(--success)]'
-                          : 'text-muted-foreground'
-                      }`}
-                      title={l.ativo ? 'Pausar link' : 'Ativar link'}
-                      aria-label={l.ativo ? `Pausar link ${l.nome}` : `Ativar link ${l.nome}`}
-                    >
-                      <Power className="size-3.5" />
-                    </button>
-
-                    {/* Botão Editar */}
-                    <button
-                      type="button"
-                      onClick={() => setEditing(l)}
-                      className="rounded-lg border border-border/70 p-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      title="Editar link"
-                      aria-label="Editar link"
-                    >
+                    <button type="button" onClick={() => setEditing(l)} className="btn-ghost px-2.5 py-1.5 text-xs" title="Editar link">
                       <Pencil className="size-3.5" />
+                      Editar
                     </button>
-
-                    {/* Botão Excluir */}
-                    <button
-                      type="button"
-                      onClick={() => setDeleting(l.slug)}
-                      className="rounded-lg border border-border/70 p-1.5 text-xs text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive hover:border-destructive/40"
-                      title="Excluir link"
-                      aria-label="Excluir link"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    <details className="relative">
+                      <summary className="list-none cursor-pointer rounded-xl border border-border/70 bg-secondary/20 p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" aria-label={`Mais ações para ${l.nome}`}>
+                        <MoreHorizontal className="size-4" />
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                        <button type="button" onClick={() => toggleAtivo(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                          <Power className="size-3.5" /> {l.ativo ? 'Pausar link' : 'Ativar link'}
+                        </button>
+                        <button type="button" onClick={() => duplicateLink(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                          <CopyPlus className="size-3.5" /> Duplicar
+                        </button>
+                        <button type="button" onClick={() => setQrFor(l.slug)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                          <QrCode className="size-3.5" /> Ver QR Code
+                        </button>
+                        <button type="button" onClick={() => downloadQr(l)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                          <Download className="size-3.5" /> Baixar QR
+                        </button>
+                        <button type="button" onClick={() => toggleArquivado(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                          {l.arquivado ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />} {l.arquivado ? 'Restaurar' : 'Arquivar'}
+                        </button>
+                        <div className="my-1 border-t border-border/50" />
+                        <button type="button" onClick={() => setDeleting(l.slug)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10">
+                          <Trash2 className="size-3.5" /> Excluir
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </div>
               </GlassCard>
@@ -822,6 +821,32 @@ export function LinksView() {
           })}
         </div>
       )}
+
+      {qrFor && (() => {
+        const link = links.find((item) => item.slug === qrFor)
+        if (!link) return null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label={`QR Code de ${link.nome}`} onClick={(event) => { if (event.target === event.currentTarget) setQrFor(null) }}>
+            <GlassCard variant="thick" className="w-full max-w-sm p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">QR Code</p>
+                  <h3 className="mt-1 text-base font-semibold text-foreground">{link.nome}</h3>
+                  <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{publicUrl(link)}</p>
+                </div>
+                <button type="button" className="btn-ghost p-2" onClick={() => setQrFor(null)} aria-label="Fechar QR Code">×</button>
+              </div>
+              <div className="mt-5 flex min-h-44 items-center justify-center rounded-2xl border border-border/60 bg-black/30 p-4">
+                {qrDataUrl ? <img src={qrDataUrl} alt={`QR Code para ${link.nome}`} className="size-40 rounded-xl" /> : <div className="size-40 animate-pulse rounded-xl bg-secondary/40" />}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" className="btn-secondary justify-center" onClick={() => copyUrl(link)}><Copy className="size-3.5" /> Copiar URL</button>
+                <button type="button" className="btn-primary justify-center" onClick={() => downloadQr(link)}><Download className="size-3.5" /> Baixar PNG</button>
+              </div>
+            </GlassCard>
+          </div>
+        )
+      })()}
 
       {(() => {
         const dl = deleting ? links.find((l) => l.slug === deleting) : undefined

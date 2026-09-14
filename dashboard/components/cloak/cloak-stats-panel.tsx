@@ -134,7 +134,7 @@ export function CloakStatsPanel() {
           </span>
           <div>
             <div className="flex items-center gap-1.5">
-              <SectionTitle>Offer vs White</SectionTitle>
+              <SectionTitle>Decisões de tráfego</SectionTitle>
               {/* Item 221: fonte do dado — memória zera em reinícios */}
               {data && (
                 <span
@@ -147,7 +147,7 @@ export function CloakStatsPanel() {
                 </span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">Decisões do cloaker por link</p>
+            <p className="text-xs text-muted-foreground">Público real liberado e acessos desviados para a página segura</p>
           </div>
         </div>
         {agg && agg.total > 0 && (
@@ -173,7 +173,7 @@ export function CloakStatsPanel() {
               <Target className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[11px] font-semibold capitalize">Público real na oferta</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(34,197,94,1)]"><CountUp value={agg.offer} /></p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success"><CountUp value={agg.offer} /></p>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               acessos que passaram no filtro e viram a offer
             </p>
@@ -183,7 +183,7 @@ export function CloakStatsPanel() {
               <ShieldCheck className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[11px] font-semibold capitalize">Robôs/revisores barrados</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_15px_rgba(245,158,11,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(245,158,11,1)]"><CountUp value={agg.white} /></p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning"><CountUp value={agg.white} /></p>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               enviados à white page e longe da sua oferta
             </p>

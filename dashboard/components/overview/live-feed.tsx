@@ -8,22 +8,22 @@ import { countryName } from '@/lib/countries'
 
 const STAGES: Record<string, { label: string; icon: typeof Eye; badgeClass: string }> = {
   visit: {
-    label: 'Visitou a página',
+    label: 'Nova visita',
     icon: Eye,
     badgeClass: 'text-muted-foreground bg-secondary/50 border-border/50',
   },
   checkout: {
-    label: 'Abriu checkout',
+    label: 'Checkout aberto',
     icon: ShoppingCart,
     badgeClass: 'text-brand-cyan bg-brand-cyan/10 border-brand-cyan/25',
   },
   payment: {
-    label: 'Iniciou pagamento',
+    label: 'Pagamento iniciado',
     icon: CreditCard,
     badgeClass: 'text-warning bg-warning/10 border-warning/25',
   },
   purchased: {
-    label: 'Compra aprovada',
+    label: 'Venda aprovada',
     icon: CheckCircle2,
     badgeClass: 'text-success bg-success/15 border-success/30 font-semibold shadow-[0_0_10px_rgba(34,197,94,0.2)]',
   },
@@ -36,15 +36,15 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
     .slice(0, 4)
 
   return (
-    <section className="recent-visits surface-card" aria-label="Últimas visitas">
+    <section className="recent-visits surface-card" aria-label="Atividade ao vivo">
       <header className="overview-section-heading">
-        <h2><span className="overview-section-icon"><History size={17} aria-hidden="true" /></span>Atividade recente</h2>
-        <Link href="/activity" className="overview-section-link">Histórico <ArrowUpRight size={14} aria-hidden="true" /></Link>
+        <h2><span className="overview-section-icon"><History size={17} aria-hidden="true" /></span>Atividade ao vivo</h2>
+        <Link href="/activity" className="overview-section-link">Ver tudo <ArrowUpRight size={14} aria-hidden="true" /></Link>
       </header>
       {!rows.length ? (
         <div className="recent-visits-empty">
           <MapPin size={24} strokeWidth={1.3} aria-hidden="true" />
-          <p>As próximas visitas aparecem aqui.</p>
+          <p>Os próximos movimentos do funil aparecem aqui.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">

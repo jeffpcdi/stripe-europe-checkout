@@ -129,7 +129,7 @@ export function WebPushCard() {
   const needsInstall = support && !support.supported && support.needsInstall
 
   return (
-    <GlassCard className="overflow-hidden p-0">
+    <GlassCard className="overflow-hidden p-0 border-border/60">
       <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--brand-cyan)]/10">
@@ -137,7 +137,7 @@ export function WebPushCard() {
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="section-head text-sm font-semibold text-foreground">Alertas no iPhone</h2>
+              <h2 className="section-head text-sm font-semibold text-foreground">Alertas push</h2>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                 thisDevice ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
               }`}>
@@ -145,7 +145,7 @@ export function WebPushCard() {
               </span>
             </div>
             <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-              A dashboard avisa quando algo importante acontece ou uma automação precisa de você.
+              Receba apenas eventos importantes da operação e situações em que a automação precisa da sua atenção.
             </p>
             {devices > 0 && (
               <p className="mt-1 text-[11px] text-faint">
@@ -166,7 +166,7 @@ export function WebPushCard() {
           }`}
         >
           {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-          {thisDevice ? 'Desativar' : 'Ativar no iPhone'}
+          {thisDevice ? 'Desativar neste aparelho' : 'Ativar neste aparelho'}
         </button>
       </div>
 
@@ -187,7 +187,7 @@ export function WebPushCard() {
       )}
 
       <div className="border-t border-border/70 px-5 py-4">
-        <p className="mb-2 text-xs font-semibold text-foreground">O que chega no iPhone</p>
+        <p className="mb-2 text-xs font-semibold text-foreground">O que pode gerar alerta</p>
         <div className="divide-y divide-border/50">
           {PREFERENCES.map((item) => {
             const Icon = item.icon

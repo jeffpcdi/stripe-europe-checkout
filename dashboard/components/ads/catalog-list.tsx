@@ -254,6 +254,13 @@ export function CatalogList({
     return counts
   }, [catalogs])
 
+  const catalogSummary = useMemo(() => ({
+    products: catalogs.reduce((total, catalog) => total + catalogProductCount(catalog).count, 0),
+    linked: statusCounts.linked || 0,
+    attention: statusCounts.needs_attention || 0,
+    review: statusCounts.in_review || 0,
+  }), [catalogs, statusCounts])
+
   const filteredCatalogs = useMemo(() => {
     return catalogs
       .filter((c) => {
@@ -328,6 +335,37 @@ export function CatalogList({
   return (
     <>
       <GlassCard className="campaign-workspace min-w-0 overflow-visible p-0">
+        <div className="border-b border-border/60 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
+                <h2 className="text-sm font-semibold text-foreground">Catálogo comercial</h2>
+              </div>
+              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
+                Organize produtos, acompanhe a publicação no TikTok e identifique rapidamente o que ainda impede uma campanha de catálogo.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-4 xl:min-w-[520px]">
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Catálogos</p>
+                <p className="mt-1 text-base font-semibold text-foreground">{catalogs.length}</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-secondary/15 px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Produtos</p>
+                <p className="mt-1 text-base font-semibold text-foreground">{catalogSummary.products}</p>
+              </div>
+              <div className="rounded-2xl border border-success/20 bg-success/8 px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-success/80">Vinculados</p>
+                <p className="mt-1 text-base font-semibold text-success">{catalogSummary.linked}</p>
+              </div>
+              <div className={`rounded-2xl border px-3 py-2.5 ${catalogSummary.attention > 0 ? 'border-error/20 bg-error/8' : 'border-border/60 bg-secondary/15'}`}>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Atenção</p>
+                <p className={`mt-1 text-base font-semibold ${catalogSummary.attention > 0 ? 'text-error' : 'text-foreground'}`}>{catalogSummary.attention}</p>
+              </div>
+            </div>
+          </div>
+        </div>
         <div className="campaign-toolbar !gap-3">
           <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">

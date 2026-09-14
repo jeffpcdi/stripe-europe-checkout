@@ -1,8 +1,9 @@
 import { cn } from '@/lib/utils'
 
 /**
- * Título de seção padronizado — barra de marca + título + eyebrow opcional.
- * Substitui os h2 ad-hoc para consistência entre as 11 telas.
+ * Título de seção padronizado.
+ * Mantém a identidade cósmica pela pequena marca lateral, mas evita texto
+ * excessivamente decorativo para melhorar leitura em telas densas.
  */
 export function SectionTitle({
   children,
@@ -16,11 +17,10 @@ export function SectionTitle({
   as?: 'h2' | 'h3'
 }) {
   return (
-    /* V2-70: eyebrow agora usa o gradiente ciano→rosa da marca */
-    <div className={cn('min-w-0', className)}>
-      {eyebrow ? <p className="label-mono label-mono--gradient mb-0.5">{eyebrow}</p> : null}
-      <Tag className="section-head text-balance text-sm font-semibold">
-        <span className="text-gradient-metallic">{children}</span>
+    <div className={cn('section-title-v1 min-w-0', className)}>
+      {eyebrow ? <p className="section-title-v1__eyebrow mb-1">{eyebrow}</p> : null}
+      <Tag className="section-title-v1__heading text-balance">
+        <span>{children}</span>
       </Tag>
     </div>
   )

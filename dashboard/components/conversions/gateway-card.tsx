@@ -78,9 +78,9 @@ export function GatewayCard({
   })
 
   return (
-    <div className="flex flex-col justify-between rounded-2xl border border-border/70 bg-card/60 p-4 hover:border-brand-cyan/30 hover:bg-card/90 hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.4)] transition-all duration-300 gap-3.5 shadow-sm">
+    <div className="flex flex-col justify-between gap-4 rounded-[24px] border border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 shadow-[0_14px_34px_-22px_rgba(0,0,0,0.9)] transition-all duration-300 hover:border-brand-cyan/30 hover:bg-card/90">
       <div className="flex flex-col gap-3">
-        {/* Topo: Nome, Provedor e Ações */}
+        {/* Topo: nome, provedor e ações */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <span
@@ -114,9 +114,9 @@ export function GatewayCard({
         </div>
 
         {/* Link do Webhook para Copiar */}
-        <div className="flex flex-col gap-1 rounded-xl border border-white/5 bg-black/40 p-2.5">
+        <div className="flex flex-col gap-1 rounded-2xl border border-white/5 bg-black/35 p-3">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>Link do Webhook (cole na sua plataforma):</span>
+            <span>Link do webhook</span>
           </div>
           <div className="flex items-center gap-1.5">
             <input
@@ -144,11 +144,11 @@ export function GatewayCard({
           </div>
         </div>
 
-        {/* Pixels que recebem deste checkout */}
+        {/* Destino das vendas */}
         <div className="flex flex-col gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-2.5">
           <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             <Target className="size-3 text-brand-cyan shrink-0" />
-            <span>Envia vendas para:</span>
+            <span>Pixels que recebem</span>
           </div>
           <div className="flex items-center gap-1 flex-wrap">
             {listeningPixels.length === 0 ? (
@@ -168,8 +168,8 @@ export function GatewayCard({
         </div>
       </div>
 
-      {/* Rodapé: Status do Checkout e Botão de Testar Venda */}
-      <div className="flex items-center justify-between pt-2.5 border-t border-border/40 text-xs">
+      {/* Rodapé */}
+      <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs">
         <div className="flex items-center gap-1.5 truncate">
           {isGwError ? (
             <span className="text-destructive font-medium truncate flex items-center gap-1 text-[11px]">

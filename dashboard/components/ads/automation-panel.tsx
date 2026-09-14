@@ -11,6 +11,7 @@
 // /api/ads/alerts, POST /api/ads/rules/run. Zero requests novas no load.
 
 import { useEffect, useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import {
   Bell,
   ClipboardList,
@@ -46,6 +47,7 @@ import { PilotsPanel } from './pilots-panel'
 import { RejectionInbox } from './rejection-inbox'
 import { RulesLogList } from './rules-log-list'
 import { cn } from '@/lib/utils'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 import { applyPilot, PILOTS, type Intensity, type PilotId } from '@/lib/pilots'
 
 // ── Metadados por métrica: rótulo do limiar + unidade + guardas visíveis ────
@@ -576,6 +578,7 @@ export function AutomationPanel({
 }) {
   const { data, mutate, isLoading, isValidating, error } = useAdsRules(active, adAccountId)
   const { data: safetyData, error: safetyError } = useAdsSafetyPolicy(active)
+  const { mutate: mutateCache } = useSWRConfig()
 
   const [newRule, setNewRule] = useState<AdsRule | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -614,6 +617,16 @@ export function AutomationPanel({
     return null
   })()
 
+  async function refreshAutomationDependents(options: { campaigns?: boolean; proposals?: boolean; alerts?: boolean } = {}) {
+    const paths = [
+      '/api/ads/campaign-decisions',
+      ...(options.proposals ? ['/api/ads/proposals'] : []),
+      ...(options.alerts ? ['/api/ads/alerts'] : []),
+      ...(options.campaigns ? ['/api/ads/tree', '/api/ads/kpis', '/api/ads/roas', '/api/ads/sync-status'] : []),
+    ]
+    await mutateCache((key) => apiCacheKeyMatches(key, paths))
+  }
+
   async function handleSaveError(error: unknown, fallback: string) {
     if (error instanceof ApiError && error.code === 'AUTOMATION_REVISION_CONFLICT') {
       await mutate()
@@ -636,6 +649,9 @@ export function AutomationPanel({
         rules: next,
       })
       mutate(r, { revalidate: false })
+      // A mesma automação alimenta a coluna de decisão em Campanhas/Overview.
+      // Revalida esse contrato derivado imediatamente para não esperar 60s.
+      void refreshAutomationDependents().catch(() => {})
       toast.success(okMsg)
       return true
     } catch (e) {
@@ -673,6 +689,7 @@ export function AutomationPanel({
         autonomy,
       })
       mutate(next, { revalidate: false })
+      void refreshAutomationDependents().catch(() => {})
       toast.success({
         notify: 'Só avisar: nenhuma regra pode agir; alertas estão ligados',
         propose: 'Pedir aprovação: as regras aguardam sua decisão',
@@ -740,7 +757,12 @@ export function AutomationPanel({
           ? 'Avaliação completa — nenhuma regra disparou agora.'
           : `${executed.length} ${executed.length === 1 ? 'disparo' : 'disparos'}${proposals ? ` (${proposals} proposta${proposals > 1 ? 's' : ''} criada${proposals > 1 ? 's' : ''})` : ''} — veja o log abaixo.`,
       )
-      mutate()
+      // A avaliação pode criar propostas OU executar pause/budget. Atualize
+      // as outras superfícies afetadas no mesmo ciclo, sem esperar polling.
+      await Promise.allSettled([
+        mutate(),
+        refreshAutomationDependents({ campaigns: executed.some((entry) => !entry.proposed && !entry.simulated), proposals: true }),
+      ])
     } catch (e) {
       toast.error('Falha ao rodar a avaliação', { hint: e instanceof Error ? e.message : undefined })
     } finally {
@@ -766,8 +788,9 @@ export function AutomationPanel({
         }, { revalidate: false })
       }
       // O estado operacional depende de worker, sync e política; nunca o
-      // deduzimos otimisticamente só pelo switch salvo.
-      mutate().catch(() => {})
+      // deduzimos otimisticamente só pelo switch salvo. O NeedsYouInbox usa
+      // /api/ads/alerts separado, então ele também precisa ser revalidado.
+      void Promise.allSettled([mutate(), refreshAutomationDependents({ alerts: true })])
       toast.success(cfg.enabled ? 'Alertas ativados' : 'Alertas desligados')
       setAlertsExpanded(false)
       setAlertsDraft(null)
@@ -803,6 +826,57 @@ export function AutomationPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      <GlassCard className="p-4 sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-foreground">Automação operacional</h2>
+            </div>
+            <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
+              Defina o nível de autonomia e deixe o ROINADOS monitorar orçamento, vencedores e horários. As exceções continuam chegando para sua decisão.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary self-start px-3.5 py-2 text-xs"
+            onClick={testNow}
+            disabled={testing || !data}
+            title="Executa uma avaliação imediata usando as regras e a autonomia atuais"
+          >
+            {testing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Activity className="size-3.5" aria-hidden="true" />}
+            {testing ? 'Avaliando…' : 'Avaliar agora'}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Autonomia</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{data?.autonomy === 'auto' ? 'Aplicar sozinho' : data?.autonomy === 'propose' ? 'Pedir aprovação' : data?.autonomy === 'notify' ? 'Só avisar' : 'Personalizada'}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Como o sistema pode agir.</p>
+          </div>
+          <div className="rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-brand-cyan/80">Regras ativas</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{enabledCount}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">de {rules.length} configuradas.</p>
+          </div>
+          <div className={`rounded-2xl border p-3 ${alertsCfg?.enabled ? 'border-success/20 bg-success/8' : 'border-warning/20 bg-warning/8'}`}>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Alertas</p>
+            <p className={`mt-1 text-sm font-semibold ${alertsCfg?.enabled ? 'text-success' : 'text-warning'}`}>{alertsCfg?.enabled ? 'Ativos' : 'Desligados'}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Performance e reprovações.</p>
+          </div>
+          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Última atividade</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{log[0]?.at ? timeAgo(log[0].at) : 'Sem execução'}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Registro mais recente do motor.</p>
+          </div>
+        </div>
+
+        {testResult ? (
+          <div className="mt-3 rounded-xl border border-brand-cyan/20 bg-brand-cyan/8 px-3 py-2 text-[11px] text-brand-cyan">{testResult}</div>
+        ) : null}
+      </GlassCard>
+
       {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
 
 
@@ -1031,12 +1105,6 @@ export function AutomationPanel({
             </button>
           </div>
         </div>
-
-        {testResult ? (
-          <p className="mb-2 rounded-lg bg-[var(--accent-light)] px-3 py-1.5 text-[11px] text-brand-cyan">
-            {testResult}
-          </p>
-        ) : null}
 
         {rules.length === 0 && !newRule ? (
           <p className="py-6 text-center text-xs text-muted">

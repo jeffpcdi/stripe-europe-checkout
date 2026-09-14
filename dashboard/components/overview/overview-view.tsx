@@ -27,6 +27,7 @@ import { HeroGlobe, type GlobePurchase } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
+import { OverviewAttention } from './overview-attention'
 import { ErrorState } from '@/components/error-state'
 import {
   TrendingUp,
@@ -141,6 +142,11 @@ export function OverviewView() {
       .slice(0, 5)
   }, [adsTree?.campaigns, campaignDecisions?.byCampaign, roas?.currency, adsStatus?.currency])
 
+  const pendingAutomation = useMemo(() => {
+    if (!campaignDecisions?.byCampaign) return 0
+    return Object.values(campaignDecisions.byCampaign).filter((item) => Boolean(item.automation?.pendingProposal)).length
+  }, [campaignDecisions?.byCampaign])
+
   // EMQ CAPI
   const { data: emqData, error: emqError, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
   const emqSummary = useMemo(() => {
@@ -157,7 +163,7 @@ export function OverviewView() {
   }, [emqData])
 
   // Saúde do pipeline geral
-  const { mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
+  const { data: overviewHealth, error: overviewHealthError, mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
 
   function setPeriod(next: Period) {
     setPeriodState(next)
@@ -260,7 +266,7 @@ export function OverviewView() {
       }`}
     >
       {/* Métricas e presença compartilham a composição, não a janela de dados. */}
-      {(error || roasError || decisionsError || emqError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      {(error || roasError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <HeroGlobe
         focusCode={focusCountry}
         purchases={globePurchases}
@@ -284,6 +290,12 @@ export function OverviewView() {
           ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period, new Date(), accountTimeZone), null, accountTimeZone).series
           : cur.series,
         }}
+      />
+
+      <OverviewAttention
+        health={overviewHealth}
+        pendingAutomation={pendingAutomation}
+        loading={afterFirstPaint && !overviewHealth && !overviewHealthError}
       />
 
       {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}
@@ -395,21 +407,21 @@ export function OverviewView() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2 text-right">
-                    <span
-                      data-tooltip="Vendas reais atribuídas pelo rastreamento do ROINADOS a esta campanha."
-                      className="font-mono text-xs font-bold text-success cursor-help"
-                    >
-                      {c.sales == null ? '— vendas' : `${c.sales} ${c.sales === 1 ? 'venda' : 'vendas'}`}
+                  <div className="overview-campaign-metrics">
+                    <span data-tooltip="Vendas reais atribuídas pelo rastreamento do ROINADOS a esta campanha.">
+                      <small>Vendas</small>
+                      <strong className="text-success">{c.sales == null ? '—' : c.sales}</strong>
                     </span>
-                    {c.roas !== null && c.roas > 0 && (
-                      <span
-                        data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha."
-                        className="rounded-lg border border-brand-cyan/35 bg-brand-cyan/15 px-2 py-0.5 font-mono text-xs font-bold text-brand-cyan cursor-help "
-                      >
-                        {c.roas.toFixed(2).replace('.', ',')}x
-                      </span>
-                    )}
+                    <span data-tooltip="Custo real por venda com base nas vendas atribuídas pelo ROINADOS.">
+                      <small>CPA</small>
+                      <strong>{c.cpa !== null ? fmtAdsMoney(c.cpa, roas?.currency || 'BRL') : '—'}</strong>
+                    </span>
+                    <span data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha.">
+                      <small>ROAS</small>
+                      <strong className={c.roas !== null && c.roas > 0 ? 'text-brand-cyan' : undefined}>
+                        {c.roas !== null && c.roas > 0 ? `${c.roas.toFixed(2).replace('.', ',')}x` : '—'}
+                      </strong>
+                    </span>
                   </div>
                 </div>
               ))}
@@ -540,12 +552,18 @@ export function OverviewView() {
             </span>
           </div>
 
-          <div className="my-auto py-2">
+          <div className="my-auto space-y-3 py-2">
             <EmqGauge
               score={emqError ? null : emqSummary?.recent ?? null}
               dir={emqSummary?.dir ?? 'flat'}
               alerts={emqSummary?.alerts ?? 0}
             />
+            {overviewHealth ? (
+              <div className="overview-data-coverage">
+                <span><small>Compras rastreadas</small><strong>{overviewHealth.coverage.purchases.rate == null ? '—' : `${overviewHealth.coverage.purchases.rate}%`}</strong></span>
+                <span><small>Origem identificada</small><strong>{overviewHealth.coverage.attribution.rate == null ? '—' : `${overviewHealth.coverage.attribution.rate}%`}</strong></span>
+              </div>
+            ) : null}
           </div>
         </GlassCard>
       </section>

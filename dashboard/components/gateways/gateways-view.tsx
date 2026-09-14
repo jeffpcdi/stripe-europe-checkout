@@ -3,6 +3,7 @@
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import {
   Plus,
   Copy,
@@ -30,6 +31,7 @@ import { SectionTitle } from '@/components/section-title'
 import { timeAgo } from '@/lib/format'
 import { QueueHealthPanel, RetentionPanel, IntegrityPanel, QuarantinePanel } from './queue-health-panel'
 import { gatewayEventSucceeded } from '@/lib/gateway-status'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 // GATEWAY_STEPS removed
 
@@ -82,6 +84,7 @@ function ProviderIcon({ provider, label }: { provider: string; label: string }) 
 
 export function GatewaysView() {
   const { data, mutate, isLoading, error } = useGateways()
+  const { mutate: mutateCache } = useSWRConfig()
   const { data: convLog, mutate: mutateLog } = useConversionLog()
   // Pixels: para mostrar em cada gateway QUAIS pixels recebem as vendas dele
   // (gateways e pixels trabalham juntos — o card explica o vínculo).
@@ -96,6 +99,14 @@ export function GatewaysView() {
   const [cardTest, setCardTest] = useState<{ id: string; ok: boolean; msg: string; note?: string } | null>(null)
   const [cardTesting, setCardTesting] = useState<string | null>(null)
   const [rotating, setRotating] = useState<string | null>(null)
+
+  async function refreshGatewayDependents() {
+    await mutateCache((key) => apiCacheKeyMatches(key, [
+      '/api/pixels/durability',
+      '/api/pixels/health',
+      '/api/overview/health',
+    ]))
+  }
 
   // Item 110: anúncio acessível da cópia (aria-live), padrão da aba Pixels (93)
   const [copyAnnounce, setCopyAnnounce] = useState('')
@@ -205,11 +216,10 @@ export function GatewaysView() {
           return false
         }
         toast.success(`Gateway "${g.name}" removido`)
-        try {
-          await mutate()
-        } catch (error) {
+        const refreshResults = await Promise.allSettled([mutate(), refreshGatewayDependents()])
+        if (refreshResults.some((item) => item.status === 'rejected')) {
           toast.info('Gateway removido, mas a lista não atualizou completamente', {
-            hint: error instanceof Error ? error.message : 'Atualize a página para confirmar o estado.',
+            hint: 'Atualize a página para confirmar todos os indicadores.',
           })
         }
         return true
@@ -278,11 +288,10 @@ export function GatewaysView() {
             ? 'Cole no painel do seu gateway.'
             : 'Não foi possível copiar automaticamente. Atualize a tela e copie a nova URL no cartão.',
         })
-        try {
-          await mutate()
-        } catch (error) {
+        const refreshResults = await Promise.allSettled([mutate(), refreshGatewayDependents()])
+        if (refreshResults.some((item) => item.status === 'rejected')) {
           toast.info('O link foi rotacionado, mas o cartão não atualizou completamente', {
-            hint: error instanceof Error ? error.message : 'Atualize a página antes de copiar a nova URL.',
+            hint: 'Atualize a página antes de copiar a nova URL.',
           })
         }
         return true
@@ -749,7 +758,7 @@ export function GatewaysView() {
           onSaved={() => {
             setCreating(false)
             setEditing(null)
-            mutate()
+            void Promise.allSettled([mutate(), refreshGatewayDependents()])
           }}
         />
       )}
