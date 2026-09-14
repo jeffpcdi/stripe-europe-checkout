@@ -285,23 +285,23 @@ export function CatalogQuickCampaignsDialog({
 
   return (
     <Modal isOpen={open} onClose={close} busy={busy} title="Criar campanhas"
-      description={catalog.name} maxWidth="max-w-xl" className="catalog-compose"
-      footer={accepted ? <button type="button" className="btn-primary" onClick={close}>Ver acompanhamento no catálogo</button> : <>
-        <div className="launch-total" aria-live="polite">
-          <span>Orçamento diário do lote</span>
-          <strong>{budgetValid && countValid ? money.format(budgetNumber * count) : '—'}<small>/dia</small></strong>
-          <span>{count} campanha{count === 1 ? '' : 's'} × {budgetValid ? money.format(budgetNumber) : '—'}/dia</span>
+      description={`${catalog.name} · produtos, criativos e entrega em uma única revisão`} maxWidth="max-w-5xl" className="catalog-compose"
+      footer={accepted ? <button type="button" className="btn-primary" onClick={close}>Ver acompanhamento no catálogo</button> : <div className="flex w-full flex-wrap items-center justify-between gap-3">
+        <p className={`text-[11px] ${submitHint || submissionError ? 'text-warning' : 'text-success'}`} role={submissionError ? 'alert' : 'status'}>
+          {submissionError || submitHint || `${count} campanha${count === 1 ? '' : 's'} pronta${count === 1 ? '' : 's'} para entrar na fila.`}
+        </p>
+        <div className="flex items-center gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={close} disabled={busy}>Cancelar</button>
+          <button type="button" className="btn-primary text-xs" onClick={create}
+            disabled={!countValid || !budgetValid || !bidValid || !videosReady || unusedCreatives || uploading || busy}>
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {busy ? 'Enviando solicitação…' : `Criar e ativar ${count} campanha${count === 1 ? '' : 's'}`}
+          </button>
         </div>
-        {(submitHint || submissionError) && <p className="launch-feedback" role={submissionError ? 'alert' : 'status'}>{submissionError || submitHint}</p>}
-        <button type="button" className="btn-primary launch-submit" onClick={create}
-          disabled={!countValid || !budgetValid || !bidValid || !videosReady || unusedCreatives || uploading || busy}>
-          {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-          {busy ? 'Enviando solicitação…' : `Criar e ativar ${count} campanha${count === 1 ? '' : 's'}`}
-        </button>
-      </>}>
+      </div>}>
       {accepted ? <div className="launch-accepted" role="status"><Check aria-hidden="true" /><h3>Solicitação registrada</h3><p>{accepted}</p></div> :
-      <fieldset disabled={busy} className="launch-form">
-        <section className="launch-block" aria-label="Vídeos da campanha">
+      <div className="launch-composer-grid"><fieldset disabled={busy} className="launch-composer-main border-0 p-0">
+        <section className="launch-section-card" aria-label="Vídeos da campanha"><span className="launch-section-kicker">1 · Criativos</span><p className="launch-section-copy mb-3">Cada vídeo pode originar uma campanha própria, mantendo o catálogo e os produtos sincronizados.</p>
           <div className="launch-section-heading">
             <h3>Vídeos <span>{creatives.length}</span></h3>
             <button type="button" className="btn-secondary" aria-expanded={showVideoSources}
@@ -338,13 +338,12 @@ export function CatalogQuickCampaignsDialog({
             {!countValid || unusedCreatives ? <p role="alert">Escolha entre {Math.max(1, creatives.length)} e {MAX_COUNT} campanhas para incluir todos os vídeos.</p> : null}
           </details>
         </section>
-        <section className="launch-block">
-          <MoneyField label="Orçamento diário por campanha" currency={advertiserCurrency} value={budget}
+        <section className="launch-section-card"><span className="launch-section-kicker">2 · Investimento</span><h3 className="launch-section-title">Orçamento por campanha</h3><div className="mt-4"><MoneyField label="Orçamento diário por campanha" currency={advertiserCurrency} value={budget}
             min={TIKTOK_MIN_BUDGET} onChange={value => update(setBudget, value)}
             hint={`Mínimo de ${money.format(TIKTOK_MIN_BUDGET)} por campanha/dia.`}
-            error={!budgetValid && budget.trim() !== '' ? `Informe ao menos ${money.format(TIKTOK_MIN_BUDGET)}.` : undefined} />
+            error={!budgetValid && budget.trim() !== '' ? `Informe ao menos ${money.format(TIKTOK_MIN_BUDGET)}.` : undefined} /></div>
         </section>
-        <section className="launch-block launch-targeting">
+        <section className="launch-section-card launch-targeting"><span className="launch-section-kicker">3 · Público e identidade</span>
           <details>
             <summary><span><strong>Público</strong><span className="launch-help">{marketSummary}</span></span><span>Alterar</span></summary>
             <MarketSelector value={market} onChange={value => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
@@ -357,7 +356,7 @@ export function CatalogQuickCampaignsDialog({
           </label>
           {identitiesLoading ? <p className="launch-help" role="status">Carregando perfis…</p> : identitiesError ? <button type="button" className="btn-ghost text-warning" onClick={() => void reloadIdentities()}>Falha ao consultar perfis. Tentar novamente</button> : selectedIdentity ? <p className="launch-help">{identityHandle(selectedIdentity) || identityName(selectedIdentity)}</p> : null}
         </section>
-        <section className="launch-advanced">
+        <section className="launch-section-card launch-advanced">
           <button type="button" aria-expanded={advancedOpen} className="launch-advanced-toggle" onClick={() => setAdvancedOpen(!advancedOpen)}>
             <span>Mais configurações <small>{advancedSummary}</small></span><ChevronDown className="size-4" aria-hidden="true" />
           </button>
@@ -374,7 +373,29 @@ export function CatalogQuickCampaignsDialog({
             <p className="launch-help">Exemplo: {sampleName(1)}</p>
           </div>}
         </section>
-      </fieldset>}
+      </fieldset>
+      <aside className="launch-review" aria-label="Revisão das campanhas de catálogo">
+        <div className="launch-review-head">
+          <div><p className="launch-review-title">Revisão do lote</p><p className="launch-review-copy">Estrutura que será enviada para o TikTok.</p></div>
+          <span className="launch-review-badge">Catálogo</span>
+        </div>
+        <div className="launch-review-list">
+          <div className="launch-review-row"><span>Catálogo</span><strong>{catalog.name}</strong></div>
+          <div className="launch-review-row"><span>Campanhas</span><strong>{count}</strong></div>
+          <div className="launch-review-row"><span>Criativos</span><strong>{readyCount}/{creatives.length || 0}</strong></div>
+          <div className="launch-review-row"><span>Produtos</span><strong>Todo o catálogo</strong></div>
+          <div className="launch-review-row"><span>Mercado</span><strong>{marketSummary}</strong></div>
+          <div className="launch-review-row"><span>Perfil</span><strong>{selectedIdentity ? identityName(selectedIdentity) : 'Automático'}</strong></div>
+          <div className="launch-review-row"><span>Entrega</span><strong>{bidStrategy === 'cost_cap' ? `CPA alvo ${bidValid ? money.format(bidAmountNumber) : '—'}` : 'Máxima entrega'}</strong></div>
+          <div className="launch-review-row"><span>Nomes</span><strong>{sampleName(1)}</strong></div>
+        </div>
+        <div className="launch-review-total">
+          <span className="text-[11px] text-muted-foreground">Orçamento diário do lote</span>
+          <strong>{budgetValid && countValid ? money.format(budgetNumber * count) : '—'}</strong>
+          <p className="mt-1 text-[10px] text-muted-foreground">{count} × {budgetValid ? money.format(budgetNumber) : '—'} por campanha/dia</p>
+        </div>
+        {(submitHint || submissionError) ? <div className="launch-review-warning"><span>{submissionError || submitHint}</span></div> : <div className="launch-review-ready"><Check className="mt-0.5 size-3.5 shrink-0" /><span>Pronto para entrar na fila. A estrutura será validada e ativada automaticamente.</span></div>}
+      </aside></div>}
     </Modal>
   )
 }

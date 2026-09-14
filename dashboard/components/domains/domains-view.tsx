@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, RefreshCw, Trash2, Copy, Loader2, Globe, ShieldCheck, Clock3, AlertTriangle, ArrowUpRight } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Copy, Loader2, ShieldCheck, Clock3, AlertTriangle, ArrowUpRight, Globe } from 'lucide-react'
 import { ApiError, useDomains, apiSend } from '@/lib/api'
 import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -113,16 +113,9 @@ export function DomainsView() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-            <Globe className="size-3.5" />
-            Domínios personalizados
-          </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Seus endereços de distribuição</h1>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Conecte seus próprios domínios ao ROINADOS e acompanhe DNS e certificado sem precisar interpretar estados técnicos espalhados.
-          </p>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Domínios</h1>
         </div>
       </div>
 
@@ -132,8 +125,7 @@ export function DomainsView() {
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Prontos</p>
               <p className="mt-2 text-xl font-semibold text-success">{readyCount}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">Domínios disponíveis para links.</p>
-            </div>
+                          </div>
             <ShieldCheck className="size-4 text-success" />
           </div>
         </GlassCard>
@@ -142,8 +134,7 @@ export function DomainsView() {
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Em configuração</p>
               <p className="mt-2 text-xl font-semibold text-foreground">{pendingCount}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">DNS ou certificado ainda propagando.</p>
-            </div>
+                          </div>
             <Clock3 className="size-4 text-warning" />
           </div>
         </GlassCard>
@@ -152,8 +143,7 @@ export function DomainsView() {
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Precisam de atenção</p>
               <p className={`mt-2 text-xl font-semibold ${errorCount ? 'text-destructive' : 'text-success'}`}>{errorCount}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{errorCount ? 'Conexões com erro registrado.' : 'Nenhuma falha registrada.'}</p>
-            </div>
+                          </div>
             <AlertTriangle className={`size-4 ${errorCount ? 'text-destructive' : 'text-muted-foreground'}`} />
           </div>
         </GlassCard>
@@ -214,7 +204,7 @@ export function DomainsView() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${ready ? 'border-success/20 bg-success/10 text-success' : domain.status === 'error' ? 'border-destructive/25 bg-destructive/10 text-destructive' : 'border-warning/25 bg-warning/10 text-warning'}`}>{statusLabel}</span>
-                      <span className="rounded-full border border-border/60 bg-secondary/20 px-2 py-0.5 text-[10px] text-muted-foreground">{domain.uso === 'checkout' ? 'Links' : domain.uso === 'cloaker' ? 'Proteção' : 'Links + Proteção'}</span>
+                      <span className="rounded-full border border-border/60 bg-secondary/20 px-2 py-0.5 text-[10px] text-muted-foreground">{domain.uso === 'checkout' ? 'Links' : domain.uso === 'cloaker' ? 'Cloaker' : 'Links + Cloaker'}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">

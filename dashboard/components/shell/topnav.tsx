@@ -58,16 +58,12 @@ export function TopNav({ children }: { children: ReactNode }) {
             <Image
               src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
-              width={144}
-              height={144}
+              width={176}
+              height={176}
               unoptimized
               priority
               className="dashboard-logo-image"
             />
-          </span>
-          <span className="dashboard-brand-copy" aria-hidden="true">
-            <strong>ROI-NADOS</strong>
-            <small>Control Center</small>
           </span>
         </Link>
 
@@ -83,7 +79,6 @@ export function TopNav({ children }: { children: ReactNode }) {
           onClick={() => setMenuOpen(value => !value)}
         >
           <LayoutGrid size={17} aria-hidden="true" />
-          <span className="dashboard-menu-label">Menu</span>
           <ChevronDown size={15} aria-hidden="true" />
         </button>
 
@@ -113,7 +108,6 @@ export function TopNav({ children }: { children: ReactNode }) {
 
       {group.tabs ? (
         <nav className="dashboard-context-nav" aria-label={`Seções de ${group.label}`} data-tv-hide>
-          <span className="dashboard-context-nav__label">{group.label}</span>
           <div className="dashboard-context-nav__track">
             {group.tabs.map(tab => {
               const active = pathname.startsWith(tab.href)

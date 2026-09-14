@@ -12,7 +12,6 @@ import {
   Fingerprint,
   MessageCircle,
   ShieldCheck,
-  Settings2,
   UserRound,
   Globe2,
   Smartphone,
@@ -40,14 +39,7 @@ export function ConfigView() {
     <div className="operation-settings flex flex-col gap-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-            <Settings2 className="size-3.5" />
-            Central da conta
-          </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Configurações</h1>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            Ajuste o comportamento da dashboard, alertas, integrações e segurança sem misturar configurações operacionais com ações de risco.
-          </p>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Conta</h1>
         </div>
       </div>
 
@@ -76,22 +68,19 @@ export function ConfigView() {
             <GlassCard className="p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-semibold text-foreground">Experiência da dashboard</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Ajustes locais deste navegador. Não alteram dados da operação.</p>
-              </div>
+                              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-border/55 bg-secondary/15 p-4 transition-colors hover:border-border hover:bg-secondary/25">
                   <span>
                     <span className="block text-sm font-medium text-foreground">Reduzir animações</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Remove movimentos e transições para uma interface mais estável.</span>
-                  </span>
+                                      </span>
                   <Switch checked={prefs.anim === 'off'} onChange={() => update({ anim: prefs.anim === 'off' ? 'on' : 'off' })} label="Reduzir animações" />
                 </label>
 
                 <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-border/55 bg-secondary/15 p-4 transition-colors hover:border-border hover:bg-secondary/25">
                   <span>
                     <span className="block text-sm font-medium text-foreground">Ocultar valores</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Protege números de faturamento durante gravações ou compartilhamento de tela.</span>
-                  </span>
+                                      </span>
                   <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo privacidade" />
                 </label>
               </div>
@@ -161,7 +150,7 @@ export function ConfigView() {
   )
 }
 
-function SettingsTab({ value, icon: Icon, title, description }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
+function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
   return (
     <Tabs.Trigger
       value={value}
@@ -172,21 +161,14 @@ function SettingsTab({ value, icon: Icon, title, description }: { value: string;
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold text-foreground">{title}</span>
-        <span className="mt-0.5 hidden text-[10px] leading-relaxed text-muted-foreground lg:block">{description}</span>
       </span>
       <ChevronRight className="hidden size-3.5 text-muted-foreground transition-transform group-data-[state=active]:translate-x-0.5 group-data-[state=active]:text-brand-cyan lg:block" />
     </Tabs.Trigger>
   )
 }
 
-function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return (
-    <div className="px-1 pb-1">
-      <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-brand-cyan/80">{eyebrow}</p>
-      <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h2>
-      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">{description}</p>
-    </div>
-  )
+function SectionIntro(_props: { eyebrow: string; title: string; description: string }) {
+  return null
 }
 
 function SettingsOverview() {
@@ -227,23 +209,15 @@ function SettingsOverview() {
   ] as const
 
   return (
-    <GlassCard className="p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Estado da conta</p>
-          <h2 className="mt-1 text-sm font-semibold text-foreground">Resumo das configurações essenciais</h2>
-        </div>
-        <span className="hidden rounded-full border border-white/8 bg-secondary/20 px-2.5 py-1 text-[10px] text-muted-foreground sm:inline-flex">Configuração global</span>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, hint, icon: Icon, tone }) => (
+    <GlassCard className="p-3 sm:p-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map(({ label, value, icon: Icon, tone }) => (
           <div key={label} className={`rounded-2xl border p-3.5 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
                 <p className="mt-2 truncate text-sm font-semibold text-foreground">{value}</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{hint}</p>
-              </div>
+                              </div>
               <span className={`flex size-8 shrink-0 items-center justify-center rounded-xl border ${tone === 'success' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : tone === 'warning' ? 'border-warning/20 bg-warning/10 text-warning' : 'border-white/5 bg-black/20 text-brand-cyan'}`}>
                 <Icon className="size-3.5" />
               </span>

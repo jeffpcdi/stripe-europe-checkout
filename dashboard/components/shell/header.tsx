@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
-import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
+import { NAV_SECTIONS } from '@/lib/navigation'
 import { useAccount } from '@/lib/api'
 import { DurabilityBadge } from '@/components/shell/durability-badge'
 import { NotificationBell } from '@/components/shell/notification-bell'
@@ -143,7 +143,6 @@ export function Header() {
     ALL_ITEMS.find((i) => i.href === '/' ? pathname === '/' : pathname.startsWith(i.href))
     ?? HIDDEN_ROUTE_CONTEXT.find((i) => pathname.startsWith(i.href))
     ?? ALL_ITEMS[0]
-  const group = activeGroup(pathname)
 
   // Item 13: breadcrumb re-anima quando a página troca
   const prevPath = useRef(pathname)
@@ -153,10 +152,8 @@ export function Header() {
   return (
     <>
       <div key={pathname} className={cn('dashboard-page-context', changed && 'anim-fade-in')}>
-        <span className="dashboard-page-eyebrow">{group.label}</span>
         <div className="dashboard-page-context__copy">
           <h1>{current.label}</h1>
-          <p className="dashboard-page-description">{current.description}</p>
         </div>
       </div>
       <div className="dashboard-account-actions">

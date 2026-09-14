@@ -314,180 +314,156 @@ export function UniversalLauncherDialog({
 
   if (!open) return null
 
-  return (<Modal isOpen={open} onClose={onClose} busy={submitting} title="Criar campanha" description="Selecione os vídeos, o destino e o orçamento." maxWidth="max-w-xl" footer={<div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-4 sm:px-5 py-3 sm:py-3.5">
-          <div className="text-[11px] text-muted-foreground">
-            {validationError ? (
-              <span className="text-warning flex items-center gap-1">
+  return (
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      busy={submitting}
+      title="Criar campanha"
+      description="Monte a campanha com o essencial e revise o que será publicado antes de enviar ao TikTok."
+      maxWidth="max-w-5xl"
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 text-[11px] text-muted-foreground">
+            {jobId ? (
+              <span className={jobDone ? 'text-success' : 'text-primary'}>
+                {jobDone
+                  ? `${job?.done ?? 0} concluída(s)${(job?.failed ?? 0) ? ` · ${job?.failed} com falha` : ''}`
+                  : 'A criação continua em segundo plano. Você pode acompanhar o progresso acima.'}
+              </span>
+            ) : validationError ? (
+              <span className="flex items-center gap-1 text-warning">
                 <AlertCircle className="size-3 shrink-0" />
                 {validationError}
               </span>
             ) : (
-              <span className="text-success flex items-center gap-1">
+              <span className="flex items-center gap-1 text-success">
                 <CheckCircle2 className="size-3 shrink-0" />
-                {items.length} campanha(s) · {fmtSpend(Number(budget) * items.length, currency)}/dia no total
+                Revisão pronta · tudo será criado pausado para conferência.
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Cancelar
+            <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={submitting}>
+              {jobId ? 'Fechar' : 'Cancelar'}
             </button>
-            <button
-              type="button"
-              className="btn-primary text-xs font-semibold px-4 py-2"
-              disabled={Boolean(validationError) || submitting || Boolean(jobId && !jobDone)}
-              onClick={handleLaunch}
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                  Criando...
-                </>
-              ) : (
-                <>
-                  <Rocket className="size-3.5" aria-hidden="true" />
-                  {isBulk ? `Criar ${items.length} campanhas` : 'Criar campanha'}
-                </>
-              )}
-            </button>
-          </div>
-        </div>}>
-        {/* Seletor Rápido de Formato */}
-        {!jobId && (onSmartPlus || onSpark) && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-border/30 bg-secondary/15 px-4 sm:px-5 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Formato:</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-3 py-1 text-xs font-semibold text-primary">
-              <Rocket className="size-3" />
-              Direta (CBO / Conversão)
-            </span>
-            {onSmartPlus && (
+            {!jobId && (
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                onClick={onSmartPlus}
+                className="btn-primary px-4 py-2 text-xs font-semibold"
+                disabled={Boolean(validationError) || submitting}
+                onClick={handleLaunch}
               >
-                <Sparkles className="size-3 text-cyan-400" />
-                Smart+ IA
-              </button>
-            )}
-            {onSpark && (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                onClick={onSpark}
-              >
-                <Play className="size-3 text-emerald-400" />
-                Spark Ads (Post)
+                {submitting ? (
+                  <><Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> Criando...</>
+                ) : (
+                  <><Rocket className="size-3.5" aria-hidden="true" /> {isBulk ? `Criar ${items.length} campanhas` : 'Criar campanha pausada'}</>
+                )}
               </button>
             )}
           </div>
-        )}
-
-        {/* Corpo do Modal */}
-        <div className="space-y-4 pt-4">
-          {/* Se houver job em andamento (Modo progresso do lote) */}
-          {jobId && job ? (
-            <div className="space-y-4 rounded-xl border border-border/50 bg-secondary/15 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground flex items-center gap-2">
-                  <Layers className="size-4 text-primary" />
-                  Progresso das campanhas
-                </span>
-                <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                  {(job.done ?? 0) + (job.failed ?? 0)} / {job.total}
-                </span>
-              </div>
-
-              {/* Barra de progresso */}
-              <div className="h-2 w-full overflow-hidden rounded-full bg-secondary/50">
-                <div
-                  className="h-full bg-primary transition-all duration-300"
-                  style={{ width: `${job.total > 0 ? (((job.done ?? 0) + (job.failed ?? 0)) / job.total) * 100 : 0}%` }}
-                />
-              </div>
-
-              {/* Lista dos itens do job */}
-              <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
-                {(job.items ?? []).map((it, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-lg bg-background/50 px-3 py-2 text-xs border border-border/30"
-                  >
-                    <span className="truncate max-w-[280px] text-muted-foreground">{it.ref || `Campanha #${it.idx + 1}`}</span>
-                    {it.status === 'done' ? (
-                      <span className="flex items-center gap-1 text-success text-[11px] font-medium">
-                        <CheckCircle2 className="size-3.5" /> Criada
-                      </span>
-                    ) : it.status === 'failed' ? (
-                      <span className="flex items-center gap-1 text-error text-[11px] font-medium" title={it.error}>
-                        <AlertCircle className="size-3.5" /> Falhou
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-primary text-[11px] font-medium">
-                        <Loader2 className="size-3.5 animate-spin" /> Criando...
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {jobDone && (job.failed ?? 0) > 0 && (
-                <button
-                  type="button"
-                  className="btn-secondary w-full text-xs justify-center gap-2"
-                  onClick={handleRetryFailed}
-                  disabled={retrying}
-                >
-                  <RotateCcw className={`size-3.5 ${retrying ? 'animate-spin' : ''}`} />
-                  Reprocessar falhas ({job.failed})
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <MarketSelector value={market} onChange={setMarket} disabled={submitting} />
-              {/* 1. SELEÇÃO / UPLOAD DE VÍDEOS */}
+        </div>
+      }
+    >
+      {jobId && job ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <label className="block text-xs font-semibold text-foreground mb-1.5">
-                  1. Vídeos · até 20
-                </label>
+                <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Layers className="size-4 text-primary" />
+                  Criação em andamento
+                </span>
+                <p className="mt-1 text-xs text-muted-foreground">Cada campanha passa pela fila durável e nasce pausada para revisão.</p>
+              </div>
+              <span className="rounded-full border border-border/60 bg-background/60 px-2.5 py-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                {(job.done ?? 0) + (job.failed ?? 0)} / {job.total}
+              </span>
+            </div>
+            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-secondary/60">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${job.total > 0 ? (((job.done ?? 0) + (job.failed ?? 0)) / job.total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
 
-                {/* Dropzone */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(job.items ?? []).map((it, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/50 px-3 py-2.5 text-xs">
+                <span className="min-w-0 truncate text-muted-foreground">{it.ref || `Campanha #${it.idx + 1}`}</span>
+                {it.status === 'done' ? (
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-success"><CheckCircle2 className="size-3.5" /> Criada</span>
+                ) : it.status === 'failed' ? (
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-error" title={it.error}><AlertCircle className="size-3.5" /> Falhou</span>
+                ) : (
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-primary"><Loader2 className="size-3.5 animate-spin" /> Criando...</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {jobDone && (job.failed ?? 0) > 0 && (
+            <button type="button" className="btn-secondary w-full justify-center gap-2 text-xs" onClick={handleRetryFailed} disabled={retrying}>
+              <RotateCcw className={`size-3.5 ${retrying ? 'animate-spin' : ''}`} />
+              Reprocessar falhas ({job.failed})
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {(onSmartPlus || onSpark) && (
+            <div className="launch-section-card">
+              <span className="launch-section-kicker">Formato da campanha</span>
+              <div className="mt-3 launch-kind-grid">
+                <div className="launch-kind-card" data-active="true">
+                  <Rocket className="size-4 shrink-0" />
+                  <span><strong>Direta</strong><small>Conversão com CBO. Mais controle e uma campanha por vídeo.</small></span>
+                </div>
+                {onSmartPlus && (
+                  <button type="button" className="launch-kind-card" data-active="false" onClick={onSmartPlus}>
+                    <Sparkles className="size-4 shrink-0" />
+                    <span><strong>Smart+</strong><small>Automação do TikTok para público, lance e entrega.</small></span>
+                  </button>
+                )}
+                {onSpark && (
+                  <button type="button" className="launch-kind-card" data-active="false" onClick={onSpark}>
+                    <Play className="size-4 shrink-0" />
+                    <span><strong>Spark Ads</strong><small>Impulsione uma publicação orgânica autorizada.</small></span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="launch-composer-grid">
+            <fieldset disabled={submitting} className="launch-composer-main border-0 p-0">
+              <section className="launch-section-card">
+                <span className="launch-section-kicker">1 · Criativo</span>
+                <div className="launch-section-heading mt-1">
+                  <div>
+                    <h3 className="launch-section-title">Vídeos da campanha</h3>
+                    <p className="launch-section-copy">Envie até 20 vídeos. Com mais de um vídeo, o ROINADOS cria uma campanha separada para cada criativo.</p>
+                  </div>
+                  {items.length > 0 && <span className="launch-review-badge">{items.filter(item => item.videoUrl).length}/{items.length} prontos</span>}
+                </div>
+
                 <div
-                  className={`group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
-                    isDragging
-                      ? 'border-primary bg-primary/15 shadow-[0_0_25px_rgba(37,244,238,0.25)] scale-[1.01]'
-                      : 'border-border/60 bg-secondary/10 hover:border-primary/40 hover:bg-primary/5'
+                  className={`group relative mt-3 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed p-5 text-center transition-all ${
+                    isDragging ? 'border-primary bg-primary/10' : 'border-border/70 bg-secondary/10 hover:border-primary/40 hover:bg-primary/5'
                   }`}
-                  role="button" tabIndex={0} aria-label="Adicionar vídeos"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Adicionar vídeos"
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
                   onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setIsDragging(true)
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setIsDragging(true)
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setIsDragging(false)
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setIsDragging(false)
-                    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files)
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }}
+                  onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }}
+                  onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setIsDragging(false) }}
+                  onDrop={e => {
+                    e.preventDefault(); e.stopPropagation(); setIsDragging(false)
+                    if (e.dataTransfer.files) void handleFiles(e.dataTransfer.files)
                   }}
                 >
                   <input
@@ -497,198 +473,167 @@ export function UniversalLauncherDialog({
                     accept=".mp4,.mov,video/mp4,video/quicktime"
                     multiple
                     className="sr-only"
-                    onChange={(e) => {
-                      if (e.target.files) handleFiles(e.target.files)
-                      e.target.value = ''
-                    }}
+                    onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = '' }}
                   />
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-secondary/80 text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary transition-colors">
+                  <div className="flex size-11 items-center justify-center rounded-xl border border-border/60 bg-background/70 text-muted-foreground transition-colors group-hover:text-primary">
                     <UploadCloud className="size-5" aria-hidden="true" />
                   </div>
-                  <p className="mt-2 text-xs font-semibold text-foreground">
-                    Selecionar vídeos
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    MP4 ou MOV · até 500 MB cada · uma campanha por vídeo
-                  </p>
+                  <p className="mt-2 text-xs font-semibold text-foreground">Arraste vídeos ou clique para selecionar</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">MP4 ou MOV · até 500 MB por arquivo</p>
                 </div>
 
-                <div className="mt-3"><SavedVideos selectedUrls={items.map((item) => item.videoUrl)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={(item) => setItems((current) => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 80), fileName: item.name, videoUrl: item.url, uploading: false }])} /></div>
-                {/* Lista de vídeos adicionados */}
+                <div className="mt-3">
+                  <SavedVideos
+                    selectedUrls={items.map(item => item.videoUrl)}
+                    disabled={submitting || uploadingCount > 0 || items.length >= 20}
+                    onPick={item => setItems(current => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 80), fileName: item.name, videoUrl: item.url, uploading: false }])}
+                  />
+                </div>
+
                 {items.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
-                      <span>{items.filter((item) => item.videoUrl).length} de {items.length} vídeos prontos</span>
-                      {items.length > 1 && (
-                        <span className="text-primary font-semibold">Uma campanha por vídeo</span>
-                      )}
-                    </div>
-                    <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                      {items.map((it, idx) => (
-                        <div
-                          key={it.key}
-                          className="flex flex-col gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              {it.uploading ? (
-                                <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-                              ) : (
-                                <Play className="size-3.5 shrink-0 text-success" />
-                              )}
-                              <span className="truncate font-medium text-foreground">{it.fileName || it.name}</span>
-                              {it.sizeMb && (
-                                <span className="text-[10px] text-muted-foreground shrink-0 font-mono">({it.sizeMb} MB)</span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className="btn-ghost p-1 text-muted-foreground hover:text-error shrink-0"
-                              onClick={() => removeItem(it.key)}
-                              aria-label="Remover vídeo"
-                              disabled={uploadingCount > 0 || submitting}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                  <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+                    {items.map((it, idx) => (
+                      <div key={it.key} className="rounded-xl border border-border/50 bg-secondary/15 p-3 text-xs">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            {it.uploading ? <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" /> : it.error ? <AlertCircle className="size-3.5 shrink-0 text-error" /> : <CheckCircle2 className="size-3.5 shrink-0 text-success" />}
+                            <span className="truncate font-medium text-foreground">{it.fileName || it.name}</span>
+                            {it.sizeMb && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{it.sizeMb} MB</span>}
                           </div>
-                          {it.error && <div className="flex items-center justify-between gap-2 text-error"><span>{it.error}</span><button type="button" className="btn-secondary text-xs" disabled={uploadingCount > 0} onClick={() => void uploadItems([it])}>Tentar novamente</button></div>}
-                          {items.length === 1 && (
-                            <div className="border-t border-border/30 pt-2">
-                              <label className="block text-[10px] uppercase font-semibold tracking-wider text-muted-foreground mb-1">
-                                Nome da campanha no TikTok
-                              </label>
-                              <input
-                                type="text"
-                                value={it.name}
-                                onChange={(e) => {
-                                  const val = e.target.value
-                                  setItems(prev => prev.map((item, i) => i === idx ? { ...item, name: val } : item))
-                                }}
-                                placeholder="Nome da campanha"
-                                className="input-neon w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
-                              />
-                            </div>
-                          )}
+                          <button type="button" className="btn-ghost p-1 text-muted-foreground hover:text-error" onClick={() => removeItem(it.key)} aria-label="Remover vídeo" disabled={uploadingCount > 0 || submitting}>
+                            <Trash2 className="size-3.5" />
+                          </button>
                         </div>
-                      ))}
-                    </div>
+                        {it.error && (
+                          <div className="mt-2 flex items-center justify-between gap-2 text-error">
+                            <span>{it.error}</span>
+                            <button type="button" className="btn-secondary text-xs" disabled={uploadingCount > 0} onClick={() => void uploadItems([it])}>Tentar novamente</button>
+                          </div>
+                        )}
+                        {items.length === 1 && (
+                          <label className="mt-2 block border-t border-border/30 pt-2">
+                            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Nome no TikTok</span>
+                            <input
+                              type="text"
+                              value={it.name}
+                              onChange={e => {
+                                const value = e.target.value
+                                setItems(prev => prev.map((item, i) => i === idx ? { ...item, name: value } : item))
+                              }}
+                              placeholder="Nome da campanha"
+                              className="input-neon w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
+              </section>
 
-
-              </div>
-
-              {/* 2. DESTINO (PÁGINA DE VENDAS) */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="launcher-link" className="text-xs font-semibold text-foreground">
-                    2. Página de vendas
+              <section className="launch-section-card">
+                <span className="launch-section-kicker">2 · Destino e público</span>
+                <h3 className="launch-section-title">Para onde e para quem</h3>
+                <p className="launch-section-copy">O pixel selecionado na conta será usado para otimizar a conversão.</p>
+                <div className="mt-4 space-y-4">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-foreground">Página de vendas</span>
+                    <div className="relative">
+                      <LinkIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        id="launcher-link"
+                        type="url"
+                        value={linkUrl}
+                        onChange={e => setLinkUrl(e.target.value)}
+                        placeholder="https://meusite.com/produto"
+                        className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-14 text-xs text-foreground placeholder:text-muted-foreground"
+                      />
+                      {!linkUrl ? (
+                        <button
+                          type="button"
+                          onClick={async () => { try { const value = await navigator.clipboard.readText(); if (value) setLinkUrl(value.trim()) } catch {} }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-secondary/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                        >Colar</button>
+                      ) : (
+                        <button type="button" onClick={() => setLinkUrl('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground" aria-label="Limpar link"><X className="size-3.5" /></button>
+                      )}
+                    </div>
                   </label>
+                  <MarketSelector value={market} onChange={setMarket} disabled={submitting} />
                 </div>
-                <div className="relative">
-                  <LinkIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    id="launcher-link"
-                    type="url"
-                    value={linkUrl}
-                    onChange={(e) => setLinkUrl(e.target.value)}
-                    placeholder="https://meusite.com/produto"
-                    className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-14 text-xs text-foreground placeholder:text-muted-foreground"
-                  />
-                  {!linkUrl ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const text = await navigator.clipboard.readText()
-                          if (text) setLinkUrl(text.trim())
-                        } catch {
-                          // ignore clipboard permission error
-                        }
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-secondary/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      Colar
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setLinkUrl('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
-                      aria-label="Limpar link"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
+              </section>
+
+              <section className="launch-section-card">
+                <span className="launch-section-kicker">3 · Orçamento</span>
+                <h3 className="launch-section-title">Quanto cada campanha pode gastar</h3>
+                <div className="mt-4">
+                  <MoneyField label="Orçamento diário por campanha" currency={currency} value={budget} onChange={setBudget} min={TIKTOK_MIN_BUDGET} hint={`Mínimo: ${fmtSpend(TIKTOK_MIN_BUDGET, currency)} por campanha/dia.`} />
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Para onde o visitante vai ao clicar no anúncio.
-                </p>
-              </div>
+              </section>
 
-              <MoneyField label="Orçamento diário por campanha" currency={currency} value={budget} onChange={setBudget} min={TIKTOK_MIN_BUDGET} hint={`Mínimo: ${fmtSpend(TIKTOK_MIN_BUDGET, currency)} por campanha/dia.`} />
-
-              {/* 4. OPÇÕES AVANÇADAS (OPCIONAL) */}
-              <div className="border-t border-border/30 pt-3">
-                <button
-                  type="button"
-                  aria-expanded={showAdvanced}
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center justify-between w-full text-xs font-medium text-muted-foreground hover:text-foreground py-1"
-                >
-                  <span>Nome e texto do anúncio</span>
-                  {showAdvanced ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              <section className="launch-section-card">
+                <button type="button" aria-expanded={showAdvanced} onClick={() => setShowAdvanced(!showAdvanced)} className="flex w-full items-center justify-between gap-3 text-left">
+                  <span>
+                    <span className="launch-section-kicker">Opcional</span>
+                    <span className="launch-section-title block">Nome, texto e botão</span>
+                    <span className="launch-section-copy block">Personalize somente se precisar fugir dos padrões recomendados.</span>
+                  </span>
+                  {showAdvanced ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
                 </button>
-
                 {showAdvanced && (
-                  <div className="mt-3 space-y-3 rounded-xl border border-border/40 bg-secondary/10 p-3.5 anim-content-in">
-                    <div>
-                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Início do nome da campanha
-                      </label>
-                      <input
-                        type="text"
-                        aria-label="Início do nome da campanha"
-                        value={campaignPrefix}
-                        onChange={(e) => setCampaignPrefix(e.target.value)}
-                        placeholder="Ex.: [Escala BR] ou [Teste Criativos]"
-                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Texto do anúncio
-                      </label>
-                      <input
-                        type="text"
-                        aria-label="Texto do anúncio"
-                        value={bodyText}
-                        onChange={(e) => setBodyText(e.target.value)}
-                        placeholder="Ex.: Frete grátis apenas hoje! Clique e garanta o seu."
-                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                        Botão do anúncio
-                      </label>
-                      <select
-                        aria-label="Botão do anúncio"
-                        value={cta}
-                        onChange={(e) => setCta(e.target.value)}
-                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground"
-                      >
+                  <div className="mt-4 space-y-3 border-t border-border/40 pt-4">
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Prefixo do nome</span>
+                      <input type="text" value={campaignPrefix} onChange={e => setCampaignPrefix(e.target.value)} placeholder="Ex.: [Escala BR]" className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Texto do anúncio</span>
+                      <input type="text" value={bodyText} onChange={e => setBodyText(e.target.value)} placeholder="Ex.: Frete grátis apenas hoje." className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Botão</span>
+                      <select value={cta} onChange={e => setCta(e.target.value)} className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground">
                         <option value="SHOP_NOW">Comprar agora</option>
                         <option value="LEARN_MORE">Saiba mais</option>
                         <option value="ORDER_NOW">Pedir agora</option>
                       </select>
-                    </div>
+                    </label>
                   </div>
                 )}
-              </div>
-            </>
-          )}
-        </div>
+              </section>
+            </fieldset>
 
-</Modal>)
+            <aside className="launch-review" aria-label="Revisão da campanha">
+              <div className="launch-review-head">
+                <div>
+                  <p className="launch-review-title">Revisão antes de publicar</p>
+                  <p className="launch-review-copy">Confirme a estrutura que será enviada ao TikTok.</p>
+                </div>
+                <span className="launch-review-badge">Pausada</span>
+              </div>
+              <div className="launch-review-list">
+                <div className="launch-review-row"><span>Formato</span><strong>Direta · CBO</strong></div>
+                <div className="launch-review-row"><span>Campanhas</span><strong>{items.length || 0}</strong></div>
+                <div className="launch-review-row"><span>Criativos prontos</span><strong>{items.filter(item => item.videoUrl && !item.error).length}/{items.length || 0}</strong></div>
+                <div className="launch-review-row"><span>Mercado</span><strong>{market.countries.join(', ') || '—'}</strong></div>
+                <div className="launch-review-row"><span>Idioma</span><strong>{market.languages.join(', ') || 'Automático'}</strong></div>
+                <div className="launch-review-row"><span>Destino</span><strong>{linkUrl ? linkUrl.replace(/^https?:\/\//, '').split('/')[0] : '—'}</strong></div>
+                <div className="launch-review-row"><span>Estratégia</span><strong>Menor custo</strong></div>
+              </div>
+              <div className="launch-review-total">
+                <span className="text-[11px] text-muted-foreground">Orçamento diário total</span>
+                <strong>{Number(budget) > 0 && items.length > 0 ? fmtSpend(Number(budget) * items.length, currency) : '—'}</strong>
+                <p className="mt-1 text-[10px] text-muted-foreground">{items.length || 0} × {Number(budget) > 0 ? fmtSpend(Number(budget), currency) : '—'} por campanha</p>
+              </div>
+              {validationError ? (
+                <div className="launch-review-warning"><AlertCircle className="mt-0.5 size-3.5 shrink-0" /><span>{validationError}</span></div>
+              ) : (
+                <div className="launch-review-ready"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" /><span>Tudo pronto. O ROINADOS fará o preflight e criará a estrutura pausada.</span></div>
+              )}
+            </aside>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
 }

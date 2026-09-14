@@ -66,9 +66,9 @@ export const NAV_GROUPS: NavGroup[] = [
     routes: ['/links', '/cloak', '/domains', '/conversions', '/pixels', '/gateways'],
     tabs: [
       { label: 'Links', href: '/links' },
-      { label: 'Proteção', href: '/cloak' },
+      { label: 'Cloaker', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Conversões', href: '/conversions' },
+      { label: 'Pixel', href: '/conversions' },
     ],
   },
   {
@@ -81,7 +81,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: 'config',
-    label: 'Configurações',
+    label: 'Conta',
     icon: Settings,
     href: '/config',
     routes: ['/config'],
@@ -99,15 +99,15 @@ export function activeGroup(pathname: string): NavGroup {
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: 'Operação', items: [
     { id: 'overview', label: 'Visão geral', description: 'Resultados e visitantes online', icon: LayoutDashboard, href: '/' },
-    { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, catálogos e automações', icon: Megaphone, href: '/ads/tiktok' },
+    { id: 'ads', label: 'TikTok Ads', description: 'Campanhas e automações', icon: Megaphone, href: '/ads/tiktok' },
   ] },
   { title: 'Rastreamento', items: [
-    { id: 'conversions', label: 'Conversões', description: 'Vendas, pagamentos e pixels', icon: CreditCard, href: '/conversions' },
-    { id: 'links', label: 'Links', description: 'Links de venda e seus resultados', icon: Link2, href: '/links' },
+    { id: 'conversions', label: 'Pixel', description: 'Pixels e checkouts', icon: CreditCard, href: '/conversions' },
+    { id: 'links', label: 'Links', description: 'Links e destinos', icon: Link2, href: '/links' },
     { id: 'domains', label: 'Domínios', description: 'Endereços próprios dos seus links', icon: Globe, href: '/domains' },
-    { id: 'cloak', label: 'Proteção', description: 'Filtro de acessos automatizados', icon: ShieldAlert, href: '/cloak' },
+    { id: 'cloak', label: 'Cloaker', description: 'Filtro de acessos', icon: ShieldAlert, href: '/cloak' },
   ] },
   { title: 'Conta', items: [
-    { id: 'config', label: 'Configurações', description: 'Preferências, notificações e segurança', icon: Settings, href: '/config' },
+    { id: 'config', label: 'Conta', description: 'Preferências e segurança', icon: Settings, href: '/config' },
   ] },
 ]

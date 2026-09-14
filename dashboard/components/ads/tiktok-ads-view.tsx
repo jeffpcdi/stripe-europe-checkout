@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSWRConfig } from 'swr'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users, Activity, TrendingUp, Target, AlertCircle, ArrowRight, ShieldCheck, BarChart3 } from 'lucide-react'
+import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users, TrendingUp, Target, AlertCircle, ArrowRight, ShieldCheck, BarChart3 } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -367,16 +367,9 @@ export function TikTokAdsView() {
   return (
     <div className="tiktok-view min-w-0 flex flex-col gap-4">
       <section className="rounded-[28px] border border-border/70 bg-[radial-gradient(circle_at_top_left,rgba(37,244,238,0.09),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012))] p-4 shadow-[0_28px_70px_-44px_rgba(0,0,0,0.95)] sm:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-              <Activity className="size-3.5" aria-hidden="true" />
-              Operação TikTok Ads
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Campanhas, catálogo e automação em um só fluxo</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-              Acompanhe resultado real, encontre o que precisa de atenção e opere a conta sem alternar entre várias ferramentas.
-            </p>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">TikTok Ads</h1>
           </div>
           {effectiveAdvertiser ? (
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
@@ -395,28 +388,23 @@ export function TikTokAdsView() {
             <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
               <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Campanhas ativas</span><Megaphone className="size-4 text-brand-cyan" /></div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.active}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">de {adsOperationalSummary.total} carregadas</p>
-            </div>
+                          </div>
             <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
               <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Gasto TikTok</span><BarChart3 className="size-4 text-muted-foreground" /></div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{formatAdsMoney(adsOperationalSummary.spend)}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">no período selecionado</p>
-            </div>
+                          </div>
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
               <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80">Vendas reais</span><Target className="size-4 text-emerald-300" /></div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">rastreadas pelo ROINADOS</p>
-            </div>
+                          </div>
             <div className="rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3.5">
               <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-brand-cyan/80">ROAS real</span><TrendingUp className="size-4 text-brand-cyan" /></div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">receita first-party ÷ gasto</p>
-            </div>
+                          </div>
             <div className={`rounded-2xl border p-3.5 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'border-warning/25 bg-warning/8' : 'border-border/60 bg-black/15'}`}>
               <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Prioridades</span><ShieldCheck className={`size-4 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'text-warning' : 'text-success'}`} /></div>
               <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.pendingProposals + adsOperationalSummary.noSalesWithSpend + (rejections?.open ?? 0)}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">itens para revisar agora</p>
-            </div>
+                          </div>
           </div>
         ) : null}
       </section>
@@ -550,8 +538,7 @@ export function TikTokAdsView() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-semibold sm:text-sm">{item.label}</span>
-                        <span className="mt-0.5 hidden truncate text-[10px] font-normal text-muted-foreground lg:block">{item.description}</span>
-                      </span>
+                                              </span>
                       {attentionCount > 0 && (
                         <span className="flex min-w-5 items-center justify-center self-start rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
                           {attentionCount}
@@ -680,43 +667,34 @@ export function TikTokAdsView() {
               {(adsOperationalSummary.pendingProposals > 0 || adsOperationalSummary.noSalesWithSpend > 0 || adsOperationalSummary.highRoas > 0 || (rejections?.open ?? 0) > 0) && (
                 <GlassCard className="p-4 sm:p-5">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
-                        <h2 className="text-sm font-semibold text-foreground">Prioridades da operação</h2>
-                      </div>
-                      <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
-                        Atalhos derivados dos dados atuais da conta. O ROINADOS só destaca o que já existe no seu fluxo.
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
+                      <h2 className="text-sm font-semibold text-foreground">Prioridades</h2>
                     </div>
                     <div className="grid flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:max-w-4xl">
                       {adsOperationalSummary.noSalesWithSpend > 0 ? (
                         <button type="button" onClick={() => applyCampaignShortcut('sem venda')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
                           <div className="flex items-center justify-between gap-2"><AlertCircle className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
                           <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.noSalesWithSpend} sem venda</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">Campanhas com gasto e nenhuma venda real.</p>
-                        </button>
+                                                  </button>
                       ) : null}
                       {adsOperationalSummary.pendingProposals > 0 ? (
                         <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
                           <div className="flex items-center justify-between gap-2"><Bot className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
                           <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.pendingProposals} decisão{adsOperationalSummary.pendingProposals === 1 ? '' : 'ões'} pendente{adsOperationalSummary.pendingProposals === 1 ? '' : 's'}</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">A automação está aguardando sua aprovação.</p>
-                        </button>
+                                                  </button>
                       ) : null}
                       {(rejections?.open ?? 0) > 0 ? (
                         <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-error/20 bg-error/8 p-3 text-left transition hover:border-error/40 hover:bg-error/12">
                           <div className="flex items-center justify-between gap-2"><Ban className="size-4 text-error" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
                           <p className="mt-2 text-sm font-semibold text-foreground">{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'}</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">Anúncios que precisam de revisão ou recurso.</p>
-                        </button>
+                                                  </button>
                       ) : null}
                       {adsOperationalSummary.highRoas > 0 ? (
                         <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="group rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3 text-left transition hover:border-brand-cyan/40 hover:bg-brand-cyan/12">
                           <div className="flex items-center justify-between gap-2"><TrendingUp className="size-4 text-brand-cyan" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
                           <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.highRoas} vencedora{adsOperationalSummary.highRoas === 1 ? '' : 's'}</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">Campanhas com ROAS real acima de 2×.</p>
-                        </button>
+                                                  </button>
                       ) : null}
                     </div>
                   </div>
@@ -847,6 +825,12 @@ export function TikTokAdsView() {
         advertiserId={detailCampaign?.platformAdAccountId || concreteAdvertiser}
         currency={currency}
         onClose={() => setDetailCampaign(null)}
+        onMutate={refreshCampaignSurfaces}
+        onDuplicate={(campaign) => setDuplicateCampaign(campaign)}
+        onOpenAutomations={() => {
+          setDetailCampaign(null)
+          changeTab('automation')
+        }}
       />
       <ConfirmDialog
         open={confirmDisconnect}

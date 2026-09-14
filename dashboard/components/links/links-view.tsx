@@ -425,16 +425,9 @@ export function LinksView() {
     <div className="flex flex-col gap-5">
       {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-              <Link2 className="size-3.5" />
-              Links de venda
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Distribuição, rastreamento e conversão</h1>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Centralize os links usados nos anúncios, acompanhe desempenho e veja rapidamente quando um domínio ou pixel precisa de atenção.
-            </p>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Links</h1>
           </div>
           <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary self-start">
             <Plus className="size-4" />
@@ -446,23 +439,19 @@ export function LinksView() {
           <GlassCard className="p-4">
             <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Links ativos</p>
             <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.active} /><span className="text-sm font-medium text-muted-foreground">/{linkSummary.total}</span></p>
-            <p className="mt-1 text-[11px] text-muted-foreground">Disponíveis para receber tráfego agora.</p>
-          </GlassCard>
+                      </GlassCard>
           <GlassCard className="p-4">
             <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Cliques</p>
             <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.clicks} /></p>
-            <p className="mt-1 text-[11px] text-muted-foreground">Tráfego acumulado nos links atuais.</p>
-          </GlassCard>
+                      </GlassCard>
           <GlassCard className="p-4">
             <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Conversão</p>
             <p className="mt-2 text-xl font-semibold text-brand-cyan">{linkSummary.conversionRate.toFixed(1).replace('.', ',')}%</p>
-            <p className="mt-1 text-[11px] text-muted-foreground"><CountUp value={linkSummary.conversions} /> conversões registradas.</p>
-          </GlassCard>
+                      </GlassCard>
           <GlassCard className={`p-4 ${linkSummary.attention ? 'border-warning/30 bg-warning/5' : ''}`}>
             <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Atenção</p>
             <p className={`mt-2 text-xl font-semibold ${linkSummary.attention ? 'text-warning' : 'text-success'}`}>{linkSummary.attention}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{linkSummary.attention ? 'Links com domínio ou pixel para revisar.' : 'Nenhuma dependência crítica pendente.'}</p>
-          </GlassCard>
+                      </GlassCard>
         </div>
 
         <GlassCard className="p-3 sm:p-4">

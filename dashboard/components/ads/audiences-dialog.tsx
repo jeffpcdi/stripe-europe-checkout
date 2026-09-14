@@ -33,6 +33,9 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   const { data, isLoading, mutate, error } = useAdsCustomAudiences(open, advertiserId)
   const audiences = data?.audiences || []
   const availableSources = audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE'))
+  const readyAudiences = audiences.filter(audience => audience.isValid).length
+  const lookalikeAudiences = audiences.filter(audience => audience.type.toUpperCase().includes('LOOKALIKE')).length
+  const totalEstimatedPeople = audiences.reduce((sum, audience) => sum + Math.max(0, Number(audience.size) || 0), 0)
 
   const [creatingPreset, setCreatingPreset] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -164,7 +167,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
         ref={ref}
         role="dialog" aria-modal="true" aria-labelledby="audiences-dialog-title"
         tabIndex={-1}
-        className="relative flex flex-col w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
+        className="relative flex flex-col w-full max-w-4xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border bg-muted/20">
@@ -193,18 +196,36 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Públicos</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{audiences.length}</p>
+              <p className="text-[11px] text-muted-foreground">{readyAudiences} prontos para uso</p>
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Semelhantes</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{lookalikeAudiences}</p>
+              <p className="text-[11px] text-muted-foreground">Lookalikes gerados no TikTok</p>
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Alcance estimado</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{totalEstimatedPeople > 0 ? totalEstimatedPeople.toLocaleString('pt-BR') : '—'}</p>
+              <p className="text-[11px] text-muted-foreground">Soma informada pelo TikTok</p>
+            </div>
+          </div>
+
           {/* Quick 1-Click Creation Presets */}
           <div className="space-y-2.5">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Sparkles className="size-3.5 text-primary" />
-              Criar a partir de uma ação
+              Criar público com 1 clique
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
                 disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('purchasers')}
-                className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
+                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex items-center justify-between w-full mb-1">
                   <span className="text-xs font-semibold text-foreground group-hover:text-primary">Compradores</span>
@@ -214,16 +235,15 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                     <UserCheck className="size-3.5 text-success" />
                   )}
                 </div>
-                <span className="text-[11px] text-muted-foreground leading-tight">
-                  Pessoas que compraram nos últimos 30 dias.
-                </span>
+                <span className="text-[11px] text-muted-foreground leading-relaxed">Pessoas que compraram nos últimos 30 dias.</span>
+                <span className="mt-2 w-fit rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Purchase · 30 dias</span>
               </button>
 
               <button
                 type="button"
                 disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('checkout')}
-                className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
+                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex items-center justify-between w-full mb-1">
                   <span className="text-xs font-semibold text-foreground group-hover:text-primary">Abriu o checkout</span>
@@ -233,16 +253,15 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                     <UserPlus className="size-3.5 text-warning" />
                   )}
                 </div>
-                <span className="text-[11px] text-muted-foreground leading-tight">
-                  Pessoas que abriram o checkout nos últimos 7 dias.
-                </span>
+                <span className="text-[11px] text-muted-foreground leading-relaxed">Pessoas que abriram o checkout nos últimos 7 dias.</span>
+                <span className="mt-2 w-fit rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">InitiateCheckout · 7 dias</span>
               </button>
 
               <button
                 type="button"
                 disabled={busy || !!error || isLoading}
                 onClick={() => handleCreatePreset('viewers')}
-                className="flex flex-col text-left p-3 rounded-xl border border-border bg-background hover:border-primary/50 hover:bg-primary/5 transition-all group"
+                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex items-center justify-between w-full mb-1">
                   <span className="text-xs font-semibold text-foreground group-hover:text-primary">Visitou a página</span>
@@ -252,16 +271,15 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                     <Users className="size-3.5 text-info" />
                   )}
                 </div>
-                <span className="text-[11px] text-muted-foreground leading-tight">
-                  Últimos 14 dias. Recupere quem acessou sua página.
-                </span>
+                <span className="text-[11px] text-muted-foreground leading-relaxed">Recupere quem acessou sua página nos últimos 14 dias.</span>
+                <span className="mt-2 w-fit rounded-full bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info">ViewContent · 14 dias</span>
               </button>
             </div>
           </div>
 
           {/* Lookalike Builder Form */}
           {showLookalikeForm ? (
-            <form onSubmit={handleCreateLookalike} className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3">
+            <form onSubmit={handleCreateLookalike} className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Sparkles className="size-3.5 text-primary" />
@@ -309,7 +327,7 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">Tipo de Otimização</label>
+                <label className="text-[11px] font-medium text-muted-foreground">Como equilibrar semelhança e alcance</label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
@@ -320,7 +338,8 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Mais parecido
+                    <strong className="block">Mais parecido</strong>
+                    <span className="text-[10px] opacity-75">Menor alcance</span>
                   </button>
                   <button
                     type="button"
@@ -331,7 +350,8 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Equilibrado
+                    <strong className="block">Equilibrado</strong>
+                    <span className="text-[10px] opacity-75">Recomendado</span>
                   </button>
                   <button
                     type="button"
@@ -342,7 +362,8 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
                         : 'border-border bg-background text-muted-foreground'
                     }`}
                   >
-                    Mais amplo
+                    <strong className="block">Mais amplo</strong>
+                    <span className="text-[10px] opacity-75">Maior alcance</span>
                   </button>
                 </div>
               </div>

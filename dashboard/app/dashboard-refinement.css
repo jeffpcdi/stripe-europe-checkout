@@ -2599,3 +2599,152 @@ html[data-page-hidden='true'] .overview-observatory--premium :is(
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
 }
+
+/* V3.1 — limpeza textual + masthead mais sólido */
+.visual-system-v1 .dashboard-masthead {
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(68px, auto);
+  grid-template-areas: 'brand nav actions';
+  min-height: 84px;
+  padding: 10px 18px;
+  gap: 0 18px;
+}
+.visual-system-v1 .dashboard-brand-link {
+  width: 72px;
+  justify-content: center;
+}
+.visual-system-v1 :is(.dashboard-logo-frame) {
+  width: 70px;
+  height: 70px;
+  flex-basis: 70px;
+  border-radius: 18px;
+}
+.visual-system-v1 .dashboard-logo-image {
+  width: 68px;
+  height: 68px;
+}
+.visual-system-v1 .dashboard-brand-copy,
+.visual-system-v1 .dashboard-page-eyebrow,
+.visual-system-v1 .dashboard-page-description,
+.visual-system-v1 .dashboard-context-nav__label,
+.visual-system-v1 .section-title-v1__eyebrow,
+.visual-system-v1 .dashboard-menu-label {
+  display: none !important;
+}
+.visual-system-v1 .dashboard-page-context {
+  display: none !important;
+}
+.visual-system-v1 .dashboard-topnav {
+  justify-content: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  min-height: 48px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 2.8%), rgb(255 255 255 / 1.2%));
+}
+.visual-system-v1 .dashboard-nav-link {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.visual-system-v1 .dashboard-context-nav {
+  min-height: 38px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  justify-content: center;
+}
+.visual-system-v1 .dashboard-context-nav__track {
+  justify-content: center;
+  width: 100%;
+}
+.visual-system-v1 .dashboard-context-nav__link {
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+.visual-system-v1 .observatory-header--minimal {
+  justify-content: flex-end;
+}
+.visual-system-v1 .observatory-header--minimal .observatory-period {
+  margin-right: auto;
+}
+@media (min-width: 1100px) and (max-width: 1279px) {
+  .visual-system-v1 .dashboard-masthead {
+    grid-template-columns: 74px minmax(0, 1fr) auto;
+  }
+  .visual-system-v1 .dashboard-brand-link {
+    width: 64px;
+  }
+  .visual-system-v1 :is(.dashboard-logo-frame) {
+    width: 62px;
+    height: 62px;
+    flex-basis: 62px;
+  }
+  .visual-system-v1 .dashboard-logo-image {
+    width: 60px;
+    height: 60px;
+  }
+}
+@media (max-width: 1099px) {
+  .visual-system-v1 .dashboard-masthead {
+    grid-template-columns: 64px minmax(0, 1fr) auto auto;
+    grid-template-areas: 'brand context actions menu' 'nav nav nav nav';
+    min-height: 78px;
+    padding: 10px 13px;
+  }
+  .visual-system-v1 .dashboard-brand-link {
+    width: 58px;
+  }
+  .visual-system-v1 :is(.dashboard-logo-frame) {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
+  }
+  .visual-system-v1 .dashboard-logo-image {
+    width: 54px;
+    height: 54px;
+  }
+  .visual-system-v1 .dashboard-menu-toggle {
+    min-height: 38px;
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .visual-system-v1 .dashboard-menu-toggle > svg:last-child {
+    display: none;
+  }
+  .visual-system-v1 .dashboard-topnav[data-open='true'] {
+    margin-top: 10px;
+    border-radius: 12px;
+  }
+}
+@media (max-width: 639px) {
+  .visual-system-v1 .dashboard-masthead {
+    grid-template-columns: 52px minmax(0, 1fr) auto auto;
+    grid-template-areas: 'brand context actions menu' 'nav nav nav nav';
+    min-height: 72px;
+    padding: 8px 10px;
+    gap: 0 8px;
+  }
+  .visual-system-v1 .dashboard-brand-link {
+    width: 48px;
+  }
+  .visual-system-v1 :is(.dashboard-logo-frame) {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+    border-radius: 14px;
+  }
+  .visual-system-v1 .dashboard-logo-image {
+    width: 44px;
+    height: 44px;
+  }
+  .visual-system-v1 .dashboard-context-nav {
+    justify-content: flex-start;
+  }
+  .visual-system-v1 .dashboard-context-nav__track {
+    justify-content: flex-start;
+  }
+}

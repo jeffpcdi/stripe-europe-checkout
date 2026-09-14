@@ -111,7 +111,7 @@ export function BulkUploadDialog({
   const error: string | null = useMemo(() => {
     if (pixelLoading) return 'Aguarde a verificação do Pixel desta conta'
     if (pixelError) return 'Não foi possível verificar o Pixel desta conta agora'
-    if (!pixelReady) return 'Vincule o Pixel da conta em Conversões antes de enviar os vídeos'
+    if (!pixelReady) return 'Vincule o Pixel da conta na aba Pixel antes de enviar os vídeos'
     if (!items.length) return 'Adicione pelo menos 1 vídeo'
     if (uploadingCount > 0) return `Aguarde: ${uploadingCount} upload(s) em andamento`
     if (items.some((i) => !i.videoUrl)) return 'Há vídeos sem URL (upload falhou) — remova-os ou re-envie'
@@ -127,7 +127,7 @@ export function BulkUploadDialog({
   async function handleFiles(files: FileList | File[]) {
     if (!pixelReady) {
       toast.error('Vincule o Pixel da conta antes de enviar os vídeos', {
-        hint: 'O vínculo é feito uma única vez na aba Conversões.',
+        hint: 'O vínculo é feito uma única vez na aba Pixel.',
       })
       return
     }
@@ -345,10 +345,10 @@ export function BulkUploadDialog({
                   <>
                     <XCircle className="size-3.5 shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1">
-                      Vincule o Pixel uma única vez em Conversões antes de enviar os vídeos.
+                      Vincule o Pixel uma única vez na aba Pixel antes de enviar os vídeos.
                     </span>
                     <a className="shrink-0 font-semibold underline underline-offset-2" href="/dashboard/pixels">
-                      Abrir Conversões
+                      Abrir Pixel
                     </a>
                   </>
                 )}

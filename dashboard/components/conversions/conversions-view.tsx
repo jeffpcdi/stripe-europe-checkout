@@ -24,7 +24,6 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
-  Activity,
   ArrowUpRight,
   ShieldCheck,
   HelpCircle,
@@ -101,7 +100,7 @@ const PROVIDER_HELP: Record<string, string> = {
 
 type TabKey = 'pixels' | 'gateways' | 'logs'
 
-function TrackingSummaryCard({ title, value, hint, tone = 'default', icon: Icon }: { title: string; value: string; hint: string; tone?: 'default' | 'success' | 'warning' | 'accent'; icon: any }) {
+function TrackingSummaryCard({ title, value, tone = 'default', icon: Icon }: { title: string; value: string; tone?: 'default' | 'success' | 'warning' | 'accent'; icon: any }) {
   const toneClass = tone === 'success'
     ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
     : tone === 'warning'
@@ -116,7 +115,6 @@ function TrackingSummaryCard({ title, value, hint, tone = 'default', icon: Icon 
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
           <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{value}</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
         </div>
         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-inherit">
           <Icon className="size-4.5" aria-hidden="true" />
@@ -416,16 +414,9 @@ export function ConversionsView() {
       )}
 
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-2 rounded-full border border-brand-cyan/20 bg-brand-cyan/10 px-3 py-1 text-[11px] font-medium text-brand-cyan">
-              <Activity className="size-3.5" />
-              Rastreamento operacional
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Conversões, Pixels e Checkouts</h1>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Configure a base do rastreamento, acompanhe a saúde das entregas e valide rapidamente se as vendas estão chegando ao TikTok do jeito certo.
-            </p>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Pixel</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
@@ -451,39 +442,26 @@ export function ConversionsView() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.5fr,1fr]">
-          <GlassCard className="p-4 sm:p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Resumo do rastreamento</p>
-                <h2 className="mt-1 text-sm font-semibold text-foreground">Leitura rápida da operação</h2>
-              </div>
-              <span className="rounded-full border border-white/10 bg-secondary/20 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-                Atualizado agora
-              </span>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <TrackingSummaryCard title="Pixels ativos" value={`${activePixels}/${pixels.length || 0}`} hint={activePixels ? 'Pixels prontos para receber eventos.' : 'Cadastre o primeiro pixel.'} tone={activePixels ? 'success' : 'default'} icon={Target} />
-              <TrackingSummaryCard title="Checkouts" value={`${gateways.length}`} hint={gateways.length ? 'Plataformas prontas para enviar compras.' : 'Conecte o primeiro checkout.'} tone={gateways.length ? 'accent' : 'default'} icon={CreditCard} />
-              <TrackingSummaryCard title="Última venda" value={logSummary.lastSuccessfulRow ? timeAgo(String(logSummary.lastSuccessfulRow.at ?? (logSummary.lastSuccessfulRow as any).createdAt)) : 'Sem sinal'} hint={logSummary.success ? `${logSummary.success} entregas aprovadas` : 'Ainda sem compra confirmada'} tone={logSummary.success ? 'success' : 'default'} icon={ArrowUpRight} />
-              <TrackingSummaryCard title="Saúde" value={trackingReadiness.label} hint={trackingReadiness.hint} tone={trackingReadiness.tone} icon={ShieldCheck} />
+          <GlassCard className="p-3 sm:p-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <TrackingSummaryCard title="Pixels ativos" value={`${activePixels}/${pixels.length || 0}`} tone={activePixels ? 'success' : 'default'} icon={Target} />
+              <TrackingSummaryCard title="Checkouts" value={`${gateways.length}`} tone={gateways.length ? 'accent' : 'default'} icon={CreditCard} />
+              <TrackingSummaryCard title="Última venda" value={logSummary.lastSuccessfulRow ? timeAgo(String(logSummary.lastSuccessfulRow.at ?? (logSummary.lastSuccessfulRow as any).createdAt)) : 'Sem sinal'} tone={logSummary.success ? 'success' : 'default'} icon={ArrowUpRight} />
+              <TrackingSummaryCard title="Saúde" value={trackingReadiness.label} tone={trackingReadiness.tone} icon={ShieldCheck} />
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-brand-cyan" />
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Diagnóstico guiado</h2>
-                <p className="text-[11px] text-muted-foreground">Siga o fluxo principal para deixar a estrutura pronta sem se perder.</p>
-              </div>
+              <h2 className="text-sm font-semibold text-foreground">Configuração</h2>
             </div>
             <div className="mt-4 space-y-3">
               <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-foreground">1. Pixel do TikTok</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">Cadastre o pixel e instale a tag no site.</p>
-                  </div>
+                                      </div>
                   <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingPixel('new')}>Abrir</button>
                 </div>
               </div>
@@ -491,8 +469,7 @@ export function ConversionsView() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-foreground">2. Checkout e webhook</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">Conecte a plataforma que envia as compras para o ROINADOS.</p>
-                  </div>
+                                      </div>
                   <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingGateway('new')}>Conectar</button>
                 </div>
               </div>
@@ -500,8 +477,7 @@ export function ConversionsView() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-foreground">3. Vinculação</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">Escolha quais checkouts alimentam cada pixel ativo.</p>
-                  </div>
+                                      </div>
                   <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('pixels')}>Revisar pixels</button>
                 </div>
               </div>
@@ -509,8 +485,7 @@ export function ConversionsView() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-foreground">4. Entrega confirmada</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">Acompanhe as compras recebidas e eventuais falhas de entrega.</p>
-                  </div>
+                                      </div>
                   <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('logs')}>Ver entregas</button>
                 </div>
               </div>
@@ -562,8 +537,7 @@ export function ConversionsView() {
               </div>
               <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{pixels.length}</span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Instalação, token, vínculos e saúde dos pixels.</p>
-          </button>
+                      </button>
 
           <button
             type="button"
@@ -577,8 +551,7 @@ export function ConversionsView() {
               </div>
               <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{gateways.length}</span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Webhooks, provedores e roteamento das vendas.</p>
-          </button>
+                      </button>
 
           <button
             type="button"
@@ -592,8 +565,7 @@ export function ConversionsView() {
               </div>
               <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{logSummary.total}</span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Compras recebidas, confirmações e falhas recentes.</p>
-          </button>
+                      </button>
         </div>
       </GlassCard>
 
@@ -606,9 +578,6 @@ export function ConversionsView() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Pixels do TikTok</h3>
-                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                  Cada pixel possui o código de instalação do site, um token opcional para envio pelo servidor e vínculos que definem quais checkouts alimentam suas conversões.
-                </p>
               </div>
               <div className="flex items-center gap-2 self-start">
                 <div className="relative w-full sm:w-64">
@@ -688,9 +657,6 @@ export function ConversionsView() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Checkouts &amp; webhooks</h3>
-                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                  Cadastre cada plataforma de pagamento, copie o webhook correspondente e valide se as compras estão chegando ao ROINADOS antes de seguir para o TikTok.
-                </p>
               </div>
               <div className="flex items-center gap-2 self-start">
                 <div className="relative w-full sm:w-64">
@@ -765,9 +731,6 @@ export function ConversionsView() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Entregas e confirmações</h3>
-                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                  Aqui aparecem as compras recebidas dos checkouts. A confirmação final só é considerada concluída depois da resposta do TikTok para cada pixel associado.
-                </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-3">
                 <div className="rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 text-left">

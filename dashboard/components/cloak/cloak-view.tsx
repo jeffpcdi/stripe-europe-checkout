@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X, ShieldCheck, Activity, Link2 } from 'lucide-react'
+import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X, Activity, Link2 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { apiSend, useCloakTestProfiles } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
@@ -17,29 +17,19 @@ export function CloakView() {
   return (
     <div className="flex flex-col gap-5">
       <div className="max-w-3xl">
-        <div className="inline-flex items-center gap-2 rounded-full border border-brand-pink/20 bg-brand-pink/10 px-3 py-1 text-[11px] font-medium text-brand-pink">
-          <ShieldCheck className="size-3.5" />
-          Proteção de tráfego
-        </div>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">Proteção, decisões e links</h1>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-          Acompanhe quem está chegando à oferta, ajuste o nível de proteção e gerencie os links protegidos sem misturar diagnóstico com configuração.
-        </p>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">Cloaker</h1>
       </div>
 
       <Tabs.Root defaultValue="overview" className="flex flex-col gap-5">
         <Tabs.List className="grid gap-2 rounded-[24px] border border-border/60 bg-card/45 p-2 md:grid-cols-3">
           <Tabs.Trigger value="overview" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Activity className="size-4" /> Resultados</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Decisões reais, bloqueios e motivos.</p>
           </Tabs.Trigger>
           <Tabs.Trigger value="rules" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><SlidersHorizontal className="size-4" /> Regras</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Sensibilidade, sinais e testes do filtro.</p>
           </Tabs.Trigger>
           <Tabs.Trigger value="traffic" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Link2 className="size-4" /> Links protegidos</div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">URLs, destinos e histórico por link.</p>
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Link2 className="size-4" /> Links</div>
           </Tabs.Trigger>
         </Tabs.List>
 
