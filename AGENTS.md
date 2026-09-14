@@ -1,5 +1,26 @@
 # AGENTS.md — ROI-NADOS
 
+## Formulários operacionais — revisão de 14/09/2026
+- `components/ui/modal.tsx` oferece `footer` fixo, corpo rolável, bloqueio durante processamento
+  e foco compartilhado; lançadores comum, catálogo, Smart+, Spark, editor de anúncio e cadastro de
+  checkout usam essa estrutura. `summary` participa da navegação de foco.
+- `components/ui/money-field.tsx` separa moeda e valor em colunas. Estilos operacionais ficam em
+  `app/task-dialogs.css`, importado depois do tema, usando os tokens reais `--bg`, `--text`,
+  `--text-muted` e `--accent`. Não usar aliases CSS inexistentes como `--primary`.
+- Campanhas do catálogo: vídeos primeiro, quantidade derivada dos vídeos e personalização opcional,
+  orçamento por campanha e total único no rodapé, público/perfil explícitos e opções avançadas
+  recolhidas. Lista mostra três vídeos e permite expandir; erros ficam visíveis independentemente
+  da posição. Aceite da fila não é confirmação de ativação. Payload, retry e idempotência mantidos.
+- Importação em massa separa preenchimento de revisão/confirmacão. Alterar o plano invalida a
+  validação; controles ficam bloqueados durante upload/execução. Campanhas continuam pausadas.
+- Tabela de campanhas começa com métricas essenciais; CPC/CPM/CTR/cliques são opcionais.
+  Automações têm histórico recolhido e resumo das regras salvas. Conversões oferece guia de quatro
+  passos; cadastro de checkout usa seleção de plataforma e instruções sob demanda.
+- Validação: build Next/TypeScript e testes de lote, upload, retry, edição e foco; Preview local
+  com APIs isoladas, popup em 1440×1000, 390×844 e 844×390, cálculo do total, CPA e Escape.
+  `dashboard-ui-integrity` tem expectativas antigas de texto do painel de regras e já falhava no
+  `main` recebido. Não declarar a suíte geral aprovada. Nenhuma campanha real ou deploy nesta revisão.
+
 > **Instruções para IAs (LEIA PRIMEIRO):** Este arquivo é o mapa mental completo do projeto.
 > Leia-o inteiro antes de mexer em qualquer coisa. É a fonte de verdade sobre stack,
 > arquitetura, convenções e armadilhas. Regras que **quebram o projeto** se ignoradas:

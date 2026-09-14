@@ -2,7 +2,8 @@
 
 import { MarketSelector, defaultMarket } from './market-selector'
 
-import { DialogPortal } from '@/components/ui/dialog-portal'
+import { Modal } from '@/components/ui/modal'
+import { MoneyField } from '@/components/ui/money-field'
 
 // Spark Ads — impulsiona um post orgânico do TikTok como anúncio (F5, via
 // Pipeboard). Fluxo: seleciona a IDENTIDADE autorizada (TT_USER = conta
@@ -10,13 +11,11 @@ import { DialogPortal } from '@/components/ui/dialog-portal'
 // Manager) → seleciona o POST da identidade → cria via POST /api/ads/boost.
 // Colar Spark Code cru não é suportado pela API — o aviso explica o resgate.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { X, Zap, Loader2, RefreshCw, ClipboardPaste } from 'lucide-react'
+import { Zap, Loader2, RefreshCw, ClipboardPaste } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import { GlassCard } from '@/components/glass-card'
-import { useModalA11y } from '@/lib/use-modal-a11y'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage, tomorrowLocalIsoDate } from './tiktok-contracts'
 
 type SparkIdentity = {
@@ -53,7 +52,6 @@ export function SparkAdDialog({
   currency: string
   onCreated: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
   const [identityKey, setIdentityKey] = useState('') // identityId:identityType
   const [itemId, setItemId] = useState('')
@@ -64,7 +62,6 @@ export function SparkAdDialog({
   const [linkUrl, setLinkUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  useModalA11y(open, ref, submitting ? () => {} : onClose)
 
   useEffect(() => {
     if (open) {
@@ -147,34 +144,25 @@ export function SparkAdDialog({
 
   if (!open) return null
 
-  return (
-    <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting) onClose()
-      }}
-    >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Usar publicação · Spark" tabIndex={-1} className="w-full max-w-md outline-none">
-        <GlassCard className="anim-pop-in flex max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-y-auto overscroll-contain p-5">
-          <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-3">
-            <div className="flex items-center gap-2.5">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-[#25f4ee]/15 text-[#25f4ee] shadow-sm">
-                <Zap className="size-4" aria-hidden="true" />
-              </span>
-              <div>
-                <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  Usar publicação · Spark Ad
-                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">TikTok Nativo</span>
-                </h2>
-                <p className="text-[11px] text-muted-foreground">Impulsione um post orgânico autorizado como anúncio de conversão</p>
-              </div>
-            </div>
-            <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={submitting} aria-label="Fechar">
-              <X className="size-4" aria-hidden="true" />
+  return (<Modal isOpen={open} onClose={onClose} busy={submitting} title="Usar publicação · Spark" description="Selecione um post autorizado para criar seu anúncio." maxWidth="max-w-xl" footer={<><p className="launch-feedback" role="status">{error || 'O anúncio será criado pausado.'}</p><div className="flex items-center justify-end gap-2">
+            <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={submitting}>
+              Cancelar
             </button>
-          </div>
-
-          {/* Identidade (conta vinculada ou criador autorizado) */}
+            <button type="button" className="btn-primary text-xs" onClick={handleSubmit} disabled={submitting || Boolean(error)}>
+              {submitting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  Criando…
+                </>
+              ) : (
+                <>
+                  <Zap className="size-3.5" aria-hidden="true" />
+                  Criar anúncio pausado
+                </>
+              )}
+            </button>
+          </div></>}>
+<fieldset disabled={submitting} className="launch-form">          {/* Identidade (conta vinculada ou criador autorizado) */}
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-foreground">Perfil da publicação</span>
             {identLoading ? (
@@ -282,35 +270,7 @@ export function SparkAdDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Orçamento ({currency})</span>
-              <input
-                type="number"
-                min={TIKTOK_MIN_BUDGET}
-                step="0.01"
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                placeholder="50,00"
-              />
-              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                {[50, 100, 200, 500].map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setBudget(String(val))}
-                    className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all ${
-                      Number(budget) === val
-                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                        : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                    }`}
-                  >
-                    {val}
-                  </button>
-                ))}
-              </div>
-              <span className="text-[10px] text-muted-foreground">Mínimo: {currency} {TIKTOK_MIN_BUDGET}.</span>
-            </label>
+            <MoneyField label={budgetType === 'daily' ? 'Orçamento diário' : 'Orçamento total'} currency={currency} value={budget} onChange={setBudget} min={TIKTOK_MIN_BUDGET} hint={`Mínimo: ${currency} ${TIKTOK_MIN_BUDGET}.`} />
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-foreground">Tipo</span>
               <select
@@ -369,32 +329,5 @@ export function SparkAdDialog({
             />
           </label>
 
-          {error && (
-            <p className="text-[11px] font-medium text-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="flex items-center justify-end gap-2">
-            <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={submitting}>
-              Cancelar
-            </button>
-            <button type="button" className="btn-primary text-xs" onClick={handleSubmit} disabled={submitting || Boolean(error)}>
-              {submitting ? (
-                <>
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                  Impulsionando…
-                </>
-              ) : (
-                <>
-                  <Zap className="size-3.5" aria-hidden="true" />
-                  Impulsionar
-                </>
-              )}
-            </button>
-          </div>
-        </GlassCard>
-      </div>
-    </div></DialogPortal>
-  )
+</fieldset></Modal>)
 }

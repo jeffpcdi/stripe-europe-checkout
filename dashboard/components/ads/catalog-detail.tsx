@@ -586,7 +586,7 @@ export function CatalogDetail({
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                   <span className="font-semibold text-foreground">{catalog?.currency || 'BRL'}</span>
-                  {catalog?.tiktokCatalogId ? <><span>·</span><span className="font-mono">TT {catalog.tiktokCatalogId}</span></> : <><span>·</span><span className="text-warning">TikTok não vinculado</span></>}
+                  {catalog?.tiktokCatalogId ? <><span>·</span><details className="inline-block"><summary className="cursor-pointer">Identificação TikTok</summary><span className="font-mono">{catalog.tiktokCatalogId}</span></details></> : <><span>·</span><span className="text-warning">TikTok não vinculado</span></>}
                   {catalog?.automation?.sourceUrl && <><span>·</span><a href={catalog.automation.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Link2 className="size-3" /> Página original</a></>}
                 </div>
               </div>
@@ -609,13 +609,13 @@ export function CatalogDetail({
               {syncing || bgPublishing ? (
                 <><Loader2 className="size-3.5 animate-spin text-primary" /><span><strong>Sincronizando alterações…</strong> você pode continuar trabalhando.</span></>
               ) : publishFailed || catalog?.automation?.syncIssue ? (
-                <><AlertCircle className="size-3.5 text-warning" /><span className="min-w-0 flex-1 truncate">{publishFailureHint || catalog?.automation?.syncIssue?.message || 'A sincronização precisa ser retomada.'}</span><button type="button" className="text-[10px] font-semibold text-primary" onClick={() => void handleSyncTiktok()}>Tentar novamente</button></>
+                <><AlertCircle className="size-3.5 text-warning" /><span className="min-w-0 flex-1">{publishFailureHint || catalog?.automation?.syncIssue?.message || 'A sincronização precisa ser retomada.'}</span><button type="button" className="text-[10px] font-semibold text-primary" onClick={() => void handleSyncTiktok()}>Tentar novamente</button></>
               ) : invalidCount > 0 ? (
                 <><AlertCircle className="size-3.5 text-warning" /><span><strong>{invalidCount} produto{invalidCount === 1 ? '' : 's'} precisa{invalidCount === 1 ? '' : 'm'} de correção.</strong></span><button type="button" className="text-[10px] font-semibold text-primary" onClick={handleMagicFix} disabled={fixing}>{fixing ? 'Corrigindo…' : 'Corrigir com IA'}</button></>
               ) : reviewIssueCount > 0 ? (
                 <><AlertCircle className="size-3.5 text-warning" /><span><strong>{reviewIssueCount} item{reviewIssueCount === 1 ? '' : 's'} em análise ou com erro no TikTok.</strong></span></>
               ) : (
-                <><Check className="size-3.5 text-success" /><span><strong>{displayedRemoteCount > 0 && !hasUnpublishedChanges ? 'Tudo sincronizado' : 'Catálogo pronto'}</strong> · {validCount} produto{validCount === 1 ? '' : 's'}{hasUnpublishedChanges ? ' · sincronização automática pendente' : ''}</span></>
+                <><Check className="size-3.5 text-success" /><span><strong>{displayedRemoteCount > 0 && !hasUnpublishedChanges ? 'Produtos confirmados no TikTok' : 'Produtos cadastrados'}</strong> · {validCount} produto{validCount === 1 ? '' : 's'}{hasUnpublishedChanges ? ' · sincronização automática pendente' : ''}</span></>
               )}
             </div>
           </section>
@@ -880,7 +880,6 @@ export function CatalogDetail({
           onClose={() => { setQuickCampaignsOpen(false); void mutate() }}
           onAssetsChanged={() => { void mutate() }}
           onCreated={() => {
-            setQuickCampaignsOpen(false)
             void mutate()
           }}
         />

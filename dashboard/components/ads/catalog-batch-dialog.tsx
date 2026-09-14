@@ -47,6 +47,7 @@ export function CatalogBatchDialog({
   onCreated: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [step, setStep] = useState(1)
 
   useEffect(() => {
     if (openRequest > 0) setOpen(true)
@@ -86,11 +87,13 @@ export function CatalogBatchDialog({
     if (next !== undefined) setSource(next)
     idempotencyKeyRef.current = null
     setPreview(null)
+    setStep(1)
   }
 
   function invalidatePlan() {
     idempotencyKeyRef.current = null
     setPreview(null)
+    setStep(1)
   }
 
   async function importFile(file: File) {
@@ -147,6 +150,7 @@ export function CatalogBatchDialog({
         plan: executionPlan, syncToTikTok, scheduleCampaigns,
       })
       setPreview(response)
+      setStep(2)
       const hasExecutionPrerequisite = campaignRequiresSync || (syncToTikTok && !response.automation.catalogSync)
       if (response.ok && hasExecutionPrerequisite) {
         toast.info('Lote válido, mas falta um pré-requisito', {
@@ -209,6 +213,7 @@ export function CatalogBatchDialog({
       setSource('')
       idempotencyKeyRef.current = null
       setPreview(null)
+    setStep(1)
       onCreated()
     } catch (error) {
       toast.error('O lote não foi concluído', { hint: error instanceof Error ? error.message : undefined })
@@ -224,8 +229,14 @@ export function CatalogBatchDialog({
           <UploadCloud className="size-3.5" aria-hidden="true" /> Catálogos em massa
         </button>
       )}
-      <Modal isOpen={open} onClose={() => { if (!busy && !uploadingVideo) setOpen(false) }} title="Catálogos em massa" description="Importe uma planilha para organizar produtos e preparar campanhas." maxWidth="max-w-3xl">
-        <div className="ads-dialog">
+      <Modal isOpen={open} onClose={() => { if (!busy && !uploadingVideo) setOpen(false) }} title="Catálogos em massa" description="Importe uma planilha para organizar produtos e preparar campanhas." maxWidth="max-w-3xl" busy={Boolean(busy) || uploadingVideo} footer={<div className="flex flex-wrap items-center justify-between gap-3">
+          <button type="button" className="btn-ghost" disabled={Boolean(busy) || uploadingVideo} onClick={() => step === 1 ? setOpen(false) : setStep(1)}>{step === 1 ? 'Cancelar' : 'Voltar e editar'}</button>
+          {step === 1 ? <button type="button" className="btn-primary" onClick={validate} disabled={!canSubmit || uploadingVideo}>{busy === 'preview' ? 'Validando…' : 'Revisar lote'}</button> :
+          <button type="button" className="btn-primary" onClick={create} disabled={!canSubmit || !preview?.ok || creationBlocked || (scheduleCampaigns && campaignCount === 0)}>{busy === 'create' ? 'Criando…' : 'Confirmar e criar lote'}</button>}
+        </div>}>
+        <ol className="task-steps" aria-label="Etapas da importação"><li aria-current={step === 1 ? 'step' : undefined}>1. Importar</li><li aria-current={step === 2 ? 'step' : undefined}>2. Revisar e confirmar</li></ol>
+        <fieldset disabled={Boolean(busy) || uploadingVideo} className="batch-form">
+        <div hidden={step !== 1}>
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
             <div className="text-[11px] text-muted-foreground">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -321,7 +332,8 @@ export function CatalogBatchDialog({
             )}
           </div>
 
-          {preview && (
+        </div>
+          {step === 2 && preview && (
             <div className={`mt-3 rounded-lg border p-3 text-[11px] ${preview.ok ? 'border-success/30 bg-success/5' : 'border-error/30 bg-error/5'}`}>
               <p className="flex items-center gap-1.5 font-semibold text-foreground">
                 {preview.ok ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
@@ -375,29 +387,8 @@ export function CatalogBatchDialog({
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)} disabled={Boolean(busy) || uploadingVideo}>Cancelar</button>
-            <button type="button" className="btn-ghost text-xs" onClick={validate} disabled={!canSubmit}>
-              {busy === 'preview' ? <Loader2 className="size-3.5 animate-spin" /> : <PackageOpen className="size-3.5" />} Validar lote
-            </button>
-            <button
-              type="button"
-              className="btn-primary text-xs"
-              onClick={create}
-              disabled={!canSubmit || !preview?.ok || creationBlocked || (scheduleCampaigns && campaignCount === 0)}
-              title={campaignRequiresSync
-                ? 'Campanhas Product Link exigem sincronização com o TikTok.'
-                : syncNotReady
-                  ? 'Confira Business Center, origem pública e permissões do conector.'
-                  : scheduleCampaigns && campaignCount === 0
-                    ? 'Adicione ao menos uma campanha ao lote.'
-                    : undefined}
-            >
-              {busy === 'create' ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Criar em massa
-            </button>
-          </div>
           {campaignCount > 0 && <p className="mt-2 text-[10px] text-muted-foreground">As campanhas do lote usam todos os produtos do catálogo e sempre nascem pausadas.</p>}
-        </div>
+        </fieldset>
       </Modal>
     </div>
   )

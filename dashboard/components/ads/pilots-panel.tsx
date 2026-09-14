@@ -88,7 +88,7 @@ function pilotSummary(pilot: PilotId, rules: AdsRule[], stateIntensity: Intensit
     return [
       cpa ? `CPA > ${fmtSpend(cpa.threshold, currency)}` : '',
       noConv ? `gasto sem venda > ${fmtSpend(noConv.threshold, currency)}` : '',
-      cpc ? `CPC > ${fmtSpend(cpc.threshold, currency)}` : '',
+      cpc ? `CPC > ${fmtSpend(cpc.threshold, currency)}${cpc.action === 'budget_down' ? ` · reduz orçamento em ${cpc.pct}%` : ''}` : '',
     ].filter(Boolean).join(' · ')
   }
 
@@ -130,18 +130,16 @@ export function PilotsPanel({
   const modeLabel = MODES.find((mode) => mode.value === autonomy)?.label ?? 'Personalizado'
 
   return (
-    <div className="space-y-2.5" data-tour="ads-pilots">
+    <div className="space-y-4 operation-settings" data-tour="ads-pilots">
       <GlassCard className="p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold text-foreground">Modo da automação</h3>
-              <span className="rounded-full bg-[var(--hover)] px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {modeLabel}
-              </span>
+
             </div>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Escolha o nível de autonomia. Depois, o ROINADOS segue essas regras sozinho.
+              {MODES.find(mode => mode.value === autonomy)?.hint || 'Escolha como cada regra pode agir.'}
             </p>
           </div>
 
@@ -205,7 +203,7 @@ export function PilotsPanel({
 
       <GlassCard className="p-2 sm:p-3">
         <div className="px-2 py-2 sm:px-3">
-          <h3 className="text-sm font-semibold text-foreground">Automações ativas</h3>
+          <h3 className="text-sm font-semibold text-foreground">Proteções e escala</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Ative só o que deve rodar continuamente.
           </p>
@@ -241,7 +239,6 @@ export function PilotsPanel({
                             {stateLabel}
                           </span>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{info.detail}</p>
                         <p className="mt-1 text-[11px] leading-relaxed text-foreground/85">
                           {state.active ? pilotSummary(pilotId, rules, state.intensity, currency) : info.detail}
                         </p>

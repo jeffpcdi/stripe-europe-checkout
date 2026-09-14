@@ -962,6 +962,8 @@ export function AutomationPanel({
       </GlassCard>
 
       {/* ── Histórico de ações: compacto por padrão, completo sob demanda ── */}
+      <details className="operation-history">
+        <summary>Atividade recente <span>{log.length ? `${log.length} registros disponíveis` : 'Nenhuma execução registrada'}</span></summary>
       <GlassCard className="p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
@@ -990,6 +992,7 @@ export function AutomationPanel({
       </GlassCard>
 
 
+      </details>
       {/* ── Alterna o editor técnico de regras (escondido por padrão) ── */}
       <button
         type="button"

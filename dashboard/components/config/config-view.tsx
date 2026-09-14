@@ -31,33 +31,33 @@ export function ConfigView() {
   const { prefs, update } = usePrefs()
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="operation-settings flex flex-col gap-6">
       <Tabs.Root defaultValue="prefs" className="flex flex-col gap-6">
         <Tabs.List aria-label="Configurações da conta" className="grid grid-cols-2 sm:flex items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar w-full max-w-full sm:w-max">
           <Tabs.Trigger
             value="prefs"
-            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+            className="flex h-11 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus-visible:outline-2 focus-visible:outline-primary"
           >
             <SlidersHorizontal className="size-3.5" />
             Preferências
           </Tabs.Trigger>
           <Tabs.Trigger
             value="notifications"
-            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+            className="flex h-11 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus-visible:outline-2 focus-visible:outline-primary"
           >
             <Bell className="size-3.5" />
             Notificações
           </Tabs.Trigger>
           <Tabs.Trigger
             value="security"
-            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+            className="flex h-11 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus-visible:outline-2 focus-visible:outline-primary"
           >
             <Lock className="size-3.5" />
             Sua conta
           </Tabs.Trigger>
           <Tabs.Trigger
             value="data"
-            className="flex h-9 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus:outline-none"
+            className="flex h-11 shrink-0 items-center gap-2 justify-center rounded-xl px-4 text-xs font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white focus-visible:outline-2 focus-visible:outline-primary"
           >
             <Database className="size-3.5" />
             Dados

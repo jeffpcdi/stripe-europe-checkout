@@ -1214,34 +1214,6 @@ html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { anima
   .refined-dashboard .tiktok-section-tab svg { width: 14px; height: 14px; }
 }
 
-/* Dialog de criação rápida de campanhas de catálogo — layout compacto, ergonômico e responsivo */
-.refined-dashboard .catalog-quick-dialog {
-  max-height: min(94dvh, 720px);
-}
-
-.refined-dashboard .catalog-quick-fieldset {
-  scrollbar-gutter: stable;
-}
-
-.refined-dashboard .catalog-quick-fieldset :is(button, .btn-ghost, .btn-secondary, label[class*='cursor-pointer']) {
-  min-height: unset !important;
-}
-
-.refined-dashboard .catalog-quick-fieldset :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
-  min-height: unset !important;
-  font-size: 12px !important;
-}
-
-@media (max-width: 639px) {
-  .refined-dashboard .catalog-quick-dialog {
-    max-height: 92dvh;
-  }
-  .refined-dashboard .catalog-quick-fieldset {
-    padding: 10px 12px;
-    gap: 8px;
-  }
-}
-
 /* Catálogo / criação rápida — menos cartões, mais hierarquia e ações por exceção. */
 .refined-dashboard .catalog-detail-hero,
 .refined-dashboard .catalog-detail-section {
@@ -1267,10 +1239,8 @@ html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { anima
 .refined-dashboard .catalog-healthline strong { color: var(--refine-white); font-weight: 600; }
 .refined-dashboard .catalog-healthline--warning { color: color-mix(in srgb, var(--warning) 76%, var(--refine-muted)); }
 
-.refined-dashboard :is(.catalog-actions-menu, .catalog-row-menu) > summary::-webkit-details-marker,
-.refined-dashboard .catalog-launch-disclosure > summary::-webkit-details-marker { display: none; }
-.refined-dashboard :is(.catalog-actions-menu, .catalog-row-menu) > summary::marker,
-.refined-dashboard .catalog-launch-disclosure > summary::marker { content: ''; }
+.refined-dashboard :is(.catalog-actions-menu, .catalog-row-menu) > summary::-webkit-details-marker { display: none; }
+.refined-dashboard :is(.catalog-actions-menu, .catalog-row-menu) > summary::marker { content: ''; }
 .refined-dashboard .catalog-actions-popover,
 .refined-dashboard .catalog-row-popover {
   position: absolute;
@@ -1321,63 +1291,9 @@ html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { anima
 .refined-dashboard .catalog-product-table tbody tr { border-top: 1px solid rgb(135 170 214 / 8%); }
 .refined-dashboard .catalog-product-table tbody tr:hover { background: rgb(101 233 244 / 3.5%); }
 
-/* Launcher: o mercado e as opções avançadas ficam recolhidos; perfil continua explícito. */
-.refined-dashboard .catalog-quick-fieldset { gap: 0 !important; }
-.refined-dashboard .catalog-launch-disclosure,
-.refined-dashboard .catalog-launch-section,
-.refined-dashboard .catalog-launch-primary {
-  border-bottom: 1px solid rgb(135 170 214 / 9%);
-}
-.refined-dashboard .catalog-launch-disclosure { padding: 9px 2px; }
-.refined-dashboard .catalog-launch-disclosure-summary {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  list-style: none;
-  cursor: pointer;
-  color: var(--refine-muted);
-  font-size: 11px;
-}
-.refined-dashboard .catalog-launch-primary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  padding: 3px 0;
-}
-.refined-dashboard .catalog-launch-control { min-width: 0; padding: 12px 10px 12px 2px; }
-.refined-dashboard .catalog-launch-control + .catalog-launch-control { padding-left: 14px; border-left: 1px solid rgb(135 170 214 / 9%); }
-.refined-dashboard .catalog-launch-section { padding: 11px 2px; }
-.refined-dashboard .catalog-launch-creative-list { border-top: 1px solid rgb(135 170 214 / 8%); }
-.refined-dashboard .catalog-launch-creative-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 31px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgb(135 170 214 / 7%);
-}
-.refined-dashboard .catalog-launch-creative-row:last-child { border-bottom: 0; }
-.refined-dashboard .catalog-launch-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 2px;
-  border-bottom: 1px solid rgb(135 170 214 / 9%);
-  font-size: 10px;
-  color: var(--refine-dim);
-}
-.refined-dashboard .catalog-launch-summary strong { color: var(--refine-white); font-size: 11px; font-weight: 600; }
-
 @media (max-width: 639px) {
   .refined-dashboard .catalog-detail-hero,
   .refined-dashboard .catalog-detail-section { padding: 13px 14px; border-radius: 14px; }
-  .refined-dashboard .catalog-launch-primary { grid-template-columns: 1fr; }
-  .refined-dashboard .catalog-launch-control { padding: 11px 2px; }
-  .refined-dashboard .catalog-launch-control + .catalog-launch-control { padding-left: 2px; border-left: 0; border-top: 1px solid rgb(135 170 214 / 9%); }
-  .refined-dashboard .catalog-launch-summary { align-items: flex-start; flex-direction: column; gap: 3px; }
   .refined-dashboard .catalog-actions-popover { right: 0; min-width: 176px; }
 }
 

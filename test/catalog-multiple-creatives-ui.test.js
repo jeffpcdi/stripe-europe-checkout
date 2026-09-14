@@ -49,6 +49,8 @@ function harness(upload, create = async () => ({ count: 5 })) {
       if (name === './tiktok-contracts') return { TIKTOK_MIN_BUDGET: 50, tiktokMinimumBudgetMessage: () => 'Mínimo 50' };
       if (name === '@/lib/toast') return { toast: new Proxy({}, { get: () => (...args) => messages.push(args) }) };
       if (name === '@/components/ui/dialog-portal') return { DialogPortal: 'DialogPortal' };
+      if (name === '@/components/ui/modal') return { Modal: 'Modal' };
+      if (name === '@/components/ui/money-field') return { MoneyField: 'MoneyField' };
       if (name === '@/lib/use-modal-a11y') return { useModalA11y() {} };
       throw Error(name);
     },
@@ -68,7 +70,7 @@ function harness(upload, create = async () => ({ count: 5 })) {
   function all(node) {
     if (!node || typeof node !== 'object') return [];
     if (Array.isArray(node)) return node.flatMap((child) => all(child));
-    return [node, ...all(node.props?.children)];
+    return [node, ...all(node.props?.children), ...all(node.props?.footer)];
   }
   function find(predicate) { return all(tree).find(predicate); }
   const button = () => find((n) => n.type === 'button' && n.props.className?.startsWith('btn-primary'));
@@ -96,6 +98,19 @@ const files = Array.from({ length: 5 }, (_, i) => ({ name: `video-${i + 1}.mp4` 
   saved.props.catalog = { id: 'other-cat', name: 'Outro', creatives: [] };
   saved.props.open = true; saved.render();
   assert.strictEqual(saved.button().props.disabled, true, 'trocar conta não reaproveita vídeos do catálogo anterior');
+  for (const count of [1, 50]) {
+    const batch = harness(async () => { throw Error('não reenviar vídeo salvo'); });
+    batch.props.open = false; batch.render();
+    batch.props.catalog.creatives = Array.from({ length: count }, (_, i) => ({ id: 'v-' + i, name: 'Vídeo ' + i, url: `https://cdn.test/${i}.mp4` }));
+    batch.props.open = true; batch.render();
+    batch.find(n => n.type === 'MoneyField' && n.props.label === 'Orçamento diário por campanha').props.onChange('75'); batch.render();
+    const total = batch.find(n => n.props?.className === 'launch-total');
+    assert(JSON.stringify(total).includes(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(count * 75)), 'total usa quantidade e orçamento por campanha');
+    await batch.button().props.onClick();
+    assert.strictEqual(batch.requests[0].count, count);
+    assert.strictEqual(batch.requests[0].budgetAmount, 75);
+    assert.strictEqual(batch.requests[0].autoActivate, true);
+  }
   let failCreation = true;
   const h = harness(async (file) => ({ url: 'https://cdn.test/' + file.name }), async () => {
     if (failCreation) throw Error('timeout');
@@ -112,6 +127,11 @@ const files = Array.from({ length: 5 }, (_, i) => ({ name: `video-${i + 1}.mp4` 
   failCreation = false;
   await h.button().props.onClick(); h.render();
   assert.strictEqual(h.requests[0].idempotencyKey, h.requests[1].idempotencyKey, 'timeout mantém chave de retry');
+  assert(h.find((n) => n.props?.className === 'launch-accepted'), 'aceite da fila aparece sem afirmar ativação concluída');
+  assert(!h.find((n) => n.props?.className === 'launch-form'), 'aceite não permite reenviar o lote');
+  h.props.open = false; h.render(); h.props.open = true; h.render();
+  h.add(files); await settle(); h.render();
+  h.find((n) => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: false } }); h.render();
   h.find((n) => n.props?.['aria-label'] === 'Quantidade de campanhas').props.onChange({ target: { value: '10' } }); h.render();
   await h.button().props.onClick(); h.render();
   assert.strictEqual(h.requests.at(-1).count, 10);
@@ -125,11 +145,10 @@ const files = Array.from({ length: 5 }, (_, i) => ({ name: `video-${i + 1}.mp4` 
   retry.find((n) => n.props?.['aria-label'] === 'Tentar novamente video-2.mp4').props.onClick();
   await settle(); retry.render();
   assert.strictEqual(retry.button().props.disabled, false);
-  await retry.button().props.onClick(); retry.render();
-  assert.deepStrictEqual(Array.from(retry.requests[0].videoUrls), files.map((f) => 'https://cdn.test/' + f.name), 'retry mantém ordem do criativo');
   retry.find((n) => n.props?.['aria-label'] === 'Remover video-3.mp4').props.onClick(); retry.render();
   await retry.button().props.onClick();
   assert.strictEqual(retry.requests.at(-1).count, 4, 'remoção recalcula uma campanha por criativo');
+  assert.deepStrictEqual(Array.from(retry.requests[0].videoUrls), files.filter(f => f.name !== 'video-3.mp4').map((f) => 'https://cdn.test/' + f.name), 'retry e remoção mantêm ordem do criativo');
 
   let complete;
   const stale = harness(() => new Promise((resolve) => { complete = resolve; }));

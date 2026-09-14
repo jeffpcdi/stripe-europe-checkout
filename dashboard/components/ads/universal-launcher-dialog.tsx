@@ -5,7 +5,8 @@ import { creativeFileError } from '@/lib/ads-upload'
 
 import { MarketSelector, defaultMarket } from './market-selector'
 
-import { DialogPortal } from '@/components/ui/dialog-portal'
+import { Modal } from '@/components/ui/modal'
+import { MoneyField } from '@/components/ui/money-field'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -21,13 +22,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Link as LinkIcon,
-  DollarSign,
   Play,
   RotateCcw,
 } from 'lucide-react'
 import { apiSend, adsUpload, useAdsBulkJob, useAdsTikTokPixels } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import { useModalA11y } from '@/lib/use-modal-a11y'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import { fmtSpend } from '@/lib/format'
 import type { AdsBulkStartResponse } from '@/lib/types'
@@ -69,7 +68,6 @@ export function UniversalLauncherDialog({
   const uploadController = useRef<AbortController | null>(null)
   const uploadGeneration = useRef(0)
   const uploadLock = useRef(false)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const idempotencyRef = useRef<{ signature: string; key: string } | null>(null)
 
@@ -103,7 +101,6 @@ export function UniversalLauncherDialog({
   const jobDone = job?.status === 'done'
   const notifiedRef = useRef(false)
 
-  useModalA11y(open, dialogRef, submitting ? () => {} : onClose)
 
   useEffect(() => {
     if (open) {
@@ -311,47 +308,50 @@ export function UniversalLauncherDialog({
 
   if (!open) return null
 
-  return (
-    <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-2 sm:p-5 backdrop-blur-md"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting && !jobId) onClose()
-      }}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Lançador de Campanhas"
-        tabIndex={-1}
-        className="anim-pop-in flex max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#09090b]/95 shadow-[0_0_60px_rgba(0,0,0,0.85)] outline-none"
-      >
-        {/* Cabeçalho Minimalista */}
-        <div className="flex items-center justify-between border-b border-border/40 px-4 sm:px-5 py-3.5 sm:py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Rocket className="size-4" aria-hidden="true" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-foreground">Criar campanha</h2>
-              <p className="text-[11px] text-muted-foreground">
-                {isBulk
-                  ? `Lote de ${items.length} campanhas com 1 clique`
-                  : 'Criar campanha de conversão pausada'}
-              </p>
-            </div>
+  return (<Modal isOpen={open} onClose={onClose} busy={submitting} title="Criar campanha" description="Selecione os vídeos, o destino e o orçamento." maxWidth="max-w-xl" footer={<div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-4 sm:px-5 py-3 sm:py-3.5">
+          <div className="text-[11px] text-muted-foreground">
+            {validationError ? (
+              <span className="text-warning flex items-center gap-1">
+                <AlertCircle className="size-3 shrink-0" />
+                {validationError}
+              </span>
+            ) : (
+              <span className="text-success flex items-center gap-1">
+                <CheckCircle2 className="size-3 shrink-0" />
+                {items.length} campanha(s) · {fmtSpend(Number(budget) * items.length, currency)}/dia no total
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            className="btn-ghost size-8 p-0 text-muted-foreground hover:text-foreground"
-            onClick={onClose}
-            disabled={submitting}
-            aria-label="Fechar"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
 
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary text-xs font-semibold px-4 py-2"
+              disabled={Boolean(validationError) || submitting || Boolean(jobId && !jobDone)}
+              onClick={handleLaunch}
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  Criando...
+                </>
+              ) : (
+                <>
+                  <Rocket className="size-3.5" aria-hidden="true" />
+                  {isBulk ? `Criar ${items.length} campanhas` : 'Criar campanha'}
+                </>
+              )}
+            </button>
+          </div>
+        </div>}>
         {/* Seletor Rápido de Formato */}
         {!jobId && (onSmartPlus || onSpark) && (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-border/30 bg-secondary/15 px-4 sm:px-5 py-2">
@@ -384,7 +384,7 @@ export function UniversalLauncherDialog({
         )}
 
         {/* Corpo do Modal */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 sm:space-y-5">
+        <div className="space-y-4 pt-4">
           {/* Se houver job em andamento (Modo progresso do lote) */}
           {jobId && job ? (
             <div className="space-y-4 rounded-xl border border-border/50 bg-secondary/15 p-4">
@@ -620,48 +620,7 @@ export function UniversalLauncherDialog({
                 </p>
               </div>
 
-              {/* 3. ORÇAMENTO DIÁRIO */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="launcher-budget" className="text-xs font-semibold text-foreground">
-                    3. Orçamento Diário {isBulk ? '(por campanha)' : ''}
-                  </label>
-                  <span className="text-[11px] text-muted-foreground font-mono">
-                    Mínimo: {fmtSpend(TIKTOK_MIN_BUDGET, currency)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <DollarSign className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      id="launcher-budget"
-                      type="number"
-                      min={TIKTOK_MIN_BUDGET}
-                      step="1"
-                      value={budget}
-                      onChange={(e) => setBudget(e.target.value)}
-                      className="input-neon w-full rounded-xl border border-border bg-background py-2 pl-9 pr-3 text-xs font-mono font-semibold text-foreground"
-                    />
-                  </div>
-                  {/* Atalhos Rápidos com Moeda Formatada */}
-                  <div className="flex items-center gap-1.5">
-                    {[60, 100, 150, 200].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setBudget(String(val))}
-                        className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                          budget === String(val)
-                            ? 'border-primary/50 bg-primary/20 text-primary font-semibold shadow-xs'
-                            : 'border-border/50 bg-secondary/30 text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {fmtSpend(val, currency)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <MoneyField label="Orçamento diário por campanha" currency={currency} value={budget} onChange={setBudget} min={TIKTOK_MIN_BUDGET} hint={`Mínimo: ${fmtSpend(TIKTOK_MIN_BUDGET, currency)} por campanha/dia.`} />
 
               {/* 4. OPÇÕES AVANÇADAS (OPCIONAL) */}
               <div className="border-t border-border/30 pt-3">
@@ -725,52 +684,5 @@ export function UniversalLauncherDialog({
           )}
         </div>
 
-        {/* Rodapé com Ação Principal */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 bg-secondary/10 px-4 sm:px-5 py-3 sm:py-3.5">
-          <div className="text-[11px] text-muted-foreground">
-            {validationError ? (
-              <span className="text-warning flex items-center gap-1">
-                <AlertCircle className="size-3 shrink-0" />
-                {validationError}
-              </span>
-            ) : (
-              <span className="text-success flex items-center gap-1">
-                <CheckCircle2 className="size-3 shrink-0" />
-                Pronto para criar {items.length} campanha(s) pausada(s)
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn-primary text-xs font-semibold px-4 py-2"
-              disabled={Boolean(validationError) || submitting || Boolean(jobId && !jobDone)}
-              onClick={handleLaunch}
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                  Criando...
-                </>
-              ) : (
-                <>
-                  <Rocket className="size-3.5" aria-hidden="true" />
-                  {isBulk ? `Criar ${items.length} campanhas` : 'Criar campanha'}
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div></DialogPortal>
-  )
+</Modal>)
 }

@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import { SectionAttr } from '@/components/shell/section-attr'
 import './globals.css'
 import './dashboard-refinement.css'
+import './task-dialogs.css'
 
 export const metadata: Metadata = {
   title: 'ROI-NADOS — Tracking & Conversões',

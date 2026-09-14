@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useMemo, useCallback } from 'react'
+import { Modal } from '@/components/ui/modal'
 import {
   Target,
   CreditCard,
@@ -353,10 +354,10 @@ export function ConversionsView() {
           <button
             type="button"
             onClick={() => setEditingGateway('new')}
-            className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-all"
+            className="btn-secondary"
           >
             <CreditCard className="size-3.5" />
-            <span>Conectar Checkout</span>
+            <span>Cadastrar checkout</span>
           </button>
 
           <button
@@ -370,6 +371,15 @@ export function ConversionsView() {
         </div>
       </div>
 
+      <details className="conversion-guide">
+        <summary>Como conectar e verificar <span>4 passos</span></summary>
+        <ol>
+          <li><strong>1. Cadastre o Pixel</strong><p>Informe o código e token da conta TikTok.</p><button type="button" className="btn-ghost" onClick={() => setEditingPixel('new')}>Cadastrar Pixel</button></li>
+          <li><strong>2. Instale a tag</strong><p>Abra o Pixel cadastrado e copie a tag para o seu site.</p><button type="button" className="btn-ghost" onClick={() => setActiveTab('pixels')}>Ver Pixels</button></li>
+          <li><strong>3. Vincule o checkout</strong><p>Cadastre o gateway, configure seu webhook e selecione o vínculo no Pixel.</p><button type="button" className="btn-ghost" onClick={() => setEditingGateway('new')}>Cadastrar checkout</button></li>
+          <li><strong>4. Confira a entrega</strong><p>O histórico mostra os eventos recebidos e as confirmações do TikTok.</p><button type="button" className="btn-ghost" onClick={() => setActiveTab('logs')}>Ver entregas</button></li>
+        </ol>
+      </details>
       {/* ── ALERTA DE FALHA (SE HOUVER) ── */}
       {syncValidation.hasFailure && (
         <div className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 p-3.5 sm:flex-row sm:items-center sm:justify-between">
@@ -1177,8 +1187,6 @@ function DirectGatewayModal({
   onClose: () => void
   onSaved: () => void
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  useModalA11y(true, dialogRef, onClose)
 
   const [provider, setProvider] = useState(gateway?.provider ?? providers[0]?.id ?? 'kiwify')
   const [name, setName] = useState(gateway?.name ?? '')
@@ -1211,62 +1219,15 @@ function DirectGatewayModal({
   const inputCls =
     'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60'
 
-  return (
-    <DialogPortal><div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
-      role="dialog"
-      aria-modal="true"
-      aria-label={gateway ? 'Editar checkout' : 'Conectar checkout'}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose()
-      }}
-    >
-      <GlassCard
-        ref={dialogRef}
-        tabIndex={-1}
-        variant="thick"
-        className="w-full max-w-lg p-6 outline-none shadow-2xl border-border/80 my-8 max-h-[90vh] overflow-y-auto"
-      >
-        <h2 className="text-base font-bold text-foreground mb-4">
-          {gateway ? `Editar Checkout: ${gateway.name}` : 'Conectar Plataforma de Pagamento'}
-        </h2>
-
-        <div className="flex flex-col gap-4">
-          {/* Seleção de Plataforma */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-foreground">1. Selecione a Plataforma</span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {providers.map((p) => {
-                const isSelected = provider === p.id
-                const color = PROVIDER_COLORS[p.id] || '#94a3b8'
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setProvider(p.id)}
-                    className={`flex items-center gap-2 rounded-xl border p-2.5 text-left text-xs font-medium transition-all ${
-                      isSelected
-                        ? 'border-brand-cyan/80 bg-brand-cyan/10 text-foreground font-semibold shadow-[0_0_12px_rgba(34,211,238,0.15)]'
-                        : 'border-border/70 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
-                    }`}
-                  >
-                    <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <span className="truncate">{p.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Dica da plataforma selecionada */}
-          <div className="rounded-xl border border-brand-cyan/30 bg-brand-cyan/5 p-3 text-xs text-muted-foreground flex items-start gap-2.5">
-            <HelpCircle className="size-4 shrink-0 text-brand-cyan mt-0.5" />
-            <p className="leading-relaxed">{helpText}</p>
-          </div>
-
+  return (<Modal isOpen onClose={onClose} busy={saving} title={gateway ? 'Editar checkout' : 'Cadastrar checkout'}
+    description="Cadastre a plataforma para gerar seu endereço de webhook."
+    footer={<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>Cancelar</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Salvando…' : gateway ? 'Salvar alterações' : 'Cadastrar e gerar webhook'}</button></div>}>
+    <fieldset disabled={saving} className="launch-form">
+      <label className="launch-profile">Plataforma<select className={inputCls} value={provider} onChange={event => setProvider(event.target.value)}>{providers.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      <details><summary className="cursor-pointer text-sm">Como configurar {providers.find(item => item.id === provider)?.label || 'a plataforma'}</summary><p className="launch-help mt-2">{helpText}</p></details>
           {/* Nome para identificação */}
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-foreground">2. Nome para Identificação (opcional)</span>
+            <span className="text-xs font-semibold text-foreground">Nome para identificação (opcional)</span>
             <input
               className={inputCls}
               value={name}
@@ -1284,25 +1245,7 @@ function DirectGatewayModal({
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/50">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="btn-primary"
-            >
-              {saving ? 'Conectando…' : 'Salvar e Gerar Link'}
-            </button>
-          </div>
-        </div>
-      </GlassCard>
-    </div></DialogPortal>
-  )
+
+    </fieldset>
+  </Modal>)
 }

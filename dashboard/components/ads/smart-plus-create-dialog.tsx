@@ -3,18 +3,18 @@
 import { SavedVideos } from './saved-videos'
 import { MarketSelector, defaultMarket } from './market-selector'
 
-import { DialogPortal } from '@/components/ui/dialog-portal'
+import { Modal } from '@/components/ui/modal'
+import { MoneyField } from '@/components/ui/money-field'
 
 // Criação de campanha Smart+ — formulário único e enxuto (não um wizard). O
 // TikTok automatiza targeting/lance/criativo, então o gestor só informa o
 // essencial: objetivo, orçamento total + término, vídeo e destino. Tudo nasce
 // PAUSADO; a criação é composta no backend (campanha → grupo → vídeo → anúncio).
 
-import { useRef, useState } from 'react'
-import { X, Loader2, Sparkles, UploadCloud, Check } from 'lucide-react'
+import { useState } from 'react'
+import { Loader2, UploadCloud, Check } from 'lucide-react'
 import { apiSend, adsUpload } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import { useModalA11y } from '@/lib/use-modal-a11y'
 import {
   TIKTOK_CTA_OPTIONS,
   TIKTOK_MIN_BUDGET,
@@ -35,7 +35,6 @@ export function SmartPlusCreateDialog({
   currency: string
   onCreated: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
   const [budget, setBudget] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -48,7 +47,6 @@ export function SmartPlusCreateDialog({
   const [uploading, setUploading] = useState(false)
   const [coverUploading, setCoverUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  useModalA11y(open, ref, submitting ? () => {} : onClose)
 
   if (!open) return null
 
@@ -125,39 +123,22 @@ export function SmartPlusCreateDialog({
 
   const field = 'input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground'
 
-  return (
-    <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget && !submitting) onClose() }}
-    >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Nova campanha Smart+" tabIndex={-1} className="w-full max-w-lg outline-none">
-        <div className="anim-pop-in flex max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              Nova campanha Smart+
-            </h3>
-            <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} aria-label="Fechar" disabled={submitting}>
-              <X className="size-4" aria-hidden="true" />
+  return (<Modal isOpen={open} onClose={onClose} busy={submitting || uploading || coverUploading} title="Criar campanha Smart+" description="Defina o anúncio e o orçamento para todo o período." maxWidth="max-w-xl" footer={<div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+            <p className="text-[11px] text-muted-foreground">{error || 'Cria pausada — revise antes de ativar.'}</p>
+            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSubmit} disabled={Boolean(error) || submitting || uploading || coverUploading}>
+              {submitting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
+              Criar campanha pausada
             </button>
-          </div>
-
-          <div className="flex flex-col gap-3 overflow-y-auto pr-1">
+          </div>}>
+          <fieldset disabled={submitting || uploading || coverUploading} className="launch-form">
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Nome da campanha <span className="text-muted-foreground">(opcional)</span></span>
               <input autoFocus className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Smart+ Verão — Conversões" maxLength={120} />
             </label>
 
-            <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
-              Conversão · compra · Pixel da conta TikTok · criada pausada.
-            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-foreground">Orçamento total ({currency})</span>
-                <input type="number" min={TIKTOK_MIN_BUDGET} step="0.01" className={field} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="200,00" />
-                <span className="text-[10px] text-muted-foreground">Mínimo aceito pelo TikTok: {currency} {TIKTOK_MIN_BUDGET}.</span>
-              </label>
+              <MoneyField label="Orçamento total" currency={currency} value={budget} onChange={setBudget} min={TIKTOK_MIN_BUDGET} hint={`Mínimo: ${currency} ${TIKTOK_MIN_BUDGET} para todo o período.`} />
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Término</span>
                 <input type="date" min={tomorrow} className={field} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
@@ -212,17 +193,6 @@ export function SmartPlusCreateDialog({
                 </select>
               </label>
             </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-            <p className="text-[11px] text-muted-foreground">{error || 'Cria pausada — revise antes de ativar.'}</p>
-            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSubmit} disabled={Boolean(error) || submitting || uploading || coverUploading}>
-              {submitting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
-              Criar campanha
-            </button>
-          </div>
-        </div>
-      </div>
-    </div></DialogPortal>
-  )
+          </fieldset>
+</Modal>)
 }

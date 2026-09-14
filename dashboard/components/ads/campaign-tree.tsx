@@ -538,6 +538,7 @@ export function CampaignTree({
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
+  const [detailedMetrics, setDetailedMetrics] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
   useEffect(() => {
     const apply = (value: string) => {
@@ -1181,7 +1182,7 @@ export function CampaignTree({
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-              <span className="font-mono">ID: {id}</span>
+              {isOpen && <span className="font-mono">ID: {id}</span>}
               {c.childStatus && c.childStatus !== c.status && (
                 <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>
               )}
@@ -1478,8 +1479,9 @@ export function CampaignTree({
   }
 
   return (
-    <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
+    <GlassCard className={`campaign-workspace min-w-0 overflow-hidden p-0 ${detailedMetrics ? 'campaign-metrics-detailed' : 'campaign-metrics-essential'}`}>
       <div className="campaign-toolbar p-3 sm:p-4 space-y-3">
+        <button type="button" className="btn-ghost text-xs" aria-pressed={detailedMetrics} onClick={() => setDetailedMetrics(!detailedMetrics)}>{detailedMetrics ? 'Mostrar métricas essenciais' : 'Mostrar CPC, CPM e cliques'}</button>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1501,7 +1503,7 @@ export function CampaignTree({
               )}
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Encontre rapidamente o que está performando e o que precisa de ação.
+              Orçamento, gasto e compras da janela selecionada.
             </p>
           </div>
 
@@ -1730,7 +1732,7 @@ export function CampaignTree({
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: '1305px',
+                minWidth: detailedMetrics ? '1305px' : '1000px',
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1756,7 +1758,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: '1305px' }}
+              style={{ minWidth: detailedMetrics ? '1305px' : '1000px' }}
             >
               {flatRows.map((row, index) => (
                 <div
