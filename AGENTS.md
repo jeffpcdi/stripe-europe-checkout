@@ -1,5 +1,17 @@
 # AGENTS.md — ROI-NADOS
 
+## Refino do observatório — 14/09/2026 (validação visual pendente)
+- `HeroGlobe` usa `overview-observatory--premium`: iluminação, estrelas e órbitas decorativas
+  pertencem ao card inteiro. No modo embutido, as camadas locais de estrelas/órbitas ficam
+  ocultas; canvas transparente e tela cheia preservam seus controles e dados reais.
+- `observatory-icon.tsx` reúne os sete símbolos SVG duotone. Placas, superfícies dos indicadores,
+  faixa de atividade e responsividade são escopadas em `dashboard-refinement.css`.
+- Nenhum cálculo, endpoint, filtro temporal ou comportamento de presença foi alterado.
+- Sintaxe TSX dos três componentes alterados aprovada. Build, testes completos e Preview desta
+  versão estão pendentes: arquivos `dataless` do macOS falharam ao recuperar com erro de leitura
+  `-81` e `Need authenticator`. Execuções vazias não contam como sucesso. Disponibilizar a pasta
+  localmente e repetir a validação visual em 1440×1000, 390×844 e 844×390 antes de publicar.
+
 ## Formulários operacionais — revisão de 14/09/2026
 - `components/ui/modal.tsx` oferece `footer` fixo, corpo rolável, bloqueio durante processamento
   e foco compartilhado; lançadores comum, catálogo, Smart+, Spark, editor de anúncio e cadastro de

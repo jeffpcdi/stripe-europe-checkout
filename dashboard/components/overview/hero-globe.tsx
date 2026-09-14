@@ -3,13 +3,14 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { RefreshCw, ShoppingBag, MapPin, Globe2, ArrowUpRight, X } from 'lucide-react'
+import { RefreshCw, MapPin, Globe2, ArrowUpRight, X } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
 import { countryFlag, fmtCurrency, timeAgo } from '@/lib/format'
 import { GlobeBoundary } from '@/components/geo/globe-boundary'
 import { OverviewMetrics, type OverviewMetricsProps } from '@/components/overview/overview-metrics'
+import { ObservatoryIcon } from '@/components/overview/observatory-icon'
 
 interface LatestLeadInfo { code: string; name: string; flag: string; at: number }
 
@@ -89,8 +90,10 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
     setFocusRevision(value => value + 1)
   }
 
-  return <section className="overview-observatory" aria-label="Visão geral da operação">
+  return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
+    <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
     <header className="observatory-header">
+      <div className="observatory-identity"><span className="observatory-identity-mark"><Globe2 size={23} aria-hidden="true" /></span><div><span>INTELIGÊNCIA DE VENDAS</span><h2>Visão global da operação</h2></div></div>
       <div className="observatory-period">{periodPicker}</div>
       <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
         <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" /><span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>
@@ -114,7 +117,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
 
     <div className="observatory-activity" aria-label="Atividade atual, independente do período">
       <section className="observatory-live" aria-label="Visitantes ao vivo">
-        <header className="observatory-activity-heading"><h3><span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />Visitantes ao vivo</h3><span>{live.fresh ? 'agora' : isLoading ? 'carregando' : 'sem atualização'}</span></header>
+        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="live" /></span>Visitantes ao vivo</h3><span className="observatory-live-state"><span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" /><span>{live.fresh ? 'agora' : isLoading ? 'carregando' : 'sem atualização'}</span></span></header>
         <div className="observatory-live-total"><strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong><span>{live.online === 1 ? 'visitante online' : 'visitantes online'}</span></div>
         {live.fresh && data && <p className="observatory-live-time">Atualizado às <time dateTime={data.ts}>{new Date(data.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time> · Brasília</p>}
         {!live.fresh && !isLoading && <button type="button" className="observatory-text-link" onClick={() => void mutate()}><RefreshCw size={13} aria-hidden="true" />Tentar novamente</button>}
@@ -122,7 +125,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
       </section>
 
       <section className="observatory-countries" aria-label="Top países ao vivo">
-        <header className="observatory-activity-heading"><h3><MapPin size={15} aria-hidden="true" />Top países</h3><span>agora</span></header>
+        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="countries" /></span>Top países</h3><span>agora</span></header>
         {live.countries.length > 0 ? <div className="observatory-country-list">
           {live.countries.slice(0, 3).map(country => {
             const percentage = Math.round(country.count / Math.max(1, onlineTotal) * 100)
@@ -136,7 +139,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
       </section>
 
       <section className="observatory-purchases" aria-label="Compras recentes">
-        <header className="observatory-activity-heading"><h3><ShoppingBag size={15} aria-hidden="true" />Compras recentes</h3><span>últimos 10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver todas <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
+        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="purchases" /></span>Compras recentes</h3><span>últimos 10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver todas <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
         {purchasesStale && <p className="observatory-empty" data-warning>Histórico não atualizado</p>}
         {recentPurchases.length > 0 ? <div className="observatory-purchase-list">
           {recentPurchases.slice(0, 3).map((purchase, index) => <div className="observatory-purchase" key={`${purchase.at}-${index}`}>

@@ -1,5 +1,5 @@
 /* Refino compartilhado: marca, navegação, superfícies e observatório.
-   Carregado após o tema legado; os ajustes desta composição ficam reunidos aqui. */
+  Carregado após o tema legado; os ajustes desta composição ficam reunidos aqui. */
 .refined-dashboard {
   --refine-cyan: #65e9f4;
   --refine-violet: #a993fa;
@@ -1345,4 +1345,131 @@ html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { anima
 @media (max-width: 639px) {
   .refined-dashboard .catalog-compact-filter { min-height: 32px; padding: 5px 7px; }
   .refined-dashboard .catalog-icon-filter { min-height: 32px; }
+}
+
+/* Observatório premium: um ambiente contínuo; o WebGL nunca pinta uma caixa no painel. */
+.refined-dashboard .overview-observatory--premium {
+  --observatory-bg: #080d16;
+  --observatory-raised: #172434;
+  --observatory-text: #edf5ff;
+  --observatory-muted: #acbdce;
+  --observatory-line: rgb(161 207 232 / 16%);
+  border: 1px solid rgb(160 200 220 / 23%);
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse at 48% 34%, rgb(26 110 138 / 26%), transparent 54%),
+    radial-gradient(ellipse at 0 0, rgb(36 77 94 / 24%), transparent 50%),
+    radial-gradient(ellipse at 100% 65%, rgb(90 61 131 / 19%), transparent 62%),
+    linear-gradient(125deg, #0e1823, #080e18 50%, #101221);
+  box-shadow: inset 0 1px 0 rgb(222 242 255 / 13%), inset 0 -1px 0 rgb(99 147 184 / 8%), 0 28px 70px -28px rgb(0 0 0 / 75%);
+}
+.refined-dashboard .overview-observatory--premium::before {
+  opacity: .38;
+  background-size: 1200px 900px;
+  mask-image: linear-gradient(#000, rgb(0 0 0 / 18%));
+}
+.observatory-environment { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; z-index: -1; pointer-events: none; }
+.observatory-environment::before {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0 79px, rgb(159 204 229 / 3%) 79px 80px), repeating-linear-gradient(90deg, transparent 0 79px, rgb(159 204 229 / 3%) 79px 80px);
+  mask-image: radial-gradient(ellipse at 50% 35%, #000, transparent 80%);
+}
+.observatory-environment i { position: absolute; width: 76%; height: 76%; left: 12%; top: 3%; border: 1px solid rgb(108 204 229 / 13%); border-radius: 50%; transform: rotate(-22deg); box-shadow: 0 0 28px rgb(82 191 222 / 3%), inset 0 0 28px rgb(82 191 222 / 3%); }
+.observatory-environment i + i { width: 90%; height: 110%; left: 5%; top: -14%; transform: rotate(28deg); border-color: rgb(144 153 232 / 9%); }
+.overview-observatory--premium .observatory-header { grid-template-columns: 1fr auto auto; gap: 18px; padding: 26px 28px 24px; border-bottom: 1px solid rgb(159 204 229 / 9%); margin-bottom: 22px; }
+.observatory-identity { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.observatory-identity-mark { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; border-radius: 14px; color: var(--observatory-cyan); border: 1px solid rgb(112 230 252 / 25%); background: linear-gradient(135deg, rgb(99 222 243 / 16%), rgb(18 39 52 / 20%)); box-shadow: inset 0 1px 0 rgb(196 241 255 / 18%), 0 6px 16px rgb(0 0 0 / 20%); }
+.observatory-identity > div > span { display: block; font-size: 10px; letter-spacing: .18em; font-weight: 650; color: var(--observatory-cyan); margin-bottom: 5px; }
+.observatory-identity h2 { font-size: clamp(16px, 1.4vw, 22px); font-weight: 600; letter-spacing: -.025em; color: var(--observatory-text); }
+.overview-observatory--premium .observatory-period { grid-column: auto; }
+.overview-observatory--premium .observatory-refresh { grid-column: auto; background: rgb(166 205 237 / 5%); }
+.overview-observatory--premium .observatory-metrics { grid-template-columns: minmax(240px, 1fr) minmax(300px, 1.5fr) minmax(240px, 1fr); grid-template-rows: auto auto; min-height: 520px; gap: 18px; padding: 0 28px 26px; }
+.overview-observatory--premium .observatory-metric {
+  align-self: stretch; padding: clamp(18px, 1.7vw, 28px); border: 1px solid rgb(168 209 234 / 14%); border-radius: 20px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--metric-accent) 7%, transparent), rgb(10 19 30 / 55%) 54%, rgb(10 17 28 / 78%));
+  box-shadow: inset 0 1px 0 rgb(222 239 255 / 7%), 0 12px 24px -16px rgb(0 0 0 / 70%);
+}
+.overview-observatory--premium .observatory-metric--revenue { --metric-accent: var(--refine-green); border-color: rgb(113 228 173 / 23%); }
+.overview-observatory--premium .observatory-metric--spend { --metric-accent: var(--refine-amber); }
+.overview-observatory--premium .observatory-metric::before { content: ''; position: absolute; top: -1px; left: 24px; width: 48px; height: 2px; border-radius: 2px; background: var(--metric-accent); box-shadow: 0 0 16px color-mix(in srgb, var(--metric-accent) 30%, transparent); opacity: .7; }
+.overview-observatory--premium .observatory-metric::after { left: auto; right: 14px; bottom: 14px; width: 7px; height: 7px; border-right: 1px solid color-mix(in srgb, var(--metric-accent) 40%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--metric-accent) 40%, transparent); background: none; }
+.overview-observatory--premium .observatory-metric-heading { gap: 13px; margin-bottom: 22px; }
+.overview-observatory--premium .observatory-metric-heading h3 { font-size: 14px; font-weight: 600; letter-spacing: -.015em; }
+.overview-observatory--premium :is(.observatory-metric-icon, .observatory-activity-icon) {
+  display: grid; place-items: center; position: relative; flex-shrink: 0; width: 48px; height: 48px; border-radius: 14px;
+  color: var(--metric-accent, var(--observatory-cyan)); border: 1px solid color-mix(in srgb, var(--metric-accent, var(--observatory-cyan)) 32%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--metric-accent, var(--observatory-cyan)) 19%, #132331), #0e1926 85%);
+  box-shadow: inset 0 1px 0 rgb(234 250 255 / 20%), inset 0 -3px 5px rgb(0 0 0 / 25%), 0 5px 10px rgb(0 0 0 / 24%);
+}
+.overview-observatory--premium :is(.observatory-metric-icon, .observatory-activity-icon)::after { content: ''; position: absolute; inset: 4px; border: 1px solid rgb(221 242 255 / 6%); border-radius: 10px; pointer-events: none; }
+.overview-observatory--premium :is(.observatory-metric-icon, .observatory-activity-icon) svg { width: 25px; height: 25px; filter: drop-shadow(0 1px 4px color-mix(in srgb, currentColor 25%, transparent)); }
+.overview-observatory--premium .observatory-metric-value { font-size: clamp(30px, 2.75vw, 48px); font-weight: 620; letter-spacing: -.045em; }
+.overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(34px, 3.2vw, 56px); color: #effff7; text-shadow: 0 3px 22px rgb(113 228 173 / 12%); }
+.overview-observatory--premium .observatory-metric-context { font-size: 12px; }
+.overview-observatory--premium .observatory-revenue-sales { width: fit-content; padding: 7px 10px; border: 1px solid rgb(113 228 173 / 15%); border-radius: 8px; background: rgb(113 228 173 / 6%); }
+.overview-observatory--premium .observatory-revenue-sales svg { color: var(--refine-green); }
+.overview-observatory--premium .observatory-trend-empty { border: 0; padding: 0; font-size: 11px; color: var(--observatory-muted); }
+.overview-observatory--premium .observatory-globe { min-height: 480px; }
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) { background: transparent !important; overflow: visible; }
+.overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) :is(.presence-star-depth, .presence-orbital-field) { display: none; }
+.overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { background: transparent; inset: 10px -20px 82px; }
+.overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls { bottom: 16px; padding: 7px; border-color: rgb(140 215 234 / 28%); background: linear-gradient(135deg, #172c3b, #0b1725); box-shadow: inset 0 1px 0 rgb(190 230 255 / 12%), 0 12px 28px rgb(0 0 0 / 35%); }
+.overview-observatory--premium .observatory-activity { gap: 14px; margin: 0 28px 28px; padding: 0; border: 0; background: transparent; grid-template-columns: .95fr 1fr 1.3fr; }
+.overview-observatory--premium .observatory-activity > section { position: relative; padding: 20px; border: 1px solid rgb(164 199 233 / 17%); border-radius: 18px; background: linear-gradient(135deg, rgb(23 40 56 / 82%), rgb(10 18 30 / 90%)); box-shadow: inset 0 1px 0 rgb(230 247 255 / 7%), 0 8px 20px -12px rgb(0 0 0 / 45%); }
+.overview-observatory--premium .observatory-live { --metric-accent: var(--observatory-cyan); }
+.overview-observatory--premium .observatory-countries { --metric-accent: var(--refine-violet); }
+.overview-observatory--premium .observatory-purchases { --metric-accent: var(--refine-green); }
+.overview-observatory--premium .observatory-activity-heading { gap: 6px 10px; margin-bottom: 18px; }
+.overview-observatory--premium .observatory-activity-heading h3 { gap: 10px; font-size: 13px; }
+.overview-observatory--premium .observatory-activity-icon { width: 38px; height: 38px; border-radius: 11px; }
+.overview-observatory--premium .observatory-activity-icon svg { width: 21px; height: 21px; color: inherit; }
+.overview-observatory--premium .observatory-activity-icon::after { border-radius: 7px; }
+.overview-observatory--premium .observatory-activity-heading > span { font-size: 10px; margin-left: auto; }
+.observatory-live-state { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 6px; border: 1px solid var(--observatory-line); background: rgb(3 14 23 / 35%); }
+.overview-observatory--premium .observatory-status-dot[data-fresh='true'] { background: var(--observatory-cyan); box-shadow: 0 0 9px rgb(112 230 252 / 45%); }
+.overview-observatory--premium .observatory-live-total { padding: 2px 0 5px; }
+.overview-observatory--premium .observatory-live-total strong { font-size: 48px; font-weight: 600; }
+.overview-observatory--premium .observatory-live-time { font-size: 11px; padding-top: 12px; border-top: 1px solid rgb(146 198 225 / 10%); }
+.overview-observatory--premium .observatory-empty { padding: 15px; border: 1px dashed rgb(146 198 225 / 18%); background: rgb(4 12 22 / 22%); border-radius: 10px; font-size: 12px; }
+.overview-observatory--premium .observatory-country-list { gap: 6px; }
+.overview-observatory--premium .observatory-country-list button { min-height: 42px; padding: 8px; margin: 0; border: 1px solid rgb(164 199 233 / 8%); background: rgb(5 14 24 / 26%); font-size: 12px; }
+.overview-observatory--premium .observatory-country-track { height: 5px; }
+.overview-observatory--premium .observatory-country-track i { background: linear-gradient(90deg, var(--refine-violet), var(--observatory-cyan)); }
+.overview-observatory--premium .observatory-purchase { min-height: 45px; font-size: 12px; }
+.overview-observatory--premium .observatory-purchase > strong { color: var(--refine-green); font-size: 14px; }
+.overview-observatory--premium .observatory-text-link { font-size: 12px; min-height: 40px; }
+@media (max-width: 1099px) {
+  .overview-observatory--premium .observatory-header { grid-template-columns: 1fr auto; padding: 20px; }
+  .overview-observatory--premium .observatory-period { grid-row: 2; grid-column: 1 / -1; justify-self: stretch; }
+  .overview-observatory--premium .observatory-refresh { grid-column: 2; grid-row: 1; }
+  .overview-observatory--premium .observatory-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: 'revenue spend' 'globe globe' 'conversion return'; min-height: 0; padding: 0 20px 20px; }
+  .overview-observatory--premium .observatory-globe { min-height: 0; height: 440px; }
+  .overview-observatory--premium .observatory-activity { grid-template-columns: 1fr 1fr; margin: 0 20px 20px; }
+  .overview-observatory--premium .observatory-activity .observatory-purchases { grid-column: 1 / -1; margin: 0; padding: 20px; border: 1px solid rgb(164 199 233 / 17%); }
+}
+@media (max-width: 639px) {
+  .refined-dashboard .overview-observatory--premium { border-radius: 22px; }
+  .overview-observatory--premium .observatory-header { margin-bottom: 14px; padding: 18px 14px 16px; gap: 16px 8px; }
+  .observatory-identity { gap: 10px; }
+  .observatory-identity-mark { width: 38px; height: 38px; border-radius: 11px; }
+  .observatory-identity > div > span { font-size: 8px; letter-spacing: .13em; }
+  .observatory-identity h2 { font-size: 15px; }
+  .overview-observatory--premium .observatory-metrics { gap: 12px; padding: 0 12px 14px; }
+  .overview-observatory--premium .observatory-metric { padding: 15px 13px; border-radius: 15px; }
+  .overview-observatory--premium .observatory-metric--revenue { grid-column: 1 / -1; }
+  .overview-observatory--premium .observatory-metrics { grid-template-areas: 'revenue revenue' 'globe globe' 'spend spend' 'conversion return'; }
+  .overview-observatory--premium .observatory-metric-heading { gap: 10px; margin-bottom: 16px; flex-wrap: nowrap; }
+  .overview-observatory--premium .observatory-metric-heading h3 { font-size: 12px; flex-basis: auto; order: 0; }
+  .overview-observatory--premium .observatory-metric-icon { width: 38px; height: 38px; border-radius: 11px; }
+  .overview-observatory--premium .observatory-metric-icon svg { width: 22px; height: 22px; }
+  .overview-observatory--premium .observatory-metric-value { font-size: 29px; }
+  .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: 40px; }
+  .overview-observatory--premium .observatory-revenue-comparison, .overview-observatory--premium .observatory-revenue-sales { font-size: 11px; }
+  .overview-observatory--premium .observatory-globe { height: 340px; margin: 0; }
+  .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: 0 0 74px; }
+  .overview-observatory--premium .observatory-activity { grid-template-columns: 1fr; gap: 12px; margin: 0 12px 14px; }
+  .overview-observatory--premium .observatory-activity > section { padding: 18px; }
+  .overview-observatory--premium .observatory-activity .observatory-purchases { padding: 18px; }
+  .overview-observatory--premium .observatory-country-list button { min-height: 44px; }
+  .overview-observatory--premium .observatory-purchase { grid-template-columns: minmax(65px, 1fr) auto; }
 }
