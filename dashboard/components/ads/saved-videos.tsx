@@ -14,7 +14,7 @@ export function SavedVideos({ selectedUrls, onPick, disabled }: {
   const items = data?.items ?? []
   return <div className="space-y-1.5">
     <button type="button" className="btn-secondary !min-h-0 h-7 text-[11px] px-2.5 rounded-md inline-flex items-center gap-1.5 font-medium" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Film className="size-3.5" aria-hidden="true" /> Usar vídeos já enviados
+      <Film className="size-3.5" aria-hidden="true" /> Biblioteca
     </button>
     {open && <div className="rounded-lg border border-border bg-card/95 p-2 shadow-md">
       {isLoading ? <p className="flex items-center gap-2 text-xs py-1"><Loader2 className="size-3.5 animate-spin" />Carregando vídeos…</p>

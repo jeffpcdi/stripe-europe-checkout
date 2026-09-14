@@ -35,11 +35,13 @@ function campaignSummary(campaign: Record<string, unknown>, currency: string) {
 
 export function CatalogBatchDialog({
   openRequest = 0,
+  hideTrigger = false,
   advertiserId,
   advertiserCurrency,
   onCreated,
 }: {
   openRequest?: number
+  hideTrigger?: boolean
   advertiserId: string
   advertiserCurrency: string
   onCreated: () => void
@@ -216,10 +218,12 @@ export function CatalogBatchDialog({
   }
 
   return (
-    <div className="relative w-full sm:w-auto">
-      <button type="button" className="btn-ghost shrink-0 self-start text-xs sm:self-auto" onClick={() => setOpen((value) => !value)}>
-        <UploadCloud className="size-3.5" aria-hidden="true" /> Catálogos em massa
-      </button>
+    <div className={hideTrigger ? 'contents' : 'relative w-full sm:w-auto'}>
+      {!hideTrigger && (
+        <button type="button" className="btn-ghost shrink-0 self-start text-xs sm:self-auto" onClick={() => setOpen((value) => !value)}>
+          <UploadCloud className="size-3.5" aria-hidden="true" /> Catálogos em massa
+        </button>
+      )}
       <Modal isOpen={open} onClose={() => { if (!busy && !uploadingVideo) setOpen(false) }} title="Catálogos em massa" description="Importe uma planilha para organizar produtos e preparar campanhas." maxWidth="max-w-3xl">
         <div className="ads-dialog">
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">

@@ -29,8 +29,6 @@ import {
   Search,
   SlidersHorizontal,
   DollarSign,
-  LayoutList,
-  LayoutGrid,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -541,22 +539,6 @@ export function CampaignTree({
   const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
   const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('roi_campaigns_view_mode')
-      if (saved === 'cards' || saved === 'table') setViewMode(saved)
-    } catch {}
-  }, [])
-
-  const handleViewModeChange = (mode: 'table' | 'cards') => {
-    setViewMode(mode)
-    try {
-      localStorage.setItem('roi_campaigns_view_mode', mode)
-    } catch {}
-  }
-
   useEffect(() => {
     const apply = (value: string) => {
       if (!value) return
@@ -850,10 +832,7 @@ export function CampaignTree({
       const row = flatRows[index]
       if (row?.kind === 'group') return 34
       const isExp = row?.c ? expanded.has(row.c.platformCampaignId) : false
-      if (viewMode === 'table') {
-        return isExp ? 460 : 50
-      }
-      return isExp ? 580 : 285
+      return isExp ? 460 : 50
     },
     overscan: 8,
     getItemKey: (i) => flatRows[i].key,
@@ -869,29 +848,19 @@ export function CampaignTree({
     }
   }
 
-  // Cabeçalho de grupo (Ativas/Pausadas/…), adaptado para tabela ou cards
+  // Cabeçalho de grupo: a lista usa uma única visualização compacta no desktop.
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, index?: number) {
-    if (viewMode === 'table') {
-      return (
-        <div
-          className="flex h-8 items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold text-muted-foreground tracking-wide uppercase min-w-[1305px]"
-          style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
-        >
-          <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
-          <span>{GROUP_LABELS[row.groupIdx] ?? 'Outras'}</span>
-          <span className="rounded-full bg-secondary/80 px-2 py-0.5 text-[10px] font-bold tabular-nums text-foreground border border-border/40">
-            {row.count}
-          </span>
-        </div>
-      )
-    }
     return (
-      <p
-        className="stagger-fade flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+      <div
+        className="flex h-8 min-w-[1305px] items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
         style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
-        {(GROUP_LABELS[row.groupIdx] ?? 'Outras') + ` (${row.count})`}
-      </p>
+        <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+        <span>{GROUP_LABELS[row.groupIdx] ?? 'Outras'}</span>
+        <span className="rounded-full border border-border/40 bg-secondary/80 px-2 py-0.5 text-[10px] font-bold tabular-nums text-foreground">
+          {row.count}
+        </span>
+      </div>
     )
   }
 
@@ -1505,211 +1474,128 @@ export function CampaignTree({
 
   function renderFlatRow(row: FlatRow, index?: number) {
     if (row.kind === 'group') return renderGroupHeader(row, index)
-    return viewMode === 'table' ? renderCampaignTableRow(row.c, index) : renderCampaignCardRow(row.c, index)
+    return renderCampaignTableRow(row.c, index)
   }
 
   return (
     <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
       <div className="campaign-toolbar p-3 sm:p-4 space-y-3">
-        {/* Linha 1: Título e Controles de Visualização */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm sm:text-base font-bold text-foreground">Campanhas</h2>
-            <span className="rounded-full bg-secondary/80 border border-border/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
-              {visible.length} {visible.length === 1 ? 'campanha' : 'campanhas'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
-              <button
-                type="button"
-                onClick={() => handleViewModeChange('table')}
-                aria-pressed={viewMode === 'table'}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                  viewMode === 'table'
-                    ? 'bg-background text-foreground shadow-xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Modo Tabela: visualização compacta"
-              >
-                <LayoutList className="size-3.5" />
-                <span className="hidden sm:inline">Tabela</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewModeChange('cards')}
-                aria-pressed={viewMode === 'cards'}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                  viewMode === 'cards'
-                    ? 'bg-background text-foreground shadow-xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Modo Cards: visualização em blocos"
-              >
-                <LayoutGrid className="size-3.5" />
-                <span className="hidden sm:inline">Cards</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Linha 2: Segmented Tabs de Status com pills limpos */}
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por status">
-          {STATUS_FILTERS.map((filter) => {
-            const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
-            const isSelected = statusFilter === filter.value
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                onClick={() => onStatusFilter(filter.value)}
-                aria-pressed={isSelected}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-xs'
-                    : 'bg-secondary/30 text-muted-foreground border border-border/50 hover:bg-secondary hover:text-foreground'
-                }`}
-              >
-                <span>{filter.label}</span>
-                <span
-                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.2 text-[10px] font-bold tabular-nums ${
-                    isSelected ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                  }`}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-foreground sm:text-base">Campanhas</h2>
+              <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
+                {visible.length}
+              </span>
+              {summary.problem > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => onStatusFilter('rejected')}
+                  className="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-[10px] font-semibold text-error"
                 >
-                  {count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Linha 3: Busca, Atalhos rápidos com ícones e Ordenação integrados */}
-        <div className="flex flex-wrap items-center gap-2 pt-0.5">
-          {/* Campo de Busca Rápida */}
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar campanha..."
-              aria-label="Buscar campanha"
-              className="w-full h-8 pl-8 pr-7 rounded-lg border border-border/60 bg-background/80 text-xs text-foreground placeholder:text-muted-foreground/60 transition-colors focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                aria-label="Limpar busca"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer p-0.5"
-              >
-                <X className="size-3" />
-              </button>
-            )}
+                  <AlertCircle className="size-3" aria-hidden="true" />
+                  {summary.problem} {summary.problem === 1 ? 'precisa' : 'precisam'} de atenção
+                </button>
+              ) : (
+                <span className="text-[10px] text-muted-foreground">Tudo sob controle</span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Encontre rapidamente o que está performando e o que precisa de ação.
+            </p>
           </div>
 
-          {/* Atalhos Rápidos com Ícones Intuitivos */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setOnlyWithSpend((v) => !v)}
-              aria-pressed={onlyWithSpend}
-              title="Filtrar campanhas com gasto registrado"
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                onlyWithSpend
-                  ? 'border border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs'
-                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
-              }`}
-            >
-              <DollarSign className="size-3.5" aria-hidden="true" />
-              <span>Com gasto</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))}
-              aria-pressed={quickFilter === 'with_sales'}
-              title="Filtrar campanhas com vendas registradas"
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                quickFilter === 'with_sales'
-                  ? 'border border-emerald-500/50 bg-emerald-500/15 text-emerald-400 font-semibold shadow-xs'
-                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
-              }`}
-            >
-              <TrendingUp className="size-3.5" aria-hidden="true" />
-              <span>Com vendas</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))}
-              aria-pressed={quickFilter === 'high_roas'}
-              title="Filtrar campanhas com ROAS superior a 2x"
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
-                quickFilter === 'high_roas'
-                  ? 'border border-cyan-500/50 bg-cyan-500/15 text-cyan-400 font-semibold shadow-xs'
-                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
-              }`}
-            >
-              <Zap className="size-3.5" aria-hidden="true" />
-              <span>ROAS &gt; 2×</span>
-            </button>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:max-w-2xl">
+            <div className="relative min-w-[220px] flex-1 lg:max-w-sm">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar campanha..."
+                aria-label="Buscar campanha"
+                className="h-9 w-full rounded-lg border border-border/60 bg-background/80 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/20"
+              />
+              {query ? (
+                <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground">
+                  <X className="size-3" />
+                </button>
+              ) : null}
+            </div>
 
             <button
               type="button"
               onClick={() => setQuickFilter((curr) => (curr === 'no_sales' ? 'all' : 'no_sales'))}
               aria-pressed={quickFilter === 'no_sales'}
-              title="Filtrar campanhas com gasto mas sem vendas"
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
                 quickFilter === 'no_sales'
-                  ? 'border border-amber-500/50 bg-amber-500/15 text-amber-400 font-semibold shadow-xs'
-                  : 'border border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  ? 'border-warning/40 bg-warning/10 text-warning'
+                  : 'border-border/60 bg-background/80 text-muted-foreground hover:text-foreground'
               }`}
+              title="Campanhas com gasto e sem vendas"
             >
               <AlertCircle className="size-3.5" aria-hidden="true" />
-              <span>Sem vendas</span>
+              Atenção
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowFilters((value) => !value)}
+              aria-expanded={showFilters}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background/80 text-muted-foreground hover:text-foreground'}`}
+            >
+              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+              Filtros
             </button>
           </div>
+        </div>
 
-          {/* Ordenação Compacta e Limpeza */}
-          <div className="ml-auto flex items-center gap-1.5">
-            <div className="relative flex items-center">
-              <ArrowUpDown className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" aria-hidden="true" />
-              <select
-                className="h-8 pl-7 pr-3 rounded-lg border border-border/60 bg-background/80 text-xs font-medium text-foreground transition-colors hover:border-border focus:outline-none focus:border-primary/50 cursor-pointer"
-                value={sort}
-                onChange={(e) => onSort(e.target.value)}
-                aria-label="Ordenar campanhas"
-              >
-                {SORTS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
+        {showFilters ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por status">
+              {STATUS_FILTERS.map((filter) => {
+                const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
+                const isSelected = statusFilter === filter.value
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => onStatusFilter(filter.value)}
+                    aria-pressed={isSelected}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${isSelected ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {filter.label}
+                    <span className="text-[10px] tabular-nums opacity-75">{count}</span>
+                  </button>
+                )
+              })}
             </div>
 
-            {/* Reset rápido */}
-            {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOnlyWithSpend(false)
-                  setQuickFilter('all')
-                  onSort('newest')
-                  onStatusFilter('active')
-                  setQuery('')
-                }}
-                className="flex h-8 items-center gap-1 rounded-lg border border-border/50 bg-secondary/30 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-                title="Limpar todos os filtros e busca"
-              >
-                <RotateCcw className="size-3" />
-                <span className="hidden sm:inline">Limpar</span>
-              </button>
-            )}
+            <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} aria-pressed={onlyWithSpend} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
+              <DollarSign className="size-3.5" aria-hidden="true" /> Com gasto
+            </button>
+            <button type="button" onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))} aria-pressed={quickFilter === 'with_sales'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'with_sales' ? 'border-success/30 bg-success/10 text-success' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
+              <TrendingUp className="size-3.5" aria-hidden="true" /> Com vendas
+            </button>
+            <button type="button" onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))} aria-pressed={quickFilter === 'high_roas'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'high_roas' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
+              <Zap className="size-3.5" aria-hidden="true" /> ROAS &gt; 2×
+            </button>
+
+            <div className="ml-auto flex items-center gap-1.5">
+              <div className="relative flex items-center">
+                <ArrowUpDown className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <select className="h-8 rounded-lg border border-border/60 bg-background/80 pl-7 pr-3 text-xs font-medium text-foreground focus:border-primary/50 focus:outline-none" value={sort} onChange={(e) => onSort(e.target.value)} aria-label="Ordenar campanhas">
+                  {SORTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </div>
+              {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) ? (
+                <button type="button" onClick={() => { setOnlyWithSpend(false); setQuickFilter('all'); onSort('newest'); onStatusFilter('active'); setQuery('') }} className="flex h-8 items-center gap-1 rounded-lg border border-border/50 bg-secondary/20 px-2 text-xs text-muted-foreground hover:text-foreground">
+                  <RotateCcw className="size-3" /> Limpar
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       {/* Resumo do que está visível + Selecionar todas */}
@@ -1836,17 +1722,15 @@ export function CampaignTree({
         <div
           ref={scrollRef}
           style={{ overflow: 'auto' }}
-          className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} overflow-auto ${
-            viewMode === 'table' ? 'campaign-table-container' : ''
-          }`}
+          className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} campaign-table-container overflow-auto`}
         >
-          {viewMode === 'table' && <TableHeader />}
+          <TableHeader />
           {virtualize ? (
             <div
               style={{
                 height: rowVirtualizer.getTotalSize(),
                 position: 'relative',
-                minWidth: viewMode === 'table' ? '1305px' : undefined,
+                minWidth: '1305px',
               }}
             >
               {rowVirtualizer.getVirtualItems().map((vi) => {
@@ -1872,7 +1756,7 @@ export function CampaignTree({
           ) : (
             <div
               className="stagger-fade"
-              style={{ minWidth: viewMode === 'table' ? '1305px' : undefined }}
+              style={{ minWidth: '1305px' }}
             >
               {flatRows.map((row, index) => (
                 <div

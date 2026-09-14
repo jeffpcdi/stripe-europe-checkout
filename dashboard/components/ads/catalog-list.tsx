@@ -11,7 +11,7 @@ import {
   Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
   Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw, Sparkles,
-  LayoutList, LayoutGrid, Search, ArrowUpDown,
+  Search, ArrowUpDown, MoreHorizontal, SlidersHorizontal,
 } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import {
@@ -85,6 +85,9 @@ function getCatalogCategory(c: AdsCatalog): 'linked' | 'in_review' | 'needs_atte
   if ((Number(c.audit?.pending) || 0) > 0) {
     return 'in_review'
   }
+  if (catalogProductCount(c).count === 0) {
+    return 'draft'
+  }
   if (c.linkStatus === 'verified' && c.tiktokCatalogId) {
     return 'linked'
   }
@@ -121,11 +124,9 @@ export function CatalogList({
   onOpen: (id: string) => void
   onChanged: () => void
 }) {
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<'newest' | 'products' | 'name'>('newest')
-
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState(advertiserCurrency || 'BRL')
@@ -133,24 +134,14 @@ export function CatalogList({
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
   const [cloningId, setCloningId] = useState<string | null>(null)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdsCatalog | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
-
   const [showMagicImport, setShowMagicImport] = useState(false)
   const [magicBusy, setMagicBusy] = useState(false)
-
-  // Persistência da preferência de visualização
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('roi:catalogs:viewMode')
-      if (saved === 'table' || saved === 'cards') {
-        setViewMode(saved)
-      } else if (typeof window !== 'undefined' && window.innerWidth < 768) {
-        setViewMode('cards')
-      }
-    } catch {}
-  }, [])
-
   const [batchRequest, setBatchRequest] = useState(0)
+
   useEffect(() => {
     if (!request || busy || magicBusy) return
     setCreating(request.action === 'create')
@@ -158,13 +149,6 @@ export function CatalogList({
     if (request.action === 'batch') setBatchRequest(value => value + 1)
     onRequestHandled?.()
   }, [request, busy, magicBusy, onRequestHandled])
-
-  const handleViewModeChange = (mode: 'table' | 'cards') => {
-    setViewMode(mode)
-    try {
-      localStorage.setItem('roi:catalogs:viewMode', mode)
-    } catch {}
-  }
 
   async function handleCreate() {
     if (!name.trim() || busy) return
@@ -195,11 +179,11 @@ export function CatalogList({
       const res = await apiSend<{ catalog: AdsCatalog; productCount: number; syncStarted: boolean }>(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', {},
       )
-      if (res.syncStarted) {
-        toast.success(`Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`)
-      } else {
-        toast.success(`Catálogo clonado com ${res.productCount} produto(s)`)
-      }
+      toast.success(
+        res.syncStarted
+          ? `Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`
+          : `Catálogo clonado com ${res.productCount} produto(s)`,
+      )
       onChanged()
       onOpen(res.catalog.id)
     } catch (e) {
@@ -209,15 +193,41 @@ export function CatalogList({
     }
   }
 
-  // Contagem em tempo real de catálogos por categoria de status
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      all: catalogs.length,
-      linked: 0,
-      in_review: 0,
-      needs_attention: 0,
-      draft: 0,
+  async function handleSyncFromList(catalogId: string) {
+    if (syncingId) return
+    setSyncingId(catalogId)
+    try {
+      const res = await apiSend<AdsCatalogSyncResponse>(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, advertiserId), 'POST', {},
+      )
+      if (res.dryRun) toast.info('Modo simulação: a sincronização foi validada sem publicar no TikTok')
+      else if (res.pending) toast.info('Sincronização iniciada em segundo plano')
+      else toast.success(`Sincronização enviada para ${res.published} produto(s)`)
+      onChanged()
+    } catch (e) {
+      toast.error('Não foi possível sincronizar', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setSyncingId(null)
     }
+  }
+
+  async function handleDeleteFromList() {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    try {
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(deleteTarget.id)}`, advertiserId), 'DELETE')
+      toast.success('Catálogo local excluído', { hint: 'O catálogo remoto do TikTok não foi apagado.' })
+      setDeleteTarget(null)
+      onChanged()
+    } catch (e) {
+      toast.error('Falha ao excluir catálogo', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: catalogs.length, linked: 0, in_review: 0, needs_attention: 0, draft: 0 }
     for (const c of catalogs) {
       const cat = getCatalogCategory(c)
       counts[cat] = (counts[cat] || 0) + 1
@@ -225,542 +235,300 @@ export function CatalogList({
     return counts
   }, [catalogs])
 
-  // Filtros de busca, categoria e ordenação
   const filteredCatalogs = useMemo(() => {
     return catalogs
       .filter((c) => {
-        if (statusFilter) {
-          if (getCatalogCategory(c) !== statusFilter) return false
-        }
+        if (statusFilter && getCatalogCategory(c) !== statusFilter) return false
         if (search.trim()) {
           const q = search.toLowerCase().trim()
-          const matchName = (c.name || '').toLowerCase().includes(q)
-          const matchTtId = (c.tiktokCatalogId || '').toLowerCase().includes(q)
-          const matchId = (c.id || '').toLowerCase().includes(q)
-          const matchCountry = (c.country || '').toLowerCase().includes(q)
-          const matchCurrency = (c.currency || '').toLowerCase().includes(q)
-          if (!matchName && !matchTtId && !matchId && !matchCountry && !matchCurrency) {
-            return false
-          }
+          const haystack = [c.name, c.tiktokCatalogId, c.id, c.country, c.currency].filter(Boolean).join(' ').toLowerCase()
+          if (!haystack.includes(q)) return false
         }
         return true
       })
       .sort((a, b) => {
-        if (sort === 'products') {
-          const countA = catalogProductCount(a).count
-          const countB = catalogProductCount(b).count
-          return countB - countA
-        }
-        if (sort === 'name') {
-          return a.name.localeCompare(b.name, 'pt-BR')
-        }
-        const dateA = new Date(a.createdAt || a.updatedAt || 0).getTime()
-        const dateB = new Date(b.createdAt || b.updatedAt || 0).getTime()
+        if (sort === 'products') return catalogProductCount(b).count - catalogProductCount(a).count
+        if (sort === 'name') return a.name.localeCompare(b.name, 'pt-BR')
+        const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime()
+        const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime()
         return dateB - dateA
       })
   }, [catalogs, statusFilter, search, sort])
 
-  return (
-    <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
-      {/* 1. Toolbar Unificada */}
-      <div className="campaign-toolbar">
-        <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-foreground">Catálogos</h2>
-            <span className="rounded-full bg-secondary/80 border border-border/50 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
-              {filteredCatalogs.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5" role="group" aria-label="Modo de visualização">
-              <button
-                type="button"
-                onClick={() => handleViewModeChange('table')}
-                aria-pressed={viewMode === 'table'}
-                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all cursor-pointer ${
-                  viewMode === 'table'
-                    ? 'bg-background text-foreground shadow-xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Tabela"
-              >
-                <LayoutList className="size-3.5" />
-                <span className="hidden sm:inline">Tabela</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleViewModeChange('cards')}
-                aria-pressed={viewMode === 'cards'}
-                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all cursor-pointer ${
-                  viewMode === 'cards'
-                    ? 'bg-background text-foreground shadow-xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Cards"
-              >
-                <LayoutGrid className="size-3.5" />
-                <span className="hidden sm:inline">Cards</span>
-              </button>
-            </div>
-          </div>
-        </div>
+  const selectedFilterLabel = statusFilter === 'linked'
+    ? 'Vinculados'
+    : statusFilter === 'in_review'
+      ? 'Em análise'
+      : statusFilter === 'draft'
+        ? 'Rascunhos'
+        : 'Filtros'
 
-        {/* Status Filters */}
-        <div className="campaign-status-filters" role="group" aria-label="Filtrar por status">
-          {STATUS_FILTERS.map((filter) => {
-            const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
-            const isSelected = statusFilter === filter.value
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                onClick={() => setStatusFilter(filter.value)}
-                aria-pressed={isSelected}
-                className="inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>{filter.label}</span>
-                <span
-                  className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition-colors ${
-                    isSelected ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  {count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+  function renderStatus(c: AdsCatalog) {
+    const productCount = catalogProductCount(c).count
+    if (productCount === 0) return <span className="inline-flex items-center gap-1.5 text-warning"><AlertCircle className="size-3.5" /> Sem produtos</span>
+    const category = getCatalogCategory(c)
+    const rejected = Math.max(0, Number(c.audit?.rejected) || 0)
+    const pending = Math.max(0, Number(c.audit?.pending) || 0)
+    if (category === 'needs_attention') {
+      return <span className="inline-flex items-center gap-1.5 font-medium text-error"><AlertCircle className="size-3.5" /> {rejected > 0 ? `${rejected} com problema` : 'Precisa de atenção'}</span>
+    }
+    if (category === 'in_review') {
+      return <span className="inline-flex items-center gap-1.5 font-medium text-warning"><Clock className="size-3.5" /> {pending > 0 ? `${pending} em análise` : 'Em análise'}</span>
+    }
+    if (category === 'linked') {
+      return <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="size-3.5 text-success" /> Sincronizado</span>
+    }
+    if (c.tiktokCatalogId) return <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Clock className="size-3.5" /> A verificar</span>
+    if (c.feedUrl) return <span className="inline-flex items-center gap-1.5 text-muted-foreground"><UploadCloud className="size-3.5" /> Pronto para sincronizar</span>
+    return <span className="text-muted-foreground">Rascunho</span>
+  }
 
-        {/* Search & Actions Row */}
-        <div className="campaign-search-row flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label className="campaign-search flex-1">
-            <Search size={15} className="text-muted-foreground shrink-0" aria-hidden="true" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar catálogo..."
-              aria-label="Buscar catálogo"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
-                title="Limpar busca"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </label>
-
-          <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto shrink-0">
-            {/* Sort Dropdown */}
-            <div className="flex items-center gap-1 rounded-lg border border-border/80 bg-background px-2 py-1.5 text-xs text-muted-foreground">
-              <ArrowUpDown className="size-3.5 text-muted-foreground" />
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as 'newest' | 'products' | 'name')}
-                className="bg-transparent text-foreground text-xs font-medium outline-none cursor-pointer"
-                aria-label="Ordenar"
-              >
-                <option value="newest">Recentes</option>
-                <option value="products">Mais produtos</option>
-                <option value="name">Nome (A-Z)</option>
-              </select>
-            </div>
-
-            {/* Quick Action: Import Link */}
-            <button
-              type="button"
-              onClick={() => {
-                if (magicBusy) return
-                setShowMagicImport(!showMagicImport)
-                setCreating(false)
-              }}
-              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all cursor-pointer ${
-                showMagicImport
-                  ? 'border-primary/50 bg-primary/10 text-primary'
-                  : 'border-border/80 bg-secondary/50 text-foreground hover:bg-secondary'
-              }`}
-              title="Importar link do produto"
-            >
-              <Sparkles className="size-3.5 text-primary" />
-              <span>Importar link</span>
-            </button>
-
-            {/* Quick Action: Batch Dialog */}
-            <CatalogBatchDialog openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
-
-            {/* Quick Action: New Catalog */}
-            <button
-              type="button"
-              className="btn-primary shrink-0 text-xs font-semibold px-3 py-1.5 shadow-xs cursor-pointer"
-              onClick={() => {
-                if (magicBusy) return
-                setCreating(true)
-                setShowMagicImport(false)
-              }}
-            >
-              <Plus className="size-3.5 mr-1" aria-hidden="true" />
-              Novo catálogo
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {showMagicImport && <CatalogProductImport key={advertiserId} advertiserId={advertiserId}
-        countries={countries.map(item => ({ code: item.code, name: item.name || item.code }))}
-        onBusyChange={setMagicBusy} onClose={() => setShowMagicImport(false)}
-        onCreated={catalog => { setShowMagicImport(false); onChanged(); onOpen(catalog.id) }} />}
-
-      {/* 3. Caixa Expansível de Criação Manual */}
-      {creating && (
-        <div className="border-b border-border/70 bg-secondary/20 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex flex-col gap-3 max-w-xl">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-foreground text-xs">Novo catálogo manual</span>
-              <button
-                type="button"
-                disabled={busy}
-                aria-label="Fechar criação de catálogo"
-                onClick={() => setCreating(false)}
-                className="text-muted-foreground hover:text-foreground text-xs p-1 cursor-pointer"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-            <label className="flex flex-col gap-1.5 text-xs">
-              <span className="text-muted-foreground font-medium">Nome do catálogo</span>
-              <input
-                autoFocus
-                className="input-base text-sm"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex.: Loja Verão 2026"
-                maxLength={200}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) handleCreate()
-                }}
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground font-medium">Moeda</span>
-                <select
-                  className="input-base text-xs"
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                >
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground font-medium">País de destino</span>
-                <select
-                  className="input-base text-xs"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                >
-                  {countries.map((c) => <option key={c.code} value={c.code}>{c.name || c.code}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="flex items-center justify-end gap-2 mt-1">
-              <button type="button" className="btn-ghost text-xs cursor-pointer" onClick={() => setCreating(false)} disabled={busy}>
-                Cancelar
-              </button>
-              <button type="button" className="btn-primary text-xs font-semibold px-4 py-1.5 cursor-pointer" onClick={handleCreate} disabled={busy || !name.trim()}>
-                {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
-                Criar Catálogo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Lista Principal (Tabela ou Cards) */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
-          <Loader2 className="size-6 animate-spin text-primary" aria-hidden="true" />
-          <span className="text-xs font-medium">Carregando catálogos...</span>
-        </div>
-      ) : catalogs.length === 0 && !creating ? (
-        <div className="flex flex-col items-center gap-3 p-10 text-center">
-          <div className="rounded-full bg-secondary/80 p-3 text-muted-foreground/60">
-            <PackageOpen className="size-7" aria-hidden="true" />
-          </div>
-          <div className="max-w-md">
-            <p className="text-sm font-semibold text-foreground">Nenhum catálogo criado ainda</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Cole o link de um produto para preparar o catálogo e vincular seus vídeos.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 mt-2">
-            <button
-              type="button"
-              className="btn-primary text-xs font-semibold px-4 py-2 cursor-pointer"
-              onClick={() => setShowMagicImport(true)}
-            >
-              <Sparkles className="size-3.5 mr-1.5" />
-              Importar por link
-            </button>
-            <button
-              type="button"
-              className="btn-ghost text-xs font-medium px-4 py-2 border border-border/80 cursor-pointer"
-              onClick={() => setCreating(true)}
-            >
-              <Plus className="size-3.5 mr-1.5" />
-              Criar manual
-            </button>
-          </div>
-        </div>
-      ) : filteredCatalogs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <SearchCheck className="size-8 text-muted-foreground/40" />
-          <div className="max-w-sm">
-            <p className="text-sm font-semibold text-foreground">Nenhum catálogo encontrado</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Não encontramos nenhum catálogo que corresponda aos filtros aplicados.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSearch('')
-              setStatusFilter('')
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition-colors cursor-pointer"
-          >
-            <RotateCcw className="size-3.5" />
-            <span>Limpar filtros de busca</span>
+  function catalogActions(c: AdsCatalog) {
+    const isCloning = cloningId === c.id
+    const isSyncing = syncingId === c.id
+    return (
+      <details className="catalog-row-menu relative inline-block" onClick={(event) => event.stopPropagation()}>
+        <summary className="btn-ghost !min-h-0 !size-7 cursor-pointer list-none justify-center p-0 text-muted-foreground" aria-label={`Ações de ${c.name}`} title="Mais ações">
+          <MoreHorizontal className="size-3.5" />
+        </summary>
+        <div className="catalog-row-popover">
+          <button type="button" disabled={Boolean(syncingId) || catalogProductCount(c).count === 0} onClick={() => void handleSyncFromList(c.id)}>
+            {isSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Sincronizar novamente
+          </button>
+          <button type="button" disabled={Boolean(cloningId)} onClick={() => void handleCloneFromList(c.id)}>
+            {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />} Clonar catálogo
+          </button>
+          <button type="button" className="text-error" onClick={() => setDeleteTarget(c)}>
+            <Trash2 className="size-3.5" /> Excluir catálogo
           </button>
         </div>
-      ) : viewMode === 'table' ? (
-        /* MODO TABELA: ALTA DENSIDADE */
-        <div className="campaign-table-container overflow-x-auto" style={{ overflowX: 'auto' }}>
-          <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '840px' }}>
-            <thead className="bg-secondary/40 text-muted-foreground border-b border-border/70 sticky top-0 z-10 select-none backdrop-blur-xs">
-              <tr>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[130px]">Status</th>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider min-w-[240px]">Catálogo</th>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider min-w-[200px]">Produtos</th>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[130px]">Mercado</th>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider w-[160px]">Sincronização</th>
-                <th className="px-4 py-2.5 font-semibold text-[11px] uppercase tracking-wider text-right w-[120px]">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {filteredCatalogs.map((c) => {
-                const status = catalogStatusMeta(c)
-                const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
-                const productSummary = catalogProductCount(c)
-                const displayCount = productSummary.count
-                const isCloning = cloningId === c.id
+      </details>
+    )
+  }
 
-                return (
-                  <tr
-                    key={c.id}
-                    onClick={() => onOpen(c.id)}
-                    className="hover:bg-secondary/30 transition-colors cursor-pointer group"
-                  >
-                    {/* 1. Status */}
-                    <td className="px-4 py-3 align-middle whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.className}`}>
-                        {status.label}
-                      </span>
-                    </td>
+  return (
+    <>
+      <GlassCard className="campaign-workspace min-w-0 overflow-visible p-0">
+        <div className="campaign-toolbar !gap-3">
+          <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-foreground">Catálogos</h2>
+              <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">{catalogs.length}</span>
+            </div>
 
-                    {/* 2. Catálogo & Identificadores */}
-                    <td className="px-4 py-3 align-middle">
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-bold text-foreground text-sm truncate group-hover:text-primary transition-colors" title={c.name}>
-                          {c.name}
-                        </span>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-                          {c.tiktokCatalogId ? (
-                            <span className="inline-flex items-center gap-1 font-mono text-[11px] text-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/50">
-                              <span className="text-muted-foreground">TT:</span> {c.tiktokCatalogId}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-warning font-medium">Sem ID TikTok</span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
+            <details className="catalog-actions-menu relative">
+              <summary className="btn-primary cursor-pointer list-none px-3 py-1.5 text-xs font-semibold" aria-label="Criar catálogo">
+                <Plus className="size-3.5" aria-hidden="true" /> Novo catálogo <ChevronDown className="size-3.5 opacity-70" aria-hidden="true" />
+              </summary>
+              <div className="catalog-actions-popover">
+                <button type="button" onClick={() => { if (!magicBusy) { setShowMagicImport(true); setCreating(false) } }}>
+                  <Sparkles className="size-3.5 text-primary" /> Importar por link
+                </button>
+                <button type="button" onClick={() => { if (!magicBusy) { setCreating(true); setShowMagicImport(false) } }}>
+                  <Plus className="size-3.5" /> Criar manualmente
+                </button>
+                <button type="button" onClick={() => setBatchRequest(value => value + 1)}>
+                  <UploadCloud className="size-3.5" /> Importação em lote
+                </button>
+              </div>
+            </details>
+          </div>
 
-                    {/* 3. Produtos & Auditoria */}
-                    <td className="px-4 py-3 align-middle">
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="font-semibold text-foreground tabular-nums">
-                          {displayCount} {displayCount === 1 ? 'produto' : 'produtos'}
-                        </span>
-                        {c.audit && (
-                          <div className="flex items-center gap-1 text-[11px] tabular-nums">
-                            {Number(c.audit.approved) > 0 && (
-                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-success/15 text-success">
-                                <Check className="size-2.5" /> {c.audit.approved}
-                              </span>
-                            )}
-                            {Number(c.audit.rejected) > 0 && (
-                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-medium bg-error/15 text-error">
-                                <AlertCircle className="size-2.5" /> {c.audit.rejected}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </td>
+          <div className="campaign-search-row flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="campaign-search flex-1">
+              <Search size={15} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+              <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar catálogo..." aria-label="Buscar catálogo" />
+              {search && (
+                <button type="button" onClick={() => setSearch('')} className="p-1 text-muted-foreground hover:text-foreground" title="Limpar busca">
+                  <X size={14} />
+                </button>
+              )}
+            </label>
 
-                    {/* 4. Mercado */}
-                    <td className="px-4 py-3 align-middle whitespace-nowrap">
-                      <span className="font-semibold text-foreground text-xs">{c.currency}</span>
-                      <span className="text-muted-foreground text-xs ml-1.5">· {c.country || 'BR'}</span>
-                    </td>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('')}
+                aria-pressed={statusFilter === ''}
+                className={`catalog-compact-filter ${statusFilter === '' ? 'catalog-compact-filter--active' : ''}`}
+              >
+                Todos <span>{statusCounts.all}</span>
+              </button>
+              {statusCounts.needs_attention > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter(statusFilter === 'needs_attention' ? '' : 'needs_attention')}
+                  aria-pressed={statusFilter === 'needs_attention'}
+                  className={`catalog-compact-filter catalog-compact-filter--warning ${statusFilter === 'needs_attention' ? 'catalog-compact-filter--active' : ''}`}
+                >
+                  <AlertCircle className="size-3.5" /> Atenção <span>{statusCounts.needs_attention}</span>
+                </button>
+              )}
 
-                    {/* 5. Sincronização */}
-                    <td className="px-4 py-3 align-middle whitespace-nowrap text-xs">
-                      {c.syncedAt ? (
-                        <span className="inline-flex items-center gap-1 text-success font-medium">
-                          <Check className="size-3" /> {formatTimestamp(c.syncedAt)}
-                        </span>
-                      ) : c.feedUrl ? (
-                        <span className="inline-flex items-center gap-1 text-primary font-medium">
-                          <UploadCloud className="size-3" /> Pronto
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Pendente</span>
-                      )}
-                    </td>
+              <details className="catalog-actions-menu relative">
+                <summary className={`catalog-icon-filter cursor-pointer list-none ${['linked', 'in_review', 'draft'].includes(statusFilter) ? 'catalog-icon-filter--active' : ''}`} aria-label="Outros filtros" title={selectedFilterLabel}>
+                  <SlidersHorizontal className="size-3.5" />
+                  <span className="hidden lg:inline">{selectedFilterLabel}</span>
+                </summary>
+                <div className="catalog-actions-popover">
+                  <button type="button" onClick={() => setStatusFilter('linked')}><Check className="size-3.5" /> Vinculados <span className="ml-auto tabular-nums">{statusCounts.linked}</span></button>
+                  <button type="button" onClick={() => setStatusFilter('in_review')}><Clock className="size-3.5" /> Em análise <span className="ml-auto tabular-nums">{statusCounts.in_review}</span></button>
+                  <button type="button" onClick={() => setStatusFilter('draft')}><PackageOpen className="size-3.5" /> Rascunhos <span className="ml-auto tabular-nums">{statusCounts.draft}</span></button>
+                  {statusFilter && statusFilter !== 'needs_attention' && <button type="button" onClick={() => setStatusFilter('')}><RotateCcw className="size-3.5" /> Limpar filtro</button>}
+                </div>
+              </details>
 
-                    {/* 6. Ações */}
-                    <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onOpen(c.id)
-                          }}
-                          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                        >
-                          Gerenciar <span aria-hidden="true">→</span>
-                        </button>
-                        <button
-                          type="button"
-                          title="Clonar catálogo"
-                          aria-label={`Clonar ${c.name}`}
-                          disabled={Boolean(cloningId)}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleCloneFromList(c.id)
-                          }}
-                          className="btn-ghost p-1 text-muted-foreground hover:text-foreground cursor-pointer rounded-md"
-                        >
-                          {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />}
-                        </button>
-                      </div>
-                    </td>
+              <details className="catalog-actions-menu relative">
+                <summary className="catalog-icon-filter cursor-pointer list-none" aria-label="Ordenar catálogos" title="Ordenar">
+                  <ArrowUpDown className="size-3.5" />
+                </summary>
+                <div className="catalog-actions-popover">
+                  <button type="button" onClick={() => setSort('newest')}>{sort === 'newest' ? <Check className="size-3.5 text-primary" /> : <Clock className="size-3.5" />} Recentes</button>
+                  <button type="button" onClick={() => setSort('products')}>{sort === 'products' ? <Check className="size-3.5 text-primary" /> : <PackageOpen className="size-3.5" />} Mais produtos</button>
+                  <button type="button" onClick={() => setSort('name')}>{sort === 'name' ? <Check className="size-3.5 text-primary" /> : <ArrowUpDown className="size-3.5" />} Nome (A-Z)</button>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <CatalogBatchDialog hideTrigger openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
+
+        {showMagicImport && (
+          <CatalogProductImport
+            key={advertiserId}
+            advertiserId={advertiserId}
+            countries={countries.map(item => ({ code: item.code, name: item.name || item.code }))}
+            onBusyChange={setMagicBusy}
+            onClose={() => setShowMagicImport(false)}
+            onCreated={catalog => { setShowMagicImport(false); onChanged(); onOpen(catalog.id) }}
+          />
+        )}
+
+        {creating && (
+          <div className="border-b border-border/70 bg-secondary/15 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex max-w-xl flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground">Novo catálogo manual</span>
+                <button type="button" disabled={busy} aria-label="Fechar criação de catálogo" onClick={() => setCreating(false)} className="p-1 text-xs text-muted-foreground hover:text-foreground">
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <label className="flex flex-col gap-1.5 text-xs">
+                <span className="font-medium text-muted-foreground">Nome do catálogo</span>
+                <input
+                  autoFocus
+                  className="input-base text-sm"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Ex.: Loja Verão 2026"
+                  maxLength={200}
+                  onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) void handleCreate() }}
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label className="flex flex-col gap-1"><span className="font-medium text-muted-foreground">Moeda</span><select className="input-base text-xs" value={currency} onChange={(event) => setCurrency(event.target.value)}>{CURRENCIES.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label className="flex flex-col gap-1"><span className="font-medium text-muted-foreground">País de destino</span><select className="input-base text-xs" value={country} onChange={(event) => setCountry(event.target.value)}>{countries.map(item => <option key={item.code} value={item.code}>{item.name || item.code}</option>)}</select></label>
+              </div>
+              <div className="mt-1 flex items-center justify-end gap-2">
+                <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>Cancelar</button>
+                <button type="button" className="btn-primary px-4 py-1.5 text-xs font-semibold" onClick={() => void handleCreate()} disabled={busy || !name.trim()}>
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />} Criar catálogo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground"><Loader2 className="size-6 animate-spin text-primary" /><span className="text-xs font-medium">Carregando catálogos...</span></div>
+        ) : catalogs.length === 0 && !creating ? (
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <div className="rounded-full bg-secondary/70 p-3 text-muted-foreground/60"><PackageOpen className="size-7" /></div>
+            <div className="max-w-md"><p className="text-sm font-semibold text-foreground">Nenhum catálogo criado ainda</p><p className="mt-1 text-xs text-muted-foreground">Cole o link de um produto e deixe o ROINADOS preparar o catálogo automaticamente.</p></div>
+            <button type="button" className="btn-primary mt-1 px-4 py-2 text-xs font-semibold" onClick={() => setShowMagicImport(true)}><Sparkles className="mr-1.5 size-3.5" /> Importar por link</button>
+          </div>
+        ) : filteredCatalogs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <SearchCheck className="size-8 text-muted-foreground/40" />
+            <div className="max-w-sm"><p className="text-sm font-semibold text-foreground">Nenhum catálogo encontrado</p><p className="mt-1 text-xs text-muted-foreground">Ajuste a busca ou limpe o filtro atual.</p></div>
+            <button type="button" onClick={() => { setSearch(''); setStatusFilter('') }} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-xs font-medium text-foreground"><RotateCcw className="size-3.5" /> Limpar filtros</button>
+          </div>
+        ) : (
+          <>
+            <div className="campaign-table-container hidden overflow-x-auto md:block">
+              <table className="w-full border-collapse text-left text-xs" style={{ minWidth: '720px' }}>
+                <thead className="border-b border-border/60 bg-secondary/25 text-muted-foreground">
+                  <tr>
+                    <th className="min-w-[280px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Catálogo</th>
+                    <th className="w-[130px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Produtos</th>
+                    <th className="w-[190px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Status</th>
+                    <th className="w-[160px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Atualização</th>
+                    <th className="w-12 px-4 py-2.5"><span className="sr-only">Ações</span></th>
                   </tr>
+                </thead>
+                <tbody className="divide-y divide-border/35">
+                  {filteredCatalogs.map((c) => {
+                    const displayCount = catalogProductCount(c).count
+                    return (
+                      <tr key={c.id} onClick={() => onOpen(c.id)} className="group cursor-pointer transition-colors hover:bg-secondary/25">
+                        <td className="px-4 py-3 align-middle">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary" title={c.name}>{c.name}</p>
+                            <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                              {c.currency} · {c.country || 'BR'}{c.tiktokCatalogId ? ` · TikTok ${c.tiktokCatalogId}` : ''}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-middle font-medium tabular-nums text-foreground">{displayCount} {displayCount === 1 ? 'produto' : 'produtos'}</td>
+                        <td className="px-4 py-3 align-middle text-xs">{renderStatus(c)}</td>
+                        <td className="px-4 py-3 align-middle text-[11px] text-muted-foreground">{formatTimestamp(c.syncedAt || c.updatedAt || c.createdAt)}</td>
+                        <td className="px-4 py-3 text-right align-middle">{catalogActions(c)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 p-3 md:hidden">
+              {filteredCatalogs.map((c) => {
+                const displayCount = catalogProductCount(c).count
+                return (
+                  <div key={c.id} onClick={() => onOpen(c.id)} className="group cursor-pointer rounded-xl border border-border/65 bg-card/45 p-3 transition-colors hover:border-primary/35 hover:bg-card/70">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground" title={c.name}>{c.name}</p>
+                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{c.currency} · {c.country || 'BR'}{c.tiktokCatalogId ? ` · TikTok ${c.tiktokCatalogId}` : ''}</p>
+                      </div>
+                      {catalogActions(c)}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5 text-[11px]">
+                      <span className="font-medium text-foreground">{displayCount} {displayCount === 1 ? 'produto' : 'produtos'}</span>
+                      <span>{renderStatus(c)}</span>
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        /* MODO CARDS */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 p-4">
-          {filteredCatalogs.map((c) => {
-            const status = catalogStatusMeta(c)
-            const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
-            const productSummary = catalogProductCount(c)
-                const displayCount = productSummary.count
-            const isCloning = cloningId === c.id
+            </div>
+          </>
+        )}
+      </GlassCard>
 
-            return (
-              <div
-                key={c.id}
-                className="flex flex-col justify-between rounded-xl border border-border/80 bg-card/60 p-4 transition-all hover:border-primary/50 hover:bg-card/90 hover:shadow-xs group"
-              >
-                <div>
-                  {/* Card Top: Status & Badges */}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status.className}`}>
-                      {status.label}
-                    </span>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground font-semibold">
-                      <span className="text-foreground">{c.currency}</span>
-                      <span>·</span>
-                      <span>{c.country || 'BR'}</span>
-                    </div>
-                  </div>
-
-                  {/* Title & TikTok ID */}
-                  <h3 className="font-bold text-foreground text-sm truncate group-hover:text-primary transition-colors" title={c.name}>
-                    {c.name}
-                  </h3>
-                  {c.tiktokCatalogId ? (
-                    <div className="mt-1">
-                      <span className="font-mono text-[11px] text-muted-foreground bg-secondary/80 px-1.5 py-0.5 rounded border border-border/40">
-                        TT: {c.tiktokCatalogId}
-                      </span>
-                    </div>
-                  ) : null}
-
-                  {/* Product Summary */}
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs border-t border-border/40 pt-2.5">
-                    <span className="font-semibold text-foreground tabular-nums">
-                      {displayCount} {displayCount === 1 ? 'produto' : 'produtos'}
-                    </span>
-                    {c.audit && (
-                      <>
-                        {Number(c.audit.approved) > 0 && (
-                          <span className="text-success font-medium tabular-nums">
-                            · {c.audit.approved} no TikTok
-                          </span>
-                        )}
-                        {Number(c.audit.rejected) > 0 && (
-                          <span className="text-error font-medium tabular-nums">
-                            · {c.audit.rejected} com erro
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footer Actions */}
-                <div className="mt-3.5 flex items-center justify-between border-t border-border/50 pt-2.5">
-                  <span className="text-[11px] text-muted-foreground">
-                    {c.syncedAt ? `Sincronizado ${formatTimestamp(c.syncedAt)}` : 'Aguardando envio'}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      title="Clonar catálogo"
-                      aria-label={`Clonar ${c.name}`}
-                      disabled={Boolean(cloningId)}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleCloneFromList(c.id)
-                      }}
-                      className="btn-ghost p-1 text-muted-foreground hover:text-foreground"
-                    >
-                      {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />}
-                    </button>
-                    <span className="text-xs font-semibold text-primary flex items-center gap-0.5">
-                      Gerenciar <span aria-hidden="true">→</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </GlassCard>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Excluir catálogo local?"
+        description={<>O catálogo <strong className="text-foreground">{deleteTarget?.name}</strong>, seus produtos e o histórico local serão removidos. O catálogo remoto no TikTok não será apagado.</>}
+        confirmLabel="Excluir catálogo"
+        confirmText={deleteTarget?.name}
+        busy={deleting}
+        onConfirm={() => void handleDeleteFromList()}
+        onClose={() => { if (!deleting) setDeleteTarget(null) }}
+      />
+    </>
   )
 }
+
 // ── Business Center (obrigatório para publicar no TikTok) ──────────────────
 // A dashboard descobre o BC pelas identidades BC_AUTH_TT. Digitar o ID fica
 // restrito à recuperação avançada quando o TikTok não devolve nenhuma opção.

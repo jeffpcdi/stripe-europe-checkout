@@ -11,7 +11,7 @@ import { DialogPortal } from '@/components/ui/dialog-portal'
 // catálogo, público, capa e Product Link vêm do backend.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Globe2, Loader2, RefreshCw, Rocket, SlidersHorizontal, Upload, UserRound, Video, X } from 'lucide-react'
 import { ApiError, adsCatalogApiUrl, apiSend, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
@@ -20,6 +20,8 @@ import { useModalA11y } from '@/lib/use-modal-a11y'
 
 const COUNT_PRESETS = [1, 5, 10, 25, 50]
 const MAX_COUNT = 50
+const MARKET_NAMES: Record<string, string> = { BR: 'Brasil', PT: 'Portugal', US: 'Estados Unidos', GB: 'Reino Unido', CA: 'Canadá', AU: 'Austrália', ES: 'Espanha', MX: 'México', AR: 'Argentina', CL: 'Chile', CO: 'Colômbia', FR: 'França', DE: 'Alemanha', IT: 'Itália', JP: 'Japão' }
+const LANGUAGE_NAMES: Record<string, string> = { pt: 'Português', en: 'Inglês', es: 'Espanhol', fr: 'Francês', de: 'Alemão', it: 'Italiano', ja: 'Japonês' }
 
 type Creative = {
   id: string
@@ -152,7 +154,8 @@ export function CatalogQuickCampaignsDialog({
     return identity.username.startsWith('@') ? identity.username : `@${identity.username}`
   }
 
-  const advancedSummary = `${bidStrategy === 'cost_cap' ? 'Custo-alvo' : 'Máxima entrega'} · ${selectedIdentity ? identityName(selectedIdentity) : 'perfil automático'}`
+  const advancedSummary = bidStrategy === 'cost_cap' ? 'Custo-alvo' : 'Máxima entrega'
+  const marketSummary = `${MARKET_NAMES[market.countries[0]] || market.countries[0]} · ${market.languages[0] ? LANGUAGE_NAMES[market.languages[0]] || market.languages[0] : 'idioma automático'}`
   const submitHint = !budgetValid
     ? `Orçamento mínimo: ${advertiserCurrency} ${TIKTOK_MIN_BUDGET}/dia`
     : !bidValid
@@ -298,62 +301,78 @@ export function CatalogQuickCampaignsDialog({
           </button>
         </header>
 
-        <fieldset disabled={busy} className="catalog-quick-fieldset flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3.5 py-3 sm:px-4 sm:py-3.5">
-          {/* Mercado / Onde anunciar */}
-          <MarketSelector value={market} onChange={(value) => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
-
-          {/* Quantidade de campanhas e Orçamento lado a lado */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {/* Card: Quantidade de campanhas */}
-            <div className="flex flex-col justify-between rounded-lg border border-border/80 bg-secondary/15 p-2.5 gap-1.5">
-              <div className="flex items-center justify-between gap-1.5">
-                <span className="text-[11px] font-semibold text-foreground">Campanhas</span>
-                <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
-                  <input type="checkbox" className="accent-primary size-3 rounded" checked={onePerCreative} onChange={(event) => {
-                    update(setOnePerCreative, event.target.checked)
-                    setCustomCount(count)
-                  }} />
-                  Uma campanha por criativo
-                </label>
-              </div>
-              <div className="flex items-center gap-1">
-                {COUNT_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => { setOnePerCreative(false); update(setCustomCount, preset) }}
-                    className={`!min-h-0 h-7 flex-1 rounded border text-[11px] font-semibold transition-colors ${count === preset && !onePerCreative ? 'border-primary bg-primary text-primary-foreground' : 'border-border/80 bg-background/60 text-foreground hover:border-primary/50'}`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-                <input
-                  className="input-base !min-h-0 h-7 w-12 text-center text-[11px] px-1 font-semibold"
-                  type="number"
-                  min={Math.max(1, creatives.length)}
-                  max={MAX_COUNT}
-                  value={count}
-                  onChange={(event) => { setOnePerCreative(false); update(setCustomCount, Math.max(1, Math.min(MAX_COUNT, Math.trunc(Number(event.target.value) || 1)))) }}
-                  aria-label="Quantidade de campanhas"
-                />
-              </div>
-              <span className="text-[10px] text-muted-foreground leading-tight truncate">
-                {onePerCreative ? '5 criativos = 5 campanhas, cada uma com seu vídeo.' : 'Os vídeos se repetem em ordem quando há mais campanhas que criativos.'}
+        <fieldset disabled={busy} className="catalog-quick-fieldset flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-3.5 py-2.5 sm:px-4 sm:py-3">
+          {/* O mercado vem do catálogo por padrão. Só abrimos os campos quando o usuário quiser substituir. */}
+          <details className="catalog-launch-disclosure group">
+            <summary className="catalog-launch-disclosure-summary">
+              <span className="flex min-w-0 items-center gap-2">
+                <Globe2 className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <span className="truncate"><strong className="font-semibold text-foreground">Mercado</strong> <span className="ml-1 text-muted-foreground">{marketSummary}</span></span>
               </span>
+              <span className="flex items-center gap-1 text-[10px] font-medium text-primary">Alterar <ChevronDown className="size-3 transition-transform group-open:rotate-180" /></span>
+            </summary>
+            <div className="pt-2">
+              <MarketSelector value={market} onChange={(value) => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
+            </div>
+          </details>
+
+          {/* Decisões principais: quantidade derivada dos criativos e orçamento. */}
+          <section className="catalog-launch-primary" aria-label="Configuração principal da campanha">
+            <div className="catalog-launch-control">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold text-foreground">Campanhas</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {onePerCreative ? `${Math.max(1, creatives.length)} campanha${Math.max(1, creatives.length) === 1 ? '' : 's'} · 1 por criativo` : `${count} campanha${count === 1 ? '' : 's'} personalizadas`}
+                  </p>
+                </div>
+                <strong className="text-lg font-semibold tabular-nums text-foreground">{count}</strong>
+              </div>
+
+              <details className="mt-2 group">
+                <summary className="cursor-pointer list-none text-[10px] font-medium text-primary hover:text-foreground">Personalizar quantidade</summary>
+                <div className="mt-2 rounded-lg border border-border/70 bg-background/35 p-2">
+                  <label className="mb-2 flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none">
+                    <input type="checkbox" className="accent-primary size-3 rounded" checked={onePerCreative} onChange={(event) => {
+                      update(setOnePerCreative, event.target.checked)
+                      setCustomCount(count)
+                    }} />
+                    Uma campanha por criativo
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {COUNT_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => { setOnePerCreative(false); update(setCustomCount, preset) }}
+                        className={`!min-h-0 h-7 flex-1 rounded border text-[11px] font-semibold transition-colors ${count === preset && !onePerCreative ? 'border-primary bg-primary/15 text-primary' : 'border-border/70 bg-background/50 text-muted-foreground hover:text-foreground hover:border-primary/40'}`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                    <input
+                      className="input-base !min-h-0 h-7 w-12 text-center text-[11px] px-1 font-semibold"
+                      type="number"
+                      min={Math.max(1, creatives.length)}
+                      max={MAX_COUNT}
+                      value={count}
+                      onChange={(event) => { setOnePerCreative(false); update(setCustomCount, Math.max(1, Math.min(MAX_COUNT, Math.trunc(Number(event.target.value) || 1)))) }}
+                      aria-label="Quantidade de campanhas"
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
 
-            {/* Card: Orçamento diário */}
-            <div className="flex flex-col justify-between rounded-lg border border-border/80 bg-secondary/15 p-2.5 gap-1.5">
-              <div className="flex items-center justify-between gap-1.5">
-                <span className="text-[11px] font-semibold text-foreground">Orçamento / campanha</span>
-                <span className="text-[10px] font-medium text-primary">
-                  Total: {budgetValid ? money.format(budgetNumber * count) : '—'}/dia
-                </span>
-              </div>
-              <div className="relative">
+            <label className="catalog-launch-control">
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-foreground">Orçamento diário</span>
+                <span className="text-[10px] font-medium text-muted-foreground">Total {budgetValid ? money.format(budgetNumber * count) : '—'}/dia</span>
+              </span>
+              <div className="relative mt-2">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-muted-foreground">{advertiserCurrency}</span>
                 <input
-                  className="input-base !min-h-0 h-7 w-full pl-10 text-xs font-semibold"
+                  className="input-base !min-h-0 h-8 w-full pl-10 text-xs font-semibold"
                   type="number"
                   inputMode="decimal"
                   min={TIKTOK_MIN_BUDGET}
@@ -363,34 +382,26 @@ export function CatalogQuickCampaignsDialog({
                   placeholder={String(TIKTOK_MIN_BUDGET)}
                 />
               </div>
-              <div className="min-h-[14px]">
-                {!budgetValid && budget.trim() !== '' ? (
-                  <span className="flex items-center gap-1 text-[10px] text-warning" role="alert">
-                    <AlertCircle className="size-2.5 shrink-0" aria-hidden="true" /> Mínimo: {advertiserCurrency} {TIKTOK_MIN_BUDGET}/dia.
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-muted-foreground leading-tight">Mín. {advertiserCurrency} {TIKTOK_MIN_BUDGET}/dia por campanha</span>
-                )}
-              </div>
-            </div>
-          </div>
+              {!budgetValid && budget.trim() !== '' && (
+                <span className="mt-1 flex items-center gap-1 text-[10px] text-warning" role="alert">
+                  <AlertCircle className="size-2.5 shrink-0" aria-hidden="true" /> Mínimo: {advertiserCurrency} {TIKTOK_MIN_BUDGET}/dia.
+                </span>
+              )}
+            </label>
+          </section>
 
-          {/* Vídeos das campanhas */}
-          <section className="rounded-lg border border-border/80 bg-secondary/15 p-2.5 sm:p-3" aria-label="Criativos do lote">
+          {/* Criativos compactos. Upload e biblioteca ficam juntos no mesmo ponto de decisão. */}
+          <section className="catalog-launch-section" aria-label="Criativos do lote">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <Video className="size-3.5 text-primary" />
-                <span className="text-[11px] font-semibold text-foreground">Vídeos das campanhas</span>
-                {creatives.length > 0 && (
-                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" role="status">
-                    {readyCount} de {creatives.length} criativos prontos
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <Video className="size-3.5 text-primary" aria-hidden="true" />
+                <span className="text-[11px] font-semibold text-foreground">Criativos</span>
+                <span className={`text-[10px] ${creatives.length && readyCount === creatives.length ? 'text-success' : 'text-muted-foreground'}`}>{readyCount}/{creatives.length || 0} prontos</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <label className="!min-h-0 h-7 cursor-pointer inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-[11px] font-medium text-primary hover:bg-primary/20 transition-colors">
+                <label className="!min-h-0 h-7 cursor-pointer inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/8 px-2.5 text-[11px] font-medium text-primary hover:bg-primary/15 transition-colors">
                   {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
-                  {creatives.length ? 'Adicionar criativos' : 'Enviar criativos'}
+                  Adicionar
                   <input className="sr-only" type="file" multiple accept="video/mp4,video/quicktime,.mp4,.mov"
                     aria-label="Enviar criativos" disabled={uploading || busy || creatives.length >= MAX_COUNT}
                     onChange={(event) => { addVideos(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
@@ -399,19 +410,15 @@ export function CatalogQuickCampaignsDialog({
               </div>
             </div>
 
-            <p className="mt-1 text-[10px] text-muted-foreground/90 leading-tight">
-              Selecione vários vídeos MP4 ou MOV de uma vez. O áudio é mantido e a capa é automática.
-            </p>
-
-            {creatives.length > 0 && (
-              <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto pr-0.5">
+            {creatives.length === 0 ? (
+              <p className="mt-2 text-[10px] text-muted-foreground">Adicione ao menos um vídeo MP4 ou MOV.</p>
+            ) : (
+              <ul className="catalog-launch-creative-list mt-2 max-h-28 overflow-y-auto">
                 {creatives.map((creative, index) => (
-                  <li key={creative.id} className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-1 text-xs border border-border/50">
+                  <li key={creative.id} className="catalog-launch-creative-row">
                     {creative.status === 'ready' ? <Check className="size-3 shrink-0 text-success" /> : creative.status === 'error' ? <AlertCircle className="size-3 shrink-0 text-warning" /> : <Loader2 className="size-3 shrink-0 animate-spin text-primary" />}
-                    <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                      <span className="truncate text-foreground text-[11px]" title={creative.name}>{index + 1}. {creative.name}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">({creative.status === 'ready' ? 'Pronto' : creative.status === 'uploading' ? 'Enviando…' : creative.status === 'queued' ? 'Na fila' : creative.error})</span>
-                    </div>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-foreground" title={creative.name}>{creative.name}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{creative.status === 'ready' ? 'Pronto' : creative.status === 'uploading' ? 'Enviando…' : creative.status === 'queued' ? 'Na fila' : 'Erro'}</span>
                     {creative.status === 'error' && <button type="button" className="btn-ghost !min-h-0 !size-6 p-0 shrink-0 text-muted-foreground hover:text-foreground" disabled={uploading} onClick={() => void uploadItems([creative])} aria-label={`Tentar novamente ${creative.name}`}><RefreshCw className="size-3" /></button>}
                     <button type="button" className="btn-ghost !min-h-0 !size-6 p-0 shrink-0 text-muted-foreground hover:text-error" disabled={uploading} onClick={() => update(setCreatives, creatives.filter((c) => c.id !== creative.id))} aria-label={`Remover ${creative.name}`}><X className="size-3" /></button>
                   </li>
@@ -420,167 +427,114 @@ export function CatalogQuickCampaignsDialog({
             )}
           </section>
 
-          {/* Resumo e informações do lote */}
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 sm:p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-            <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <strong className="text-foreground font-semibold text-xs">
-                {count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia no total
-              </strong>
-              {creatives.length > 0 && (
-                <details className="text-[11px]">
-                  <summary className="cursor-pointer text-primary font-medium">Ver o vídeo de cada campanha</summary>
-                  <ol className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto rounded border border-border/50 bg-background/60 p-1.5 text-[10px]">
-                    {Array.from({ length: count }, (_, index) => <li key={index} className="truncate">{sampleName(index + 1)} → {creatives[index % creatives.length].name}</li>)}
-                  </ol>
-                </details>
-              )}
-            </div>
-            <p className="mt-1 text-[10px] text-muted-foreground/90 leading-tight">
-              Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
-            </p>
+          {/* O perfil continua explícito, como solicitado. */}
+          <label className="catalog-launch-section flex flex-col gap-1.5 text-[11px]">
+            <span className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 font-semibold text-foreground">
+                <UserRound className="size-3.5 text-primary" aria-hidden="true" /> Perfil do anúncio
+              </span>
+              <span className="text-[10px] text-muted-foreground">TikTok</span>
+            </span>
+            <select
+              className="input-base !min-h-0 h-8 text-xs py-0.5"
+              value={identityKey}
+              onChange={(event) => update(setIdentityKey, event.target.value)}
+              disabled={identitiesLoading}
+              aria-label="Perfil mostrado no anúncio"
+            >
+              <option value="">Automático (recomendado)</option>
+              {identities.map((identity) => (
+                <option key={`${identity.identityId}:${identity.identityType}`} value={`${identity.identityId}:${identity.identityType}`}>
+                  {identity.displayName || identity.username || identity.identityId}{identity.username ? ` · ${identity.username.startsWith('@') ? identity.username : `@${identity.username}`}` : ''}
+                </option>
+              ))}
+            </select>
+            {identitiesLoading ? (
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><Loader2 className="size-3 animate-spin" /> Carregando perfis…</span>
+            ) : identitiesError ? (
+              <button type="button" className="flex w-fit items-center gap-1 text-[10px] text-warning hover:text-foreground" onClick={() => void reloadIdentities()}>
+                <RefreshCw className="size-3" aria-hidden="true" /> Tentar carregar novamente
+              </button>
+            ) : selectedIdentity ? (
+              <span className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                {(selectedIdentity.avatarUrl || selectedIdentity.imageUrl) ? <img src={selectedIdentity.avatarUrl || selectedIdentity.imageUrl} alt="" className="size-5 rounded-full border border-border object-cover" /> : null}
+                <span className="truncate">{identityName(selectedIdentity)}{identityHandle(selectedIdentity) ? ` · ${identityHandle(selectedIdentity)}` : ''}</span>
+              </span>
+            ) : null}
+          </label>
+
+          {/* Resumo sem card extra: só o que muda a decisão final. */}
+          <div
+            className="catalog-launch-summary"
+            title="Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada."
+          >
+            <strong>{count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia</strong>
+            <span>Compra · Pixel automático · Product Link automático</span>
           </div>
 
-          {/* Entrega e perfil (Opções avançadas) */}
-          <div className="rounded-lg border border-border/80 bg-secondary/10 px-2.5 py-2">
+          {/* Entrega e nomes ficam recolhidos; perfil permanece visível acima. */}
+          <div className="catalog-launch-disclosure">
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-3 text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              className="catalog-launch-disclosure-summary w-full"
               onClick={() => setAdvancedOpen((current) => !current)}
               aria-expanded={advancedOpen}
               aria-controls="catalog-campaign-delivery-profile"
+              title="Entrega e perfil avançados"
             >
-              <span className="min-w-0">
-                <span className="font-semibold text-foreground">Entrega e perfil</span>
-                <span className="ml-2 text-[10px] text-muted-foreground">{advancedSummary}</span>
-              </span>
-              <ChevronDown className={`size-3.5 min-w-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+              <span className="flex min-w-0 items-center gap-2"><SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" /><span><strong className="font-semibold text-foreground">Opções avançadas</strong> <span className="ml-1 text-[10px] text-muted-foreground">{advancedSummary}</span></span></span>
+              <ChevronDown className={`size-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
             </button>
             {advancedOpen && (
-            <div className="mt-2.5 flex flex-col gap-2.5 border-t border-border/60 pt-2.5">
-              <fieldset className="flex flex-col gap-1.5">
-                <legend className="text-[11px] font-medium text-foreground">Como gastar o orçamento</legend>
-                <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                  <button
-                    type="button"
-                    className={`!min-h-0 rounded-lg border p-2 text-left text-xs transition-colors ${bidStrategy === 'lowest_cost' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
-                    onClick={() => {
-                      update(setBidStrategy, 'lowest_cost')
-                      setAcceleratedDelivery(false)
-                    }}
-                    aria-pressed={bidStrategy === 'lowest_cost'}
-                  >
-                    <strong className="block font-semibold">Máxima entrega</strong>
-                    <span className="text-[10px] leading-tight text-muted-foreground">Usa o orçamento para gerar mais compras.</span>
-                  </button>
-                  {costCapAvailable && (
+              <div id="catalog-campaign-delivery-profile" className="mt-2 flex flex-col gap-2.5 border-t border-border/50 pt-2.5">
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="text-[11px] font-medium text-foreground">Entrega e perfil</legend>
+                  <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
                     <button
                       type="button"
-                      className={`!min-h-0 rounded-lg border p-2 text-left text-xs transition-colors ${bidStrategy === 'cost_cap' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
-                      onClick={() => update(setBidStrategy, 'cost_cap')}
-                      aria-pressed={bidStrategy === 'cost_cap'}
+                      className={`!min-h-0 rounded-lg border p-2 text-left text-xs transition-colors ${bidStrategy === 'lowest_cost' ? 'border-primary/60 bg-primary/8 text-foreground' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
+                      onClick={() => { update(setBidStrategy, 'lowest_cost'); setAcceleratedDelivery(false) }}
+                      aria-pressed={bidStrategy === 'lowest_cost'}
                     >
-                      <strong className="block font-semibold">Custo-alvo</strong>
-                      <span className="text-[10px] leading-tight text-muted-foreground">Busca manter o CPA próximo da meta.</span>
+                      <strong className="block font-semibold">Máxima entrega</strong>
+                      <span className="text-[10px] leading-tight text-muted-foreground">Prioriza volume de compras.</span>
                     </button>
-                  )}
-                </div>
-
-                {bidStrategy === 'cost_cap' && (
-                  <div className="rounded-lg border border-border bg-secondary/20 p-2.5 space-y-2">
-                    <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                      <span className="font-medium text-foreground">CPA alvo ({advertiserCurrency})</span>
-                      <input
-                        className="input-base !min-h-0 h-7 text-xs"
-                        type="number"
-                        inputMode="decimal"
-                        min="0.01"
-                        step="0.01"
-                        value={bidAmount}
-                        onChange={(event) => update(setBidAmount, event.target.value)}
-                        placeholder="Ex.: 15,00"
-                      />
-                      {!bidValid && bidAmount.trim() !== '' && (
-                        <span className="text-[10px] text-warning" role="alert">Informe um valor maior que zero.</span>
-                      )}
-                    </label>
-                    {acceleratedDeliveryAvailable && (
-                      <label className="flex cursor-pointer items-start gap-2 text-[11px]">
-                        <input
-                          className="mt-0.5 accent-primary size-3"
-                          type="checkbox"
-                          checked={acceleratedDelivery}
-                          onChange={(event) => update(setAcceleratedDelivery, event.target.checked)}
-                        />
-                        <span>
-                          <strong className="block font-medium text-foreground">Entrega acelerada</strong>
-                          <span className="text-[10px] text-muted-foreground leading-tight">Pode gastar mais rápido e alterar o custo por venda.</span>
-                        </span>
-                      </label>
+                    {costCapAvailable && (
+                      <button
+                        type="button"
+                        className={`!min-h-0 rounded-lg border p-2 text-left text-xs transition-colors ${bidStrategy === 'cost_cap' ? 'border-primary/60 bg-primary/8 text-foreground' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
+                        onClick={() => update(setBidStrategy, 'cost_cap')}
+                        aria-pressed={bidStrategy === 'cost_cap'}
+                      >
+                        <strong className="block font-semibold">Custo-alvo</strong>
+                        <span className="text-[10px] leading-tight text-muted-foreground">Tenta manter o CPA próximo da meta.</span>
+                      </button>
                     )}
                   </div>
-                )}
-              </fieldset>
 
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="flex items-center gap-1.5 font-medium text-foreground">
-                  <UserRound className="size-3.5 text-primary" aria-hidden="true" /> Perfil mostrado no anúncio
-                </span>
-                <select
-                  className="input-base !min-h-0 h-7 sm:h-8 text-xs py-0.5"
-                  value={identityKey}
-                  onChange={(event) => update(setIdentityKey, event.target.value)}
-                  disabled={identitiesLoading}
-                >
-                  <option value="">Automático (recomendado)</option>
-                  {identities.map((identity) => (
-                    <option key={`${identity.identityId}:${identity.identityType}`} value={`${identity.identityId}:${identity.identityType}`}>
-                      {identity.displayName || identity.username || identity.identityId}{identity.username ? ` · ${identity.username.startsWith('@') ? identity.username : `@${identity.username}`}` : ''}
-                    </option>
-                  ))}
-                </select>
-                {identitiesLoading ? (
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><Loader2 className="size-3 animate-spin" /> Carregando perfis…</span>
-                ) : identitiesError ? (
-                  <button
-                    type="button"
-                    className="flex w-fit items-center gap-1 text-[10px] text-warning hover:text-foreground"
-                    onClick={() => void reloadIdentities()}
-                  >
-                    <RefreshCw className="size-3" aria-hidden="true" /> Não foi possível carregar. Tentar novamente
-                  </button>
-                ) : selectedIdentity ? (
-                  <span className="flex items-center gap-2 rounded-lg bg-secondary/30 p-1.5">
-                    {(selectedIdentity.avatarUrl || selectedIdentity.imageUrl) ? (
-                      <img
-                        src={selectedIdentity.avatarUrl || selectedIdentity.imageUrl}
-                        alt=""
-                        className="size-6 rounded-full border border-border object-cover"
-                      />
-                    ) : (
-                      <span className="flex size-6 items-center justify-center rounded-full bg-secondary"><UserRound className="size-3" /></span>
-                    )}
-                    <span className="min-w-0">
-                      <strong className="block truncate font-medium text-foreground text-[11px]">{identityName(selectedIdentity)}</strong>
-                      <span className="block truncate text-muted-foreground text-[10px]">{identityHandle(selectedIdentity) || 'Perfil autorizado do Business Center'}</span>
-                    </span>
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-muted-foreground">A dashboard escolhe automaticamente um perfil autorizado.</span>
-                )}
-              </label>
+                  {bidStrategy === 'cost_cap' && (
+                    <div className="grid gap-2 rounded-lg border border-border/70 bg-secondary/15 p-2.5 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                        <span className="font-medium text-foreground">CPA alvo ({advertiserCurrency})</span>
+                        <input className="input-base !min-h-0 h-7 text-xs" type="number" inputMode="decimal" min="0.01" step="0.01" value={bidAmount} onChange={(event) => update(setBidAmount, event.target.value)} placeholder="Ex.: 15,00" />
+                        {!bidValid && bidAmount.trim() !== '' && <span className="text-[10px] text-warning" role="alert">Informe um valor maior que zero.</span>}
+                      </label>
+                      {acceleratedDeliveryAvailable && (
+                        <label className="flex cursor-pointer items-center gap-2 text-[11px]">
+                          <input className="accent-primary size-3" type="checkbox" checked={acceleratedDelivery} onChange={(event) => update(setAcceleratedDelivery, event.target.checked)} />
+                          <span><strong className="block font-medium text-foreground">Entrega acelerada</strong><span className="text-[10px] text-muted-foreground">Gasta o orçamento mais rapidamente.</span></span>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </fieldset>
 
-              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">Início dos nomes</span>
-                <input
-                  className="input-base !min-h-0 h-7 text-xs"
-                  value={namePrefix}
-                  onChange={(event) => update(setNamePrefix, event.target.value)}
-                  placeholder={`${catalog.name} — VSA`}
-                  maxLength={100}
-                />
-                <span className="text-[10px]">Ex.: “{sampleName(1)}”{count > 1 ? ` até “${sampleName(count)}”` : ''}</span>
-              </label>
-            </div>
+                <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">Início dos nomes</span>
+                  <input className="input-base !min-h-0 h-7 text-xs" value={namePrefix} onChange={(event) => update(setNamePrefix, event.target.value)} placeholder={`${catalog.name} — VSA`} maxLength={100} />
+                  <span className="text-[10px]">Ex.: “{sampleName(1)}”{count > 1 ? ` até “${sampleName(count)}”` : ''}</span>
+                </label>
+              </div>
             )}
           </div>
         </fieldset>

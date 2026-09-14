@@ -584,6 +584,7 @@ export function AutomationPanel({
   const [testResult, setTestResult] = useState<string | null>(null)
   const [alertsExpanded, setAlertsExpanded] = useState(false)
   const [alertsDraft, setAlertsDraft] = useState<AdsAlertsConfig | null>(null)
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   // Modo avançado: esconde o editor técnico de regras por padrão — pilotos
   // resolvem o dia a dia; o gestor abre isto só quando quer o controle fino.
   const [advanced, setAdvanced] = usePersistedState('ads:automation:advanced', false)
@@ -809,7 +810,7 @@ export function AutomationPanel({
       {data && engineView && (
         <div
           className={cn(
-            'flex flex-col gap-2 rounded-xl border bg-card px-3 py-2.5 sm:flex-row sm:items-center',
+            'flex flex-col gap-2 rounded-xl border bg-card/70 px-3 py-2 sm:flex-row sm:items-center',
             engineTone === 'primary' && 'border-primary/30',
             engineTone === 'warning' && 'border-warning/40',
             engineTone === 'error' && 'border-error/40',
@@ -831,8 +832,8 @@ export function AutomationPanel({
               aria-hidden="true"
             />
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-foreground">{engineView.title}</p>
-              <p className="text-[11px] leading-relaxed text-muted">{engineView.detail}</p>
+              <p className="text-[11px] font-semibold text-foreground">{engineView.title}</p>
+              <p className="text-[10px] leading-relaxed text-muted">{engineView.detail}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
@@ -877,16 +878,128 @@ export function AutomationPanel({
         }}
       />
 
+      {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
+      <GlassCard className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <button
+            type="button"
+            aria-expanded={alertsExpanded}
+            onClick={() => {
+              setAlertsExpanded((v) => !v)
+              setAlertsDraft(alertsCfg ?? { enabled: false, spendNoConv: 10, cpaMax: 0, lookbackDays: 2 })
+            }}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left transition-colors hover:bg-[var(--hover)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
+              <Bell className="size-4.5" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Alertas</span>
+              <span className="block text-[11px] text-muted-foreground">
+                {alertsCfg?.enabled
+                  ? `Ativos · performance${alertsCfg.rejectedAds ? ' + reprovações' : ''}`
+                  : 'Desligados'}
+              </span>
+            </span>
+          </button>
+          <Switch
+            checked={!!alertsCfg?.enabled}
+            disabled={saving || !alertsCfg}
+            onCheckedChange={(on) => alertsCfg && saveAlerts({ ...alertsCfg, enabled: on })}
+            aria-label={alertsCfg?.enabled ? 'Desligar alertas de performance' : 'Ligar alertas de performance'}
+            className="mt-1"
+          />
+        </div>
+        {alertsExpanded && alertsDraft && (
+          <div className="mt-3 flex flex-col gap-3 border-t border-border/60 pt-3">
+            <div className="grid grid-cols-2 gap-2.5 sm:max-w-md sm:grid-cols-3">
+              <NumField
+                label="Gasto sem venda"
+                value={alertsDraft.spendNoConv}
+                onChange={(v) => setAlertsDraft({ ...alertsDraft, spendNoConv: v ?? 0 })}
+                suffix={currency}
+                hint="0 = desliga esta checagem"
+              />
+              <NumField
+                label="CPA máximo"
+                value={alertsDraft.cpaMax}
+                onChange={(v) => setAlertsDraft({ ...alertsDraft, cpaMax: v ?? 0 })}
+                suffix={currency}
+                hint="0 = desliga esta checagem"
+              />
+              <NumField
+                label="Janela"
+                value={alertsDraft.lookbackDays}
+                onChange={(v) => setAlertsDraft({ ...alertsDraft, lookbackDays: v ?? 1 })}
+                suffix="dias"
+                hint={alertsDraft.lookbackDays < 3 ? '⚠ Janela curta' : '1–30'}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                className="btn-ghost px-3 py-1.5 text-xs"
+                onClick={() => {
+                  setAlertsExpanded(false)
+                  setAlertsDraft(null)
+                }}
+                disabled={saving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn-primary px-3.5 py-1.5 text-xs"
+                onClick={() => saveAlerts({ ...alertsDraft, enabled: true })}
+                disabled={saving}
+              >
+                {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                Salvar e ligar
+              </button>
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* ── Histórico de ações: compacto por padrão, completo sob demanda ── */}
+      <GlassCard className="p-4">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Atividade recente</h3>
+              <p className="text-[11px] text-muted-foreground">Últimas decisões e execuções do ROINADOS.</p>
+            </div>
+          </div>
+          {log.length > 3 ? (
+            <button
+              type="button"
+              onClick={() => setHistoryExpanded((value) => !value)}
+              className="btn-ghost self-start px-3 py-1.5 text-xs"
+            >
+              {historyExpanded ? 'Mostrar menos' : 'Ver histórico completo'}
+            </button>
+          ) : null}
+        </div>
+        <RulesLogList
+          log={log}
+          limit={historyExpanded ? 12 : 3}
+          filterable={historyExpanded}
+          emptyText='Nenhuma automação executada neste período.'
+        />
+      </GlassCard>
+
+
       {/* ── Alterna o editor técnico de regras (escondido por padrão) ── */}
       <button
         type="button"
         onClick={() => setAdvanced(!advanced)}
         aria-expanded={advanced}
         data-tour="ads-advanced"
-        className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-secondary hover:text-foreground"
+        className="flex items-center justify-center gap-1.5 self-start rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:bg-secondary hover:text-foreground"
       >
         <SlidersHorizontal className="size-3" aria-hidden="true" />
-        {advanced ? 'Fechar personalização' : 'Personalizar regras'}
+        {advanced ? 'Fechar avançado' : 'Avançado'}
         <ChevronDown className={cn('size-3 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
       </button>
 
@@ -895,7 +1008,7 @@ export function AutomationPanel({
       <GlassCard className="p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Regras automáticas</h3>
+            <h3 className="text-sm font-semibold text-foreground">Regras personalizadas</h3>
             <span className="rounded-full bg-[var(--hover)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-muted">
               {enabledCount} de {rules.length} ativas
             </span>
@@ -924,14 +1037,13 @@ export function AutomationPanel({
 
         {rules.length === 0 && !newRule ? (
           <p className="py-6 text-center text-xs text-muted">
-            Nenhuma regra. Crie a primeira com &quot;Nova regra&quot; — ela nasce em modo
+            Nenhuma regra personalizada ainda. Crie a primeira com &quot;Nova regra&quot;. Ela nasce em modo
             &quot;Propõe&quot;: nada é executado sem a sua aprovação.
           </p>
         ) : (
           <ul className="flex flex-col gap-2 mt-2">
             {[...rules, ...(newRule ? [newRule] : [])].map((r) => {
               const open = expandedId === r.id
-              const meta = METRIC_META[r.metric]
               const last = lastAction(r.id, log)
               const executes = r.mode === 'execute'
               return (
@@ -1030,102 +1142,6 @@ export function AutomationPanel({
         </button>
       )}
 
-      {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
-      <GlassCard className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <button
-            type="button"
-            aria-expanded={alertsExpanded}
-            onClick={() => {
-              setAlertsExpanded((v) => !v)
-              setAlertsDraft(alertsCfg ?? { enabled: false, spendNoConv: 10, cpaMax: 0, lookbackDays: 2 })
-            }}
-            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left transition-colors hover:bg-[var(--hover)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
-              <Bell className="size-4.5" aria-hidden="true" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Alertas de desempenho</span>
-              <span className="block text-[11px] text-muted-foreground">
-                {alertsCfg?.enabled
-                  ? `Ativos · gasto sem venda, CPA${alertsCfg.rejectedAds ? ' e reprovações' : ''}`
-                  : 'Desligados · nenhuma notificação de performance'}
-              </span>
-            </span>
-          </button>
-          <Switch
-            checked={!!alertsCfg?.enabled}
-            disabled={saving || !alertsCfg}
-            onCheckedChange={(on) => alertsCfg && saveAlerts({ ...alertsCfg, enabled: on })}
-            aria-label={alertsCfg?.enabled ? 'Desligar alertas de performance' : 'Ligar alertas de performance'}
-            className="mt-1"
-          />
-        </div>
-        {alertsExpanded && alertsDraft && (
-          <div className="mt-3 flex flex-col gap-3 border-t border-border/60 pt-3">
-            <div className="grid grid-cols-2 gap-2.5 sm:max-w-md sm:grid-cols-3">
-              <NumField
-                label="Gasto sem venda"
-                value={alertsDraft.spendNoConv}
-                onChange={(v) => setAlertsDraft({ ...alertsDraft, spendNoConv: v ?? 0 })}
-                suffix={currency}
-                hint="0 = desliga esta checagem"
-              />
-              <NumField
-                label="CPA máximo"
-                value={alertsDraft.cpaMax}
-                onChange={(v) => setAlertsDraft({ ...alertsDraft, cpaMax: v ?? 0 })}
-                suffix={currency}
-                hint="0 = desliga esta checagem"
-              />
-              <NumField
-                label="Janela"
-                value={alertsDraft.lookbackDays}
-                onChange={(v) => setAlertsDraft({ ...alertsDraft, lookbackDays: v ?? 1 })}
-                suffix="dias"
-                hint={alertsDraft.lookbackDays < 3 ? '⚠ Janela curta' : '1–30'}
-              />
-            </div>
-            <div className="flex items-center justify-end gap-1.5">
-              <button
-                type="button"
-                className="btn-ghost px-3 py-1.5 text-xs"
-                onClick={() => {
-                  setAlertsExpanded(false)
-                  setAlertsDraft(null)
-                }}
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn-primary px-3.5 py-1.5 text-xs"
-                onClick={() => saveAlerts({ ...alertsDraft, enabled: true })}
-                disabled={saving}
-              >
-                {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-                Salvar e ligar
-              </button>
-            </div>
-          </div>
-        )}
-      </GlassCard>
-
-      {/* ── Histórico de ações: feed reutilizável (Hoje reusa) ── */}
-      <GlassCard className="p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h3 className="text-sm font-semibold text-foreground">Histórico de ações</h3>
-        </div>
-        <RulesLogList
-          log={log}
-          limit={12}
-          filterable
-          emptyText='Nenhuma automação executada neste período.'
-        />
-      </GlassCard>
 
     </div>
   )
