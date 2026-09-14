@@ -87,8 +87,8 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   float roiSunFacing = dot(normal, directionalLights[0].direction);
   float roiDaylight = smoothstep(-0.34, 0.30, roiSunFacing);
   float roiNightMask = 1.0 - smoothstep(-0.16, 0.20, roiSunFacing);
-  vec3 roiNightGrade = vec3(0.18, 0.28, 0.44);
-  vec3 roiDayGrade = vec3(1.10, 1.12, 1.15);
+  vec3 roiNightGrade = vec3(0.22, 0.34, 0.52);
+  vec3 roiDayGrade = vec3(1.14, 1.16, 1.20);
   diffuseColor.rgb *= mix(roiNightGrade, roiDayGrade, roiDaylight);
   totalEmissiveRadiance *= roiNightMask;
 #endif`,
@@ -646,12 +646,12 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     }
 
     // Iluminação calibrada com profundidade, mantendo os continentes e oceanos nítidos e vivos.
-    const fill = new THREE.AmbientLight('#7ca6d4', 0.72)
-    const key = new THREE.DirectionalLight('#fff9f0', 2.15)
+    const fill = new THREE.AmbientLight('#7ca6d4', 0.88)
+    const key = new THREE.DirectionalLight('#fff9f0', 2.45)
     key.position.set(-162, 102, 214)
-    const coolFill = new THREE.DirectionalLight('#38bdf8', 0.85)
+    const coolFill = new THREE.DirectionalLight('#38bdf8', 0.95)
     coolFill.position.set(94, 38, 132)
-    const cyanRim = new THREE.DirectionalLight('#00e5ff', 0.65)
+    const cyanRim = new THREE.DirectionalLight('#00e5ff', 0.85)
     cyanRim.position.set(170, -42, -154)
     const violetRim = new THREE.DirectionalLight('#7c3aed', 0.20)
     violetRim.position.set(-146, -26, -142)
@@ -790,7 +790,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#38bdf8" atmosphereAltitude={0.026}
+          showAtmosphere atmosphereColor="#4dd8f0" atmosphereAltitude={0.04}
           htmlElementsData={htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"

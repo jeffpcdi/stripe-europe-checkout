@@ -93,7 +93,6 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
   return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
     <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
     <header className="observatory-header">
-      <div className="observatory-identity"><span className="observatory-identity-mark"><Globe2 size={23} aria-hidden="true" /></span><div><span>INTELIGÊNCIA DE VENDAS</span><h2>Visão global da operação</h2></div></div>
       <div className="observatory-period">{periodPicker}</div>
       <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
         <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" /><span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>
