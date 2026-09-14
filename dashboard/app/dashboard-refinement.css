@@ -1473,3 +1473,235 @@ html[data-anim='off'] .refined-dashboard .dashboard-main > .project-page { anima
   .overview-observatory--premium .observatory-country-list button { min-height: 44px; }
   .overview-observatory--premium .observatory-purchase { grid-template-columns: minmax(65px, 1fr) auto; }
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Refinamento visual do observatório — micro-animações, profundidade,
+   cor semântica e acabamento premium.
+   Nenhuma lógica, endpoint ou cálculo foi alterado.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* 1. Pulso de respiração no dot de "ao vivo" -------------------------------- */
+@keyframes observatory-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgb(112 230 252 / 40%); transform: scale(1); }
+  50%      { box-shadow: 0 0 14px rgb(112 230 252 / 70%), 0 0 28px rgb(112 230 252 / 20%); transform: scale(1.35); }
+}
+.overview-observatory--premium .observatory-status-dot[data-fresh='true'] {
+  animation: observatory-pulse 2.4s ease-in-out infinite;
+}
+
+/* 2. Entrada escalonada dos cards de métrica e atividade -------------------- */
+@keyframes observatory-card-in {
+  from { opacity: 0; translate: 0 14px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+.overview-observatory--premium .observatory-metric {
+  animation: observatory-card-in 480ms ease-out both;
+}
+.overview-observatory--premium .observatory-metric--revenue { animation-delay: 0ms; }
+.overview-observatory--premium .observatory-metric--spend   { animation-delay: 80ms; }
+.overview-observatory--premium .observatory-metric--conversion { animation-delay: 160ms; }
+.overview-observatory--premium .observatory-metric--return  { animation-delay: 240ms; }
+
+.overview-observatory--premium .observatory-activity > section {
+  animation: observatory-card-in 480ms ease-out both;
+}
+.overview-observatory--premium .observatory-activity > section:nth-child(1) { animation-delay: 320ms; }
+.overview-observatory--premium .observatory-activity > section:nth-child(2) { animation-delay: 400ms; }
+.overview-observatory--premium .observatory-activity > section:nth-child(3) { animation-delay: 480ms; }
+
+/* 3. Profundidade extra ao pairar sobre os cards de métrica ----------------- */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .overview-observatory--premium .observatory-metric {
+    transition: border-color 220ms ease, box-shadow 280ms ease, translate 280ms ease;
+  }
+  .overview-observatory--premium .observatory-metric:hover {
+    border-color: color-mix(in srgb, var(--metric-accent) 38%, transparent);
+    box-shadow:
+      inset 0 1px 0 rgb(222 239 255 / 10%),
+      0 16px 44px -16px rgb(0 0 0 / 55%),
+      0 0 32px -8px color-mix(in srgb, var(--metric-accent) 14%, transparent);
+    translate: 0 -2px;
+  }
+  /* Brilho da placa do ícone ao hover */
+  .overview-observatory--premium .observatory-metric:hover .observatory-metric-icon {
+    box-shadow:
+      inset 0 1px 0 rgb(234 250 255 / 26%),
+      inset 0 -3px 5px rgb(0 0 0 / 25%),
+      0 5px 14px rgb(0 0 0 / 28%),
+      0 0 18px color-mix(in srgb, var(--metric-accent) 18%, transparent);
+    transition: box-shadow 280ms ease;
+  }
+
+  /* Atividade: hover sutil nos cards ---------------------------------------- */
+  .overview-observatory--premium .observatory-activity > section {
+    transition: border-color 200ms ease, box-shadow 250ms ease;
+  }
+  .overview-observatory--premium .observatory-activity > section:hover {
+    border-color: color-mix(in srgb, var(--metric-accent) 30%, transparent);
+    box-shadow:
+      inset 0 1px 0 rgb(230 247 255 / 10%),
+      0 10px 28px -12px rgb(0 0 0 / 50%),
+      0 0 20px -6px color-mix(in srgb, var(--metric-accent) 10%, transparent);
+  }
+}
+
+/* 4. Brilho atmosférico ao redor do globo ----------------------------------- */
+.overview-observatory--premium .observatory-globe::before {
+  content: '';
+  position: absolute;
+  inset: -14%;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(100 233 244 / 10%) 0%, rgb(80 150 220 / 5%) 40%, transparent 68%);
+  animation: observatory-globe-glow 5s ease-in-out infinite alternate;
+}
+@keyframes observatory-globe-glow {
+  from { opacity: .6; transform: scale(.97); }
+  to   { opacity: 1; transform: scale(1.03); }
+}
+
+/* 5. Cor semântica no valor de faturamento ---------------------------------- */
+.overview-observatory--premium .observatory-metric--revenue .observatory-metric-value {
+  background: linear-gradient(135deg, #a5ffdb 0%, #70e6fc 55%, #c3d0ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 6. Header com linha separadora gradiente ---------------------------------- */
+.overview-observatory--premium .observatory-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 28px;
+  right: 28px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(112 230 252 / 22%) 20%, rgb(169 147 250 / 18%) 80%, transparent);
+  pointer-events: none;
+}
+
+/* 7. Identity mark com brilho sutil ----------------------------------------- */
+@keyframes observatory-mark-glow {
+  from { box-shadow: inset 0 1px 0 rgb(196 241 255 / 18%), 0 6px 16px rgb(0 0 0 / 20%), 0 0 12px rgb(112 230 252 / 0%); }
+  to   { box-shadow: inset 0 1px 0 rgb(196 241 255 / 18%), 0 6px 16px rgb(0 0 0 / 20%), 0 0 18px rgb(112 230 252 / 12%); }
+}
+.overview-observatory--premium .observatory-identity-mark {
+  animation: observatory-mark-glow 3s ease-in-out infinite alternate;
+}
+
+/* 8. Barras de progresso dos países animadas -------------------------------- */
+.overview-observatory--premium .observatory-country-track i {
+  transition: width 600ms cubic-bezier(.4, 0, .2, 1);
+}
+
+/* 9. Compras recentes: valores em verde, separadores gradiente -------------- */
+.overview-observatory--premium .observatory-purchase > strong[data-sensitive] {
+  color: var(--refine-green);
+}
+.overview-observatory--premium .observatory-purchase + .observatory-purchase {
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, rgb(113 228 173 / 14%) 30%, rgb(112 230 252 / 10%) 70%, transparent) 1;
+}
+.overview-observatory--premium .observatory-purchase-country > span:first-child {
+  font-size: 16px;
+}
+
+/* 10. Novo acesso: slide-in com destaque ------------------------------------ */
+@keyframes observatory-access-in {
+  from { opacity: 0; translate: 0 8px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+.overview-observatory--premium .observatory-new-access {
+  animation: observatory-access-in 380ms ease-out;
+  padding: 8px 10px;
+  border: 1px solid rgb(112 230 252 / 18%);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgb(112 230 252 / 8%), rgb(112 230 252 / 2%));
+}
+
+/* 11. Empty state com ícone animado ----------------------------------------- */
+@keyframes observatory-empty-breathe {
+  from { opacity: .6; }
+  to   { opacity: 1; }
+}
+.overview-observatory--premium .observatory-empty {
+  text-align: center;
+  animation: observatory-empty-breathe 2.5s ease-in-out infinite alternate;
+}
+
+/* 12. Selo de "ao vivo" refinado -------------------------------------------- */
+.overview-observatory--premium .observatory-live-state {
+  backdrop-filter: blur(6px);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+/* 13. Variação de receita: cor condicional via data attribute ---------------- */
+.overview-observatory--premium .observatory-change[data-direction='up'] {
+  color: #71e4ad;
+  border-color: rgb(113 228 173 / 28%);
+  background: rgb(113 228 173 / 9%);
+  box-shadow: 0 0 10px rgb(113 228 173 / 8%);
+}
+.overview-observatory--premium .observatory-change[data-direction='down'] {
+  color: #ffadb9;
+  border-color: rgb(255 132 155 / 28%);
+  background: rgb(255 108 139 / 10%);
+  box-shadow: 0 0 10px rgb(255 108 139 / 6%);
+}
+
+/* 14. Refresh button: glow on hover ----------------------------------------- */
+@media (hover: hover) {
+  .overview-observatory--premium .observatory-refresh:hover:not(:disabled) {
+    border-color: rgb(112 230 252 / 32%);
+    box-shadow: 0 0 16px rgb(112 230 252 / 10%);
+    color: var(--observatory-cyan);
+    transition: all 200ms ease;
+  }
+}
+
+/* 15. "Tentar novamente" mais proeminente ----------------------------------- */
+.overview-observatory--premium .observatory-live .observatory-text-link {
+  padding: 6px 12px;
+  border: 1px solid rgb(112 230 252 / 16%);
+  border-radius: 8px;
+  background: rgb(112 230 252 / 5%);
+  transition: background 180ms ease, border-color 180ms ease;
+}
+@media (hover: hover) {
+  .overview-observatory--premium .observatory-live .observatory-text-link:hover {
+    background: rgb(112 230 252 / 10%);
+    border-color: rgb(112 230 252 / 28%);
+    text-decoration: none;
+  }
+}
+
+/* Pausar micro-animações quando a aba está oculta ou o usuário prefere ------- */
+@media (prefers-reduced-motion: reduce) {
+  .overview-observatory--premium .observatory-status-dot[data-fresh='true'],
+  .overview-observatory--premium .observatory-metric,
+  .overview-observatory--premium .observatory-activity > section,
+  .overview-observatory--premium .observatory-globe::before,
+  .overview-observatory--premium .observatory-identity-mark,
+  .overview-observatory--premium .observatory-empty,
+  .overview-observatory--premium .observatory-new-access { animation: none !important; }
+  .overview-observatory--premium .observatory-metric,
+  .overview-observatory--premium .observatory-activity > section { transition: none !important; translate: none !important; }
+}
+html[data-anim='off'] .overview-observatory--premium :is(
+  .observatory-status-dot,
+  .observatory-metric,
+  .observatory-activity > section,
+  .observatory-globe::before,
+  .observatory-identity-mark,
+  .observatory-empty,
+  .observatory-new-access
+) { animation: none !important; }
+html[data-page-hidden='true'] .overview-observatory--premium :is(
+  .observatory-status-dot,
+  .observatory-globe::before,
+  .observatory-identity-mark,
+  .observatory-empty
+) { animation-play-state: paused; }
