@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, MapPin, Globe2, ArrowUpRight, X } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
@@ -30,14 +30,13 @@ interface HeroGlobeProps {
   focusCode?: string | null
   purchases?: GlobePurchase[]
   metrics: OverviewMetricsProps
-  periodPicker: ReactNode
   onRefresh: () => void
   refreshing?: boolean
   purchasesStale?: boolean
 }
 
 /** Um painel, um canvas. Métricas e atividade não dependem do carregamento do WebGL. */
-export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
+export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
   const { data, error, mutate, isLoading } = useLive()
   const [now, setNow] = useState(() => Date.now())
   const [selected, setSelected] = useState<string | null>(focusCode || null)
@@ -93,7 +92,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, periodPicker, on
   return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
     <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
     <header className="observatory-header observatory-header--minimal">
-      <div className="observatory-period">{periodPicker}</div>
+      <h2 className="observatory-heading">Visão geral</h2>
       <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
         <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" />
         <span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>

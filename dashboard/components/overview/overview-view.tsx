@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
 import {
@@ -22,7 +22,7 @@ import type { Period } from '@/lib/types'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { toast } from '@/lib/toast'
-import { PeriodPicker } from './period-picker'
+import { useOverviewPeriod } from '@/lib/overview-period'
 import { HeroGlobe, type GlobePurchase } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
@@ -54,31 +54,22 @@ function periodToAdsRange(period: Period, timeZone?: string): { fromDate: string
   return adsDateRange(days, timeZone)
 }
 
-const PERIODS: Period[] = ['today', '7d', '30d', 'all']
-const PERIOD_KEY = 'roi:overview:period'
-
-function initialPeriod(): Period {
-  if (typeof window === 'undefined') return 'today'
-  const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
-  if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
-  try {
-    const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
-    if (saved && PERIODS.includes(saved)) return saved
-  } catch {
-    /* modo privado */
-  }
-  return 'today'
-}
-
 // ══════════════════════════════════════════════════════════════════════════
 //  COMPONENTE PRINCIPAL — VISÃO GERAL REFINADA & PADRONIZADA
 // ══════════════════════════════════════════════════════════════════════════
 export function OverviewView() {
-  const [period, setPeriodState] = useState<Period>(initialPeriod)
+  const { period } = useOverviewPeriod()
   const [focusCountry, setFocusCountry] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const { data, error, isLoading, isValidating, mutate: mutateStats } = useStats()
+  const previousPeriod = useRef(period)
+  useEffect(() => {
+    if (previousPeriod.current === period) return
+    previousPeriod.current = period
+    // Recalcula o cache imediatamente e busca vendas recebidas desde a última leitura.
+    void mutateStats().catch(() => { /* O erro do SWR aparece no indicador de atualização. */ })
+  }, [period, mutateStats])
   const firstEnter = useOncePerSession('overview-enter')
 
   const afterFirstPaint = useAfterFirstPaint()
@@ -165,19 +156,6 @@ export function OverviewView() {
   // Saúde do pipeline geral
   const { data: overviewHealth, error: overviewHealthError, mutate: mutateHealth } = useOverviewHealth(afterFirstPaint)
 
-  function setPeriod(next: Period) {
-    setPeriodState(next)
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(PERIOD_KEY, next)
-      const url = new URL(window.location.href)
-      url.searchParams.set('p', next)
-      window.history.replaceState(null, '', url)
-    } catch {
-      /* modo privado */
-    }
-  }
-
   const handleRefreshAll = useCallback(async () => {
     setIsRefreshing(true)
     try {
@@ -206,7 +184,7 @@ export function OverviewView() {
     const pw = prevWindow(period, now, accountTimeZone)
     const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo, accountTimeZone) : null
     return { cur: curMetrics, prev: prevMetrics }
-  }, [data, period, accountTimeZone])
+  }, [data, period, accountTimeZone, calendarTick])
 
 
   // Estado de Erro
@@ -273,7 +251,6 @@ export function OverviewView() {
         purchasesStale={Boolean(error)}
         onRefresh={handleRefreshAll}
         refreshing={isRefreshing}
-        periodPicker={<PeriodPicker value={period} onChange={setPeriod} />}
         metrics={{
           revenueCents: revCents,
           currency: cur.mainCur,

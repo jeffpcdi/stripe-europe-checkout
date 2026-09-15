@@ -6,16 +6,16 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { NAV_SECTIONS } from '@/lib/navigation'
-import { NotificationBell } from './notification-bell'
 import { WorkspaceMenu } from './workspace-menu'
 
 const PRIMARY_LINKS = [
   { label: 'Visão Geral', href: '/', routes: ['/'] },
   { label: 'Rastreamento', href: '/links', routes: ['/links', '/domains', '/cloak', '/pixels', '/conversions', '/gateways'] },
   { label: 'Vendas', href: '/activity', routes: ['/funnel', '/activity'] },
+  { label: 'TikTok Ads', href: '/ads/tiktok', routes: ['/ads', '/catalog'] },
 ]
 
-/** Barra de 56px; o painel móvel flutua sem deslocar o conteúdo. */
+/** Navegação ampliada; o painel móvel flutua sem deslocar o conteúdo. */
 export function TopNav({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -47,7 +47,7 @@ export function TopNav({ children }: { children: ReactNode }) {
         <Link href="/" className="premium-navbar__brand" aria-label="ROI-NADOS — Visão geral" onClick={() => setMenuOpen(false)}>
           {/* O anexo é JPEG: o enquadramento CSS preserva a arte original. */}
           <Image src="/dashboard/roi-nados-wordmark.jpeg" alt="ROI-NADOS" width={280} height={281}
-            sizes="140px" preload className="premium-navbar__wordmark" />
+            sizes="176px" preload className="premium-navbar__wordmark" />
         </Link>
         <span className="premium-navbar__divider" aria-hidden="true" />
         <div className="premium-navbar__workspace"><WorkspaceMenu /></div>
@@ -59,10 +59,9 @@ export function TopNav({ children }: { children: ReactNode }) {
           return <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined}
             className="premium-navbar__tab" onClick={() => setMenuOpen(false)}>{item.label}</Link>
         })}
-        <NotificationBell variant="tab" />
         <div className="premium-navbar__mobile-extra">
           <WorkspaceMenu />
-          {NAV_SECTIONS.flatMap(section => section.items).filter(item => item.href !== '/' && item.href !== '/conversions' && item.href !== '/links').map(item => (
+          {NAV_SECTIONS.flatMap(section => section.items).filter(item => !PRIMARY_LINKS.some(link => link.href === item.href)).map(item => (
             <Link key={item.id} href={item.href} onClick={() => setMenuOpen(false)}
               aria-current={pathname.startsWith(item.href) ? 'page' : undefined}>{item.label}</Link>
           ))}

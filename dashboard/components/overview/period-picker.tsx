@@ -3,7 +3,7 @@
 import type { Period } from '@/lib/types'
 import { useRef, type KeyboardEvent } from 'react'
 
-const PERIODS: { id: Period; label: string }[] = [
+export const PERIODS: { id: Period; label: string }[] = [
   { id: 'today', label: 'Hoje' },
   { id: '7d', label: '7 dias' },
   { id: '30d', label: '30 dias' },

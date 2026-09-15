@@ -8,6 +8,7 @@ import { TourGuide } from '@/components/shell/tour'
 import { Toaster } from '@/components/shell/toaster'
 import { ClientErrorReporter } from '@/components/shell/client-error-reporter'
 import { PushSound } from '@/components/shell/push-sound'
+import { OverviewPeriodProvider } from '@/lib/overview-period'
 
 export default function DashboardLayout({
   children,
@@ -15,7 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="dashboard-ui flex min-h-dvh flex-col">
+    <OverviewPeriodProvider><div className="dashboard-ui flex min-h-dvh flex-col">
       {/* Item 102: skip-link acessível — aparece no primeiro Tab */}
       <a href="#conteudo" className="skip-link">
         Pular para conteúdo
@@ -47,6 +48,6 @@ export default function DashboardLayout({
           </ViewTransition>
         </main>
       </div>
-    </div>
+    </div></OverviewPeriodProvider>
   )
 }

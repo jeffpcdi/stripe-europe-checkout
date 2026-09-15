@@ -10,6 +10,7 @@ import { useAccount } from '@/lib/api'
 import { DurabilityBadge } from './durability-badge'
 import { NotificationBell } from './notification-bell'
 import { TrackingStatus } from './tracking-status'
+import { OverviewCalendar } from './overview-calendar'
 import { usePrefs } from '@/lib/prefs'
 
 function UserMenu() {
@@ -73,6 +74,7 @@ export function Header() {
     <div className="premium-navbar__actions">
       <div className="premium-navbar__durability"><DurabilityBadge /></div>
       <TrackingStatus />
+      <OverviewCalendar />
       <NotificationBell />
       <UserMenu />
     </div>
