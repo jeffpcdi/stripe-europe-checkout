@@ -41,6 +41,7 @@ const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — s
 const pixelStore = require('./pixel-store');
 const config = require('./config');
 const profitEngine = require('./profit-engine');
+const reportingIntegrity = require('./reporting-integrity');
 const cloudVideo = require('./cloud-video-sync');
   const catalogStore = require('./ads-catalog-store');
   const catalogFeed = require('./ads-catalog-feed');
@@ -1518,7 +1519,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'campaign-decisions', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'rejections', 'pixels']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'campaign-decisions', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'rejections', 'pixels', 'data-integrity']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -1753,10 +1754,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── ROAS/CPA — cruza o gasto do TikTok com as VENDAS REAIS dos gateways ───
-  // Gasto: /ads/tree com timeIncrement=1 (série diária somada entre campanhas).
-  // Receita: leads convertidos (stage=purchased) da pr��pria conta no período —
-  // a mesma fonte da aba Visão Geral, então os números batem entre abas.
+  // ── ROAS/CPA — gasto TikTok × receita ATRIBUÍDA ao TikTok ───────────────
+  // V11: o calendário civil usa o fuso da conta ROI-NADOS (fonte universal da
+  // dashboard). O gasto continua vindo do espelho TikTok; a receita é composta
+  // apenas por jornadas com ttclid/utm_source=tiktok. Isso evita inflar ROAS com
+  // vendas orgânicas e impede soma entre moedas diferentes.
   app.get('/api/ads/roas', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -1774,15 +1776,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
       ]);
       const advertiserTimeZone = safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone);
+      const accountSettings = (config.get(req.account.id).settings || {});
+      const reportingTimeZone = safeAdsTimeZone(accountSettings.timezone || DEFAULT_ADS_TIME_ZONE);
       const today = new Date();
-      const defFrom = today; // padrão diário: sem ?fromDate, a janela é HOJE
       const iso = (d) => d.toISOString().slice(0, 10);
-      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : adsDay(defFrom, advertiserTimeZone);
-      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : adsDay(today, advertiserTimeZone);
+      const defaultDay = adsDay(today, reportingTimeZone);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : defaultDay;
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : defaultDay;
 
-      // 1) Gasto do TikTok por DIA — do espelho no Neon (instantâneo). A receita
-      // vem do stats interno, então a leitura local do gasto é agregada aqui.
-      const spendByDay = {}; // 'YYYY-MM-DD' → gasto (moeda do advertiser)
+      // 1) Gasto TikTok na janela solicitada.
+      const spendByDay = {};
       let spend = 0, conversions = 0, currency = null;
       if (adsCache.enabled) {
         await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
@@ -1790,7 +1793,6 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         Object.assign(spendByDay, d.spendByDay);
         spend = d.spend; conversions = d.conversions; currency = d.currency;
       } else {
-        // Fallback ao vivo (Neon indisponível).
         currency = (advertiserInfo && advertiserInfo.currency) || null;
         const ins = await pipeboard.getInsights(advertiserId, {
           level: 'AUCTION_ADVERTISER', startDate: fromDate, endDate: toDate, dimensions: ['stat_time_day'],
@@ -1803,104 +1805,96 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
       }
 
-      // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/events de venda)
-      const revByDay = {}; const salesByDay = {};
-      let revenueCents = 0, sales = 0;
-      // F2 (guarda de moeda): a receita vem dos gateways (ex.: BRL) e o gasto
-      // da conta de anúncio (ex.: EUR). Dividir um pelo outro produz um "ROAS"
-      // numericamente plausível e completamente errado. Rastreamos a moeda
-      // dominante da receita para bloquear o cálculo quando divergir.
-      const revCurCount = {};
-      if (typeof stats.getStats === 'function') {
-        const snap = stats.getStats(req.account.id) || {};
-        const saleEvents = (snap.events || []).filter((e) => e && e.type === 'sale');
-        if (saleEvents.length > 0) {
-          saleEvents.forEach((e) => {
-            const evAt = e.at || e.convertedAt;
-            if (!evAt) return;
-            const day = adsDay(evAt, advertiserTimeZone);
-            if (day < fromDate || day > toDate) return;
-            const cents = Number(e.amount) || 0;
-            revenueCents += cents; sales += 1;
-            revByDay[day] = (revByDay[day] || 0) + cents;
-            salesByDay[day] = (salesByDay[day] || 0) + 1;
-            const rc = String(e.currency || 'BRL').toUpperCase();
-            revCurCount[rc] = (revCurCount[rc] || 0) + cents;
-          });
-        } else {
-          // Fallback para leads convertidos se não houver events
-          (snap.leads || []).forEach((l) => {
-            if (l.stage !== 'purchased') return;
-            const convDate = l.convertedAt || l.purchasedAt || l.at;
-            if (!convDate) return;
-            const day = adsDay(convDate, advertiserTimeZone);
-            if (day < fromDate || day > toDate) return;
-            const cents = Number(l.reportedAmount) || Number(l.amount) || 0;
-            revenueCents += cents; sales += 1;
-            revByDay[day] = (revByDay[day] || 0) + cents;
-            salesByDay[day] = (salesByDay[day] || 0) + 1;
-            const rc = String(l.reportedCurrency || l.currency || 'BRL').toUpperCase();
-            revCurCount[rc] = (revCurCount[rc] || 0) + cents;
-          });
-        }
-      }
-      const revenueCurrency = Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0] ? Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0][0] : null;
+      // 2) Receita atribuída ao TikTok no MESMO intervalo civil da dashboard.
+      const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
+      const attributed = reportingIntegrity.summarizeAttributedLeads(snapshot.leads || [], {
+        fromDate, toDate, timeZone: reportingTimeZone,
+        fallbackCurrency: String((accountSettings.defaultCurrency || 'BRL')).toUpperCase(),
+      });
+      const revenueCurrency = attributed.currency;
+      const revenueCents = attributed.revenueCents || 0;
+      const sales = attributed.sales || 0;
+      const derived = reportingIntegrity.deriveRoas({
+        spend,
+        spendCurrency: currency || (advertiserInfo && advertiserInfo.currency) || 'BRL',
+        revenueCents,
+        revenueCurrency,
+        sales,
+      });
+      // Contrato explícito: zero gasto confirmado => ROAS 0; incompatibilidade
+      // de moeda com gasto > 0 continua null.
+      const resolvedRoas = spend > 0 ? derived.roas : 0;
 
-      // 3) Série contínua dia a dia (mesmo sem dado — o gráfico não pula datas)
+      // 3) Série contínua. Receita diária é atribuída; gasto diário vem do
+      // espelho TikTok. As chaves civis são as mesmas usadas pelo calendário.
       const daily = [];
-      for (let t = new Date(fromDate + 'T00:00:00Z'); iso(t) <= toDate; t = new Date(t.getTime() + 864e5)) {
+      for (let t = new Date(fromDate + 'T12:00:00Z'); iso(t) <= toDate; t = new Date(t.getTime() + 864e5)) {
         const day = iso(t);
+        const rev = attributed.daily && attributed.daily[day] || {};
         daily.push({
           date: day,
           spend: +(spendByDay[day] || 0).toFixed(2),
-          revenueCents: revByDay[day] || 0,
-          sales: salesByDay[day] || 0
+          revenueCents: Number(rev.revenueCents) || 0,
+          sales: Number(rev.sales) || 0,
         });
       }
 
-      const revenue = revenueCents / 100;
-      const spendCurrency = String(currency || 'EUR').toUpperCase();
-      // ROAS só é um número quando gasto e receita estão na MESMA moeda.
-      const currencyMismatch = !!(revenueCurrency && revenueCents > 0 && spend > 0 && revenueCurrency !== spendCurrency);
-      const out = {
-        fromDate, toDate, currency: currency || 'EUR',
-        timeZone: advertiserTimeZone,
+      res.json({
+        fromDate, toDate,
+        currency: currency || (advertiserInfo && advertiserInfo.currency) || 'BRL',
+        timeZone: reportingTimeZone,
+        spendTimeZone: advertiserTimeZone,
         scope: 'advertiser_all_campaigns',
         lastSyncedAt: syncState && syncState.last_synced_at || null,
-        revenueCurrency, currencyMismatch,
-        spend: +spend.toFixed(2), conversions,
-        revenueCents, sales,
-        roas: spend > 0 && !currencyMismatch ? +(revenue / spend).toFixed(2) : null,
-        cpa: sales > 0 && spend > 0 ? +(spend / sales).toFixed(2) : null,
-        daily
-      };
-      res.json(out);
+        revenueCurrency,
+        currencyMismatch: derived.currencyMismatch,
+        spend: +Number(spend || 0).toFixed(2),
+        conversions,
+        revenueCents,
+        sales,
+        roas: resolvedRoas,
+        cpa: derived.cpa,
+        attribution: 'tiktok_last_paid_click',
+        daily,
+      });
     } catch (err) { fail(res, err); }
   });
 
-  // Lucro líquido: receita real dos webhooks menos estornos, tarifas,
-  // impostos, custo de produto e gasto exato do espelho TikTok.
+  // Lucro líquido: TODAS as vendas reais da moeda dominante, menos estornos,
+  // tarifas, impostos, custo de produto e gasto TikTok comparável. A moeda é
+  // derivada dos eventos brutos da própria janela, não da preferência da conta.
   app.get('/api/ads/profitability', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       const q = req.query || {};
-      const advertiserId = q.adAccountId
-        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
-        : await pipeboard.resolveAdvertiserId(req.account.id);
-      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
-      const [info, initialSyncState] = await Promise.all([
-        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
-        adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
-      ]);
-      let syncState = initialSyncState;
-      const timeZone = safeAdsTimeZone(info && info.timezone);
-      const today = adsDay(new Date(), timeZone);
+      let advertiserId = null;
+      if (q.adAccountId) {
+        advertiserId = (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId;
+      } else if (pipeboard.enabled) {
+        advertiserId = await pipeboard.resolveAdvertiserId(req.account.id).catch(() => null);
+      }
+
+      const accountSettings = (config.get(req.account.id).settings || {});
+      const reportingTimeZone = safeAdsTimeZone(accountSettings.timezone || DEFAULT_ADS_TIME_ZONE);
+      let advertiserInfo = null;
+      let syncState = null;
+      let advertiserTimeZone = reportingTimeZone;
+      if (advertiserId) {
+        [advertiserInfo, syncState] = await Promise.all([
+          pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+          adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
+        ]);
+        advertiserTimeZone = safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone);
+      }
+
+      const today = adsDay(new Date(), reportingTimeZone);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : today;
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : today;
       let spend = 0;
-      let spendCurrency = String(info && info.currency || '').toUpperCase() || null;
+      let spendCurrency = advertiserInfo && advertiserInfo.currency ? String(advertiserInfo.currency).toUpperCase() : null;
       let adSpendExact = false;
-      if (adsCache.enabled) {
+
+      if (advertiserId && adsCache.enabled) {
         await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
         const [row, refreshedSyncState] = await Promise.all([
           adsCache.readAdvertiserDaily(req.account.id, advertiserId, fromDate, toDate),
@@ -1908,32 +1902,141 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ]);
         syncState = refreshedSyncState || syncState;
         spend = Number(row.spend) || 0;
-        spendCurrency = String(row.currency || spendCurrency || 'BRL').toUpperCase();
+        spendCurrency = String(row.currency || spendCurrency || '').toUpperCase() || null;
         adSpendExact = !!(syncState && syncState.last_synced_at);
       }
-      const accountCurrency = String((config.get(req.account.id).settings || {}).defaultCurrency || 'BRL').toUpperCase();
-      const currency = spendCurrency || accountCurrency;
-      if (spend > 0 && accountCurrency !== currency) {
+
+      const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
+      const revenue = reportingIntegrity.summarizeRevenueEvents(snapshot.events || [], {
+        fromDate, toDate, timeZone: reportingTimeZone,
+        fallbackCurrency: String(accountSettings.defaultCurrency || 'BRL').toUpperCase(),
+      });
+      const accountCurrency = String(accountSettings.defaultCurrency || 'BRL').toUpperCase();
+      const revenueCurrency = revenue.currency;
+      const currency = revenueCurrency || spendCurrency || accountCurrency;
+
+      if (spend > 0 && revenueCurrency && spendCurrency && revenueCurrency !== spendCurrency) {
         return res.status(409).json({
-          error: 'A moeda da receita (' + accountCurrency + ') difere da conta TikTok (' + currency + ').',
+          error: 'A moeda da receita (' + revenueCurrency + ') difere da conta TikTok (' + spendCurrency + ').',
           code: 'PROFIT_CURRENCY_MISMATCH',
-          hint: 'Selecione uma conta de anúncios na mesma moeda ou ajuste a moeda padrão da conta.',
+          hint: 'Selecione uma conta de anúncios na mesma moeda da receita para calcular lucro com mídia.',
         });
       }
-      const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
+
       const result = profitEngine.calculate(snapshot.events || [], spend, {
         currency,
         fromDate,
         toDate,
-        timeZone,
+        timeZone: reportingTimeZone,
         config: config.get(req.account.id).profitability || {},
         adSpendExact,
       });
       res.json(Object.assign(result, {
         advertiserId,
+        revenueCurrency,
+        spendCurrency,
+        timeZone: reportingTimeZone,
+        spendTimeZone: advertiserTimeZone,
         lastSyncedAt: syncState && syncState.last_synced_at || null,
         scope: 'advertiser_all_campaigns',
       }));
+    } catch (err) { fail(res, err); }
+  });
+
+  // V11 — auditoria ao vivo dos cinco KPIs da Visão Geral. Não altera dados;
+  // cruza o snapshot bruto de vendas/leads com o espelho diário do TikTok para
+  // Hoje / 7d / 30d / Tudo (365d) usando o mesmo fuso canônico da dashboard.
+  app.get('/api/ads/data-integrity', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const q = req.query || {};
+      let advertiserId = null;
+      if (q.adAccountId) {
+        advertiserId = (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId;
+      } else if (pipeboard.enabled) {
+        advertiserId = await pipeboard.resolveAdvertiserId(req.account.id).catch(() => null);
+      }
+      const accountSettings = (config.get(req.account.id).settings || {});
+      const reportingTimeZone = safeAdsTimeZone(accountSettings.timezone || DEFAULT_ADS_TIME_ZONE);
+      const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
+      const advertiserInfo = advertiserId ? await pipeboard.getAdvertiserInfo(advertiserId).catch(() => null) : null;
+      const spendCurrencyHint = advertiserInfo && advertiserInfo.currency ? String(advertiserInfo.currency).toUpperCase() : null;
+      const spendTimeZone = advertiserId ? safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone) : null;
+      const now = new Date();
+      const periods = [];
+
+      for (const period of ['today', '7d', '30d', 'all']) {
+        const range = reportingIntegrity.periodRange(period, now, reportingTimeZone);
+        let spend = 0;
+        let spendCurrency = spendCurrencyHint;
+        let spendAvailable = false;
+        if (advertiserId && adsCache.enabled) {
+          const row = await adsCache.readAdvertiserDaily(req.account.id, advertiserId, range.fromDate, range.toDate);
+          spend = Number(row.spend) || 0;
+          spendCurrency = String(row.currency || spendCurrency || '').toUpperCase() || null;
+          spendAvailable = true;
+        }
+        const revenue = reportingIntegrity.summarizeRevenueEvents(snapshot.events || [], {
+          ...range,
+          timeZone: reportingTimeZone,
+          fallbackCurrency: String(accountSettings.defaultCurrency || 'BRL').toUpperCase(),
+        });
+        const attributed = reportingIntegrity.summarizeAttributedLeads(snapshot.leads || [], {
+          ...range,
+          timeZone: reportingTimeZone,
+          fallbackCurrency: revenue.currency || String(accountSettings.defaultCurrency || 'BRL').toUpperCase(),
+        });
+        const conversion = reportingIntegrity.summarizeConversion(snapshot.leads || [], {
+          ...range,
+          timeZone: reportingTimeZone,
+        });
+        const roas = spendAvailable ? reportingIntegrity.deriveRoas({
+          spend,
+          spendCurrency: spendCurrency || revenue.currency || 'BRL',
+          revenueCents: attributed.revenueCents,
+          revenueCurrency: attributed.currency,
+          sales: attributed.sales,
+        }) : { roas: null, cpa: null, currencyMismatch: false };
+
+        const profitCurrency = revenue.currency || spendCurrency || String(accountSettings.defaultCurrency || 'BRL').toUpperCase();
+        const profitComparable = !(spend > 0 && revenue.currency && spendCurrency && revenue.currency !== spendCurrency);
+        const profit = profitComparable ? profitEngine.calculate(snapshot.events || [], spend, {
+          currency: profitCurrency,
+          fromDate: range.fromDate,
+          toDate: range.toDate,
+          timeZone: reportingTimeZone,
+          config: config.get(req.account.id).profitability || {},
+          adSpendExact: spendAvailable,
+        }) : null;
+
+        const warnings = [];
+        if (spendTimeZone && spendTimeZone !== reportingTimeZone) warnings.push('SPEND_TIMEZONE_DIFFERS');
+        if (roas.currencyMismatch) warnings.push('ROAS_CURRENCY_MISMATCH');
+        if (!profitComparable) warnings.push('PROFIT_CURRENCY_MISMATCH');
+        if (!spendAvailable) warnings.push('SPEND_SOURCE_UNAVAILABLE');
+        if (profit && profit.grossRevenueCents !== revenue.revenueCents) warnings.push('REVENUE_PROFIT_MISMATCH');
+
+        periods.push({
+          period,
+          fromDate: range.fromDate,
+          toDate: range.toDate,
+          faturamento: { currency: revenue.currency || profitCurrency, revenueCents: revenue.revenueCents, sales: revenue.sales },
+          lucro: profit ? { currency: profit.currency, netProfitCents: profit.netProfitCents, quality: profit.quality } : null,
+          investimento: { currency: spendCurrency, spend, available: spendAvailable },
+          conversao: conversion,
+          roas: { value: roas.roas, cpa: roas.cpa, attributedRevenueCents: attributed.revenueCents, attributedSales: attributed.sales, revenueCurrency: attributed.currency, currencyMismatch: roas.currencyMismatch },
+          warnings,
+        });
+      }
+
+      res.json({
+        ok: true,
+        generatedAt: now.toISOString(),
+        advertiserId,
+        reportingTimeZone,
+        spendTimeZone,
+        periods,
+      });
     } catch (err) { fail(res, err); }
   });
 

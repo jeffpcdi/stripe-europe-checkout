@@ -8,6 +8,7 @@ import {
   useEmqTrend,
   useAdsStatus,
   useAdsRoas,
+  useAdsProfitability,
   useAdsTree,
   useAdsCampaignDecisions,
   useAccountSettings,
@@ -27,7 +28,6 @@ import { HeroGlobe, type GlobePurchase } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
-import { OverviewAttention } from './overview-attention'
 import { ErrorState } from '@/components/error-state'
 import {
   TrendingUp,
@@ -50,7 +50,7 @@ function fmtAdsMoney(v: number, currency: string): string {
 }
 
 function periodToAdsRange(period: Period, timeZone?: string): { fromDate: string; toDate: string } {
-  const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90
+  const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 365
   return adsDateRange(days, timeZone)
 }
 
@@ -81,17 +81,18 @@ export function OverviewView() {
   const [calendarTick, setCalendarTick] = useState(0)
   useEffect(() => { const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000); return () => clearInterval(timer) }, [])
   const adsRange = useMemo(
-    () => periodToAdsRange(period, adsStatus?.timeZone || accountTimeZone),
-    [period, adsStatus?.timeZone, accountTimeZone, calendarTick],
+    () => periodToAdsRange(period, accountTimeZone),
+    [period, accountTimeZone, calendarTick],
   )
   const { data: roas, error: roasError, mutate: mutateRoas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+  const { data: profitability, error: profitabilityError, mutate: mutateProfitability } = useAdsProfitability(true, adAccountId, adsRange)
   const { data: campaignDecisions, error: decisionsError, mutate: mutateDecisions } = useAdsCampaignDecisions(
     adsConnected,
     adAccountId,
     adsRange,
   )
 
-  // Campanhas em destaque sincronizadas com a aba TikTok Ads
+  // Campanhas sincronizadas com a aba TikTok Ads
   const { data: adsTree, mutate: mutateAdsTree } = useAdsTree(adsConnected, {
     adAccountId,
     fromDate: adsRange.fromDate,
@@ -133,10 +134,7 @@ export function OverviewView() {
       .slice(0, 5)
   }, [adsTree?.campaigns, campaignDecisions?.byCampaign, roas?.currency, adsStatus?.currency])
 
-  const pendingAutomation = useMemo(() => {
-    if (!campaignDecisions?.byCampaign) return 0
-    return Object.values(campaignDecisions.byCampaign).filter((item) => Boolean(item.automation?.pendingProposal)).length
-  }, [campaignDecisions?.byCampaign])
+
 
   // EMQ CAPI
   const { data: emqData, error: emqError, mutate: mutateEmq } = useEmqTrend(afterFirstPaint)
@@ -163,6 +161,7 @@ export function OverviewView() {
         mutateStats(),
         mutateAdsStatus(),
         mutateRoas(),
+        mutateProfitability(),
         mutateAdsTree(),
         mutateDecisions(),
         mutateEmq(),
@@ -174,13 +173,13 @@ export function OverviewView() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateAdsTree, mutateDecisions, mutateEmq, mutateHealth])
+  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateProfitability, mutateAdsTree, mutateDecisions, mutateEmq, mutateHealth])
 
   // Métricas do período ATUAL e ANTERIOR
   const { cur, prev } = useMemo(() => {
     if (!data) return { cur: null, prev: null }
     const now = new Date()
-    const curMetrics = aggregate(data, periodStart(period, now, accountTimeZone), null, accountTimeZone)
+    const curMetrics = aggregate(data, periodStart(period, now, accountTimeZone), now, accountTimeZone)
     const pw = prevWindow(period, now, accountTimeZone)
     const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo, accountTimeZone) : null
     return { cur: curMetrics, prev: prevMetrics }
@@ -205,11 +204,14 @@ export function OverviewView() {
       <div className="overview-observatory" aria-busy="true" aria-label="Carregando visão geral">
         <div className="observatory-header"><Skeleton className="h-10 w-36" /><Skeleton className="h-12 w-full max-w-72" /></div>
         <div className="observatory-metrics">
-          {['revenue', 'spend', 'conversion', 'return'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}>
-            <Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" />
-          </div>)}
+          <div className="observatory-metric-rail observatory-metric-rail--left">
+            {['revenue', 'profit'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" /></div>)}
+          </div>
           <div className="observatory-globe flex items-center justify-center">
             <Skeleton className="aspect-square w-full max-w-96 rounded-full" />
+          </div>
+          <div className="observatory-metric-rail observatory-metric-rail--right">
+            {['spend', 'conversion', 'return'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" /></div>)}
           </div>
         </div>
         <div className="observatory-activity">{[0, 1, 2].map(index => <section key={index}><Skeleton className="h-6 w-24 mb-4" /><Skeleton className="h-12 w-full" /></section>)}</div>
@@ -227,7 +229,7 @@ export function OverviewView() {
 
   const globePurchases: GlobePurchase[] = (data?.leads ?? [])
     .flatMap((lead) => {
-      const at = lead.purchasedAt || (lead.stage === 'purchased' ? lead.at : null)
+      const at = lead.convertedAt || lead.purchasedAt || (lead.stage === 'purchased' ? lead.at : null)
       if (!at) return []
       return [{
         at,
@@ -244,7 +246,7 @@ export function OverviewView() {
       }`}
     >
       {/* Métricas e presença compartilham a composição, não a janela de dados. */}
-      {(error || roasError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      {(error || roasError || profitabilityError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <HeroGlobe
         focusCode={focusCountry}
         purchases={globePurchases}
@@ -254,26 +256,22 @@ export function OverviewView() {
         metrics={{
           revenueCents: revCents,
           currency: cur.mainCur,
-          sales: cur.sales,
+          sales: cur.revenueSales,
           visits: cur.visits,
           purchased: cur.purchased,
           approval: cur.approval,
           otherCurrencies: otherRev.length,
           previousRevenueCents: prevRevCents,
           ads: roas,
-          adsError: Boolean(roasError),
+          profitability,
+          adsError: Boolean(roasError || profitabilityError),
           allPeriod: period === 'all',
           series: data && otherRev.length > 0
-          ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period, new Date(), accountTimeZone), null, accountTimeZone).series
+          ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period, new Date(), accountTimeZone), new Date(), accountTimeZone).series
           : cur.series,
         }}
       />
 
-      <OverviewAttention
-        health={overviewHealth}
-        pendingAutomation={pendingAutomation}
-        loading={afterFirstPaint && !overviewHealth && !overviewHealthError}
-      />
 
       {/* ── SEÇÃO 3: FUNIL DE VENDAS E ATIVIDADE RECENTE ──────────────────── */}
       <section
@@ -294,7 +292,7 @@ export function OverviewView() {
         aria-label="Desempenho e conformidade"
         className="overview-insight-grid"
       >
-        {/* Campanhas em destaque */}
+        {/* Campanhas */}
         <GlassCard variant="thick" className="overview-insight-card flex flex-col gap-4 p-5">
           <div className="overview-insight-heading">
             <div className="flex flex-wrap items-center gap-2">
@@ -303,7 +301,7 @@ export function OverviewView() {
                 className="text-sm font-semibold text-foreground inline-flex items-center gap-1.5 cursor-help"
               >
                 <TrendingUp className="size-3.5 text-brand-cyan" />
-                Campanhas em destaque
+                Campanhas
               </span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
                 <div className="flex items-center rounded-lg border border-border/70 bg-secondary/50 p-0.5 text-xs font-medium shadow-inner">
@@ -339,7 +337,7 @@ export function OverviewView() {
               data-tooltip="Abrir gerenciador e listagem de anúncios."
               className="group text-xs font-semibold text-brand-cyan transition-colors hover:underline flex items-center gap-1"
             >
-              Ver anúncios <ArrowUpRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              Ver tudo <ArrowUpRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>
           </div>
 
@@ -380,7 +378,7 @@ export function OverviewView() {
                         data-tooltip="Valor total consumido por esta campanha no período."
                         className="text-xs text-muted-foreground cursor-help font-mono"
                       >
-                        {fmtAdsMoney(c.spend, roas?.currency || 'BRL')} investidos
+                        {fmtAdsMoney(c.spend, roas?.currency || 'BRL')}
                       </span>
                     </div>
                   </div>
@@ -425,7 +423,7 @@ export function OverviewView() {
                       data-tooltip="Compras confirmadas desta UTM."
                       className="font-mono text-xs font-bold text-success cursor-help"
                     >
-                      {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
+                      {c.purchased}
                     </span>
                     <span
                       data-tooltip="Taxa de conversão de visitantes desta campanha."
@@ -452,7 +450,7 @@ export function OverviewView() {
               className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
             >
               <Globe2 className="size-3.5 text-brand-cyan" />
-              Países no período
+              Países
             </span>
           </div>
 
@@ -491,7 +489,7 @@ export function OverviewView() {
                       </span>
                       {c.purchased > 0 && (
                         <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-[11px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
-                          {c.purchased} {c.purchased === 1 ? 'venda' : 'vendas'}
+                          {c.purchased}
                         </span>
                       )}
                     </div>
@@ -517,7 +515,7 @@ export function OverviewView() {
           )}
         </GlassCard>
 
-        {/* Dados de conversão */}
+        {/* Dados */}
         <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
           <div className="overview-insight-heading">
             <span
@@ -525,7 +523,7 @@ export function OverviewView() {
               className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
             >
               <ShieldCheck className="size-3.5 text-brand-cyan" />
-              Dados de conversão
+              Dados
             </span>
           </div>
 

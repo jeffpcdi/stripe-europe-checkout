@@ -19,6 +19,8 @@ export interface PeriodMetrics {
   rev: Record<string, number>
   mainCur: string
   sales: number
+  /** Vendas na moeda dominante usada por Faturamento. */
+  revenueSales: number
   failed: number
   refunds: number
   disputes: number
@@ -152,20 +154,19 @@ export function appDateKey(date: Date, timeZone: string = APP_TIME_ZONE): string
   return dayFormatter(timeZone).format(date)
 }
 
-export function periodStart(period: Period, now = new Date(), timeZone: string = APP_TIME_ZONE): Date | null {
-  if (period === 'all') return null
+export function periodStart(period: Period, now = new Date(), timeZone: string = APP_TIME_ZONE): Date {
   const tz = safeTimeZone(timeZone)
   const p = appParts(now, tz)
-  // Janelas de calendário inclusivas no fuso configurado da conta:
-  // hoje = 00:00; 7d = hoje + 6 dias anteriores; 30d = +29.
-  const back = period === 'today' ? 0 : period === '7d' ? 6 : 29
+  // Janelas civis universais no fuso configurado da conta. `Tudo` é o
+  // histórico comparável de 365 dias — mesma retenção usada pelo espelho TikTok.
+  // Isso impede Faturamento/Lucro de usarem all-time enquanto mídia usa 365d.
+  const back = period === 'today' ? 0 : period === '7d' ? 6 : period === '30d' ? 29 : 364
   const target = new Date(Date.UTC(p.year, p.month - 1, p.day - back))
   return appMidnight(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate(), tz)
 }
 
 export function prevWindow(period: Period, now = new Date(), timeZone: string = APP_TIME_ZONE) {
   const start = periodStart(period, now, timeZone)
-  if (!start) return null
   const span = now.getTime() - start.getTime()
   return {
     curFrom: start,
@@ -190,11 +191,11 @@ export function aggregate(
   timeZone: string = APP_TIME_ZONE,
 ): PeriodMetrics {
   const events: StatsEvent[] = data.events.filter((e) => within(e.at, from, to))
-  const leads: Lead[] = data.leads.filter(
-    (l) => !l.orphan && within(l.at, from, to),
-  )
+  const allLeads: Lead[] = data.leads.filter((l) => !l.orphan)
+  const leads: Lead[] = allLeads.filter((l) => within(l.at, from, to))
 
   const rev: Record<string, number> = {}
+  const salesByCurrency: Record<string, number> = {}
   const refundRev: Record<string, number> = {}
   let sales = 0
   let failed = 0
@@ -229,6 +230,7 @@ export function aggregate(
       sales++
       const cur = (e.currency || 'BRL').toUpperCase()
       rev[cur] = (rev[cur] || 0) + (e.amount || 0)
+      salesByCurrency[cur] = (salesByCurrency[cur] || 0) + 1
       if (e.amount) {
         const arr = saleAmounts.get(cur) ?? []
         arr.push(e.amount)
@@ -253,7 +255,8 @@ export function aggregate(
     }
   }
 
-  const visits = leads.length
+  const visitEvents = events.filter((event) => event.type === 'visit' || event.type === 'lead').length
+  const visits = leads.length > 0 ? leads.length : visitEvents
 
   // Um lead guarda o estágio ATUAL. Sem conferir o timestamp do estágio, um
   // lead que visitou na semana passada e comprou hoje aparecia como compra na
@@ -261,15 +264,18 @@ export function aggregate(
   // comparações e taxas do funil com informação do futuro.
   const checkoutInWindow = (l: Lead) => {
     if (l.stage !== 'checkout' && l.stage !== 'purchased') return false
-    return within(l.checkoutAt || l.purchasedAt || l.at, from, to)
+    return within(l.checkoutAt || l.convertedAt || l.purchasedAt || l.at, from, to)
   }
   const paymentInWindow = (l: Lead) => {
     if (!l.paymentStartedAt && l.stage !== 'purchased') return false
-    return within(l.paymentStartedAt || l.purchasedAt || l.at, from, to)
+    return within(l.paymentStartedAt || l.convertedAt || l.purchasedAt || l.at, from, to)
   }
   const purchaseInWindow = (l: Lead) =>
-    l.stage === 'purchased' && within(l.purchasedAt || l.at, from, to)
+    l.stage === 'purchased' && within(l.convertedAt || l.purchasedAt || l.at, from, to)
 
+  // Funil/conversão são de coorte: só visitantes que entraram na janela.
+  // Vendas de jornadas antigas continuam em Faturamento, mas não distorcem a
+  // taxa de conversão do tráfego do período selecionado.
   const reachedCheckout = leads.filter(checkoutInWindow).length
   // Item 302: submeteu o pagamento no gateway (PIX gerado/cartão enviado,
   // aprovado OU recusado) — separa "olhou o checkout" de "tentou pagar"
@@ -284,7 +290,7 @@ export function aggregate(
   const orphanRevenue: Record<string, number> = {}
   for (const l of data.leads) {
     if (!l.orphan || l.stage !== 'purchased') continue
-    if (!within(l.at, from, to)) continue
+    if (!within(l.convertedAt || l.purchasedAt || l.at, from, to)) continue
     orphanPurchases++
     const cur = (l.reportedCurrency || l.currency || 'BRL').toUpperCase()
     orphanRevenue[cur] = (orphanRevenue[cur] || 0) + (l.reportedAmount || l.amount || 0)
@@ -377,6 +383,7 @@ export function aggregate(
     rev,
     mainCur,
     sales,
+    revenueSales: salesByCurrency[mainCur] || 0,
     failed,
     refunds,
     disputes,

@@ -69,6 +69,8 @@ export interface Lead {
   /** Item 302: quando o gateway registrou a 1ª tentativa de pagamento (aprovada ou não) */
   paymentStartedAt?: string
   purchasedAt?: string
+  /** Timestamp real da conversão no backend; purchasedAt é mantido como alias compatível. */
+  convertedAt?: string
   amount?: number
   currency?: string
   utm?: Record<string, string>
@@ -1178,6 +1180,7 @@ export interface AdsRoasResponse {
   toDate: string
   currency: string
   timeZone?: string
+  spendTimeZone?: string
   scope?: 'advertiser_all_campaigns'
   lastSyncedAt?: string | null
   /** F2: moeda dominante da RECEITA (dos gateways) — pode divergir da conta */
@@ -1188,9 +1191,46 @@ export interface AdsRoasResponse {
   conversions: number
   revenueCents: number
   sales: number
-  roas: number | null // receita/gasto — null sem gasto OU moedas divergentes
+  roas: number | null // receita/gasto; 0 quando não há gasto, null só com moedas incompatíveis
   cpa: number | null // gasto/vendas — null sem vendas
+  attribution?: 'tiktok_last_paid_click'
   daily: AdsRoasDaily[]
+}
+
+export interface AdsProfitabilityResponse {
+  currency: string
+  fromDate: string
+  toDate: string
+  timeZone?: string
+  spendTimeZone?: string
+  revenueCurrency?: string | null
+  spendCurrency?: string | null
+  advertiserId?: string | null
+  scope?: 'advertiser_all_campaigns'
+  lastSyncedAt?: string | null
+  sales: number
+  refunds: number
+  disputes: number
+  grossRevenueCents: number
+  refundCents: number
+  disputeCents: number
+  gatewayFeesCents: number
+  taxesCents: number
+  productCostsCents: number
+  adSpendCents: number
+  contributionBeforeAdsCents: number
+  netRevenueCents: number
+  netProfitCents: number
+  netMarginPct: number
+  roas: number
+  coverage: {
+    feeExactPct: number
+    taxExactPct: number
+    productCostExactPct: number
+    adSpendExact: boolean
+  }
+  quality: 'exact' | 'mixed'
+  note: string
 }
 
 // ── GET /api/ads/library — criativos já enviados ao Blob ──

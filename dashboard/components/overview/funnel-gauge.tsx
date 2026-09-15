@@ -18,12 +18,12 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
   return (
     <section className="journey-funnel surface-card" aria-label="Funil de vendas">
       <header className="overview-section-heading">
-        <h2><span className="overview-section-icon"><Funnel size={17} aria-hidden="true" /></span>Funil de vendas</h2>
+        <h2><span className="overview-section-icon"><Funnel size={16} aria-hidden="true" /></span>Funil</h2>
         <span className="overview-summary-badge" title="Compras divididas por visitas">
-          <strong>{visits > 0 ? percent(convRate) : '—'}</strong> conversão
+          <strong>{visits > 0 ? percent(convRate) : '—'}</strong>
         </span>
       </header>
-      <ol className="flex flex-col gap-2.5">
+      <ol className="journey-funnel-list">
         {steps.map((step, index) => {
           const previous = index > 0 ? steps[index - 1].value : 0
           const width = visits > 0 ? Math.min(100, Math.max(0, (step.value / visits) * 100)) : 0
@@ -35,35 +35,17 @@ export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaug
               data-final={index === 3}
             >
               <div className="journey-step-head">
-                <span
-                  className="journey-step-number"
-                  aria-hidden="true"
-                >
-                  {index === 3 && step.value > 0 ? (
-                    <CheckCircle2 size={13} className="text-success" />
-                  ) : (
-                    `0${index + 1}`
-                  )}
+                <span className="journey-step-number" aria-hidden="true">
+                  {index === 3 && step.value > 0 ? <CheckCircle2 size={13} className="text-success" /> : `0${index + 1}`}
                 </span>
-                <span title={step.detail} className="font-medium text-foreground text-xs">
-                  {step.label}
-                </span>
-                <strong className="font-mono text-sm sm:text-base font-bold text-foreground">
-                  <CountUp value={step.value} />
-                </strong>
-                <span
-                  className="journey-step-rate text-[11px] font-medium"
-                  title={index > 0 ? 'Percentual que avançou da etapa anterior' : 'Base de visitantes'}
-                >
-                  {index > 0 && <ArrowDownRight size={12} aria-hidden="true" className="text-muted-foreground" />}
-                  {index === 0 ? 'Base' : previous > 0 ? percent((step.value / previous) * 100) : '—'}
+                <span title={step.detail} className="journey-step-label">{step.label}</span>
+                <strong className="journey-step-value"><CountUp value={step.value} /></strong>
+                <span className="journey-step-rate" title={index > 0 ? 'Percentual que avançou da etapa anterior' : 'Base de visitantes'}>
+                  {index > 0 && <ArrowDownRight size={12} aria-hidden="true" />}
+                  {index === 0 ? '100%' : previous > 0 ? percent((step.value / previous) * 100) : '—'}
                 </span>
               </div>
-              <div className="journey-step-track" aria-hidden="true">
-                <span
-                  style={{ width: `${width}%` }}
-                />
-              </div>
+              <div className="journey-step-track" aria-hidden="true"><span style={{ width: `${width}%` }} /></div>
             </li>
           )
         })}

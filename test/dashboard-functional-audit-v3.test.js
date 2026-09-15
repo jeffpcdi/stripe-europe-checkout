@@ -14,6 +14,7 @@ const linkStore = read('link-store.js');
 const stats = read('stats.js');
 const metrics = read('dashboard/lib/metrics.ts');
 const overview = read('dashboard/components/overview/overview-view.tsx');
+const overviewPeriod = read('dashboard/lib/overview-period.tsx');
 const funnel = read('dashboard/components/funnel/funnel-view.tsx');
 const links = read('dashboard/components/links/links-view.tsx');
 const linkEditor = read('dashboard/components/links/link-editor.tsx');
@@ -83,15 +84,17 @@ assert.match(metrics, /aggregate\([\s\S]{0,160}timeZone: string = APP_TIME_ZONE/
   'agregação deve usar o fuso da conta');
 assert.match(overview, /useAccountSettings\(afterFirstPaint\)/,
   'Visão Geral deve ler o fuso da conta');
-assert.match(overview, /localStorage\.getItem\(PERIOD_KEY\)/,
-  'período persistido deve ser realmente restaurado');
+assert.match(overviewPeriod, /localStorage\.getItem\(PERIOD_KEY\)/,
+  'provider global deve restaurar o período persistido');
+assert.match(overview, /useOverviewPeriod\(\)/,
+  'Visão Geral deve consumir o período universal do provider');
 assert.match(overview, /useAdsCampaignDecisions/,
   'top campanhas deve usar o mesmo modelo first-party da aba Campanhas');
 assert.match(overview, /const sales = decision \? Number\(decision\.sales\)/,
   'vendas do destaque devem vir da decisão first-party');
 assert.match(overview, /roas\?\.currency \|\| adsStatus\?\.currency/,
   'ROAS real só deve comparar receita com a moeda real do gasto');
-assert.match(funnel, /periodStart\(period, new Date\(\), accountTimeZone\)/,
+assert.match(funnel, /periodStart\(period, now, accountTimeZone\)/,
   'Funil deve respeitar o mesmo fuso da conta');
 
 console.log('Auditoria funcional V3 — configurações e cache');

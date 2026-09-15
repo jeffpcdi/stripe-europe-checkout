@@ -1645,9 +1645,6 @@ export function CampaignTree({
                 <span className="text-[10px] text-muted-foreground">Tudo sob controle</span>
               )}
             </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Compare gasto, vendas reais e automação por campanha. Métricas secundárias ficam nos detalhes.
-            </p>
           </div>
 
           <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:max-w-2xl">

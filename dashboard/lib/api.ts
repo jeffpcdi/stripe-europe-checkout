@@ -34,6 +34,7 @@ import type {
   AdsTreeResponse,
   AdsCampaignAnalyticsResponse,
   AdsRoasResponse,
+  AdsProfitabilityResponse,
   AdsLibraryResponse,
   AdsAlertsConfig,
   AdsAttributionResponse,
@@ -455,6 +456,20 @@ export function useAdsRoas(active: boolean, adAccountId: string, range?: { fromD
   const qs = params.toString()
   return useSWR<AdsRoasResponse>(active && adAccountId ? `/api/ads/roas?${qs}` : null, fetcher, {
     refreshInterval: 60_000,
+    keepPreviousData: false,
+  })
+}
+
+
+export function useAdsProfitability(active: boolean, adAccountId: string, range?: { fromDate?: string; toDate?: string }) {
+  const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  const qs = params.toString()
+  return useSWR<AdsProfitabilityResponse>(active ? `/api/ads/profitability?${qs}` : null, fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
     keepPreviousData: false,
   })
 }

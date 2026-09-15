@@ -36,7 +36,7 @@ interface HeroGlobeProps {
 }
 
 /** Um painel, um canvas. Métricas e atividade não dependem do carregamento do WebGL. */
-export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
+export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRefresh, refreshing: _refreshing = false, purchasesStale = false }: HeroGlobeProps) {
   const { data, error, mutate, isLoading } = useLive()
   const [now, setNow] = useState(() => Date.now())
   const [selected, setSelected] = useState<string | null>(focusCode || null)
@@ -108,15 +108,18 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
 
     <div className="observatory-activity" aria-label="Atividade atual, independente do período">
       <section className="observatory-live" aria-label="Visitantes ao vivo">
-        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="live" /></span>Visitantes ao vivo</h3><span className="observatory-live-state"><span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" /><span>{live.fresh ? 'agora' : isLoading ? 'carregando' : 'sem atualização'}</span></span></header>
-        <div className="observatory-live-total"><strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong><span>{live.online === 1 ? 'visitante online' : 'visitantes online'}</span></div>
-        {live.fresh && data && <p className="observatory-live-time">Atualizado às <time dateTime={data.ts}>{new Date(data.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time> · Brasília</p>}
-        {!live.fresh && !isLoading && <button type="button" className="observatory-text-link" onClick={() => void mutate()}><RefreshCw size={13} aria-hidden="true" />Tentar novamente</button>}
-        {latestLead && <div className="observatory-new-access" role="status"><span>{latestLead.flag} Novo acesso · {latestLead.name}</span><button type="button" onClick={() => focusCountry(latestLead.code)} aria-label={`Localizar novo acesso em ${latestLead.name}`}><MapPin size={14} aria-hidden="true" /></button></div>}
+        <div className="observatory-live-compact">
+          <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
+          <span className="observatory-live-label">Ao vivo</span>
+          <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
+          <span>visitantes</span>
+          {!live.fresh && !isLoading && <button type="button" className="observatory-text-link" onClick={() => void mutate()}><RefreshCw size={12} aria-hidden="true" />Atualizar</button>}
+          {latestLead && <button type="button" className="observatory-new-access-compact" onClick={() => focusCountry(latestLead.code)} aria-label={`Localizar novo acesso em ${latestLead.name}`}>{latestLead.flag} {latestLead.name}</button>}
+        </div>
       </section>
 
       <section className="observatory-countries" aria-label="Top países ao vivo">
-        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="countries" /></span>Top países</h3><span>agora</span></header>
+        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="countries" /></span>Top países</h3></header>
         {live.countries.length > 0 ? <div className="observatory-country-list">
           {live.countries.slice(0, 3).map(country => {
             const percentage = Math.round(country.count / Math.max(1, onlineTotal) * 100)
@@ -130,7 +133,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
       </section>
 
       <section className="observatory-purchases" aria-label="Compras recentes">
-        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="purchases" /></span>Compras recentes</h3><span>últimos 10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver todas <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
+        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="purchases" /></span>Compras</h3><span>10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver tudo <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
         {purchasesStale && <p className="observatory-empty" data-warning>Histórico não atualizado</p>}
         {recentPurchases.length > 0 ? <div className="observatory-purchase-list">
           {recentPurchases.slice(0, 3).map((purchase, index) => <div className="observatory-purchase" key={`${purchase.at}-${index}`}>

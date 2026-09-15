@@ -183,7 +183,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     const animation = dialog.animate([
       { clipPath: 'inset(0% 0% 0% 0% round 0px)', opacity: 1 },
       { clipPath: originClip.current, opacity: 0.3 },
-    ], { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' })
+    ], { duration: 480, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' })
     transitionRef.current = animation
     animation.finished.then(() => {
       setInAppFullscreen(false)
@@ -198,6 +198,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   const cameraInitialized = useRef(false)
   const dragging = useRef(false)
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rotationTween = useRef<number | null>(null)
 
   // A biblioteca não emite onGlobeReady quando a imagem falha. Libera uma
   // esfera simples após o prazo, mantendo a presença e os controles utilizáveis.
@@ -594,12 +595,12 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
         transitionRef.current = dialog.animate([
           { clipPath: originClip.current, opacity: 0.45 },
           { clipPath: 'inset(0% 0% 0% 0% round 0px)', opacity: 1 },
-        ], { duration: 640, easing: 'cubic-bezier(.16,1,.3,1)' })
+        ], { duration: 560, easing: 'cubic-bezier(.22,1,.36,1)' })
       }
     } else { dialog.show(); previousFocus?.focus({ preventScroll: true }) }
   }, [inAppFullscreen])
 
-  useEffect(() => () => { transitionRef.current?.cancel() }, [])
+  useEffect(() => () => { transitionRef.current?.cancel(); if (rotationTween.current) cancelAnimationFrame(rotationTween.current) }, [])
 
   // showModal move o foco antes do efeito compartilhado; guardamos o botão de origem.
   useEffect(() => {
@@ -700,8 +701,35 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   }, [ready])
 
   useEffect(() => {
-    if (ready && globeRef.current) globeRef.current.controls().autoRotate = !paused && !reduced && !dragging.current
-  }, [paused, reduced, ready])
+    if (!ready || !globeRef.current) return
+    if (reduced) globeRef.current.controls().autoRotate = false
+  }, [reduced, ready])
+
+  const toggleRotation = useCallback(() => {
+    if (!ready || reduced || !globeRef.current) return
+    const nextPaused = !paused
+    setPaused(nextPaused)
+    const controls = globeRef.current.controls()
+    if (rotationTween.current) cancelAnimationFrame(rotationTween.current)
+    const duration = 480
+    const startedAt = performance.now()
+    const startSpeed = Math.abs(Number(controls.autoRotateSpeed) || (nextPaused ? SPIN : 0))
+    controls.autoRotate = true
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      controls.autoRotateSpeed = nextPaused
+        ? Math.max(0.001, startSpeed * (1 - eased))
+        : Math.max(0.001, SPIN * eased)
+      if (t < 1) rotationTween.current = requestAnimationFrame(tick)
+      else {
+        controls.autoRotateSpeed = SPIN
+        controls.autoRotate = !nextPaused
+        rotationTween.current = null
+      }
+    }
+    rotationTween.current = requestAnimationFrame(tick)
+  }, [paused, ready, reduced])
 
   useEffect(() => {
     if (!ready || !focusCode) return
@@ -723,7 +751,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     const pov = globe.pointOfView()
     globe.pointOfView(delta === undefined ? { lat: 8, lng: -48, altitude: fittedAltitude() } : {
       ...pov, altitude: Math.max(ALT_MIN, Math.min(ALT_MAX, pov.altitude + delta)),
-    }, reduced ? 0 : 350)
+    }, reduced ? 0 : 560)
   }
 
   function toggleFullscreen() {
@@ -835,7 +863,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
         <button type="button" onClick={() => moveCamera(-0.3)} aria-label="Aproximar" title="Aproximar" disabled={!ready}><Plus size={17} /></button>
         <button type="button" onClick={() => moveCamera(0.3)} aria-label="Afastar" title="Afastar" disabled={!ready}><Minus size={17} /></button>
         <span className="presence-control-divider" aria-hidden="true" />
-        <button type="button" className="presence-rotation" onClick={() => setPaused(!paused)} disabled={!ready || reduced}
+        <button type="button" className="presence-rotation" onClick={toggleRotation} disabled={!ready || reduced}
           aria-pressed={paused || reduced} aria-label={paused ? 'Retomar rotação automática' : 'Pausar rotação'} title={reduced ? 'Movimento reduzido ativado' : paused ? 'Retomar rotação' : 'Pausar rotação'}>
           {paused || reduced ? <Play size={15} /> : <Pause size={15} />}<span>{paused || reduced ? 'Pausado' : 'Girando'}</span>
         </button>

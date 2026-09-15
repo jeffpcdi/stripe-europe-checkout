@@ -18,10 +18,9 @@ import { GlassCard } from '@/components/glass-card'
 import { ErrorState } from '@/components/error-state'
 import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
-import { PeriodPicker } from '@/components/overview/period-picker'
+import { useOverviewPeriod } from '@/lib/overview-period'
 import { LeadsTable } from './leads-table'
 import { fmtPercent, formatMoney } from '@/lib/format'
-import type { Period } from '@/lib/types'
 
 function FunnelStat({
   label,
@@ -64,7 +63,7 @@ export function FunnelView() {
   const { data, error, mutate, isLoading } = useStats()
   const { data: settings } = useAccountSettings()
   const accountTimeZone = settings?.timezone || 'America/Sao_Paulo'
-  const [period, setPeriod] = useState<Period>('7d')
+  const { period } = useOverviewPeriod()
 
   const [linkFilter, setLinkFilter] = useState('')
   const [campaignFilter, setCampaignFilter] = useState('')
@@ -95,21 +94,25 @@ export function FunnelView() {
     }
   }, [data, hasFilter, linkFilter, campaignFilter])
 
-  const rangeStart = useMemo(
-    () => periodStart(period, new Date(), accountTimeZone),
-    [period, accountTimeZone],
-  )
+  const range = useMemo(() => {
+    const now = new Date()
+    return { start: periodStart(period, now, accountTimeZone), end: now }
+  }, [period, accountTimeZone, data?.updatedAt])
 
   const metrics = useMemo(() => {
     if (!filteredData) return null
-    return aggregate(filteredData, rangeStart, null, accountTimeZone)
-  }, [filteredData, rangeStart, accountTimeZone])
+    return aggregate(filteredData, range.start, range.end, accountTimeZone)
+  }, [filteredData, range, accountTimeZone])
 
   const periodLeads = useMemo(() => {
     if (!filteredData) return []
-    const start = rangeStart?.getTime() ?? 0
-    return filteredData.leads.filter((lead) => new Date(lead.at).getTime() >= start)
-  }, [filteredData, rangeStart])
+    const start = range.start.getTime()
+    const end = range.end.getTime()
+    return filteredData.leads.filter((lead) => {
+      const at = new Date(lead.at).getTime()
+      return Number.isFinite(at) && at >= start && at <= end
+    })
+  }, [filteredData, range])
 
   const activeCheckoutLeads = useMemo(
     () => periodLeads.filter((lead) => lead.stage !== 'purchased' && (lead.stage === 'checkout' || lead.paymentStartedAt)).length,
@@ -152,7 +155,6 @@ export function FunnelView() {
         </div>
 
         <div className="flex flex-col gap-2 xl:items-end">
-          <PeriodPicker value={period} onChange={setPeriod} />
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Filter className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -290,7 +292,7 @@ export function FunnelView() {
             <p className="mt-1 text-xs text-muted-foreground">Abra uma linha para ver origem, pagamento e caminho completo até a conversão.</p>
           </div>
         </div>
-        <LeadsTable leads={filteredData?.leads ?? []} periodStart={rangeStart} />
+        <LeadsTable leads={filteredData?.leads ?? []} periodStart={range.start} />
       </div>
     </div>
   )

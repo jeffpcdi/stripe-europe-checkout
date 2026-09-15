@@ -21,11 +21,9 @@ function RevenueActiveDot({ cx, cy }: { cx?: number; cy?: number }) {
   )
 }
 
-/** Apenas a série real do período: um dia não representa uma curva. */
+/** Apenas a série real do período: micrográfico só aparece quando ajuda. */
 export function RevenueTrend({ series, currency, compact = false }: { series: PeriodMetrics['series']; currency: string; compact?: boolean }) {
-  if (compact && series.length < 2) {
-    return <p className="observatory-trend-empty">{series.length === 0 ? 'Sem dados no período' : 'Evolução disponível a partir de 2 dias'}</p>
-  }
+  if (compact && series.length < 2) return null
   if (series.length === 0) {
     return <div className="overview-revenue-empty">Sem dados no período selecionado</div>
   }
@@ -40,7 +38,6 @@ export function RevenueTrend({ series, currency, compact = false }: { series: Pe
           <strong data-sensitive>{money(point.revenue, currency)}</strong>
         </p>
         <p>{point.sales} {point.sales === 1 ? 'venda registrada' : 'vendas registradas'} · {point.visits} {point.visits === 1 ? 'visita' : 'visitas'}</p>
-        <p className="overview-revenue-hint">Gráfico disponível com 2 dias de dados</p>
       </div>
     )
   }

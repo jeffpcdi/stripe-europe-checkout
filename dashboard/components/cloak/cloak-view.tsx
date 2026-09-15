@@ -16,10 +16,6 @@ import { describeSignal, LAYER_META, type SignalLayer } from './signal-labels'
 export function CloakView() {
   return (
     <div className="flex flex-col gap-5">
-      <div className="max-w-3xl">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">Cloaker</h1>
-      </div>
-
       <Tabs.Root defaultValue="overview" className="flex flex-col gap-5">
         <Tabs.List className="section-tabs" aria-label="Áreas do Cloaker">
           <Tabs.Trigger value="overview" className="section-tabs__item">

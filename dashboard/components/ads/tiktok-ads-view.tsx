@@ -19,6 +19,7 @@ import {
   useAdsHealth,
   useAdsSyncStatus,
   useAdsRejections,
+  useAccountSettings,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -44,6 +45,8 @@ import { MagicOpsPanel } from './magic-ops-panel'
 import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
 import { apiCacheKeyMatches } from '@/lib/cache-consistency'
+import { useOverviewPeriod } from '@/lib/overview-period'
+import { PERIODS } from '@/components/overview/period-picker'
 
 export function TikTokAdsView() {
   const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
@@ -74,19 +77,22 @@ export function TikTokAdsView() {
   const [page, setPage] = useState(1)
   // Trocar pelo workspace global também retorna à primeira página da nova conta.
   useEffect(() => { setPage(1) }, [effectiveAdvertiser])
-  // Período global de métricas e campanhas. O dia pertence ao fuso da conta
-  // TikTok, não ao navegador do operador nem ao UTC.
-  const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto
+  // Período global da dashboard. TikTok respeita a mesma seleção do calendário.
+  const { period } = useOverviewPeriod()
+  const { data: accountSettings } = useAccountSettings()
+  const rangeDays = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 365
+  const periodLabel = PERIODS.find(item => item.id === period)?.label || 'Hoje'
   const selectedAdvertiserInfo = accounts?.accounts.find((a) => String(a.id) === String(effectiveAdvertiser))
   const advertiserTimeZone = selectedAdvertiserInfo?.timezone || status?.timeZone
+  const reportingTimeZone = accountSettings?.timezone || 'America/Sao_Paulo'
   const [calendarTick, setCalendarTick] = useState(0)
   useEffect(() => {
     const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000)
     return () => clearInterval(timer)
   }, [])
   const { fromDate, toDate } = useMemo(
-    () => adsDateRange(rangeDays, advertiserTimeZone),
-    [rangeDays, advertiserTimeZone, calendarTick],
+    () => adsDateRange(rangeDays, reportingTimeZone),
+    [rangeDays, reportingTimeZone, calendarTick],
   )
 
   // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
@@ -379,7 +385,7 @@ export function TikTokAdsView() {
                 {selectedAdvertiserInfo?.name || 'Conta selecionada'}
               </span>
               <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-                {rangeDays === 1 ? 'Hoje' : `${rangeDays} dias`}
+                {periodLabel}
               </span>
             </div>
           ) : null}
@@ -456,18 +462,10 @@ export function TikTokAdsView() {
       <AdsContextBar
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
-        syncState={selectedSyncState}
         refreshing={refreshing}
-        rangeDays={rangeDays}
-        onRangeDays={(days) => {
-          setRangeDays(days)
-          setPage(1)
-        }}
         onAdvertiserChanged={(id) => {
           setAdvertiserId(id)
           setPage(1)
-          // /api/ads/status é consumido pela Visão Geral. A seleção persistida
-          // não pode ficar presa no cache da conta anterior.
           void Promise.allSettled([mutateAccounts(), mutateStatus()])
         }}
         onRefresh={async () => {
@@ -486,19 +484,16 @@ export function TikTokAdsView() {
                 '/api/ads/tree',
                 '/api/ads/kpis',
                 '/api/ads/roas',
+                '/api/ads/profitability',
                 '/api/ads/attribution',
                 '/api/ads/campaign-decisions',
               ], { adAccountId: concreteAdvertiser })),
               mutateAccounts(), mutateSyncStatus(),
             ])
             toast.success('Dados atualizados')
-            if (refreshResults.some((item) => item.status === 'rejected')) {
-              toast.info('Sincronização concluída, mas uma parte da tela ainda está atualizando.')
-            }
+            if (refreshResults.some((item) => item.status === 'rejected')) toast.info('Sincronização concluída, mas uma parte da tela ainda está atualizando.')
           } catch (e) {
-            toast.error('Não foi possível sincronizar agora', {
-              hint: e instanceof Error ? e.message : undefined,
-            })
+            toast.error('Não foi possível sincronizar agora', { hint: e instanceof Error ? e.message : undefined })
           } finally {
             refreshLock.current = false
             setRefreshing(false)
@@ -521,9 +516,8 @@ export function TikTokAdsView() {
         <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="section-tabs section-tabs--ads">
+          <div className="tiktok-tabs-row">
+            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="section-tabs section-tabs--ads">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
@@ -545,11 +539,10 @@ export function TikTokAdsView() {
                     </Tabs.Trigger>
                   )
                 })}
-              </Tabs.List>
-            </div>
+            </Tabs.List>
 
             {tab === 'campaigns' && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="tiktok-tabs-actions">
                 <button
                   type="button"
                   className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"
@@ -573,7 +566,7 @@ export function TikTokAdsView() {
             )}
 
             {tab === 'catalog' && (
-              <div className="flex items-center gap-1.5">
+              <div className="tiktok-tabs-actions">
                 <button
                   type="button"
                   className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"

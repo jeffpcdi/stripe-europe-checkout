@@ -700,6 +700,7 @@ function matchExternalConversion(data) {
     // não mandou InitiateCheckout antes, marcamos retroativamente aqui)
     if (!lead.paymentStartedAt) lead.paymentStartedAt = nowIso;
     lead.convertedAt = nowIso;
+    lead.purchasedAt = nowIso; // alias canônico consumido pelo dashboard
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
     lead.originalAmount = data.originalAmountCents != null ? data.originalAmountCents : (data.originalAmount != null ? data.originalAmount : amount);
@@ -756,6 +757,7 @@ function matchExternalConversion(data) {
       orphan: true,
       paymentStartedAt: nowIso, // item 302: venda implica pagamento iniciado
       convertedAt: nowIso,
+      purchasedAt: nowIso,
       reportedAmount: amount,
       reportedCurrency: cur,
       originalAmount: data.originalAmountCents != null ? data.originalAmountCents : (data.originalAmount != null ? data.originalAmount : amount),
@@ -828,7 +830,7 @@ function getStats(accountId) {
   };
   allEvents.forEach((e) => considerScopedUpdate(e.at));
   allLeads.forEach((l) => {
-    [l.lastSeen, l.purchasedAt, l.checkoutAt, l.at].forEach(considerScopedUpdate);
+    [l.lastSeen, l.purchasedAt, l.convertedAt, l.checkoutAt, l.at].forEach(considerScopedUpdate);
   });
   const out = { events: allEvents, updatedAt: scopedUpdatedAt };
 
@@ -900,7 +902,9 @@ function getStats(accountId) {
   out.countries = Object.values(countryMap).sort((a, b) => b.count - a.count);
 
   // ── Leads recentes ──
-  out.leads = leads.slice(0, 3000); // envia histórico amplo p/ filtros de vários dias
+  out.leads = leads.slice(0, 3000).map((lead) => (lead.stage === 'purchased' && !lead.purchasedAt && lead.convertedAt)
+    ? Object.assign({}, lead, { purchasedAt: lead.convertedAt })
+    : lead); // normaliza históricos antigos + envia janela ampla
 
   statsCacheMap.set(cacheKey, { out, at: now });
   return out;

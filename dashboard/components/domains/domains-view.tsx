@@ -142,12 +142,6 @@ export function DomainsView() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Domínios</h1>
-        </div>
-      </div>
-
       {domains.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-0.5 text-[11px] text-muted-foreground">
           <span><strong className="font-semibold text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>

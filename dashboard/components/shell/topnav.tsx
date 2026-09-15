@@ -5,12 +5,10 @@ import { Menu, X } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { WorkspaceMenu } from './workspace-menu'
 
 const PRIMARY_LINKS = [
   { label: 'Visão Geral', href: '/', routes: ['/'] },
   { label: 'Rastreamento', href: '/links', routes: ['/links', '/domains', '/cloak', '/pixels', '/conversions', '/gateways'] },
-  { label: 'Vendas', href: '/activity', routes: ['/funnel', '/activity'] },
   { label: 'TikTok Ads', href: '/ads/tiktok', routes: ['/ads', '/catalog'] },
 ]
 
@@ -50,7 +48,7 @@ export function TopNav({ children }: { children: ReactNode }) {
       <div className="premium-navbar__identity">
         <Link href="/" className="premium-navbar__brand" aria-label="ROI-NADOS — Visão geral" onClick={() => setMenuOpen(false)}>
           <Image
-            src="/dashboard/roi-nados-wordmark-nav.png"
+            src="/dashboard/roi-nados-wordmark.jpeg"
             alt="ROI-NADOS"
             width={720}
             height={180}
@@ -84,7 +82,6 @@ export function TopNav({ children }: { children: ReactNode }) {
             )
           })}
           <div className="premium-navbar__mobile-extra">
-            <WorkspaceMenu />
             <Link
               href="/config"
               onClick={() => setMenuOpen(false)}

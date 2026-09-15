@@ -260,7 +260,7 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
                   )}
                 </Field>
                 <Field label="Compra em">
-                  {lead.purchasedAt ? formatDateTime(lead.purchasedAt) : '—'}
+                  {lead.convertedAt || lead.purchasedAt ? formatDateTime(lead.convertedAt || lead.purchasedAt!) : '—'}
                 </Field>
                 {lead.checkoutHits && lead.checkoutHits.length > 0 ? (
                   <Field label="Idas ao checkout">

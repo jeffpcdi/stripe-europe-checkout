@@ -425,11 +425,8 @@ export function LinksView() {
     <div className="flex flex-col gap-5">
       {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">Links</h1>
-          </div>
-          <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary self-start">
+        <div className="flex justify-end">
+          <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary">
             <Plus className="size-4" />
             Novo link
           </button>

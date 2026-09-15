@@ -1,10 +1,9 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import Link from 'next/link'
-import { ArrowUpRight, TrendingDown, TrendingUp, ShoppingCart, Info } from 'lucide-react'
+import { BadgeDollarSign, Info, ShoppingCart, TrendingDown, TrendingUp } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
-import type { AdsRoasResponse } from '@/lib/types'
+import type { AdsProfitabilityResponse, AdsRoasResponse } from '@/lib/types'
 import type { PeriodMetrics } from '@/lib/metrics'
 import { RevenueTrend } from '@/components/overview/revenue-trend'
 import { ObservatoryIcon } from '@/components/overview/observatory-icon'
@@ -19,6 +18,7 @@ export interface OverviewMetricsProps {
   otherCurrencies: number
   previousRevenueCents: number | null
   ads?: AdsRoasResponse | null
+  profitability?: AdsProfitabilityResponse | null
   adsError?: boolean
   allPeriod?: boolean
   series?: PeriodMetrics['series']
@@ -26,6 +26,7 @@ export interface OverviewMetricsProps {
 
 const decimal = (value: number, digits = 1) => value.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 const currencyFormat = (currency: string) => (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(value)
+const signedCurrencyFormat = (currency: string) => (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency, signDisplay: 'always' }).format(value)
 const validNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
 
 function MetricInfo({ title, children }: { title: string; children: ReactNode }) {
@@ -41,80 +42,141 @@ function MetricInfo({ title, children }: { title: string; children: ReactNode })
   </details>
 }
 
-function Metric({ title, name, icon, value, children, description, monetary = false, action }: {
-  title: string; name: string; icon: ReactNode; value: ReactNode; children: ReactNode
-  description: ReactNode; monetary?: boolean; action?: ReactNode
+function Metric({ title, name, icon, value, children, description, monetary = false, tone }: {
+  title: string
+  name: string
+  icon: ReactNode
+  value: ReactNode
+  children?: ReactNode
+  description: ReactNode
+  monetary?: boolean
+  tone?: 'positive' | 'negative'
 }) {
-  return <article className={`observatory-metric observatory-metric--${name}`} aria-label={title}>
+  return <article className={`observatory-metric observatory-metric--${name}`} aria-label={title} data-tone={tone}>
     <header className="observatory-metric-heading">
       <span className="observatory-metric-icon" aria-hidden="true">{icon}</span>
       <h3>{title}</h3>
       <MetricInfo title={title}>{description}</MetricInfo>
     </header>
     <div className="observatory-metric-value" data-sensitive={monetary || undefined}>{value}</div>
-    <div className="observatory-metric-context">{children}</div>
-    {action}
+    {children ? <div className="observatory-metric-context">{children}</div> : null}
   </article>
 }
 
-/** As métricas são HTML independente do canvas; filtros não remontam o globo. */
-export function OverviewMetrics({ revenueCents, currency, sales, visits, purchased, approval, otherCurrencies, previousRevenueCents, ads, adsError, allPeriod, series = [], globe }: OverviewMetricsProps & { globe?: ReactNode }) {
+/**
+ * Dobra principal: dois rails de métricas alinhados ao globo. O período vem do
+ * calendário global e os valores reagem imediatamente quando ele muda.
+ */
+export function OverviewMetrics({
+  revenueCents,
+  currency,
+  sales,
+  visits,
+  purchased,
+  approval,
+  otherCurrencies,
+  previousRevenueCents,
+  ads,
+  profitability,
+  adsError,
+  allPeriod,
+  series = [],
+  globe,
+}: OverviewMetricsProps & { globe?: ReactNode }) {
   const money = currencyFormat(currency)
+  const signedMoney = signedCurrencyFormat(currency)
   const hasAds = ads?.scope === 'advertiser_all_campaigns'
   const spend = hasAds && validNumber(ads.spend) ? ads.spend : null
-  const adsMoney = currencyFormat(ads?.currency || 'BRL')
-  const roas = hasAds && !ads.currencyMismatch && validNumber(ads.roas) ? ads.roas : null
-  const cpa = hasAds && validNumber(ads.cpa) ? ads.cpa : null
-  const conversion = visits > 0 ? purchased / visits * 100 : null
-  const variation = previousRevenueCents !== null && previousRevenueCents > 0 ? (revenueCents - previousRevenueCents) / previousRevenueCents * 100 : null
-  const syncDate = ads?.lastSyncedAt ? new Date(ads.lastSyncedAt) : null
+  const adsMoney = currencyFormat(ads?.currency || currency)
+  const roas = hasAds && !ads?.currencyMismatch && validNumber(ads?.roas) ? ads.roas : null
+  const cpa = hasAds && validNumber(ads?.cpa) ? ads.cpa : null
+
+  // Conversão geral usa jornadas rastreadas: compras concluídas no período / visitas do período.
+  // Sem visitas, exibe 0% em vez de um estado quebrado ou divisão inválida.
+  const conversion = visits > 0 ? purchased / visits * 100 : 0
+  const variation = previousRevenueCents !== null && previousRevenueCents > 0
+    ? (revenueCents - previousRevenueCents) / previousRevenueCents * 100
+    : null
+
+  const mainCurrency = currency.toUpperCase()
+  const profitCurrency = profitability?.currency?.toUpperCase()
+  const spendCurrency = ads?.currency?.toUpperCase()
+  const profitFromEngine = profitability && profitCurrency === mainCurrency ? profitability.netProfitCents : null
+  const spendComparable = spend === null || spend === 0 || !spendCurrency || spendCurrency === mainCurrency
+  const estimatedProfit = spendComparable ? revenueCents - Math.round((spend || 0) * 100) : null
+  const profitCents = profitFromEngine ?? estimatedProfit
+  const profitTone = profitCents == null ? undefined : profitCents < 0 ? 'negative' : 'positive'
 
   return <div className="observatory-metrics" role="group" aria-label="Indicadores do período e globo de presença">
-    <article className="observatory-metric observatory-metric--revenue" aria-label="Faturamento">
-      <header className="observatory-metric-heading">
-        <span className="observatory-metric-icon" aria-hidden="true"><ObservatoryIcon name="revenue" /></span>
-        <h3>Faturamento</h3>
-        <MetricInfo title="Faturamento">
-          <p>Vendas aprovadas no período, na moeda exibida. Não inclui valores de outras moedas.</p>
-          {otherCurrencies > 0 && <p>Há vendas em mais {otherCurrencies} {otherCurrencies === 1 ? 'moeda' : 'moedas'}.</p>}
-          {otherCurrencies === 0 && <p>Valor médio por venda: <strong data-sensitive>{sales > 0 ? money(revenueCents / 100 / sales) : '—'}</strong>.</p>}
-        </MetricInfo>
-      </header>
-      <div className="observatory-metric-value" data-sensitive><CountUp value={revenueCents / 100} format={money} /></div>
-      <div className="observatory-revenue-comparison">
-        {variation !== null && <span className="observatory-change" data-direction={variation < 0 ? 'down' : 'up'} aria-label={`${decimal(variation, 0)}% em relação ao período anterior`}>
-          {variation < 0 ? <TrendingDown size={13} aria-hidden="true" /> : <TrendingUp size={13} aria-hidden="true" />}
-          {variation > 0 ? '+' : ''}{decimal(variation, 0)}%
-        </span>}
-        <span>{previousRevenueCents !== null
-          ? <>vs. <span data-sensitive>{money(previousRevenueCents / 100)}</span> anterior</>
-          : allPeriod ? 'Todo o período registrado' : 'Sem comparação na mesma moeda'}</span>
-      </div>
-      <div className="observatory-revenue-trend"><RevenueTrend series={series} currency={currency} compact /></div>
-      <div className="observatory-revenue-sales"><ShoppingCart size={14} aria-hidden="true" /><span><strong>{sales.toLocaleString('pt-BR')}</strong> {sales === 1 ? 'venda aprovada' : 'vendas aprovadas'}{otherCurrencies > 0 && ` · ${otherCurrencies + 1} moedas`}</span></div>
-    </article>
+    <div className="observatory-metric-rail observatory-metric-rail--left">
+      <article className="observatory-metric observatory-metric--revenue" aria-label="Faturamento">
+        <header className="observatory-metric-heading">
+          <span className="observatory-metric-icon" aria-hidden="true"><ObservatoryIcon name="revenue" /></span>
+          <h3>Faturamento</h3>
+          <MetricInfo title="Faturamento">
+            <p>Vendas aprovadas no período global, na moeda exibida.</p>
+            {otherCurrencies > 0 ? <p>Vendas em outras moedas ficam fora deste total.</p> : null}
+            <p>Ticket médio: <strong data-sensitive>{sales > 0 ? money(revenueCents / 100 / sales) : '—'}</strong>.</p>
+          </MetricInfo>
+        </header>
+        <div className="observatory-metric-value" data-sensitive><CountUp value={revenueCents / 100} format={money} /></div>
+        {(variation !== null || previousRevenueCents !== null) ? <div className="observatory-revenue-comparison">
+          {variation !== null ? <span className="observatory-change" data-direction={variation < 0 ? 'down' : 'up'} aria-label={`${decimal(variation, 0)}% em relação ao período anterior`}>
+            {variation < 0 ? <TrendingDown size={13} aria-hidden="true" /> : <TrendingUp size={13} aria-hidden="true" />}
+            {variation > 0 ? '+' : ''}{decimal(variation, 0)}%
+          </span> : null}
+          {previousRevenueCents !== null ? <span>vs <span data-sensitive>{money(previousRevenueCents / 100)}</span></span> : null}
+        </div> : null}
+        <div className="observatory-revenue-trend"><RevenueTrend series={series} currency={currency} compact /></div>
+        <div className="observatory-revenue-sales"><ShoppingCart size={14} aria-hidden="true" /><span><strong>{sales.toLocaleString('pt-BR')}</strong> {sales === 1 ? 'venda' : 'vendas'}</span></div>
+      </article>
 
-    <Metric title="Investimento em anúncios" name="spend" icon={<ObservatoryIcon name="spend" />} monetary
-      value={spend !== null ? <CountUp value={spend} format={adsMoney} /> : '—'}
-      description={<><p>Total da conta de anúncios, incluindo campanhas pausadas e encerradas, na moeda e no fuso do TikTok.</p><p>{allPeriod ? 'Em Tudo, os anúncios cobrem os últimos 90 dias.' : 'Os dados dependem da sincronização do TikTok, não são presença ao vivo.'}</p>{syncDate && Number.isFinite(syncDate.getTime()) && <p>Última sincronização: <time dateTime={syncDate.toISOString()}>{syncDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time> (Brasília).</p>}</>}
-      action={<Link href="/ads/tiktok" className="observatory-text-link">Ver campanhas <ArrowUpRight size={14} aria-hidden="true" /></Link>}>
-      <span data-warning={adsError || undefined}>{adsError ? 'Atualização pendente' : spend === null ? 'Dados indisponíveis' : allPeriod ? 'TikTok Ads · últimos 90 dias' : 'TikTok Ads · conta inteira'}</span>
-    </Metric>
+      <Metric
+        title="Lucro"
+        name="profit"
+        icon={<BadgeDollarSign size={18} />}
+        monetary
+        tone={profitTone}
+        value={profitCents == null ? '—' : <CountUp value={profitCents / 100} format={signedMoney} />}
+        description={<>{profitability ? <p>Receita menos mídia, reembolsos, disputas e custos configurados.</p> : <p>Estimativa pela receita do período menos o investimento em anúncios disponível.</p>}{profitability ? <p>Margem: <strong>{decimal(profitability.netMarginPct)}%</strong>.</p> : null}</>}
+      >
+        {profitability ? <span>Margem <strong>{decimal(profitability.netMarginPct)}%</strong></span> : null}
+      </Metric>
+    </div>
 
-    <Metric title="Conversão geral" name="conversion" icon={<ObservatoryIcon name="conversion" />}
-      value={conversion !== null ? <CountUp value={conversion} format={value => `${decimal(value)}%`} /> : '—'}
-      description={<><p>Visitantes que chegaram à compra aprovada no período.</p><p>Aprovação no checkout: <strong>{visits > 0 ? `${decimal(approval, 0)}%` : '—'}</strong>.</p></>}>
-      <span><strong>{purchased.toLocaleString('pt-BR')}</strong> {purchased === 1 ? 'compra' : 'compras'} · <strong>{visits.toLocaleString('pt-BR')}</strong> {visits === 1 ? 'visita' : 'visitas'}</span>
-    </Metric>
+    {globe ? <div className="observatory-globe">{globe}</div> : null}
 
-    <Metric title="Retorno (ROAS)" name="return" icon={<ObservatoryIcon name="return" />}
-      value={roas !== null ? <CountUp value={roas} format={value => `${decimal(value, 2)}×`} /> : '—'}
-      description={<><p>Receita atribuída por unidade gasta em anúncios. Não representa lucro.</p><p>O retorno exige receita e investimento na mesma moeda.{allPeriod ? ' Em Tudo, considera os últimos 90 dias dos anúncios.' : ''}</p></>}>
-      {(!hasAds || ads?.currencyMismatch || roas === null) && <span>{!hasAds ? 'Dados indisponíveis' : ads?.currencyMismatch ? 'Moedas diferentes' : 'Retorno indisponível'}</span>}
-      {cpa !== null && <span>Custo por venda <strong data-sensitive>{adsMoney(cpa)}</strong></span>}
-      {adsError && <span data-warning>Atualização pendente</span>}
-    </Metric>
+    <div className="observatory-metric-rail observatory-metric-rail--right">
+      <Metric
+        title="Investimento"
+        name="spend"
+        icon={<ObservatoryIcon name="spend" />}
+        monetary
+        value={spend !== null ? <CountUp value={spend} format={adsMoney} /> : '—'}
+        description={<><p>Investimento sincronizado da conta de anúncios no período global.</p>{ads?.lastSyncedAt ? <p>Última sincronização: <time dateTime={ads.lastSyncedAt}>{new Date(ads.lastSyncedAt).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}</time>.</p> : null}</>}
+      >
+        {adsError ? <span data-warning>Atualização pendente</span> : null}
+      </Metric>
 
-    {globe && <div className="observatory-globe">{globe}</div>}
+      <Metric
+        title="Conversão"
+        name="conversion"
+        icon={<ObservatoryIcon name="conversion" />}
+        value={<CountUp value={conversion} format={value => `${decimal(value)}%`} />}
+        description={<><p>Compras rastreadas concluídas no período divididas pelas visitas do mesmo período.</p><p>Aprovação de pagamento: <strong>{visits > 0 ? `${decimal(approval, 0)}%` : '—'}</strong>.</p></>}
+      >
+        <span><strong>{purchased.toLocaleString('pt-BR')}</strong> compras · <strong>{visits.toLocaleString('pt-BR')}</strong> visitas</span>
+      </Metric>
+
+      <Metric
+        title="ROAS"
+        name="return"
+        icon={<ObservatoryIcon name="return" />}
+        value={roas !== null ? <CountUp value={roas} format={value => `${decimal(value, 2)}×`} /> : '—'}
+        description={<><p>Receita atribuída por unidade investida.</p><p>Sem gasto no período, o indicador é exibido como 0,00×. Moedas incompatíveis continuam sem cálculo.</p>{allPeriod ? <p>Em Tudo, toda a dashboard usa a janela comparável de 365 dias.</p> : null}</>}
+      >
+        {ads?.currencyMismatch ? <span>Moedas diferentes</span> : cpa !== null ? <span>CPA <strong data-sensitive>{adsMoney(cpa)}</strong></span> : null}
+      </Metric>
+    </div>
   </div>
 }

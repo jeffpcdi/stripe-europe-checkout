@@ -1,0 +1,38 @@
+'use strict'
+
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+
+const root = path.join(__dirname, '..')
+const read = (p) => fs.readFileSync(path.join(root, p), 'utf8')
+
+const overview = read('dashboard/components/overview/overview-view.tsx')
+const attention = read('dashboard/components/overview/overview-attention.tsx')
+const funnel = read('dashboard/components/overview/funnel-gauge.tsx')
+const feed = read('dashboard/components/overview/live-feed.tsx')
+const css = read('dashboard/app/dashboard-refinement.css')
+
+assert.match(overview, /\bCampanhas\s*<\/span>/)
+assert.match(overview, /\bPaíses\s*<\/span>/)
+assert.match(overview, /\bDados\s*<\/span>/)
+assert.doesNotMatch(overview, /Campanhas em destaque/)
+assert.doesNotMatch(overview, /Países no período/)
+assert.doesNotMatch(overview, /Dados de conversão/)
+assert.match(attention, /Operação estável/)
+assert.match(attention, /sem pendências/)
+assert.doesNotMatch(attention, /Rastreamento, pagamentos e cobertura/)
+assert.match(funnel, />Funil<\/h2>/)
+assert.doesNotMatch(funnel, />Funil de vendas</)
+assert.match(feed, />Atividade<\/h2>/)
+assert.match(feed, /label: 'Venda'/)
+assert.doesNotMatch(feed, /Venda aprovada/)
+assert.match(css, /V8 — Overview secondary sections final/)
+assert.match(css, /\.overview-detail-grid\s*\{/)
+assert.match(css, /\.overview-insight-grid\s*\{/)
+assert.match(css, /@media \(min-width: 1600px\)/)
+assert.match(css, /@media \(max-width: 1099px\)/)
+assert.match(css, /@media \(max-width: 639px\)/)
+assert.match(css, /@media \(max-width: 419px\)/)
+
+console.log('Overview Secondary V8: OK')

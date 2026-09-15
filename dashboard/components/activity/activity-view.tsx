@@ -10,11 +10,13 @@ import {
   ShoppingCart,
   Sparkles,
 } from 'lucide-react'
-import { useStats } from '@/lib/api'
+import { useAccountSettings, useStats } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { formatMoney, formatDateTime } from '@/lib/format'
+import { periodStart } from '@/lib/metrics'
+import { useOverviewPeriod } from '@/lib/overview-period'
 
 const LABELS: Record<string, string> = {
   sale: 'Venda aprovada',
@@ -88,26 +90,39 @@ function Summary({ label, value, tone = 'default' }: { label: string; value: num
 
 export function ActivityView() {
   const { data, error, mutate, isLoading } = useStats()
+  const { data: settings } = useAccountSettings()
+  const { period } = useOverviewPeriod()
+  const accountTimeZone = settings?.timezone || 'America/Sao_Paulo'
   const [filter, setFilter] = useState('all')
 
+  const periodEvents = useMemo(() => {
+    const now = new Date()
+    const start = periodStart(period, now, accountTimeZone).getTime()
+    const end = now.getTime()
+    return (data?.events ?? []).filter(event => {
+      const at = Date.parse(event.at)
+      return Number.isFinite(at) && at >= start && at <= end
+    })
+  }, [data, period, accountTimeZone])
+
   const summary = useMemo(() => {
-    const rows = data?.events ?? []
+    const rows = periodEvents
     return {
       sale: rows.filter((event) => event.type === 'sale').length,
       checkout: rows.filter((event) => event.type === 'checkout').length,
       visit: rows.filter((event) => event.type === 'visit' || event.type === 'lead').length,
       failed: rows.filter((event) => event.type === 'failed').length,
     }
-  }, [data])
+  }, [periodEvents])
 
   const events = useMemo(
     () =>
-      (data?.events ?? [])
+      periodEvents
         .filter((event) => filter === 'all' || event.type === filter || (filter === 'visit' && event.type === 'lead'))
         .slice()
         .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
         .slice(0, 100),
-    [data, filter],
+    [periodEvents, filter],
   )
 
   if (error && !data) return <ErrorState onRetry={() => mutate()} />

@@ -28,13 +28,13 @@ import {
   ShieldCheck,
   HelpCircle,
   ExternalLink,
-  Sparkles,
   Info,
   ArrowRight,
   Search,
   Filter,
   Link as LinkIcon,
   SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react'
 import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend } from '@/lib/api'
 import { ErrorState } from '@/components/error-state'
@@ -414,12 +414,8 @@ export function ConversionsView() {
       )}
 
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">Pixel</h1>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        <div className="flex justify-end">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleRefreshAll}
@@ -441,8 +437,7 @@ export function ConversionsView() {
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.5fr,1fr]">
-          <GlassCard className="p-3 sm:p-4">
+        <GlassCard className="p-3 sm:p-4">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <TrackingSummaryCard title="Pixels ativos" value={`${activePixels}/${pixels.length || 0}`} tone={activePixels ? 'success' : 'default'} icon={Target} />
               <TrackingSummaryCard title="Checkouts" value={`${gateways.length}`} tone={gateways.length ? 'accent' : 'default'} icon={CreditCard} />
@@ -450,48 +445,6 @@ export function ConversionsView() {
               <TrackingSummaryCard title="Saúde" value={trackingReadiness.label} tone={trackingReadiness.tone} icon={ShieldCheck} />
             </div>
           </GlassCard>
-
-          <GlassCard className="p-4 sm:p-5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-brand-cyan" />
-              <h2 className="text-sm font-semibold text-foreground">Configuração</h2>
-            </div>
-            <div className="mt-4 space-y-3">
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-medium text-foreground">1. Pixel do TikTok</p>
-                                      </div>
-                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingPixel('new')}>Abrir</button>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-medium text-foreground">2. Checkout e webhook</p>
-                                      </div>
-                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setEditingGateway('new')}>Conectar</button>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-medium text-foreground">3. Vinculação</p>
-                                      </div>
-                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('pixels')}>Revisar pixels</button>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-medium text-foreground">4. Entrega confirmada</p>
-                                      </div>
-                  <button type="button" className="btn-ghost px-3 py-1.5 text-[11px]" onClick={() => setActiveTab('logs')}>Ver entregas</button>
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
       </div>
 
       {syncValidation.hasFailure ? (

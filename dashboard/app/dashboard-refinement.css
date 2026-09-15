@@ -3424,3 +3424,1317 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
 @media (max-width: 767px) {
   .refined-dashboard .premium-navbar { position: sticky; }
 }
+
+/* ========================================================================== */
+/* Overview Hero V7 — primeira dobra final: globo dominante, números limpos  */
+/* e atividade compacta. Não altera navbar, contratos ou lógica de negócio.  */
+/* ========================================================================== */
+.refined-dashboard .overview-observatory--premium {
+  border-color: rgb(151 207 232 / 20%);
+  border-radius: 30px;
+  background:
+    radial-gradient(ellipse at 50% 32%, rgb(20 118 148 / 31%), transparent 48%),
+    radial-gradient(ellipse at 50% 55%, rgb(32 90 126 / 13%), transparent 55%),
+    radial-gradient(ellipse at 0 0, rgb(31 73 96 / 20%), transparent 48%),
+    radial-gradient(ellipse at 100% 68%, rgb(87 57 130 / 16%), transparent 60%),
+    linear-gradient(132deg, #0d1722, #070d17 48%, #0f1120);
+  box-shadow:
+    inset 0 1px 0 rgb(226 247 255 / 12%),
+    inset 0 -1px 0 rgb(87 143 181 / 7%),
+    0 34px 84px -38px rgb(0 0 0 / 82%);
+  isolation: isolate;
+}
+.refined-dashboard .overview-observatory--premium::before {
+  opacity: .29;
+  background-size: 1380px 980px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-environment::before {
+  opacity: .48;
+  mask-image: radial-gradient(ellipse at 50% 38%, #000 0 34%, transparent 78%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-environment i {
+  opacity: .72;
+  width: 78%;
+  height: 82%;
+  left: 11%;
+  top: -2%;
+  border-color: rgb(95 210 235 / 11%);
+}
+
+/* O centro pertence ao globo. As quatro métricas funcionam como instrumentos. */
+.refined-dashboard .overview-observatory--premium .observatory-metrics {
+  grid-template-columns: minmax(230px, .92fr) minmax(500px, 2.7fr) minmax(230px, .92fr);
+  grid-template-rows: minmax(300px, 1.14fr) minmax(210px, .86fr);
+  min-height: 650px;
+  gap: 12px clamp(18px, 1.7vw, 34px);
+  padding: 26px clamp(30px, 2.6vw, 48px) 24px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric {
+  width: 100%;
+  max-width: 310px;
+  align-self: center;
+  padding: 18px 0 16px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue,
+.refined-dashboard .overview-observatory--premium .observatory-metric--conversion { justify-self: start; }
+.refined-dashboard .overview-observatory--premium .observatory-metric--spend,
+.refined-dashboard .overview-observatory--premium .observatory-metric--return { justify-self: end; }
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue { max-width: 330px; }
+.refined-dashboard .overview-observatory--premium .observatory-metric::after {
+  width: min(100%, 280px);
+  opacity: .72;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading {
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading h3 {
+  color: rgb(205 220 232 / 78%);
+  font-size: 12px;
+  font-weight: 610;
+  letter-spacing: .005em;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border-color: color-mix(in srgb, var(--metric-accent, var(--observatory-cyan)) 18%, transparent);
+  background: color-mix(in srgb, var(--metric-accent, var(--observatory-cyan)) 5%, transparent);
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-info summary {
+  width: 30px;
+  min-height: 32px;
+  opacity: .64;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-value {
+  font-size: clamp(34px, 3vw, 50px);
+  line-height: 1.02;
+  font-weight: 660;
+  letter-spacing: -.055em;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value {
+  font-size: clamp(42px, 3.7vw, 62px);
+  letter-spacing: -.06em;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-context {
+  gap: 4px;
+  margin-top: 9px;
+  color: rgb(172 189 206 / 72%);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-comparison {
+  gap: 7px;
+  margin-top: 9px;
+  color: rgb(172 189 206 / 72%);
+  font-size: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-change {
+  padding: 3px 6px;
+  border-radius: 999px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend {
+  margin: 10px -3px 8px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart {
+  height: 68px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-sales {
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(172 189 206 / 72%);
+  font-size: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-sales svg { width: 13px; height: 13px; }
+.refined-dashboard .overview-observatory--premium .observatory-metric > .observatory-text-link {
+  min-height: 30px;
+  margin-top: 5px;
+  padding: 2px 0;
+  font-size: 10px;
+  opacity: .82;
+}
+
+/* Mais área útil para a Terra sem escalar artificialmente o canvas. */
+.refined-dashboard .overview-observatory--premium .observatory-globe {
+  min-height: 650px;
+  align-self: stretch;
+}
+.refined-dashboard .overview-observatory--premium .observatory-globe::before {
+  inset: -9%;
+  background:
+    radial-gradient(circle at 50% 44%, rgb(99 235 246 / 12%) 0%, rgb(56 151 214 / 6%) 38%, transparent 70%);
+}
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas {
+  inset: -14px -62px 66px;
+}
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls {
+  bottom: 8px;
+  padding: 5px;
+  gap: 1px;
+  border-color: rgb(140 215 234 / 18%);
+  background: rgb(9 18 31 / 80%);
+  backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgb(190 230 255 / 8%), 0 10px 26px rgb(0 0 0 / 28%);
+}
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded .presence-controls button {
+  min-width: 38px;
+  min-height: 40px;
+  height: 40px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-globe-caption { top: 8px; }
+.refined-dashboard .overview-observatory--premium .observatory-globe-caption button {
+  min-height: 32px;
+  padding: 5px 9px;
+  border-color: rgb(133 192 231 / 18%);
+  background: rgb(7 20 34 / 76%);
+  backdrop-filter: blur(10px);
+  font-size: 10px;
+}
+
+/* Os três blocos inferiores ficam mais baixos e uniformes. */
+.refined-dashboard .overview-observatory--premium .observatory-activity {
+  grid-template-columns: .82fr 1fr 1.22fr;
+  gap: 12px;
+  margin: 0 24px 24px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity > section {
+  min-height: 150px;
+  padding: 16px 18px;
+  border-color: rgb(158 203 232 / 13%);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgb(20 34 49 / 69%), rgb(7 14 25 / 79%));
+  box-shadow: inset 0 1px 0 rgb(226 246 255 / 5%), 0 12px 28px -20px rgb(0 0 0 / 65%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity-heading {
+  min-height: 30px;
+  gap: 6px 8px;
+  margin-bottom: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity-heading h3 {
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 610;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-state {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-total {
+  gap: 7px;
+  padding: 4px 0 0;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-total strong {
+  font-size: clamp(42px, 3vw, 54px);
+  font-weight: 650;
+  letter-spacing: -.06em;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-total > span {
+  color: rgb(172 189 206 / 68%);
+  font-size: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-country-list { gap: 4px; }
+.refined-dashboard .overview-observatory--premium .observatory-country-list button {
+  min-height: 34px;
+  padding: 5px 6px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 11px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-country-track { height: 3px; }
+.refined-dashboard .overview-observatory--premium .observatory-purchase {
+  min-height: 36px;
+  gap: 9px;
+  font-size: 11px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-purchase > strong { font-size: 13px; }
+.refined-dashboard .overview-observatory--premium .observatory-purchase > time { font-size: 9px; opacity: .72; }
+.refined-dashboard .overview-observatory--premium .observatory-activity-heading > span {
+  margin-left: auto;
+  color: rgb(172 189 206 / 58%);
+  font-size: 9px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity-heading .observatory-text-link {
+  min-height: 28px;
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: .78;
+}
+.refined-dashboard .overview-observatory--premium .observatory-empty {
+  margin-top: 8px;
+  padding: 12px;
+  border-color: rgb(146 198 225 / 12%);
+  background: rgb(4 12 22 / 14%);
+  font-size: 10px;
+}
+
+/* Ultrawide: mais escala no centro, sem transformar KPIs laterais em cards. */
+@media (min-width: 1800px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(270px, .86fr) minmax(680px, 3fr) minmax(270px, .86fr);
+    grid-template-rows: minmax(320px, 1.12fr) minmax(220px, .88fr);
+    min-height: 710px;
+    padding: 30px 54px 26px;
+    column-gap: clamp(30px, 2.5vw, 52px);
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric { max-width: 340px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue { max-width: 360px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value { font-size: clamp(42px, 2.8vw, 58px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(52px, 3.3vw, 70px); }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 710px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -26px -88px 64px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity { margin-inline: 34px; margin-bottom: 28px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity > section { padding: 18px 20px; }
+}
+
+/* Notebook: preserva os 3 eixos, mas segura altura e tipografia. */
+@media (min-width: 1100px) and (max-width: 1439px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(205px, .95fr) minmax(400px, 2.18fr) minmax(205px, .95fr);
+    grid-template-rows: minmax(265px, 1.14fr) minmax(190px, .86fr);
+    min-height: 575px;
+    gap: 10px 18px;
+    padding: 18px 24px 20px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric { max-width: 270px; padding-block: 14px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue { max-width: 285px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value { font-size: clamp(31px, 2.7vw, 40px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(37px, 3.25vw, 48px); }
+  .refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart { height: 58px; }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 575px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -8px -42px 64px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity { gap: 10px; margin: 0 18px 18px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity > section { min-height: 140px; padding: 14px 15px; }
+  .refined-dashboard .overview-observatory--premium .observatory-live-total strong { font-size: 44px; }
+}
+
+/* Tablet: globo vira a faixa de respiro entre KPIs superiores e inferiores. */
+@media (min-width: 640px) and (max-width: 1099px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: 'revenue spend' 'globe globe' 'conversion return';
+    grid-template-rows: auto 500px auto;
+    min-height: 0;
+    gap: 12px 28px;
+    padding: 18px 22px 18px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric {
+    max-width: none;
+    justify-self: stretch;
+    align-self: center;
+    padding: 14px 0;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value { font-size: clamp(32px, 4.5vw, 44px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(38px, 5vw, 52px); }
+  .refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart { height: 62px; }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 0; height: 500px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -6px -32px 66px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity { grid-template-columns: 1fr 1fr; margin: 0 18px 18px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity .observatory-purchases { grid-column: 1 / -1; }
+}
+
+/* Mobile: leitura em uma mão, globo ainda protagonista, sem texto sobrando. */
+@media (max-width: 639px) {
+  .refined-dashboard .overview-observatory--premium {
+    border-radius: 22px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: 'revenue revenue' 'globe globe' 'spend spend' 'conversion return';
+    grid-template-rows: auto 410px auto auto;
+    gap: 8px 14px;
+    padding: 12px 14px 10px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric {
+    max-width: none;
+    justify-self: stretch;
+    padding: 11px 0;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-heading { margin-bottom: 9px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value { font-size: clamp(26px, 8vw, 34px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(36px, 10vw, 44px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-context { margin-top: 7px; font-size: 10px; }
+  .refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart { height: 56px; }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { height: 410px; min-height: 0; margin: 0 -8px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -2px -14px 64px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-controls { bottom: 8px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity { grid-template-columns: 1fr; gap: 8px; margin: 0 10px 12px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity > section { min-height: 0; padding: 14px 15px; border-radius: 14px; }
+  .refined-dashboard .overview-observatory--premium .observatory-live-total strong { font-size: 42px; }
+  .refined-dashboard .overview-observatory--premium .observatory-country-list button { min-height: 36px; }
+}
+
+@media (max-width: 419px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-areas: 'revenue revenue' 'globe globe' 'spend spend' 'conversion conversion' 'return return';
+    grid-template-rows: auto 390px auto auto auto;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { height: 390px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--conversion,
+  .refined-dashboard .overview-observatory--premium .observatory-metric--return { border-bottom: 1px solid rgb(158 203 232 / 8%); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   V8 — Overview secondary sections final
+   Abaixo do Hero, a interface vira dois decks contínuos em vez de uma parede
+   de cards. Nenhuma métrica, navegação ou comportamento foi adicionado.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.refined-dashboard .overview-view {
+  --overview-secondary-line: rgb(151 196 224 / 11%);
+  --overview-secondary-rim: rgb(185 224 244 / 17%);
+  --overview-secondary-surface: linear-gradient(145deg, rgb(15 24 38 / 72%), rgb(7 12 22 / 76%));
+}
+
+/* Saúde vira uma faixa de estado; quando tudo está bem, permanece silenciosa. */
+.refined-dashboard .overview-attention {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 58px;
+  border-radius: 16px;
+  border-color: var(--overview-secondary-line);
+  background: linear-gradient(100deg, rgb(14 24 37 / 64%), rgb(8 14 24 / 58%));
+  box-shadow: inset 0 1px 0 rgb(225 244 255 / 4%);
+}
+.refined-dashboard .overview-attention::before { width: 2px; opacity: .65; }
+.refined-dashboard .overview-attention-summary {
+  min-height: 58px;
+  padding: 10px 16px 10px 18px;
+  gap: 10px;
+}
+.refined-dashboard .overview-attention-status {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.refined-dashboard .overview-attention-title-row { gap: 8px; }
+.refined-dashboard .overview-attention-title-row h2 {
+  font-size: 13px;
+  font-weight: 610;
+}
+.refined-dashboard .overview-attention-title-row > span {
+  padding: 2px 6px;
+  border-color: rgb(160 202 229 / 9%);
+  background: rgb(255 255 255 / 1.5%);
+  color: var(--refine-dim);
+  font-size: 9px;
+}
+.refined-dashboard .overview-attention-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--overview-secondary-line);
+  border-left: 0;
+}
+.refined-dashboard .overview-attention-action {
+  min-height: 58px;
+  padding: 10px 13px;
+  border-color: var(--overview-secondary-line);
+}
+.refined-dashboard .overview-attention-action strong { font-size: 10.5px; }
+.refined-dashboard .overview-attention-action small {
+  margin-top: 2px;
+  font-size: 9px;
+  -webkit-line-clamp: 1;
+}
+.refined-dashboard .overview-attention--loading {
+  min-height: 58px;
+  padding: 10px 16px;
+}
+.refined-dashboard .overview-attention-skeleton--text { display: none; }
+
+/* Funil + atividade passam a ser um único deck visual contínuo. */
+.refined-dashboard .overview-detail-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--overview-secondary-line);
+  border-top-color: var(--overview-secondary-rim);
+  border-radius: 20px;
+  background: var(--overview-secondary-surface);
+  box-shadow: inset 0 1px 0 rgb(230 247 255 / 4%), 0 18px 48px -42px rgb(0 0 0 / 85%);
+}
+.refined-dashboard .overview-detail-grid > :is(.journey-funnel, .recent-visits) {
+  min-width: 0;
+  padding: 20px 22px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.refined-dashboard .overview-detail-grid > :is(.journey-funnel, .recent-visits)::before { display: none !important; }
+.refined-dashboard .overview-detail-grid > .recent-visits { border-left: 1px solid var(--overview-secondary-line) !important; }
+
+.refined-dashboard .dashboard-main .overview-section-heading {
+  min-height: 34px;
+  margin-bottom: 12px;
+}
+.refined-dashboard .dashboard-main .overview-section-heading h2 {
+  gap: 8px;
+  color: var(--refine-white);
+  font-size: 13px;
+  font-weight: 610;
+  letter-spacing: -.01em;
+}
+.refined-dashboard .dashboard-main .overview-section-icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(101 233 244 / 5%);
+}
+.refined-dashboard .dashboard-main .overview-section-link {
+  min-height: 30px;
+  color: var(--refine-muted);
+  font-size: 11px;
+}
+.refined-dashboard .dashboard-main .overview-section-link:hover { color: var(--refine-cyan); }
+.refined-dashboard .overview-summary-badge {
+  padding: 3px 7px;
+  border-color: rgb(113 228 173 / 12%);
+  background: rgb(113 228 173 / 4%);
+  color: var(--refine-green);
+  font-size: 10px;
+}
+
+/* Funil: linhas, não mini-cards. */
+.refined-dashboard .journey-funnel-list { display: flex; flex-direction: column; }
+.refined-dashboard .dashboard-main .journey-step {
+  min-height: 56px;
+  padding: 10px 0;
+  border: 0 !important;
+  border-bottom: 1px solid var(--overview-secondary-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.refined-dashboard .dashboard-main .journey-step:last-child { border-bottom: 0 !important; }
+.refined-dashboard .journey-step-number {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgb(101 233 244 / 9%);
+  border-radius: 8px;
+  background: rgb(101 233 244 / 4%);
+  color: var(--refine-cyan);
+  font-size: 9px;
+}
+.refined-dashboard .journey-step[data-final='true'] .journey-step-number {
+  border-color: rgb(113 228 173 / 13%);
+  background: rgb(113 228 173 / 5%);
+}
+.refined-dashboard .journey-step-label {
+  min-width: 0;
+  color: var(--refine-muted);
+  font-size: 11px;
+  font-weight: 550;
+}
+.refined-dashboard .journey-step-value {
+  margin-left: auto;
+  color: var(--refine-white);
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.refined-dashboard .journey-step-rate {
+  min-width: 54px;
+  justify-content: flex-end;
+  color: var(--refine-dim);
+  font-size: 10px;
+}
+.refined-dashboard .journey-step-rate svg { color: currentColor; }
+.refined-dashboard .journey-step-track {
+  height: 3px;
+  margin-top: 7px;
+  background: rgb(208 231 247 / 6%);
+}
+.refined-dashboard .journey-step-track > span { opacity: .82; }
+
+/* Atividade: densidade semelhante ao funil, com badges discretos. */
+.refined-dashboard .recent-visits-list { display: flex; flex-direction: column; }
+.refined-dashboard .dashboard-main .recent-visit-row,
+.refined-dashboard .dashboard-main .recent-visit-row:last-child {
+  min-height: 56px;
+  padding: 9px 0;
+  gap: 10px;
+  border-bottom-color: var(--overview-secondary-line);
+}
+.refined-dashboard .dashboard-main .recent-visit-place {
+  width: 30px;
+  height: 30px;
+  border-color: rgb(160 202 229 / 9%);
+  border-radius: 8px;
+  background: rgb(165 190 236 / 2.5%);
+  font-size: 15px;
+}
+.refined-dashboard .recent-visit-description { align-items: center; }
+.refined-dashboard .recent-visit-stage {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding-inline: 0 !important;
+  color: var(--refine-dim);
+}
+.refined-dashboard .recent-visit-stage svg { opacity: .75; }
+.refined-dashboard .recent-visit-row[data-purchased='true'] .recent-visit-stage { color: var(--refine-green); }
+.refined-dashboard .recent-visit-time strong { font-size: 11px; }
+
+/* Campanhas + países + dados formam um único painel de leitura. */
+.refined-dashboard .overview-insight-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(240px, .82fr);
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--overview-secondary-line);
+  border-top-color: var(--overview-secondary-rim);
+  border-radius: 20px;
+  background: var(--overview-secondary-surface);
+  box-shadow: inset 0 1px 0 rgb(230 247 255 / 4%), 0 18px 48px -42px rgb(0 0 0 / 85%);
+}
+.refined-dashboard .overview-insight-card {
+  min-width: 0;
+  padding: 20px 22px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.refined-dashboard .overview-insight-card::before { display: none !important; }
+.refined-dashboard .overview-insight-card + .overview-insight-card { border-left: 1px solid var(--overview-secondary-line) !important; }
+.refined-dashboard .overview-insight-heading {
+  min-height: 34px;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--overview-secondary-line);
+}
+.refined-dashboard .overview-insight-heading :is(.text-sm, span.text-sm) {
+  font-size: 12px !important;
+  font-weight: 610 !important;
+}
+.refined-dashboard .overview-insight-heading svg { opacity: .86; }
+
+/* Campanhas: menos badges e separadores, mais leitura de números. */
+.refined-dashboard .dashboard-main .overview-campaign-row {
+  min-height: 58px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--overview-secondary-line);
+  border-radius: 0;
+  background: transparent !important;
+}
+.refined-dashboard .dashboard-main .overview-campaign-row:last-child { border-bottom: 0; }
+.refined-dashboard .overview-rank {
+  width: 24px;
+  height: 24px;
+  border-color: rgb(160 202 229 / 9%);
+  background: rgb(255 255 255 / 2%);
+  color: var(--refine-dim);
+  font-size: 9px;
+}
+.refined-dashboard .overview-campaign-metrics { gap: 0; }
+.refined-dashboard .overview-campaign-metrics > span {
+  min-width: 54px;
+  padding-left: 10px;
+  border-left-color: var(--overview-secondary-line);
+}
+.refined-dashboard .overview-campaign-metrics small { font-size: 7.5px; letter-spacing: .06em; }
+.refined-dashboard .overview-campaign-metrics strong { font-size: 10.5px; }
+
+/* Países: linhas selecionáveis sem cápsulas dentro do painel. */
+.refined-dashboard .overview-country-row {
+  min-height: 47px !important;
+  padding: 8px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--overview-secondary-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.refined-dashboard .overview-country-row:last-child { border-bottom: 0 !important; }
+.refined-dashboard .overview-country-row:hover,
+.refined-dashboard .overview-country-row[aria-pressed='true'] {
+  color: var(--refine-white);
+  background: rgb(101 233 244 / 2.5%) !important;
+}
+.refined-dashboard .overview-country-row[aria-pressed='true'] { box-shadow: inset 2px 0 0 var(--refine-cyan) !important; }
+.refined-dashboard .overview-country-row .rounded-full { box-shadow: none !important; }
+
+/* Qualidade dos dados: cobertura em linhas discretas, sem card interno. */
+.refined-dashboard .overview-data-coverage {
+  grid-template-columns: 1fr;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.refined-dashboard .overview-data-coverage > span {
+  min-height: 39px;
+  padding: 8px 0;
+  border-top: 1px solid var(--overview-secondary-line);
+}
+.refined-dashboard .overview-data-coverage > span + span {
+  border-top: 1px solid var(--overview-secondary-line);
+  border-left: 0;
+}
+.refined-dashboard .overview-data-coverage small { font-size: 9px; }
+.refined-dashboard .overview-data-coverage strong { font-size: 12px; }
+
+/* Ultralargo: respira mais, sem deixar os painéis vazios demais. */
+@media (min-width: 1600px) {
+  .refined-dashboard .overview-detail-grid > :is(.journey-funnel, .recent-visits),
+  .refined-dashboard .overview-insight-card { padding-inline: 26px !important; }
+  .refined-dashboard .overview-insight-grid { grid-template-columns: minmax(0, 1.48fr) minmax(0, 1fr) minmax(260px, .78fr); }
+}
+
+/* Notebook/tablet: mantém o deck, muda apenas a composição. */
+@media (max-width: 1099px) {
+  .refined-dashboard .overview-attention-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .refined-dashboard .overview-insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .refined-dashboard .overview-insight-card + .overview-insight-card { border-left: 1px solid var(--overview-secondary-line) !important; }
+  .refined-dashboard .overview-insight-card:nth-child(3) {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--overview-secondary-line) !important;
+    border-left: 0 !important;
+  }
+  .refined-dashboard .overview-insight-card:nth-child(3) > .my-auto {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr);
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+  }
+}
+
+/* Mobile: cada deck vira uma pilha contínua com divisores horizontais. */
+@media (max-width: 639px) {
+  .refined-dashboard .overview-attention { border-radius: 14px; }
+  .refined-dashboard .overview-attention-summary { min-height: 52px; padding: 9px 13px 9px 15px; }
+  .refined-dashboard .overview-attention-status { width: 30px; height: 30px; }
+  .refined-dashboard .overview-attention-actions { grid-template-columns: 1fr; }
+  .refined-dashboard .overview-attention-action { min-height: 54px; border-right: 0; border-bottom: 1px solid var(--overview-secondary-line); }
+  .refined-dashboard .overview-attention-action:last-child { border-bottom: 0; }
+  .refined-dashboard .overview-attention-action small { -webkit-line-clamp: 2; }
+
+  .refined-dashboard .overview-detail-grid,
+  .refined-dashboard .overview-insight-grid {
+    grid-template-columns: minmax(0, 1fr);
+    border-radius: 16px;
+  }
+  .refined-dashboard .overview-detail-grid > :is(.journey-funnel, .recent-visits),
+  .refined-dashboard .overview-insight-card { padding: 16px !important; }
+  .refined-dashboard .overview-detail-grid > .recent-visits {
+    border-top: 1px solid var(--overview-secondary-line) !important;
+    border-left: 0 !important;
+  }
+  .refined-dashboard .overview-insight-card + .overview-insight-card,
+  .refined-dashboard .overview-insight-card:nth-child(3) {
+    grid-column: auto;
+    border-top: 1px solid var(--overview-secondary-line) !important;
+    border-left: 0 !important;
+  }
+  .refined-dashboard .overview-insight-card:nth-child(3) > .my-auto {
+    display: block;
+    width: auto;
+  }
+  .refined-dashboard .dashboard-main .overview-section-heading { margin-bottom: 9px; }
+  .refined-dashboard .journey-step-value { font-size: 13px; }
+  .refined-dashboard .journey-step-rate { min-width: 48px; font-size: 9px; }
+  .refined-dashboard .recent-visit-description { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .refined-dashboard .recent-visit-stage { font-size: 9px !important; }
+  .refined-dashboard .dashboard-main .overview-campaign-row { align-items: flex-start; padding-block: 10px; }
+  .refined-dashboard .overview-campaign-metrics {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--overview-secondary-line);
+  }
+  .refined-dashboard .overview-campaign-metrics > span { align-items: flex-start; padding-left: 0; border-left: 0; }
+}
+
+@media (max-width: 419px) {
+  .refined-dashboard .overview-detail-grid > :is(.journey-funnel, .recent-visits),
+  .refined-dashboard .overview-insight-card { padding-inline: 13px !important; }
+  .refined-dashboard .journey-step-number { width: 26px; height: 26px; }
+  .refined-dashboard .journey-step-label { font-size: 10px; }
+  .refined-dashboard .journey-step-rate { min-width: 43px; }
+}
+
+/* V9 — limpeza do topo, logo horizontal e hero mais consistente. */
+.refined-dashboard .overview-attention { display: none !important; }
+
+.refined-dashboard .premium-navbar__actions {
+  gap: 8px;
+}
+.refined-dashboard .premium-navbar__workspace,
+.refined-dashboard .premium-navbar__durability {
+  display: none !important;
+}
+.refined-dashboard .premium-navbar__brand {
+  flex-basis: 210px;
+  width: 210px;
+  height: 56px;
+}
+.refined-dashboard .premium-navbar__wordmark {
+  object-fit: contain;
+  object-position: left center;
+}
+@media (max-width: 767px) {
+  .refined-dashboard .premium-navbar__brand {
+    flex-basis: 148px;
+    width: 148px;
+    height: 38px;
+  }
+}
+
+.refined-dashboard .ads-account-context {
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgb(12 19 34 / 88%), rgb(9 15 28 / 92%));
+  box-shadow: inset 0 1px 0 rgb(210 235 255 / 6%);
+}
+.refined-dashboard .ads-account-context select {
+  min-height: 40px;
+  border-radius: 12px;
+  background: rgb(4 10 20 / 72%);
+}
+
+.refined-dashboard .overview-view {
+  gap: 18px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metrics {
+  grid-template-columns: minmax(260px, 1fr) minmax(560px, 1.7fr) minmax(260px, 1fr);
+  gap: 18px 28px;
+  align-items: stretch;
+  padding: 26px 34px 24px;
+  min-height: 640px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-self: stretch;
+  min-height: 222px;
+  max-width: none;
+  padding: 18px 0 18px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue,
+.refined-dashboard .overview-observatory--premium .observatory-metric--spend,
+.refined-dashboard .overview-observatory--premium .observatory-metric--conversion,
+.refined-dashboard .overview-observatory--premium .observatory-metric--return {
+  max-width: 100%;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading h3 {
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-value {
+  font-size: clamp(34px, 2.4vw, 46px);
+  line-height: 1.02;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value {
+  font-size: clamp(42px, 3vw, 58px);
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-comparison {
+  min-height: 18px;
+  margin-top: 10px;
+  font-size: 11px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-comparison:empty,
+.refined-dashboard .overview-observatory--premium .observatory-metric-context:empty,
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend:empty {
+  display: none;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend {
+  margin-top: 14px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart {
+  height: 56px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-context {
+  margin-top: auto;
+  min-height: 18px;
+  padding-top: 12px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-sales {
+  margin-top: 14px;
+  padding: 6px 9px;
+  border-radius: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-globe {
+  min-height: 660px;
+}
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas {
+  inset: -20px -56px 64px;
+}
+
+@media (min-width: 1600px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(290px, 1fr) minmax(700px, 1.95fr) minmax(290px, 1fr);
+    min-height: 700px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 720px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -28px -96px 60px; }
+}
+
+@media (max-width: 1199px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'revenue spend'
+      'globe globe'
+      'conversion return';
+    min-height: 0;
+    gap: 14px 22px;
+    padding: 20px 20px 16px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric {
+    min-height: 180px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe {
+    min-height: 0;
+    height: 520px;
+  }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas {
+    inset: -10px -34px 64px;
+  }
+}
+
+@media (max-width: 639px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'revenue revenue'
+      'globe globe'
+      'spend spend'
+      'conversion return';
+    gap: 10px 14px;
+    padding: 14px 14px 10px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric {
+    min-height: 0;
+    padding: 14px 0;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-heading h3 {
+    font-size: 11px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value {
+    font-size: clamp(28px, 8vw, 36px);
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value {
+    font-size: clamp(36px, 10vw, 48px);
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart {
+    height: 48px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe {
+    height: 430px;
+    margin: 0 -4px;
+  }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas {
+    inset: -4px -14px 62px;
+  }
+}
+
+@media (max-width: 419px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-areas:
+      'revenue revenue'
+      'globe globe'
+      'spend spend'
+      'conversion conversion'
+      'return return';
+  }
+}
+
+/* ========================================================================== */
+/* V10 — período global, rails do Hero, atividade compacta e subnav alinhada. */
+/* ========================================================================== */
+
+/* Hero: dois rails perfeitamente alinhados ao globo. */
+.refined-dashboard .overview-observatory--premium .observatory-metrics {
+  display: grid;
+  grid-template-columns: minmax(260px, .92fr) minmax(560px, 2.35fr) minmax(260px, .92fr);
+  grid-template-areas: 'left globe right';
+  grid-template-rows: minmax(650px, auto);
+  align-items: stretch;
+  gap: clamp(20px, 2vw, 36px);
+  min-height: 680px;
+  padding: 28px clamp(28px, 2.6vw, 48px) 24px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-rail--left { grid-area: left; }
+.refined-dashboard .overview-observatory--premium .observatory-metric-rail--right { grid-area: right; }
+.refined-dashboard .overview-observatory--premium .observatory-globe {
+  grid-area: globe;
+  min-width: 0;
+  min-height: 680px;
+  align-self: stretch;
+}
+
+/* Instrumentos laterais: mesma geometria, sem desalinhamentos ou linhas soltas. */
+.refined-dashboard .overview-observatory--premium .observatory-metric {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 146px;
+  flex-direction: column;
+  justify-content: center;
+  align-self: auto;
+  padding: 17px 18px;
+  border: 1px solid rgb(153 203 228 / 11%) !important;
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgb(17 29 44 / 58%), rgb(8 16 28 / 54%)) !important;
+  box-shadow: inset 0 1px 0 rgb(220 243 255 / 5%), 0 16px 34px -28px rgb(0 0 0 / 72%) !important;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric::after { display: none !important; }
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue {
+  min-height: 278px;
+  justify-self: stretch;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--profit {
+  --metric-accent: var(--refine-green);
+  min-height: 148px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--profit[data-tone='negative'] {
+  --metric-accent: #fb7185;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--profit[data-tone='positive'] .observatory-metric-value { color: #9ef3c8; }
+.refined-dashboard .overview-observatory--premium .observatory-metric--profit[data-tone='negative'] .observatory-metric-value { color: #ff9aad; }
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading {
+  margin-bottom: 11px;
+  gap: 9px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-heading h3 {
+  font-size: 10px;
+  font-weight: 690;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: rgb(185 203 219 / 72%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-info summary {
+  width: 28px;
+  min-height: 30px;
+  opacity: .52;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-value {
+  font-size: clamp(32px, 2.4vw, 45px);
+  line-height: 1.02;
+  font-weight: 680;
+  letter-spacing: -.055em;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value {
+  font-size: clamp(42px, 3.2vw, 58px);
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-context {
+  min-height: 0;
+  margin-top: 9px;
+  padding-top: 0;
+  color: rgb(174 191 207 / 68%);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric-context:empty { display: none; }
+.refined-dashboard .overview-observatory--premium .observatory-revenue-comparison {
+  min-height: 0;
+  margin-top: 8px;
+  color: rgb(174 191 207 / 66%);
+  font-size: 10px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend {
+  margin: 10px -2px 8px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend:empty { display: none; }
+.refined-dashboard .overview-observatory--premium .observatory-revenue-trend .overview-revenue-chart { height: 58px; }
+.refined-dashboard .overview-observatory--premium .observatory-revenue-sales {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(174 191 207 / 66%);
+  font-size: 10px;
+}
+
+/* Globo ainda mais central, sem ampliar os rails. */
+.refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas {
+  inset: -22px -68px 62px;
+}
+
+/* Visitantes ao vivo deixa de ser card; países e compras ocupam metades iguais. */
+.refined-dashboard .overview-observatory--premium .observatory-activity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 28px 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.refined-dashboard .overview-observatory--premium .observatory-activity > section {
+  min-width: 0;
+  min-height: 174px;
+  padding: 18px;
+  border: 1px solid rgb(164 199 233 / 15%);
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgb(19 34 50 / 68%), rgb(8 17 29 / 72%));
+  box-shadow: inset 0 1px 0 rgb(230 247 255 / 5%), 0 12px 24px -20px rgb(0 0 0 / 60%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-live {
+  grid-column: 1 / -1;
+  display: flex;
+  min-height: 38px !important;
+  align-items: center;
+  padding: 2px 4px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-compact {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: rgb(174 191 207 / 72%);
+  font-size: 10px;
+  line-height: 1;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-compact > strong {
+  color: #f4fbff;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.refined-dashboard .overview-observatory--premium .observatory-live-label {
+  color: var(--observatory-cyan);
+  font-weight: 650;
+}
+.refined-dashboard .overview-observatory--premium .observatory-new-access-compact {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  margin-left: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgb(112 230 252 / 12%);
+  border-radius: 999px;
+  background: rgb(112 230 252 / 5%);
+  color: rgb(205 231 241 / 78%);
+  font-size: 9px;
+}
+.refined-dashboard .overview-observatory--premium .observatory-countries,
+.refined-dashboard .overview-observatory--premium .observatory-purchases {
+  min-height: 174px;
+}
+
+/* Controles do globo: transições menos abruptas. */
+.refined-dashboard .overview-observatory--premium .presence-controls {
+  transition: opacity 260ms ease, background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+}
+.refined-dashboard .overview-observatory--premium .presence-controls button,
+.refined-dashboard .overview-observatory--premium .presence-controls .presence-expand {
+  transition: color 240ms ease, background-color 240ms ease, border-color 240ms ease, opacity 240ms ease, transform 260ms cubic-bezier(.22,1,.36,1), box-shadow 260ms ease;
+}
+@media (hover: hover) {
+  .refined-dashboard .overview-observatory--premium .presence-controls button:hover:not(:disabled),
+  .refined-dashboard .overview-observatory--premium .presence-controls .presence-expand:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+.refined-dashboard .overview-observatory--premium .presence-controls button:active:not(:disabled) {
+  transform: scale(.96);
+}
+
+/* Sub-abas: mesma altura/largura e centro real nos dois módulos. */
+.refined-dashboard .context-nav-shell { justify-content: center; }
+.refined-dashboard .context-nav {
+  justify-content: center;
+  width: fit-content;
+  margin-inline: auto;
+}
+.refined-dashboard .context-nav__item,
+.refined-dashboard .section-tabs--ads .tiktok-section-tab {
+  box-sizing: border-box;
+  min-width: 118px !important;
+  min-height: 42px !important;
+  height: 42px;
+  padding: 0 14px !important;
+  border-radius: 10px !important;
+  justify-content: center !important;
+  font-size: 12px !important;
+}
+.refined-dashboard .tiktok-tabs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.refined-dashboard .tiktok-tabs-row .section-tabs--ads {
+  grid-column: 2;
+  justify-self: center;
+  min-width: 0;
+  width: fit-content;
+}
+.refined-dashboard .tiktok-tabs-actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (min-width: 1600px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(290px, .88fr) minmax(720px, 2.55fr) minmax(290px, .88fr);
+    grid-template-rows: minmax(720px, auto);
+    min-height: 740px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 720px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -34px -106px 58px; }
+}
+
+@media (max-width: 1199px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'left' 'globe' 'right';
+    grid-template-rows: auto 520px auto;
+    min-height: 0;
+    gap: 14px;
+    padding: 18px 20px 16px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--left {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(220px, .65fr);
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--right {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric,
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue {
+    min-height: 156px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { min-height: 0; height: 520px; }
+  .refined-dashboard .overview-observatory--premium .presence-stage--embedded:not(.presence-stage-immersive) .presence-canvas { inset: -10px -34px 62px; }
+  .refined-dashboard .tiktok-tabs-row {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+  .refined-dashboard .tiktok-tabs-row .section-tabs--ads,
+  .refined-dashboard .tiktok-tabs-actions { grid-column: 1; justify-self: center; }
+}
+
+@media (max-width: 767px) {
+  .refined-dashboard .context-nav {
+    justify-content: flex-start;
+    width: auto;
+    max-width: 100%;
+  }
+  .refined-dashboard .context-nav__item,
+  .refined-dashboard .section-tabs--ads .tiktok-section-tab {
+    min-width: 108px !important;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--left,
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--right {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue { grid-column: 1 / -1; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--return { grid-column: 1 / -1; }
+}
+
+@media (max-width: 639px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metrics {
+    grid-template-rows: auto 430px auto;
+    padding: 12px 12px 10px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--left,
+  .refined-dashboard .overview-observatory--premium .observatory-metric-rail--right {
+    display: flex;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric,
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue {
+    min-height: 132px;
+    padding: 14px 15px;
+    border-radius: 15px;
+  }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue { min-height: 190px; }
+  .refined-dashboard .overview-observatory--premium .observatory-metric-value { font-size: clamp(28px, 8vw, 36px); }
+  .refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-value { font-size: clamp(36px, 10vw, 46px); }
+  .refined-dashboard .overview-observatory--premium .observatory-globe { height: 430px; }
+  .refined-dashboard .overview-observatory--premium .observatory-activity { grid-template-columns: 1fr; gap: 9px; margin: 0 10px 12px; }
+  .refined-dashboard .overview-observatory--premium .observatory-live { grid-column: 1; }
+  .refined-dashboard .overview-observatory--premium .observatory-countries,
+  .refined-dashboard .overview-observatory--premium .observatory-purchases { min-height: 158px; }
+}
+.refined-dashboard .ads-context-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(153 203 228 / 12%);
+  border-radius: 11px;
+  background: rgb(4 10 20 / 52%);
+  color: var(--refine-muted);
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+.refined-dashboard .ads-context-icon:hover:not(:disabled) {
+  color: var(--refine-white);
+  border-color: rgb(101 233 244 / 20%);
+  background: rgb(101 233 244 / 6%);
+}
+.refined-dashboard .ads-context-icon:active:not(:disabled) { transform: scale(.97); }
+.refined-dashboard .ads-context-icon:disabled { opacity: .4; cursor: wait; }

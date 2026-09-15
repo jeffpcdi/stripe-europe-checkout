@@ -6,10 +6,8 @@ import Image from 'next/image'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { LogOut, Eye, EyeOff, Settings } from 'lucide-react'
 import { useAccount } from '@/lib/api'
-import { DurabilityBadge } from './durability-badge'
 import { NotificationBell } from './notification-bell'
 import { OverviewCalendar } from './overview-calendar'
-import { WorkspaceMenu } from './workspace-menu'
 import { usePrefs } from '@/lib/prefs'
 
 function UserMenu() {
@@ -28,7 +26,7 @@ function UserMenu() {
 
   async function logout() {
     await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    try { localStorage.setItem('roi:logout', String(Date.now())) } catch { /* Armazenamento indisponível. */ }
+    try { localStorage.setItem('roi:logout', String(Date.now())) } catch {}
     window.location.href = loginUrl
   }
 
@@ -72,9 +70,7 @@ function UserMenu() {
 export function Header() {
   return (
     <div className="premium-navbar__actions">
-      <div className="premium-navbar__workspace premium-navbar__workspace--utility"><WorkspaceMenu /></div>
       <OverviewCalendar />
-      <div className="premium-navbar__durability"><DurabilityBadge /></div>
       <NotificationBell />
       <UserMenu />
     </div>

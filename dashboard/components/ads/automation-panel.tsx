@@ -833,9 +833,6 @@ export function AutomationPanel({
               <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
               <h2 className="text-sm font-semibold text-foreground">Automação operacional</h2>
             </div>
-            <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-              Defina o nível de autonomia e deixe o ROINADOS monitorar orçamento, vencedores e horários. As exceções continuam chegando para sua decisão.
-            </p>
           </div>
           <button
             type="button"
