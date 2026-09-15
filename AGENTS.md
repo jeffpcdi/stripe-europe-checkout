@@ -1,5 +1,13 @@
 # AGENTS.md — ROI-NADOS
 
+## Navbar SaaS integrada sobre b7f09a3 — 14/09/2026
+- `TopNav` usa `.premium-navbar`: 56px, sticky, vidro escuro, logo horizontal e abas Visão Geral/Rastreamento/Vendas/Alertas. Vendas abre `/activity`; Alertas abre a central existente. Rotas secundárias seguem nos menus de conta e mobile.
+- `WorkspaceMenu` reutiliza `/api/ads/accounts/select`, atualiza SWR somente após confirmação e preserva a reconciliação de advertiser da base. Trocas globais retornam a paginação de campanhas ao início.
+- Avatar usa o mascote anexado; imagens JPEG originais são enquadradas por CSS e servidas pelo otimizador Next. Não são arquivos vetoriais. Privacidade e logout permanecem no menu do usuário.
+- Tracking ativo depende de saúde e configuração reais; erro/carregamento não exibe sucesso. Indicador de durabilidade continua acessível. CSS novo fica em `dashboard-refinement.css`, sem substituir o sistema visual V1 da base.
+- Build Next/TypeScript aprovado. Estados de tracking e teste de foco aprovados. Prévia local isolada conferida em 1440×1000, 390×844 e 844×390; troca de conta, navegação e Escape verificados. Não comprova serviços externos nem aparelho físico.
+- `dashboard-refinement` falha na expectativa do telefone em configurações (linha 111); `dashboard-ui-integrity` falha em “Regras personalizadas” (linha 67). Testes e componentes envolvidos são idênticos à base b7f09a3. Não declarar a suíte inteira verde.
+
 ## Auditoria funcional V3 — 14/09/2026
 - Escopo desta rodada: **sem funcionalidades novas**; correções de Visão Geral, Funil, Links, Domínios e Configurações, com foco em consistência frontend↔backend, persistência e cache.
 - Períodos da Visão Geral/Funil usam o `settings.timezone` da conta; `dashboard/lib/metrics.ts` aceita fuso por chamada, mantendo `America/Sao_Paulo` como fallback. A Visão Geral volta a ler o período salvo em `roi:overview:period`.

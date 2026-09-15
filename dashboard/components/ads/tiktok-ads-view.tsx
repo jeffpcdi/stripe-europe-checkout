@@ -72,6 +72,8 @@ export function TikTokAdsView() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
+  // Trocar pelo workspace global também retorna à primeira página da nova conta.
+  useEffect(() => { setPage(1) }, [effectiveAdvertiser])
   // Período global de métricas e campanhas. O dia pertence ao fuso da conta
   // TikTok, não ao navegador do operador nem ao UTC.
   const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto

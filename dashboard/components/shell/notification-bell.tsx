@@ -100,7 +100,7 @@ function toHref(url: string): string {
   return u.startsWith('/dashboard') ? u.slice('/dashboard'.length) || '/' : u
 }
 
-export function NotificationBell() {
+export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab' }) {
   const { data } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
     refreshInterval: 30_000,
     revalidateOnFocus: true,
@@ -144,16 +144,15 @@ export function NotificationBell() {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="glass relative flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-          aria-label={unread > 0 ? `Notificações — ${unread} não lidas` : 'Notificações'}
+          className={variant === 'tab' ? 'premium-navbar__tab' : 'premium-navbar__icon'}
+          aria-label={variant === 'tab' ? 'Alertas' : unread > 0 ? `Notificações — ${unread} não lidas` : 'Notificações'}
         >
-          <Bell className="size-3.5" aria-hidden="true" />
-          {unread > 0 && (
+          {variant === 'tab' ? 'Alertas' : <Bell className="size-[18px]" aria-hidden="true" />}
+          {variant === 'icon' && unread > 0 && (
             <span
-              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--brand-cyan)] px-1 font-mono text-[9px] font-bold leading-none text-[#04141a]"
+              className="premium-navbar__notification-dot"
               aria-hidden="true"
             >
-              {unread > 9 ? '9+' : unread}
             </span>
           )}
         </button>
@@ -163,7 +162,7 @@ export function NotificationBell() {
           align="end"
           sideOffset={8}
           aria-labelledby={titleId}
-          className="glass glass-thick anim-pop-in z-50 w-[min(92vw,320px)] rounded-[12px] p-1.5"
+          className="premium-navbar-popup premium-navbar-popup--notifications"
         >
           <div className="flex items-center justify-between border-b border-[var(--border)] px-2.5 pb-2 pt-1">
             <p id={titleId} className="text-xs font-semibold text-foreground">Notificações</p>
