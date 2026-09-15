@@ -63,14 +63,14 @@ assert.match(types, /export interface DomainsResponse[\s\S]*?configUpdatedAt\?: 
   'contrato de domínios deve carregar revisão');
 assert.match(types, /export interface CloakConfig[\s\S]*?configUpdatedAt\?: string \| null/,
   'contrato do Cloak global deve carregar revisão');
-assert.match(domains, /_baseUpdatedAt: data\?\.configUpdatedAt \|\| undefined/,
-  'cadastro de domínio deve enviar a versão que o usuário viu');
+assert.doesNotMatch(domains, /_baseUpdatedAt:\s*data\?\.configUpdatedAt/,
+  'cadastro aditivo de domínio não deve falhar por uma revisão global alterada pelo reconciliador');
 assert.match(configView, /_baseUpdatedAt: data\?\.updatedAt \|\| undefined/,
   'resumo diário deve enviar revisão da configuração');
 assert.match(accountSecurity, /_baseUpdatedAt: data\?\.updatedAt \|\| undefined/,
   'preferências avançadas devem enviar revisão da configuração');
-assert.match(cloakConfig, /_baseUpdatedAt: data\?\.configUpdatedAt \|\| undefined/,
-  'Cloak global deve enviar revisão da configuração');
+assert.match(cloakConfig, /_baseUpdatedAt:\s*draftBaseUpdatedAt \|\| undefined/,
+  'Cloak global deve enviar a revisão capturada no primeiro toque do draft');
 assert.match(webPush, /await config\.setDurable\(accountId, \(latest\) =>/,
   'remoção automática de inscrição Web Push morta deve ser persistida antes de desaparecer do cache');
 assert.match(webPush, /const persisted = await db\.saveConfig\('_webpush', vapid\)/,

@@ -225,4 +225,4 @@ async function selfTest() {
 // Dispara sem bloquear o boot do servidor.
 if (enabled) { selfTest(); }
 
-module.exports = { enabled, register, status, remove };
+module.exports = { name: 'railway', enabled, register, status, remove };

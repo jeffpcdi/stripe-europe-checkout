@@ -30,7 +30,7 @@ const postDomains = src.slice(src.indexOf("app.post('/api/domains'"), src.indexO
 const deleteDomains = src.slice(src.indexOf("app.delete('/api/domains/:host'"), src.indexOf("app.post('/api/domains/verify'"));
 const verifyRoute = src.slice(src.indexOf("app.post('/api/domains/verify'"), src.indexOf("app.get('/api/custom-domains/:host/diagnostics'"));
 ok(postDomains.includes('activeDomainProvider()'), 'POST /api/domains resolve o provider por requisição');
-ok(deleteDomains.includes('activeDomainProvider()'), 'DELETE /api/domains/:host resolve o provider por requisição');
+ok(deleteDomains.includes('providerForDomainEntry(found)'), 'DELETE /api/domains/:host resolve o provider correto do próprio domínio');
 ok(verifyRoute.includes('activeDomainProvider()'), 'POST /api/domains/verify resolve o provider por requisição');
 
 // ── 2. CNAME target ≠ origem ────────────────────────────────────────────────
@@ -78,8 +78,10 @@ ok(
 const diagRoute = src.slice(src.indexOf("app.get('/api/custom-domains/:host/diagnostics'"));
 const diagEnd = diagRoute.indexOf('// ═══');
 const diag = diagRoute.slice(0, diagEnd > 0 ? diagEnd : 5000);
-ok(diag.includes('getPeerCertificate'), 'diagnóstico inspeciona o certificado apresentado via SNI');
-ok(diag.includes('servername: host'), 'diagnóstico usa SNI do próprio domínio (não da origem)');
+const domainSecurity = fs.readFileSync(path.join(__dirname, '..', 'domain-security.js'), 'utf8');
+ok(diag.includes('domainSecurity.tlsProbe'), 'diagnóstico delega TLS ao helper seguro com IP fixado');
+ok(domainSecurity.includes('getPeerCertificate'), 'helper de TLS inspeciona o certificado apresentado');
+ok(domainSecurity.includes('servername: host'), 'helper de TLS preserva SNI do próprio domínio (não da origem)');
 ok(diag.includes('__domain-check'), 'diagnóstico testa o marcador HTTP do app');
 ok(diag.includes('likelyCause'), 'diagnóstico devolve a causa mais provável para a UI');
 ok(!diag.includes('CLOUDFLARE_API_TOKEN'), 'diagnóstico nunca toca no token diretamente');

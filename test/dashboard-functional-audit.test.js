@@ -50,8 +50,10 @@ assert.match(links, /setSelected\(new Set\(slugs\.slice\(completed\)\)\)/,
 console.log('Auditoria funcional — isolamento multi-tenant');
 assert.match(server, /const domainOwner = publicDomainOwner\(req\);[\s\S]*domainOwner\s*\? linkStore\.get\(domainOwner, req\.params\.slug\)\s*:\s*linkStore\.resolve/,
   '/go em domínio personalizado não cai em link de outra conta');
-assert.match(server, /if \(r \|\| domainOwner\) return r;/,
-  '/c em domínio personalizado não procura slug em outro tenant');
+assert.match(server, /if \(domainOwner\) \{[\s\S]*if \(!r\) return null;[\s\S]*return r;[\s\S]*\}/,
+  '/c em domínio personalizado fica preso à conta dona do host');
+assert.match(server, /const indexedOwner = config\.accountForCloakSlug\(slug\);/,
+  '/c no host compartilhado resolve slug por índice global sem varrer tenants');
 
 console.log('Auditoria funcional — textos operacionais');
 for (const [name, source] of [['server.js', server], ['ads-routes.js', adsRoutes]]) {

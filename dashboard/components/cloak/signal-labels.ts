@@ -15,34 +15,31 @@ export interface SignalInfo {
 
 // Metadados de cada camada — usados para agrupar os sinais na UI de teste.
 export const LAYER_META: Record<SignalLayer, { label: string; hint: string }> = {
-  A: { label: 'A · Navegador (UA)', hint: 'identificação do navegador e app in-app' },
+  A: { label: 'A · Navegador (UA)', hint: 'identificação e consistência do navegador' },
   B: { label: 'B · Cabeçalhos', hint: 'Client Hints, Sec-Fetch, referer' },
   C: { label: 'C · Rede / ASN', hint: 'operadora vs data center do IP' },
   D: { label: 'D · Desafio JS', hint: 'token, WebGL, timezone, canvas' },
-  E: { label: 'E · Idioma', hint: 'accept-language vs geo' },
-  F: { label: 'F · Webview', hint: 'integridade do app nativo' },
+  E: { label: 'E · Idioma', hint: 'integridade do cabeçalho de idioma' },
+  F: { label: 'F · Webview', hint: 'coerência genérica do ambiente webview' },
   G: { label: 'G · Coerência', hint: 'plataforma/hardware x UA/geo' },
   H: { label: 'H · Comportamento', hint: 'mouse, toque, timing, entropia' },
 }
 
 // Sinais que REDUZEM o score (indicam tráfego real)
 const TRUST_KEYS = new Set([
-  'ua:tiktok-inapp',
   'sec-fetch:ok',
   'ch-ua:presente',
-  'referer:tiktok',
-  'referer:social-legit',
+  'referer:presente',
   'js:token-ok',
   'webgl:gpu-real',
   'webgl:angle',
   'beh:interacao-real',
 ])
 
-const TRUST_PREFIXES = ['tz:ok', 'timing:normal', 'webview:ok', 'ent:humano', 'asn:carrier']
+const TRUST_PREFIXES = ['tz:ok', 'timing:normal', 'webview:present', 'ent:humano', 'asn:network']
 
 // label + camada + peso aproximado por sinal (peso extraído de bot-filter.js)
 const META: Record<string, { label: string; layer: SignalLayer; weight: number }> = {
-  'ua:tiktok-inapp': { label: 'navegador interno do TikTok (tráfego real)', layer: 'A', weight: -40 },
   'ua:ausente': { label: 'sem identificação de navegador', layer: 'A', weight: 55 },
   'ua:headless': { label: 'navegador automatizado (headless)', layer: 'A', weight: 50 },
   'ch-ua:brand-mismatch': { label: 'marca do navegador não bate com a identificação', layer: 'B', weight: 30 },
@@ -55,12 +52,10 @@ const META: Record<string, { label: string; layer: SignalLayer; weight: number }
   'sec-fetch:ausente': { label: 'sem cabeçalhos de navegação segura', layer: 'B', weight: 22 },
   'sec-fetch:ok': { label: 'cabeçalhos de navegação corretos', layer: 'B', weight: -12 },
   'referer:ausente': { label: 'chegou sem página de origem', layer: 'B', weight: 8 },
-  'referer:tiktok': { label: 'veio do TikTok', layer: 'B', weight: -15 },
-  'referer:social-legit': { label: 'veio de rede social conhecida', layer: 'B', weight: -8 },
-  'ip:bytedance-cidr': { label: 'IP da rede da ByteDance (revisor do TikTok)', layer: 'C', weight: 50 },
+  'referer:presente': { label: 'origem de navegação presente', layer: 'B', weight: -4 },
   'asn:deadline': { label: 'consulta de operadora expirou (resolve na próxima visita)', layer: 'C', weight: 0 },
   'asn:datacenter': { label: 'IP de data center (não é conexão residencial)', layer: 'C', weight: 38 },
-  'asn:carrier': { label: 'IP de operadora de celular (real)', layer: 'C', weight: -10 },
+  'asn:network': { label: 'rede não classificada como data center', layer: 'C', weight: -8 },
   'js:token-ok': { label: 'desafio JavaScript resolvido (navegador real)', layer: 'D', weight: -28 },
   'js:token-fail': { label: 'falhou no desafio JavaScript', layer: 'D', weight: 22 },
   'js:sem-token': { label: 'não executou JavaScript', layer: 'D', weight: 12 },
@@ -76,9 +71,8 @@ const META: Record<string, { label: string; layer: SignalLayer; weight: number }
   'beh:zero-interacao': { label: 'nenhum toque, clique ou rolagem', layer: 'H', weight: 25 },
   'beh:interacao-real': { label: 'interação humana detectada', layer: 'H', weight: -20 },
   'beh:baixo': { label: 'pouca interação com a página', layer: 'H', weight: 0 },
-  'webview:ua-spoof': { label: 'finge ser app mas não é', layer: 'F', weight: 45 },
-  'webview:ok': { label: 'app nativo confirmado', layer: 'F', weight: -15 },
-  'webview:chrome-runtime-inapp': { label: 'runtime de Chrome dentro de app (incoerente)', layer: 'F', weight: 22 },
+  'webview:ua-mismatch': { label: 'UA de webview não bate com os sinais do ambiente', layer: 'F', weight: 20 },
+  'webview:present': { label: 'webview coerente detectado', layer: 'F', weight: -4 },
   'coh:apple-ua-nonapple-gpu': { label: 'diz ser iPhone mas a GPU não é da Apple', layer: 'G', weight: 28 },
   'coh:plat-mismatch': { label: 'sistema operacional não bate com o navegador', layer: 'G', weight: 30 },
   'coh:mobile-cpu-alto': { label: 'CPU forte demais para o celular informado', layer: 'G', weight: 18 },
@@ -89,8 +83,7 @@ const META: Record<string, { label: string; layer: SignalLayer; weight: number }
   'ent:movimento-sintetico': { label: 'movimento de mouse robótico', layer: 'H', weight: 20 },
   'ent:humano': { label: 'micro-movimentos humanos reais', layer: 'H', weight: -10 },
   'ent:acao-sem-trilha': { label: 'clicou sem mover o mouse antes', layer: 'H', weight: 22 },
-  'lang:zh-fora-geo': { label: 'navegador em chinês fora da China', layer: 'E', weight: 22 },
-  'lang:sem-quality-factor': { label: 'configuração de idioma atípica', layer: 'E', weight: 8 },
+  'lang:formato-suspeito': { label: 'cabeçalho de idioma com formato atípico', layer: 'E', weight: 8 },
 }
 
 export function describeSignal(raw: string): SignalInfo {

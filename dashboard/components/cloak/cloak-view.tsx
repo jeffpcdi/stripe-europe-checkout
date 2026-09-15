@@ -60,7 +60,7 @@ function CloakTestPanel() {
   const [error, setError] = useState<string | null>(null)
   // Item 166: preview de threshold — recalcula o veredito localmente sem novo request
   const [previewThreshold, setPreviewThreshold] = useState<number | null>(null)
-  // Item 165/208: perfil de visitante simulado ('' = meu acesso real)
+  // Perfil sintético opcional. Sem perfil, o teste usa apenas o request HTTP da dashboard;
   const [profile, setProfile] = useState<string>('')
   const { data: profilesData } = useCloakTestProfiles()
   const profiles = profilesData?.profiles ?? []
@@ -98,12 +98,12 @@ function CloakTestPanel() {
     if (!result) return null
     const org = (result.org || '').trim()
     const asn = result.asn || 0
-    const isDc = result.signals?.some((s) => s.startsWith('asn:datacenter') || s === 'ip:bytedance-cidr')
-    const isCarrier = result.signals?.some((s) => s.startsWith('asn:carrier'))
+    const isDc = result.signals?.some((s) => s.startsWith('asn:datacenter'))
+    const isCarrier = result.signals?.some((s) => s.startsWith('asn:network'))
     const timedOut = result.signals?.includes('asn:deadline')
     if (timedOut) return { text: 'Consulta de rede expirou (resolve na próxima visita do mesmo IP)', kind: 'neutro' as const }
-    if (isDc) return { text: `Data center / revisor${org ? ` · ${org}` : ''}${asn ? ` (AS${asn})` : ''}`, kind: 'suspeito' as const }
-    if (isCarrier) return { text: `Operadora / provedor real${org ? ` · ${org}` : ''}${asn ? ` (AS${asn})` : ''}`, kind: 'confiavel' as const }
+    if (isDc) return { text: `Data center / automação${org ? ` · ${org}` : ''}${asn ? ` (AS${asn})` : ''}`, kind: 'suspeito' as const }
+    if (isCarrier) return { text: `Rede residencial / não-datacenter${org ? ` · ${org}` : ''}${asn ? ` (AS${asn})` : ''}`, kind: 'confiavel' as const }
     if (org || asn) return { text: `${org || 'rede'}${asn ? ` (AS${asn})` : ''}`, kind: 'neutro' as const }
     return null
   })()
@@ -125,8 +125,7 @@ function CloakTestPanel() {
         </button>
       </div>
 
-      {/* Item 165/208: simulador de perfis — julga visitantes sintéticos
-          (revisor ByteDance, headless, usuário do anúncio…) com o MESMO motor */}
+      {/* Perfis sintéticos genéricos para QA do motor de proteção. */}
       <div className="mb-4">
         <label htmlFor="ck-profile" className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Bot className="size-3.5" /> Simular visitante
@@ -141,7 +140,7 @@ function CloakTestPanel() {
           disabled={loading}
           className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
         >
-          <option value="">Meu acesso real (este navegador)</option>
+          <option value="">Request atual da dashboard</option>
           {profiles.map((p) => (
             <option key={p.id} value={p.id}>
               {(p.expected === 'bot' ? '[bloqueia] ' : '[libera] ') + p.label}
@@ -159,7 +158,7 @@ function CloakTestPanel() {
 
       {!result && !error && (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          Rode o teste para ver como o cloaker classificaria seu acesso.
+          Rode o teste para validar o comportamento do filtro com este request ou com um perfil sintético.
         </p>
       )}
 
@@ -169,7 +168,7 @@ function CloakTestPanel() {
             <div>
               <p className="label-mono">Veredito</p>
               <p className="text-lg font-semibold text-foreground">
-                {isBlocked ? 'Página branca' : 'Offer liberada'}
+                {isBlocked ? 'Destino seguro' : 'Destino principal'}
               </p>
             </div>
             <StatusBadge status={isBlocked ? 'error' : 'success'}>
@@ -193,10 +192,10 @@ function CloakTestPanel() {
                 {matched ? <Check className="mt-0.5 size-3.5 shrink-0" /> : <X className="mt-0.5 size-3.5 shrink-0" />}
                 <span className="text-pretty">
                   <strong className="text-foreground">{result.profile.label}</strong> —{' '}
-                  {result.profile.expected === 'bot' ? 'deveria ir para a white page' : 'deveria passar para a offer'}.{' '}
+                  {result.profile.expected === 'bot' ? 'deveria usar o destino seguro' : 'deveria usar o destino principal'}.{' '}
                   {matched
                     ? 'O motor classificou como esperado.'
-                    : 'O motor divergiu do esperado — revise threshold e regras antes de subir a campanha.'}
+                    : 'O motor divergiu do esperado — revise threshold e regras antes de publicar o link.'}
                 </span>
               </div>
             )
@@ -220,9 +219,9 @@ function CloakTestPanel() {
             <p className="mt-1 text-[11px] text-muted-foreground">
               Com score <strong className="text-foreground">{result.score}</strong>, este acesso{' '}
               {isBlocked ? (
-                <span className="text-destructive">iria para a página branca</span>
+                <span className="text-destructive">usaria o destino seguro</span>
               ) : (
-                <span className="text-success">passaria para a offer</span>
+                <span className="text-success">usaria o destino principal</span>
               )}
               . Arraste para ver como cada limiar afeta o mesmo acesso — sem novo teste.
             </p>

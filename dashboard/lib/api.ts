@@ -216,7 +216,9 @@ export function useLinks() {
 
 export function useDomains() {
   return useSWR<DomainsResponse>('/api/domains', fetcher, {
-    refreshInterval: LIST_POLL_MS,
+    // Enquanto DNS/SSL estão em transição a tela acompanha o worker quase em
+    // tempo real. Quando tudo estabiliza, volta ao polling suave da dashboard.
+    refreshInterval: (latest) => latest?.domains?.some((domain) => domain.status === 'pending_dns' || domain.status === 'pending_ssl') ? 8_000 : LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })

@@ -12,13 +12,23 @@
 //    contas; a coluna account_id permite filtrar.
 //  - Dados legados (account_id IS NULL) são atribuídos ao PRIMEIRO usuário
 //    cadastrado (admin) via claimLegacyData().
-const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
 const enabled = !isPlaceholder && !!URL;
-const sql = (!isPlaceholder && URL) ? neon(URL) : null;
+let neon = null;
+if (enabled) {
+  try { ({ neon } = require('@neondatabase/serverless')); }
+  catch (err) {
+    // Em instalações sem banco configurado o driver não é necessário. Quando
+    // DATABASE_URL existe, falhar cedo evita subir uma instância que aparenta
+    // estar saudável mas não consegue persistir nada.
+    err.message = 'DATABASE_URL está configurada, mas @neondatabase/serverless não está instalado: ' + err.message;
+    throw err;
+  }
+}
+const sql = enabled ? neon(URL) : null;
 
 if (isPlaceholder) {
   console.log('[db] DATABASE_URL não configurada ou placeholder — Neon e autenticação desativados.');
@@ -288,8 +298,15 @@ async function init() {
       verificado boolean NOT NULL DEFAULT false,
       verificado_em timestamptz,
       provider_id text,
+      provider text,
       provider_note text,
       dns jsonb,
+      status text NOT NULL DEFAULT 'pending_dns',
+      ssl_status text,
+      last_checked_at timestamptz,
+      last_error text,
+      retry_count integer NOT NULL DEFAULT 0,
+      next_check_at timestamptz,
       criado_em timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
@@ -315,6 +332,15 @@ async function init() {
       await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
       migrations.accountCurrency = true;
     });
+    // Domínios: o estado operacional precisa sobreviver a restart/deploy e não
+    // pode depender apenas do JSON da config. Migração aditiva e idempotente.
+    await safeAlter('custom_domains.provider', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS provider text`);
+    await safeAlter('custom_domains.status', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending_dns'`);
+    await safeAlter('custom_domains.ssl_status', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS ssl_status text`);
+    await safeAlter('custom_domains.last_checked_at', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS last_checked_at timestamptz`);
+    await safeAlter('custom_domains.last_error', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS last_error text`);
+    await safeAlter('custom_domains.retry_count', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 0`);
+    await safeAlter('custom_domains.next_check_at', () => sql`ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS next_check_at timestamptz`);
     // ── Item 414: metadados de dispositivo nas sessões de login ───────────
     await safeAlter('account_sessions.ua', () => sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`);
     await safeAlter('account_sessions.ip_masked', () => sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`);
@@ -1147,6 +1173,30 @@ async function saveConfig(accountId, data) {
   return false;
 }
 
+// Compare-and-swap da config. Evita que duas instâncias do app gravem snapshots
+// completos em paralelo e a última apague uma alteração confirmada pela outra.
+// `expectedUpdatedAt` é o timestamp lógico que veio no JSON da versão lida.
+async function saveConfigVersioned(accountId, data, expectedUpdatedAt) {
+  if (!enabled || !data || !expectedUpdatedAt) return { ok: false, conflict: false };
+  const key = accountId || 'main';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const rows = await sql`UPDATE config
+        SET data = ${JSON.stringify(data)}::jsonb, updated_at = now()
+        WHERE key = ${key}
+          AND COALESCE(data->>'updatedAt', '') = ${String(expectedUpdatedAt)}
+        RETURNING key`;
+      if (rows.length) return { ok: true, conflict: false };
+      return { ok: false, conflict: true };
+    } catch (err) {
+      console.error('[db] saveConfigVersioned (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      else return { ok: false, conflict: false, error: err.message };
+    }
+  }
+  return { ok: false, conflict: false };
+}
+
 // Retorna { ok, data }: ok=false significa ERRO de leitura (não sobrescrever
 // nada!); ok=true com data=null significa "confirmado: não há config salva".
 async function loadConfig(accountId) {
@@ -1183,24 +1233,63 @@ async function loadAllConfigs() {
 // Fonte durável dos customDomains da config: o cache quente continua no
 // config.js (jsonb por conta) e o write-through assíncrono espelha aqui
 // (item 252). No boot, config.hydrate() reconcilia a partir desta tabela.
-async function upsertCustomDomain(accountId, d) {
-  if (!enabled || !d || !d.host) return false;
+async function claimCustomDomain(accountId, host) {
+  if (!enabled || !accountId || !host) return { ok: !enabled, claimed: false, owner: accountId || null };
   try {
-    await sql`INSERT INTO custom_domains (host, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns, criado_em, updated_at)
-      VALUES (${d.host}, ${accountId || null}, ${d.uso || 'ambos'}, ${d.verificado === true},
-              ${d.verificadoEm || null}, ${d.providerId || null}, ${d.providerNote || null},
-              ${d.dns ? JSON.stringify(d.dns) : null}::jsonb,
-              ${d.criadoEm || new Date().toISOString()}, now())
+    const inserted = await sql`INSERT INTO custom_domains (host, account_id, uso, status, criado_em, updated_at)
+      VALUES (${host}, ${accountId}, 'ambos', 'pending_dns', now(), now())
+      ON CONFLICT (host) DO NOTHING
+      RETURNING account_id`;
+    if (inserted.length) return { ok: true, claimed: true, owner: accountId };
+    // Migração segura de linhas legadas sem owner: somente uma conta consegue
+    // preencher NULL graças ao predicado atômico; as demais enxergam o dono.
+    const adopted = await sql`UPDATE custom_domains
+      SET account_id = ${accountId}, updated_at = now()
+      WHERE host = ${host} AND account_id IS NULL
+      RETURNING account_id`;
+    if (adopted.length) return { ok: true, claimed: true, owner: accountId };
+    const rows = await sql`SELECT account_id FROM custom_domains WHERE host = ${host} LIMIT 1`;
+    const owner = rows.length ? rows[0].account_id : null;
+    return { ok: owner === accountId, claimed: false, owner };
+  } catch (err) {
+    console.error('[db] claimCustomDomain:', err.message);
+    return { ok: false, claimed: false, owner: null, error: err.message };
+  }
+}
+
+async function upsertCustomDomain(accountId, d) {
+  if (!enabled || !d || !d.host || !accountId) return false;
+  try {
+    // WHERE no ON CONFLICT é a barreira final contra corrida multi-tenant:
+    // uma segunda conta jamais consegue alterar uso/verificação/provider da
+    // linha que já pertence a outra conta.
+    const rows = await sql`INSERT INTO custom_domains
+      (host, account_id, uso, verificado, verificado_em, provider_id, provider, provider_note, dns,
+       status, ssl_status, last_checked_at, last_error, retry_count, next_check_at, criado_em, updated_at)
+      VALUES (${d.host}, ${accountId}, ${d.uso || 'ambos'}, ${d.verificado === true},
+              ${d.verificadoEm || null}, ${d.providerId || null}, ${d.provider || null}, ${d.providerNote || null},
+              ${d.dns ? JSON.stringify(d.dns) : null}::jsonb, ${d.status || 'pending_dns'}, ${d.sslStatus || null},
+              ${d.lastCheckedAt || null}, ${d.lastError || null}, ${Math.max(0, Number(d.retryCount) || 0)},
+              ${d.nextCheckAt || null}, ${d.criadoEm || new Date().toISOString()}, now())
       ON CONFLICT (host) DO UPDATE SET
         account_id = COALESCE(custom_domains.account_id, EXCLUDED.account_id),
         uso = EXCLUDED.uso,
         verificado = EXCLUDED.verificado,
         verificado_em = EXCLUDED.verificado_em,
         provider_id = COALESCE(EXCLUDED.provider_id, custom_domains.provider_id),
+        provider = COALESCE(EXCLUDED.provider, custom_domains.provider),
         provider_note = EXCLUDED.provider_note,
         dns = COALESCE(EXCLUDED.dns, custom_domains.dns),
-        updated_at = now()`;
-    return true;
+        status = EXCLUDED.status,
+        ssl_status = EXCLUDED.ssl_status,
+        last_checked_at = EXCLUDED.last_checked_at,
+        last_error = EXCLUDED.last_error,
+        retry_count = EXCLUDED.retry_count,
+        next_check_at = EXCLUDED.next_check_at,
+        updated_at = now()
+      WHERE custom_domains.account_id IS NULL OR custom_domains.account_id = EXCLUDED.account_id
+      RETURNING account_id`;
+    return rows.length > 0 && rows[0].account_id === accountId;
   } catch (err) { console.error('[db] upsertCustomDomain:', err.message); return false; }
 }
 
@@ -1235,8 +1324,15 @@ async function loadCustomDomains(accountId) {
           verificado: r.verificado === true,
           verificadoEm: r.verificado_em ? new Date(r.verificado_em).toISOString() : null,
           providerId: r.provider_id || null,
+          provider: r.provider || null,
           providerNote: r.provider_note || null,
           dns: r.dns || null,
+          status: r.status || (r.verificado === true ? 'active' : 'pending_dns'),
+          sslStatus: r.ssl_status || null,
+          lastCheckedAt: r.last_checked_at ? new Date(r.last_checked_at).toISOString() : null,
+          lastError: r.last_error || null,
+          retryCount: Math.max(0, Number(r.retry_count) || 0),
+          nextCheckAt: r.next_check_at ? new Date(r.next_check_at).toISOString() : null,
           criadoEm: r.criado_em ? new Date(r.criado_em).toISOString() : null
         }))
       };
@@ -1504,6 +1600,7 @@ module.exports = {
   markOrderProcessed,
   pruneProcessedOrders,
   saveConfig,
+  saveConfigVersioned,
   loadConfig,
   loadAllConfigs,
   pruneSessions,
@@ -1518,6 +1615,7 @@ module.exports = {
   loadPixelEvents,
   prunePixelEvents,
   // domínios personalizados duráveis + moeda por conta (itens 241–252)
+  claimCustomDomain,
   upsertCustomDomain,
   deleteCustomDomain,
   loadCustomDomains,

@@ -64,15 +64,41 @@ console.log(`\n${C.b}Notificações (Pushcut)${C.x}`);
 if (has('PUSHCUT_WEBHOOK_URL')) ok('URL padrão do Pushcut no env.');
 else info('Sem Pushcut padrão — cada conta configura o seu no painel (opcional).');
 
-// ── 6. Domínios (Railway) ────────────────────────────────────────────────
-console.log(`\n${C.b}Domínios personalizados (Railway API)${C.x}`);
-if (has('RAILWAY_API_TOKEN') || has('RAILWAY_TOKEN')) {
-  ok('Token da Railway presente — adição de domínio personalizado é automática.');
+// ── 6. Segurança de tráfego/domínios ────────────────────────────────────
+console.log(`
+${C.b}Segurança de tráfego e domínios${C.x}`);
+if (has('TRAFFIC_CHALLENGE_SECRET')) {
+  ok('TRAFFIC_CHALLENGE_SECRET presente — challenge usa chave dedicada.');
+  if (has('TRAFFIC_CHALLENGE_SECRET_PREVIOUS')) info('Chave anterior de challenge presente — rotação sem derrubar tokens ainda válidos.');
 } else {
-  info('Sem token da Railway — modo manual: o operador aponta o CNAME e adiciona o domínio na hospedagem.');
+  w('TRAFFIC_CHALLENGE_SECRET ausente — produção recusa iniciar; desenvolvimento usa fallback local.');
+}
+if (has('DOMAIN_PROOF_SECRET')) {
+  ok('DOMAIN_PROOF_SECRET presente — verificação de domínio usa prova HMAC por host+conta.');
+  if (has('DOMAIN_PROOF_SECRET_PREVIOUS')) info('Chave anterior de prova de domínio presente — rolling deploy tolera rotação.');
+} else {
+  w('DOMAIN_PROOF_SECRET ausente — produção recusa iniciar; desenvolvimento usa fallback local.');
 }
 
-// ── 7. Sanidade de arquivos ──────────────────────────────────────────────
+// ── 7. Domínios (Cloudflare for SaaS / Railway) ─────────────────────────
+console.log(`
+${C.b}Domínios personalizados${C.x}`);
+const cfReady = has('CLOUDFLARE_API_TOKEN') && has('CLOUDFLARE_ZONE_ID') && has('CLOUDFLARE_FALLBACK_ORIGIN');
+const railwayReady = (has('RAILWAY_API_TOKEN') || has('RAILWAY_TOKEN'))
+  && has('RAILWAY_PROJECT_ID') && has('RAILWAY_ENVIRONMENT_ID') && has('RAILWAY_SERVICE_ID');
+if (cfReady) {
+  ok('Cloudflare for SaaS configurada — provisionamento automático disponível.');
+  if (has('CLOUDFLARE_CNAME_TARGET')) ok('Managed CNAME target presente — instruções DNS não expõem a origem.');
+  else w('CLOUDFLARE_CNAME_TARGET ausente — provider opera em modo degradado.');
+} else if (railwayReady) {
+  ok('Railway configurada — provisionamento automático disponível como provider legado.');
+} else {
+  info('Sem provider automático completo — modo manual de domínios permanece disponível.');
+}
+if (has('PUBLIC_APP_HOST')) ok('PUBLIC_APP_HOST presente — reconciliador tem alvo explícito para comparar DNS.');
+else info('PUBLIC_APP_HOST ausente — o reconciliador depende dos registros DNS salvos/provider para comparar o destino.');
+
+// ── 8. Sanidade de arquivos ──────────────────────────────────────────────
 console.log(`\n${C.b}Arquivos${C.x}`);
 const fs = require('fs');
 for (const f of ['server.js', 'package.json', 'dashboard/package.json']) {

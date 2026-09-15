@@ -28,7 +28,7 @@ function defaults() {
     customDomains: [],
     // Anotações do gráfico de tendência: [{d:'YYYY-MM-DD', text}]
     notes: [],
-    // Filtro de revisores TikTok Ads (cloaking)
+    // Proteção de tráfego contra bots e automação
     cloak: {
       enabled: true,
       sensitivity: 'balanced',      // 'strict' | 'balanced' | 'loose'
@@ -42,9 +42,11 @@ function defaults() {
       checkTimezone: true,
       checkBehavior: true,
       blockZhLang: true,
-      // White page GLOBAL de fallback: usada quando um link protegido não tem
-      // white page própria. Se vazia, o sistema serve uma página neutra embutida
-      // (/_safe) — assim NENHUM bot chega à offer, mesmo sem white configurada.
+      checkWebview: true,
+      checkCoherence: true,
+      checkEntropy: true,
+      // Página segura GLOBAL de fallback: usada quando um link protegido não tem
+      // destino alternativo próprio. Se vazia, o sistema serve /_safe.
       defaultWhitePage: '',
       // Item 254: camada de velocity (anti device-farm). N acessos do MESMO IP
       // ao MESMO link dentro da janela → white. Preset seguro: 12 acessos/60s
@@ -52,7 +54,7 @@ function defaults() {
       velocityLimit: 12,     // acessos permitidos na janela (3–100)
       velocityWindowSec: 60  // janela em segundos (10–600)
     },
-    // Links de cloaking (entidade própria, servidos em /c/:slug). Cada link
+    // Links protegidos (entidade própria, servidos em /c/:slug). Cada link
     // carrega SUA própria configuração de proteção (interruptor, sensibilidade,
     // camadas de detecção) + offer/white page + allowlists de país e idioma.
     // [{ slug, nome, offerUrl, whitePageUrl, enabled, sensitivity, threshold,
@@ -95,6 +97,29 @@ function defaults() {
 
 // ── Cache em memória: accountId → cfg ──────────────────────────────────────
 const cache = new Map();
+// Hot routing indexes. Public requests must not scan every tenant on each hit.
+// Duplicate legacy cloak slugs are marked ambiguous (null) and fail closed on
+// the shared host; custom domains remain account-scoped.
+const domainOwners = new Map();
+const cloakSlugOwners = new Map();
+function rebuildRoutingIndexes() {
+  domainOwners.clear(); cloakSlugOwners.clear();
+  for (const [key, cfg] of cache) {
+    if (key === LEGACY_KEY) continue;
+    for (const d of (cfg.customDomains || [])) {
+      if (!d || !d.host) continue;
+      const h = String(d.host).toLowerCase();
+      if (!domainOwners.has(h)) domainOwners.set(h, key);
+      else if (domainOwners.get(h) !== key) domainOwners.set(h, null);
+    }
+    for (const l of (cfg.cloakLinks || [])) {
+      if (!l || !l.slug) continue;
+      const slug = String(l.slug).toLowerCase();
+      if (!cloakSlugOwners.has(slug)) cloakSlugOwners.set(slug, key);
+      else if (cloakSlugOwners.get(slug) !== key) cloakSlugOwners.set(slug, null);
+    }
+  }
+}
 let hydrated = false;
 
 function mergeDefaults(stored) {
@@ -201,6 +226,12 @@ async function hydrate() {
           if (r.provider) out.provider = r.provider;
           if (r.providerNote) out.providerNote = r.providerNote;
           if (r.dns && typeof r.dns === 'object') out.dns = r.dns;
+          if (r.status) out.status = r.status;
+          if (r.sslStatus) out.sslStatus = r.sslStatus;
+          if (r.lastCheckedAt) out.lastCheckedAt = r.lastCheckedAt;
+          if (r.lastError) out.lastError = r.lastError;
+          if (r.retryCount) out.retryCount = r.retryCount;
+          if (r.nextCheckAt) out.nextCheckAt = r.nextCheckAt;
           return out;
         });
         if (faltantes.length) {
@@ -232,6 +263,7 @@ async function hydrate() {
   } catch (err) {
     console.error('[config] Erro ao hidratar moedas das contas:', err.message);
   }
+  rebuildRoutingIndexes();
 }
 
 // Config de uma conta (sempre retorna algo; cria default em memória se nova).
@@ -375,6 +407,8 @@ function prepareSet(accountId, patch) {
     if (d.sslStatus != null) out.sslStatus = String(d.sslStatus).slice(0, 80) || null;
     if (d.lastCheckedAt) out.lastCheckedAt = String(d.lastCheckedAt).slice(0, 40);
     if (d.lastError != null) out.lastError = String(d.lastError).slice(0, 500) || null;
+    out.retryCount = Math.max(0, Math.min(20, Math.round(Number(d.retryCount) || 0)));
+    if (d.nextCheckAt) out.nextCheckAt = String(d.nextCheckAt).slice(0, 40);
     // Registros DNS salvos no cadastro — o tutorial da dashboard reexibe
     // as instruções sem depender de nova chamada à hospedagem.
     if (d.dns && typeof d.dns === 'object') out.dns = d.dns;
@@ -432,7 +466,7 @@ function prepareSet(accountId, patch) {
     next.settings = out;
   }
 
-  // Sanitização do bloco Cloak (filtro de revisores TikTok)
+  // Sanitização do bloco de proteção de tráfego
   {
     const d = defaults().cloak;
     const c = Object.assign({}, d, next.cloak || {});
@@ -443,6 +477,7 @@ function prepareSet(accountId, patch) {
     const validHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
     next.cloak = {
       enabled:            boolOr(c.enabled, true),
+      shadowMode:         boolOr(c.shadowMode, false),
       sensitivity:        sens,
       threshold:          Math.max(10, Math.min(90, Math.round(Number(c.threshold) || 40))),
       deadlineMs:         Math.max(40, Math.min(500, Math.round(Number(c.deadlineMs) || 120))),
@@ -454,6 +489,9 @@ function prepareSet(accountId, patch) {
       checkTimezone:      boolOr(c.checkTimezone, true),
       checkBehavior:      boolOr(c.checkBehavior, true),
       blockZhLang:        boolOr(c.blockZhLang, true),
+      checkWebview:       boolOr(c.checkWebview, true),
+      checkCoherence:     boolOr(c.checkCoherence, true),
+      checkEntropy:       boolOr(c.checkEntropy, true),
       defaultWhitePage:   validHttps(c.defaultWhitePage) ? String(c.defaultWhitePage).trim().slice(0, 500) : '',
       // Item 254: limites de velocity com clamp seguro — nunca deixa o usuário
       // se auto-bloquear (mínimo 3) nem desligar a proteção por engano (máx 100).
@@ -490,6 +528,7 @@ function prepareSet(accountId, patch) {
         offerUrl:           validHttps(l.offerUrl) ? String(l.offerUrl).trim().slice(0, 500) : '',
         whitePageUrl:       validHttps(l.whitePageUrl) ? String(l.whitePageUrl).trim().slice(0, 500) : '',
         enabled:            boolOr(l.enabled, true),
+        shadowMode:         boolOr(l.shadowMode, false),
         // Gates de intenção (default LIGADO, inclusive para links antigos).
         mobileOnly:         boolOr(l.mobileOnly, true),
         requireAdClick:     boolOr(l.requireAdClick, true),
@@ -505,6 +544,9 @@ function prepareSet(accountId, patch) {
         checkTimezone:      boolOr(l.checkTimezone, true),
         checkBehavior:      boolOr(l.checkBehavior, true),
         blockZhLang:        boolOr(l.blockZhLang, true),
+        checkWebview:       boolOr(l.checkWebview, true),
+        checkCoherence:     boolOr(l.checkCoherence, true),
+        checkEntropy:       boolOr(l.checkEntropy, true),
         paises: (Array.isArray(l.paises) ? l.paises : [])
           .map((c) => String(c || '').trim().toUpperCase())
           .filter((c) => /^[A-Z]{2}$/.test(c)).filter((c, i, a) => a.indexOf(c) === i).slice(0, 40),
@@ -572,6 +614,7 @@ async function persistDiskEntryNow(key, next) {
 function set(accountId, patch) {
   const prepared = prepareSet(accountId, patch);
   cache.set(prepared.key, prepared.next);
+  rebuildRoutingIndexes();
   void db.saveConfig(prepared.key, prepared.next);
   persistDisk();
   setImmediate(() => {
@@ -584,50 +627,96 @@ const durableQueues = new Map();
 
 async function setDurableNow(accountId, patch, options) {
   const key = accountId || LEGACY_KEY;
-  const current = cache.has(key) ? cache.get(key) : defaults();
   const expectedUpdatedAt = options && options.expectedUpdatedAt ? String(options.expectedUpdatedAt) : '';
-  if (expectedUpdatedAt && current.updatedAt && String(current.updatedAt) !== expectedUpdatedAt) {
-    const err = new Error('A configuração foi alterada em outra aba. Atualize os dados e tente novamente.');
-    err.code = 'CONFIG_REVISION_CONFLICT';
-    err.status = 409;
-    err.currentUpdatedAt = current.updatedAt;
-    throw err;
-  }
 
-  const resolvedPatch = typeof patch === 'function' ? patch(cloneConfig(current)) : patch;
-  const prepared = prepareSet(key, resolvedPatch);
-  if (db.enabled) {
-    const ok = await db.saveConfig(prepared.key, prepared.next);
-    if (!ok) {
-      const err = new Error('Não foi possível confirmar a configuração no banco de dados.');
-      err.code = 'CONFIG_PERSIST_FAILED';
-      err.status = 503;
+  // O mutex abaixo cobre concorrência dentro deste processo. Em produção pode
+  // haver mais de uma instância; por isso cada tentativa usa CAS no Neon com o
+  // `updatedAt` da versão lida. Mutações internas sem revisão explícita podem
+  // reaplicar o patch sobre a versão mais nova; edições da dashboard falham em
+  // 409 para nunca sobrescrever silenciosamente o trabalho de outra aba.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = cache.has(key) ? cache.get(key) : defaults();
+    if (expectedUpdatedAt && current.updatedAt && String(current.updatedAt) !== expectedUpdatedAt) {
+      const err = new Error('A configuração foi alterada em outra aba. Atualize os dados e tente novamente.');
+      err.code = 'CONFIG_REVISION_CONFLICT';
+      err.status = 409;
+      err.currentUpdatedAt = current.updatedAt;
       throw err;
     }
-  } else {
+
+    const resolvedPatch = typeof patch === 'function' ? patch(cloneConfig(current)) : patch;
+    const prepared = prepareSet(key, resolvedPatch);
+    if (db.enabled) {
+      const baseVersion = prepared.cur && prepared.cur.updatedAt ? String(prepared.cur.updatedAt) : '';
+      let persisted;
+      if (baseVersion && typeof db.saveConfigVersioned === 'function') {
+        persisted = await db.saveConfigVersioned(prepared.key, prepared.next, baseVersion);
+      } else {
+        // Compatibilidade com configs antigas sem `updatedAt`: a primeira
+        // gravação promove o snapshot para o protocolo versionado.
+        persisted = { ok: await db.saveConfig(prepared.key, prepared.next), conflict: false };
+      }
+
+      if (!persisted.ok && persisted.conflict) {
+        const fresh = await db.loadConfig(prepared.key);
+        if (!fresh || !fresh.ok) {
+          const err = new Error('Não foi possível confirmar a versão atual da configuração.');
+          err.code = 'CONFIG_PERSIST_FAILED';
+          err.status = 503;
+          throw err;
+        }
+        if (fresh.data) {
+          cache.set(prepared.key, fresh.data);
+          rebuildRoutingIndexes();
+        }
+        if (expectedUpdatedAt) {
+          const latest = fresh.data && fresh.data.updatedAt ? String(fresh.data.updatedAt) : '';
+          const err = new Error('A configuração foi alterada em outra aba. Atualize os dados e tente novamente.');
+          err.code = 'CONFIG_REVISION_CONFLICT';
+          err.status = 409;
+          err.currentUpdatedAt = latest || null;
+          throw err;
+        }
+        // Worker/reconciliador: refaz o merge sobre o snapshot vencedor.
+        continue;
+      }
+      if (!persisted.ok) {
+        const err = new Error('Não foi possível confirmar a configuração no banco de dados.');
+        err.code = 'CONFIG_PERSIST_FAILED';
+        err.status = 503;
+        throw err;
+      }
+    } else {
+      try {
+        await persistDiskEntryNow(prepared.key, prepared.next);
+      } catch (cause) {
+        const err = new Error('Não foi possível confirmar a configuração no armazenamento local.');
+        err.code = 'CONFIG_PERSIST_FAILED';
+        err.status = 503;
+        err.cause = cause;
+        throw err;
+      }
+    }
+
+    // Só agora a leitura quente passa a enxergar a nova versão.
+    cache.set(prepared.key, prepared.next);
+    rebuildRoutingIndexes();
+    if (db.enabled) persistDisk();
+
     try {
-      await persistDiskEntryNow(prepared.key, prepared.next);
-    } catch (cause) {
-      const err = new Error('Não foi possível confirmar a configuração no armazenamento local.');
-      err.code = 'CONFIG_PERSIST_FAILED';
-      err.status = 503;
-      err.cause = cause;
-      throw err;
+      await syncDomainMirrors(prepared);
+    } catch (err) {
+      // O commit primário já foi confirmado. Não fazemos rollback mentiroso de
+      // cache: no boot a tabela config vence os espelhos. Registramos para reparo.
+      console.error('[config] espelho de domínios após commit:', err.message);
     }
+    return cloneConfig(prepared.next);
   }
 
-  // Só agora a leitura quente passa a enxergar a nova versão.
-  cache.set(prepared.key, prepared.next);
-  if (db.enabled) persistDisk();
-
-  try {
-    await syncDomainMirrors(prepared);
-  } catch (err) {
-    // O commit primário já foi confirmado. Não fazemos rollback mentiroso de
-    // cache: no boot a tabela config vence os espelhos. Registramos para reparo.
-    console.error('[config] espelho de domínios após commit:', err.message);
-  }
-  return cloneConfig(prepared.next);
+  const err = new Error('A configuração mudou durante a atualização. Tente novamente.');
+  err.code = 'CONFIG_REVISION_CONFLICT';
+  err.status = 409;
+  throw err;
 }
 
 // Serializa mutações por conta. Duas requests simultâneas deixam de fazer
@@ -650,6 +739,7 @@ function seed(accountId, patch) {
   const key = accountId || LEGACY_KEY;
   const cur = cache.has(key) ? cache.get(key) : defaults();
   cache.set(key, Object.assign({}, cur, patch || {}));
+  rebuildRoutingIndexes();
 }
 
 // Resolve a conta dona de um domínio personalizado (Host → accountId).
@@ -658,11 +748,15 @@ function seed(accountId, patch) {
 function accountForDomain(host) {
   const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
   if (!h) return null;
-  for (const [key, cfg] of cache) {
-    if (key === LEGACY_KEY) continue;
-    if ((cfg.customDomains || []).some((d) => d.host === h)) return key;
-  }
-  return null;
+  return domainOwners.get(h) || null;
+}
+
+// Resolve /c/:slug no host compartilhado sem varrer todas as contas. Slug
+// legado duplicado retorna null (ambíguo) e a rota responde 404 fail-closed.
+function accountForCloakSlug(slug) {
+  const s = String(slug || '').toLowerCase();
+  if (!s) return null;
+  return cloakSlugOwners.get(s) || null;
 }
 
 // Lista os accountIds com config carregada (diagnóstico/varreduras).
@@ -678,7 +772,8 @@ function migrateLegacyTo(accountId) {
     db.saveConfig(accountId, cache.get(accountId));
   }
   cache.delete(LEGACY_KEY);
+  rebuildRoutingIndexes();
   persistDisk();
 }
 
-module.exports = { get, set, setDurable, seed, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };
+module.exports = { get, set, setDurable, seed, defaults, hydrate, accountForDomain, accountForCloakSlug, accountIds, migrateLegacyTo, rebuildRoutingIndexes };

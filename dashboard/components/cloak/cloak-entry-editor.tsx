@@ -28,21 +28,21 @@ const SENSITIVITIES: {
     value: 'strict',
     label: 'Rígido',
     tag: 'Mais proteção',
-    desc: 'Desvia ao menor sinal suspeito. Máxima defesa contra revisores de anúncio, mas pode mandar alguns usuários reais para a página branca.',
+    desc: 'Desvia ao menor sinal suspeito. Máxima defesa contra automação, mas pode mandar alguns usuários reais para a página segura.',
     icon: ShieldAlert,
   },
   {
     value: 'balanced',
     label: 'Equilibrado',
     tag: 'Recomendado',
-    desc: 'Melhor equilíbrio: protege a offer dos revisores e mantém os acessos legítimos passando para a oferta.',
+    desc: 'Melhor equilíbrio entre filtrar tráfego automatizado e manter os acessos legítimos passando para a oferta.',
     icon: Scale,
   },
   {
     value: 'loose',
     label: 'Frouxo',
     tag: 'Menos proteção',
-    desc: 'Só desvia bots muito óbvios. Praticamente nenhum falso positivo, porém deixa passar revisores mais disfarçados.',
+    desc: 'Só desvia automações mais óbvias. Reduz falsos positivos, porém deixa passar mais tráfego suspeito.',
     icon: ShieldOff,
   },
 ]
@@ -53,18 +53,19 @@ const EFFECTIVE_THRESHOLD: Record<string, number> = { strict: 30, balanced: 40, 
 
 interface Props {
   entry: CloakEntry | null
+  initialDomain?: string
   onClose: () => void
   onSaved: () => void
 }
 
-export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
+export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }: Props) {
   const [nome, setNome] = useState(entry?.nome ?? '')
   const [offerUrl, setOfferUrl] = useState(entry?.offerUrl ?? '')
   const [whitePageUrl, setWhitePageUrl] = useState(entry?.whitePageUrl ?? '')
-  const [dominio, setDominio] = useState(entry?.dominio ?? '')
+  const [dominio, setDominio] = useState(entry?.dominio ?? initialDomain)
   const [enabled, setEnabled] = useState(entry?.enabled ?? true)
-  const [mobileOnly, setMobileOnly] = useState(entry?.mobileOnly ?? true)
-  const [requireAdClick, setRequireAdClick] = useState(entry?.requireAdClick ?? true)
+  const [shadowMode, setShadowMode] = useState(entry?.shadowMode ?? false)
+  const [mobileOnly, setMobileOnly] = useState(entry?.mobileOnly ?? false)
   const [sensitivity, setSensitivity] = useState<CloakSensitivity>(entry?.sensitivity ?? 'balanced')
   const [paises, setPaises] = useState<string[]>(entry?.paises ?? [])
   const [idiomas, setIdiomas] = useState<string[]>(entry?.idiomas ?? [])
@@ -79,21 +80,20 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  // Só domínios já verificados podem servir o cloaking — um domínio pendente
-  // devolve 404 nos links /go. Listamos apenas os verificados para seleção.
+  // Só domínios ativos e permitidos para Cloaker podem ser selecionados.
   const { data: domainsData } = useDomains()
-  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado)
+  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && d.uso !== 'checkout')
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
 
   async function handleSave() {
     if (savingRef.current) return
     setError(null)
     if (!nome.trim() && !entry) return setError('Dê um nome ao link')
-    if (!/^https:\/\//.test(offerUrl.trim())) return setError('A offer precisa ser uma URL https:// válida')
+    if (!/^https:\/\//.test(offerUrl.trim())) return setError('O destino principal precisa ser uma URL https:// válida')
 
     const signature = JSON.stringify({
       nome: nome.trim(), offerUrl: offerUrl.trim(), whitePageUrl: whitePageUrl.trim(),
-      dominio: dominio.trim(), enabled, mobileOnly, requireAdClick, sensitivity, paises, idiomas,
+      dominio: dominio.trim(), enabled, shadowMode, mobileOnly, sensitivity, paises, idiomas,
     })
     if (!entry && (!createRequestRef.current || createRequestRef.current.signature !== signature)) {
       createRequestRef.current = { signature, key: crypto.randomUUID() }
@@ -111,8 +111,9 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
         whitePageUrl: whitePageUrl.trim(),
         dominio: dominio.trim(),
         enabled,
+        shadowMode,
         mobileOnly,
-        requireAdClick,
+        requireAdClick: false,
         sensitivity,
         paises,
         idiomas,
@@ -171,10 +172,10 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-offer">Offer (página real, https)</label>
+              <label className={labelCls} htmlFor="ck-offer">Destino principal (https)</label>
               <input id="ck-offer" className={inputCls} value={offerUrl} onChange={(e) => setOfferUrl(e.target.value)} placeholder="https://minha-oferta.com" />
               <div className="mt-1 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">Para onde o usuário real é levado.</p>
+                <p className="text-[11px] text-muted-foreground">Destino usado quando o acesso passa pela proteção.</p>
                 {/* Item 174: abrir a offer em nova aba direto do editor */}
                 {/^https:\/\//.test(offerUrl.trim()) && (
                   <a
@@ -190,10 +191,10 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-white">Página branca (opcional, https)</label>
+              <label className={labelCls} htmlFor="ck-white">Destino seguro (opcional, https)</label>
               <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
               <div className="mt-1 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">Para onde bots e revisores são desviados. Vazio = página neutra embutida.</p>
+                <p className="text-[11px] text-muted-foreground">Usado para automação ou tráfego suspeito. Vazio = página neutra embutida.</p>
                 {/* Item 138: abrir a white page em nova aba direto do editor */}
                 {/^https:\/\//.test(whitePageUrl.trim()) && (
                   <a
@@ -206,14 +207,12 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                   </a>
                 )}
               </div>
-              {/* Item 172: white page preenchida mas inválida (não https) queima a
-                  conta — o revisor cai numa página de erro. Avisar antes de salvar */}
+              {/* Destino seguro preenchido mas inválido: impedir fluxo quebrado. */}
               {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
                 <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
                   <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
                   <span>
-                    A página segura precisa começar com <code>https://</code>. Uma página quebrada leva o revisor a
-                    um erro e pode queimar a conta — corrija ou deixe vazio para usar a embutida.
+                    O destino seguro precisa começar com <code>https://</code>. Corrija ou deixe vazio para usar a página neutra embutida.
                   </span>
                 </p>
               )}
@@ -227,7 +226,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                   }}
                   className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
                 >
-                  <ExternalLink className="size-3" /> Comparar offer × white lado a lado
+                  <ExternalLink className="size-3" /> Abrir os dois destinos
                 </button>
               )}
             </div>
@@ -325,8 +324,8 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
           {/* ── Seção: segmentação ── */}
           <section className="flex flex-col gap-4">
             <div>
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Onde a offer é liberada</h3>
-              <p className={hintCls}>Deixe vazio para liberar em qualquer lugar. Quem estiver fora vê a página branca.</p>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">Segmentação opcional</h3>
+              <p className={hintCls}>Deixe vazio para não restringir por localização ou idioma.</p>
             </div>
 
             <div>
@@ -364,8 +363,8 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
           {/* ── Seção: regras ── */}
           <section className="flex flex-col gap-2 border-t border-border pt-5">
             <ToggleRow label="Link ativo" hint="Desligado, o link não redireciona ninguém" checked={enabled} onChange={setEnabled} />
-            <ToggleRow label="Apenas mobile" hint="Bloqueia acessos de desktop (revisores costumam usar desktop)" checked={mobileOnly} onChange={setMobileOnly} />
-            <ToggleRow label="Exigir clique de anúncio" hint="Só libera quem chega com parâmetro de ad-click válido" checked={requireAdClick} onChange={setRequireAdClick} />
+            <ToggleRow label="Modo observação" hint="Classifica sem alterar o destino" checked={shadowMode} onChange={setShadowMode} />
+            <ToggleRow label="Somente mobile" hint="Restrição opcional por tipo de dispositivo" checked={mobileOnly} onChange={setMobileOnly} />
           </section>
 
           {error && <p className="text-xs text-destructive">{error}</p>}

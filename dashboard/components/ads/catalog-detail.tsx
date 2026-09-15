@@ -360,7 +360,7 @@ export function CatalogDetail({
     setFixing(true)
     try {
       const data = await apiSend<{ fixedCount?: number }>(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/magic-fix`, advertiserId), 'POST', {})
-      if (data.fixedCount != null && data.fixedCount > 0) {
+      if ((data.fixedCount ?? 0) > 0) {
         toast.success(`${data.fixedCount} produto(s) corrigido(s) com sucesso!`)
         await refreshAndAutoSync()
       } else {

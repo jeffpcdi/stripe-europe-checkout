@@ -191,6 +191,16 @@ export interface HealthResponse {
   }
   // Item 177: latência do julgamento do cloaker (p50/p95/deadlineRate)
   cloakerLatency?: { count: number; p50: number; p95: number; deadlineRate: number }
+  domainAutomation?: {
+    status: 'warming' | 'healthy' | 'degraded'
+    running: boolean
+    started: boolean
+    lastRunAt: string | null
+    lastResult: { checked: number; failed: number } | null
+    lastError: string | null
+    intervalMs: number
+  }
+  securityRuntime?: { trafficChallengeSecret: boolean; domainProofSecret: boolean }
   uptimeSec: number
   /** Item 443: versão do app (package.json) para a seção Sobre */
   version: string | null
@@ -308,6 +318,20 @@ export interface CustomDomain {
   sslStatus?: string | null
   lastCheckedAt?: string | null
   lastError?: string | null
+  retryCount?: number
+  nextCheckAt?: string | null
+}
+
+export interface DomainDiagnostics {
+  host: string
+  checkedAt: string
+  healthy: boolean
+  likelyCause?: string
+  provider?: { enabled?: boolean; reason?: string; detail?: string; [key: string]: unknown }
+  cloudflare?: { status?: string; sslStatus?: string; verificationErrors?: unknown; sslErrors?: unknown; error?: string }
+  dns?: { cname?: string[]; a?: string[]; resolves?: boolean; error?: string }
+  tls?: { ok?: boolean; subject?: string | null; san?: string | null; covers?: boolean; error?: string }
+  http?: { status?: number; servedByThisApp?: boolean; error?: string }
 }
 
 export interface DomainsResponse {
@@ -352,6 +376,7 @@ export interface DomainVerifyResult {
   // Item 127: marcado no CLIENTE quando o próprio fetch de verify falhou
   // (rede/servidor fora) — a UI oferece retry em vez de "DNS pendente"
   networkError?: boolean
+  securityBlocked?: boolean
 }
 
 // ── /api/pixels — pixels TikTok + CAPI (pixel-store.js) ──
@@ -567,6 +592,8 @@ export type CloakSensitivity = 'strict' | 'balanced' | 'loose' | 'custom'
 
 export interface CloakConfig {
   enabled: boolean
+  // Observa e classifica sem alterar o destino do visitante.
+  shadowMode?: boolean
   threshold: number
   deadlineMs: number
   sensitivity?: CloakSensitivity
@@ -674,6 +701,7 @@ export interface CloakEntry {
   offerUrl: string
   whitePageUrl: string
   enabled: boolean
+  shadowMode?: boolean
   mobileOnly: boolean
   requireAdClick: boolean
   sensitivity?: CloakSensitivity

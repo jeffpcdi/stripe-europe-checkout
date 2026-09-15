@@ -47,7 +47,7 @@ function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white:
           </span>
         </span>
       </div>
-      <div className="flex h-12 items-end gap-0.5" role="img" aria-label="Gráfico diário de decisões offer contra white page">
+      <div className="flex h-12 items-end gap-0.5" role="img" aria-label="Gráfico diário de decisões entre destino principal e seguro">
         {days.map((d) => {
           const total = d.offer + d.white
           const h = total ? Math.max(6, Math.round((total / max) * 100)) : 2
@@ -162,8 +162,8 @@ export function CloakStatsPanel() {
       </div>
 
       {/* Item 169: leitura de impacto em linguagem de negócio — traduz os
-          contadores crus em "público real que viu a oferta" x "robôs/revisores
-          barrados na white page", em vez de só offer/white numérico */}
+          contadores crus em "acessos no destino principal" x "tráfego automatizado/suspeito
+          direcionado ao destino seguro", em vez de termos internos */}
       {/* V2-90: cards offer/white com números mono grandes + entrada em
           stagger + hover que intensifica o tint da própria cor */}
       {agg && agg.total > 0 && (
@@ -181,11 +181,11 @@ export function CloakStatsPanel() {
           <div className="anim-row-in rounded-lg border border-warning/30 bg-warning/10 p-3 transition-colors hover:bg-warning/15" style={{ animationDelay: '70ms' }}>
             <div className="flex items-center gap-1.5 text-warning">
               <ShieldCheck className="size-3.5" aria-hidden="true" />
-              <span className="font-mono text-[11px] font-semibold capitalize">Robôs/revisores barrados</span>
+              <span className="font-mono text-[11px] font-semibold capitalize">Automação / suspeitos</span>
             </div>
             <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning"><CountUp value={agg.white} /></p>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              enviados à white page e longe da sua oferta
+              direcionados ao destino seguro
             </p>
           </div>
         </div>

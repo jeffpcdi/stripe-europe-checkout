@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { cn } from '@/lib/utils'
 import {
@@ -11,7 +11,6 @@ import {
   Pencil,
   Trash2,
   Smartphone,
-  MousePointerClick,
   Search,
   Play,
   Loader2,
@@ -51,6 +50,7 @@ export function CloakEntriesPanel() {
   const { data, mutate } = useCloakEntries()
   const { data: statsData } = useCloakStats()
   const [creating, setCreating] = useState(false)
+  const [initialDomain, setInitialDomain] = useState('')
   const [editing, setEditing] = useState<CloakEntry | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   // Item 143: anúncio acessível da cópia (padrão dos itens 55/93/110)
@@ -76,6 +76,21 @@ export function CloakEntriesPanel() {
 
   const entries = data?.entries ?? []
   const baseUrl = data?.baseUrl ?? ''
+
+  // Atalho vindo da aba Domínios: abre a criação já com o domínio selecionado.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('novo') !== '1') return
+    const domain = String(params.get('dominio') || '').trim().toLowerCase()
+    if (!domain) return
+    setInitialDomain(domain)
+    setCreating(true)
+    params.delete('novo')
+    params.delete('dominio')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
+  }, [])
 
   // Item 135: mapa slug → estatística offer/white do link /c
   const statBySlug = useMemo(() => {
@@ -112,7 +127,7 @@ export function CloakEntriesPanel() {
     setDeleteBusy(true)
     let removed = false
     try {
-      await apiSend(`/api/cloak/entries/${encodeURIComponent(target.slug)}`, 'DELETE')
+      await apiSend(`/api/cloak/entries/${encodeURIComponent(target.slug)}?baseUpdatedAt=${encodeURIComponent(target.updatedAt)}`, 'DELETE')
       removed = true
       setDeleting(null)
       toast.success(`Link de cloaking "${target.nome}" removido.`)
@@ -159,7 +174,7 @@ export function CloakEntriesPanel() {
       { revalidate: false },
     )
     try {
-      await apiSend('/api/cloak/entries', 'POST', { slug: e.slug, enabled: next })
+      await apiSend('/api/cloak/entries', 'POST', { slug: e.slug, enabled: next, _baseUpdatedAt: e.updatedAt })
       await mutate()
     } catch (err) {
       if (previous) await mutate(previous, { revalidate: false })
@@ -185,8 +200,9 @@ export function CloakEntriesPanel() {
     const failed = new Set<string>()
     try {
       for (const slug of pending) {
+        const current = entries.find((entry) => entry.slug === slug)
         try {
-          await apiSend('/api/cloak/entries', 'POST', { slug, enabled })
+          await apiSend('/api/cloak/entries', 'POST', { slug, enabled, _baseUpdatedAt: current?.updatedAt })
         } catch {
           failed.add(slug)
         }
@@ -212,8 +228,10 @@ export function CloakEntriesPanel() {
     const failed = new Set<string>()
     try {
       for (const slug of pending) {
+        const current = entries.find((entry) => entry.slug === slug)
         try {
-          await apiSend(`/api/cloak/entries/${encodeURIComponent(slug)}`, 'DELETE')
+          const revision = current?.updatedAt ? `?baseUpdatedAt=${encodeURIComponent(current.updatedAt)}` : ''
+          await apiSend(`/api/cloak/entries/${encodeURIComponent(slug)}${revision}`, 'DELETE')
         } catch {
           failed.add(slug)
         }
@@ -279,26 +297,19 @@ export function CloakEntriesPanel() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <SectionTitle>Links protegidos</SectionTitle>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Cada URL /c/&lt;slug&gt; possui destino real, página segura e regras próprias de proteção.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">URLs com proteção e regras próprias.</p>
           </div>
           <button type="button" onClick={() => setCreating(true)} className="btn-primary self-start text-xs">
             <Plus className="size-3.5" /> Novo link protegido
           </button>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Ativos</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">{summary.active}<span className="text-xs font-medium text-muted-foreground">/{entries.length}</span></p>
+        {entries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <span><strong className="font-semibold text-foreground">{summary.active}</strong> ativos</span>
+            <span><strong className="font-semibold text-foreground">{summary.total}</strong> decisões</span>
+            {summary.total > 0 && <span><strong className="font-semibold text-warning">{summary.blockRate.toFixed(0)}%</strong> protegidos</span>}
           </div>
-          <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Decisões</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">{summary.total}</p>
-          </div>
-          <div className="rounded-2xl border border-warning/20 bg-warning/5 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Bloqueados</p>
-            <p className="mt-1 text-lg font-semibold text-warning">{summary.blockRate.toFixed(0)}%</p>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Item 136: busca + ordenação */}
@@ -309,7 +320,7 @@ export function CloakEntriesPanel() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nome, slug, offer ou domínio"
+              placeholder="Buscar por nome, slug, destino ou domínio"
               className="w-full rounded-lg border border-border bg-secondary/60 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none"
             />
           </div>
@@ -382,19 +393,15 @@ export function CloakEntriesPanel() {
       )}
 
       {entries.length === 0 ? (
-        /* Item 145: estado vazio guiado — explica offer × white em linguagem de
-           negócio e leva à criação do primeiro link, sem jargão solto */
+        /* Estado vazio curto: explica só o necessário para começar. */
         <div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
           <div className="flex size-16 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] drop-shadow-[0_0_15px_rgba(37,244,238,0.3)]">
             <ShieldCheck className="size-8" />
           </div>
           <div className="max-w-md">
-            <p className="text-sm font-medium text-foreground">Nenhum link de cloaking ainda</p>
+            <p className="text-sm font-medium text-foreground">Nenhum link protegido</p>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Um link de cloaking mostra duas páginas conforme quem acessa: a{' '}
-              <strong className="text-foreground">offer</strong> (sua oferta de verdade) para o público real e a{' '}
-              <strong className="text-foreground">página segura</strong> (neutra e inofensiva) para robôs e
-              revisores, protegendo sua conta de anúncios. Assim sua campanha fica protegida sem expor a oferta a quem faz auditoria.
+              Defina um destino principal e, opcionalmente, um destino seguro para tráfego automatizado ou suspeito.
             </p>
           </div>
           <button
@@ -446,14 +453,10 @@ export function CloakEntriesPanel() {
                     <StatusBadge status="neutral">
                       <SensIcon className="size-3" /> {(SENS_META[sens] ?? SENS_META.balanced).label} · ≥{thresholdFor(e)}
                     </StatusBadge>
+                    {e.shadowMode && <StatusBadge status="info">observando</StatusBadge>}
                     {e.mobileOnly && (
                       <StatusBadge status="info">
                         <Smartphone className="size-3" /> mobile
-                      </StatusBadge>
-                    )}
-                    {e.requireAdClick && (
-                      <StatusBadge status="info">
-                        <MousePointerClick className="size-3" /> ad-click
                       </StatusBadge>
                     )}
                   </div>
@@ -468,8 +471,8 @@ export function CloakEntriesPanel() {
                 {st && st.total > 0 && (
                   <div className="mt-2">
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span className="text-success">offer {st.offer}</span>
-                      <span className="text-warning">white {st.white}</span>
+                      <span className="text-success">principal {st.offer}</span>
+                      <span className="text-warning">seguro {st.white}</span>
                       <span className="ml-auto">{Math.round(st.blockRate * 100)}% bloqueado</span>
                     </div>
                     <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-muted">
@@ -491,7 +494,7 @@ export function CloakEntriesPanel() {
                 {tr && (
                   <div className="mt-2 rounded-lg border border-border bg-background/40 p-2.5 text-[11px]">
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Seu acesso agora neste link:</span>
+                      <span className="text-muted-foreground">Simulação da dashboard:</span>
                       <StatusBadge
                         status={tr.verdict === 'real' ? 'success' : tr.verdict === 'erro' ? 'error' : 'warning'}
                       >
@@ -503,7 +506,6 @@ export function CloakEntriesPanel() {
                         {(
                           [
                             ['mobile', tr.gates.mobile],
-                            ['ad-click', tr.gates.adClick],
                             ['país', tr.gates.pais],
                             ['idioma', tr.gates.idioma],
                           ] as const
@@ -568,7 +570,7 @@ export function CloakEntriesPanel() {
           deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? (
             <>
               Este link já tem <strong className="text-foreground">{statBySlug[deleting.slug].total} decisões registradas</strong>{' '}
-              (offer/white). Ao remover, a URL /c/{deleting.slug} para de funcionar e os contadores se perdem.
+              (principal/seguro). Ao remover, a URL /c/{deleting.slug} para de funcionar e os contadores se perdem.
             </>
           ) : (
             <>A URL /c/{deleting?.slug} deixa de funcionar imediatamente. Esta ação não pode ser desfeita.</>
@@ -584,13 +586,16 @@ export function CloakEntriesPanel() {
       {(creating || editing) && (
         <CloakEntryEditor
           entry={editing}
+          initialDomain={editing ? '' : initialDomain}
           onClose={() => {
             setCreating(false)
             setEditing(null)
+            setInitialDomain('')
           }}
           onSaved={() => {
             setCreating(false)
             setEditing(null)
+            setInitialDomain('')
             mutate()
           }}
         />

@@ -41,6 +41,8 @@ const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
+const domainSecurity = require('./domain-security');
+const domainReconciler = require('./domain-reconciler');
 const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
 const { TTQ_STUB, buildPixelClient } = require('./pixel-client');
@@ -185,7 +187,7 @@ function getOrAssignVisitor(req, res) {
   let id = readCookie(req, 'v_id');
   if (!id) {
     id = 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    res.setHeader('Set-Cookie', `v_id=${id};Path=/;Max-Age=7776000;SameSite=Lax`); // 90 dias
+    res.setHeader('Set-Cookie', visitorCookie(req, id)); // 90 dias
   }
   return id;
 }
@@ -195,6 +197,12 @@ function appendCookie(res, cookie) {
   const prev = res.getHeader('Set-Cookie');
   if (!prev) res.setHeader('Set-Cookie', cookie);
   else res.setHeader('Set-Cookie', [].concat(prev, cookie));
+}
+
+function visitorCookie(req, id) {
+  const forwarded = String((req.headers || {})['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const secure = req.secure || forwarded === 'https';
+  return `v_id=${encodeURIComponent(id)};Path=/;Max-Age=7776000;SameSite=Lax${secure ? ';Secure' : ''};Priority=High`;
 }
 
 // Formata valor monetário (ex.: 12,97 €)
@@ -604,6 +612,7 @@ const _challengeBeacon = { count: 0, lastAt: 0 };
 // para que o judge() na próxima visita ao /go/:slug use os dados enriquecidos.
 app.post('/api/cloakcheck', async (req, res) => {
   res.set('Cache-Control', 'no-store');
+  if (rateLimited(clientIp(req), 'cloakcheck', 120)) return res.status(429).end();
   const b   = req.body || {};
   const vid = typeof b.vid === 'string' ? b.vid.slice(0, 60) : '';
   const tok = typeof b.tok === 'string' ? b.tok.slice(0, 80) : '';
@@ -648,11 +657,6 @@ app.post('/api/cloakcheck', async (req, res) => {
   // white sem depender do judge. Fecha a janela do "primeiro acesso limpo".
   if (typeof b.webgl === 'string' && /SwiftShader|llvmpipe|Mesa|VMware|VirtualBox/i.test(b.webgl)) {
     redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webgl:software-renderer'] }).catch(() => {});
-  }
-  // UA declara webview in-app da TikTok mas o browser NÃO expõe nenhum global de
-  // webview (iw/aw/jb) → UA falsificada por revisor num Chrome comum. Sticky bot.
-  if (uaTools.isInAppTikTok(String(req.headers['user-agent'] || '')) && typeof b.wv === 'string' && !b.wv) {
-    redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webview:ua-spoof'] }).catch(() => {});
   }
   res.status(204).end();
 });
@@ -884,10 +888,9 @@ app.get('/healthz', (_req, res) => {
 });
 
 // ── Página neutra de segurança (/_safe) ──────────────────────────────
-// Fallback FINAL do cloaker: quando um bot/revisor é detectado e o link não
-// tem white page própria nem white page global configurada, ele cai AQUI —
-// nunca na offer. Conteúdo institucional inofensivo, sem redirect nem oferta,
-// para que a revisão do anúncio veja uma página legítima e neutra.
+// Fallback FINAL da proteção: quando automação/tráfego suspeito é detectado e
+// o link não tem destino seguro próprio nem global, ele cai AQUI. Conteúdo
+// institucional neutro, sem redirect nem oferta.
 // Regra: HTML por concatenação, sem crase nem ${} (convenção do projeto).
 app.get('/_safe', (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -965,17 +968,12 @@ app.get('/go/:slug', async (req, res) => {
 
   const uaRaw = String(req.headers['user-agent'] || '');
 
-  // ── Filtro multicamadas: bot / revisor de anúncio TikTok ──────────────
-  // Config vem da aba "Filtro de Bots" da dashboard (config.get().cloak).
-  // Primeiro: UAs de crawlers conhecidos — resposta imediata sem custo.
-  // Segundo: motor de score assíncrono (ASN + headers + JS challenge).
-  // Se urlWhitePage estiver configurada, revisores vão pra ela.
-  // Se não houver white page, revisores são redirecionados para a variante
-  // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
+  // ── Proteção multicamadas contra bots e automação ─────────────────────
+  // Config vem da aba Cloaker/Proteção. Primeiro filtramos crawlers conhecidos;
+  // depois aplicamos score técnico (ASN + headers + challenge JS).
   const cloakCfg  = config.get(acc).cloak || {};
-  // FAIL-SAFE: white page sempre existe. Preferência: white do próprio link →
-  // white global da conta → página neutra embutida /_safe. Assim NENHUM bot
-  // chega à offer, mesmo em links sem white configurada.
+  // FAIL-SAFE: sempre existe um destino seguro. Preferência: destino alternativo
+  // do link → global da conta → página neutra /_safe.
   const safePage = link.urlWhitePage || cloakCfg.defaultWhitePage || '/_safe';
 
   // Interruptor mestre da conta liga/desliga o cloaking. Como há sempre um
@@ -1000,9 +998,8 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, link.variantes[0].url);
   }
 
-  // Rajada do mesmo IP+UA (spy tool / clique inflado). A chave inclui o UA
-  // para não punir usuários reais atrás de CGNAT (operadoras móveis põem
-  // milhares de pessoas no mesmo IP — tráfego TikTok é quase todo mobile).
+  // Rajada do mesmo IP+UA (automação / clique inflado). A chave inclui o UA
+  // para reduzir falsos positivos em usuários reais atrás de CGNAT.
   if (rateLimited(clientIp(req) + '|' + uaRaw.slice(0, 60), 'go', 30)) {
     if (cloakOn) { bumpDecision('white', 'rate-limit'); return res.redirect(302, safePage); }
     // Fallback SEM contar clique, mas preservando atribuição e dispositivo:
@@ -1061,8 +1058,8 @@ app.get('/go/:slug', async (req, res) => {
   // ── Veredito STICKY (só bot) ──────────────────────────────────────────────
   // Se este visitante JÁ foi condenado numa visita anterior (sinais fortes:
   // WebGL software, ASN datacenter…), vai direto à white sem re-rodar o judge.
-  // Consistência: o mesmo revisor nunca vê ora offer, ora white. Nunca cacheamos
-  // 'real', então um bot jamais fica preso como usuário real (fail-safe).
+  // Consistência: um visitante já classificado como automação não oscila entre
+  // destinos. Nunca cacheamos 'real', então sinais novos ainda podem reclassificar.
   if (cloakOn && cloakVid) {
     const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
     if (sticky) {
@@ -1124,7 +1121,7 @@ app.get('/go/:slug', async (req, res) => {
   if (q.vid && VID_RE.test(String(q.vid))) {
     visitorId = String(q.vid);
     if (readCookie(req, 'v_id') !== visitorId) {
-      appendCookie(res, `v_id=${visitorId};Path=/;Max-Age=7776000;SameSite=Lax`);
+      appendCookie(res, visitorCookie(req, visitorId));
     }
   } else {
     visitorId = getOrAssignVisitor(req, res);
@@ -1206,7 +1203,7 @@ app.get('/go/:slug', async (req, res) => {
 });
 
 // ── Links de cloaking (/c/:slug) ───────────────────────────────��─────
-// Roteia pessoas reais → offer; bots/revisores → white page. Usa a config
+// Roteia tráfego normal → destino principal; bots/automação → destino seguro. Usa a config
 // de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
 // sensibilidade e camadas de detecção.
 function resolveCloakEntry(req) {
@@ -1223,9 +1220,18 @@ function resolveCloakEntry(req) {
   // de slug. No host compartilhado, preserva o fallback global legado.
   if (pref) {
     const r = tryAcc(pref);
-    if (r || domainOwner) return r;
+    if (domainOwner) {
+      if (!r) return null;
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
+      const domain = (config.get(pref).customDomains || []).find((d) => d.host === host);
+      if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
+      if (r.entry.dominio && r.entry.dominio !== host) return null;
+      return r;
+    }
+    if (r) return r;
   }
-  for (const acc of config.accountIds()) { const r = tryAcc(acc); if (r) return r; }
+  const indexedOwner = config.accountForCloakSlug(slug);
+  if (indexedOwner) return tryAcc(indexedOwner);
   return null;
 }
 
@@ -1240,6 +1246,8 @@ app.get('/c/:slug', async (req, res) => {
   const uaRaw = String(req.headers['user-agent'] || '');
   // Interruptor do link liga/desliga o cloaking; o destino seguro sempre existe.
   const cloakOn = entry.enabled !== false;
+  const shadowMode = entry.shadowMode === true || acctCloak.shadowMode === true;
+  const enforceCloak = cloakOn && !shadowMode;
 
   // Registra a decisão (offer/white + motivo) nos contadores do painel e,
   // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
@@ -1274,7 +1282,7 @@ app.get('/c/:slug', async (req, res) => {
 
   // Denylist automática por IP anonimizado. A checagem ocorre antes dos gates
   // caros e o IP bruto nunca é salvo no histórico do bloqueio.
-  if (cloakOn && acctCloak.autoBlockEnabled) {
+  if (enforceCloak && acctCloak.autoBlockEnabled) {
     const denied = await botRiskStore.isBlocked(acc, clientIp(req)).catch(() => ({ blocked: false }));
     if (denied.blocked) {
       stats.logEvent('info', { acc, title: '[cloak] IP da denylist automática → white', gateway: 'cloak:' + entry.slug, ref: denied.ipHash.slice(0, 12) });
@@ -1285,32 +1293,20 @@ app.get('/c/:slug', async (req, res) => {
 
   // Crawler conhecido → página segura (nunca à offer)
   if (uaTools.isBot(uaRaw)) {
-    stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
-    if (cloakOn) { bumpDecision('white', 'bot-ua'); return go(white); }
+    stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (enforceCloak ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
+    if (enforceCloak) { bumpDecision('white', 'bot-ua'); return go(white); }
     bumpDecision('offer', null);
     return go(offer);
   }
 
-  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ��─────
+  // ── Sinais de dispositivo + parâmetros de atribuição ─────────────────────
+  // Parâmetros de campanha podem seguir para analytics/CAPI, mas NÃO participam
+  // do veredito de bot. A proteção V5 é independente da origem de tráfego.
   const dev = uaTools.parse(uaRaw);
   const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
   const q = req.query || {};
-  const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
   const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
-  // ttclid REAL do TikTok é uma string longa (base64-like). Um "?ttclid=abc"
-  // colado à mão não passa: exigimos comprimento e charset plausíveis.
   const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
-  const isWebview = uaTools.isInAppTikTok(uaRaw);
-  // Prova de que o acesso veio de um anúncio REAL do TikTok:
-  //  a) webview interno do app (musical_ly/BytedanceWebview…), OU
-  //  b) ttclid VÁLIDO na URL (o TikTok anexa no clique do anúncio), OU
-  //  c) referrer de domínio do TikTok.
-  // Copiar/colar o link num navegador comum não tem NENHUM desses → white.
-  const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
-  // Modo AGRESSIVO (sensibilidade strict): exige WEBVIEW real do app — ttclid
-  // sozinho não basta (revisor cola o link no Chrome com o ttclid capturado).
-  const aggressive = entry.sensitivity === 'strict';
-  const adClickOk = aggressive ? isWebview : (fromTikTok || validTtclid);
 
   // ── Identidade do visitante (habilita sticky + atribuição no destino) ──────
   // O /c não assinava cookie; sem um id estável, o veredito sticky e os sinais
@@ -1320,17 +1316,17 @@ app.get('/c/:slug', async (req, res) => {
   let cloakVid = readCookie(req, 'v_id') || '';
   if (q.vid && VID_RE.test(String(q.vid))) {
     cloakVid = String(q.vid);
-    if (readCookie(req, 'v_id') !== cloakVid) appendCookie(res, 'v_id=' + cloakVid + ';Path=/;Max-Age=7776000;SameSite=Lax');
+    if (readCookie(req, 'v_id') !== cloakVid) appendCookie(res, visitorCookie(req, cloakVid));
   } else if (!cloakVid) {
     cloakVid = 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    appendCookie(res, 'v_id=' + cloakVid + ';Path=/;Max-Age=7776000;SameSite=Lax');
+    appendCookie(res, visitorCookie(req, cloakVid));
   }
 
   // ── Veredito STICKY (só bot) — mesmo comportamento do /go/ ─────────────────
   // Visitante já condenado antes (score alto OU o beacon /api/cloakcheck flagrou
-  // WebGL de software / webview falsificada) vai direto à white, sem re-rodar o
+  // WebGL de software / ambiente incoerente) vai direto à white, sem re-rodar o
   // judge e sem oscilar offer↔white. Nunca cacheamos 'real' (fail-safe).
-  if (cloakOn && cloakVid) {
+  if (enforceCloak && cloakVid) {
     const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
     if (sticky) {
       stats.logEvent('info', { acc, title: '[cloak] sticky bot → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
@@ -1339,45 +1335,20 @@ app.get('/c/:slug', async (req, res) => {
     }
   }
 
-  // Gate "apenas celular" (default LIGADO): desktop/notebook nunca vê a offer.
-  if (cloakOn && entry.mobileOnly !== false && !isMobile) {
+  // Segmentação opcional por tipo de dispositivo. O padrão V5 é desligado.
+  if (enforceCloak && entry.mobileOnly !== false && !isMobile) {
     stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: 'cloak:' + entry.slug, ref: dev.device || 'desktop' });
     bumpDecision('white', 'mobile');
     return go(white);
   }
 
-  // Gate do ANÚNCIO (default LIGADO): sem prova de clique real no anúncio do
-  // TikTok, vai para a white. É isto que faz "colar o link no navegador" cair
-  // na white — só quem realmente clicou no anúncio (webview OU ttclid) segue.
-  if (cloakOn && entry.requireAdClick !== false && !adClickOk) {
-    stats.logEvent('info', { acc, title: '[cloak] ' + (aggressive ? 'sem webview do app (agressivo)' : 'sem prova de clique no anúncio') + ' → white', gateway: 'cloak:' + entry.slug, ref: (ref || 'sem-referer').slice(0, 80) });
-    bumpDecision('white', 'anuncio');
-    return go(white);
-  }
-
-  // Anti-replay + velocity (sempre que o cloaking está ligado). O revisor que
-  // captura a URL reusa o MESMO ttclid de outra rede/dispositivo; e device farms
-  // martelam o link várias vezes por minuto. Ambos caem na white. Sem Redis, o
-  // redis.js usa fallback em memória (single-instance) — melhor que não barrar.
-  if (cloakOn) {
+  // Velocity genérico (sempre que a proteção está ligada). Rajadas do mesmo
+  // IP no mesmo link são tratadas como automação. Sem Redis, há fallback em
+  // memória para single-instance.
+  if (enforceCloak) {
     try {
       const ip = clientIp(req);
-      // ASN só com Redis: evita o custo de DNS no caminho quente quando não há
-      // Redis. Sem ASN, o contexto do ttclid usa só o tipo de device (ainda barra
-      // reuso do mesmo ttclid entre celular/desktop).
-      const asn = redis.enabled ? ((await botFilter.lookupASN(ip).catch(() => ({ asn: 0 }))).asn || 0) : 0;
-      // 1) ttclid de uso único: contexto = ASN + tipo de device do 1º clique
-      if (entry.requireAdClick !== false && validTtclid) {
-        const ctx = asn + ':' + (isMobile ? 'm' : 'd');
-        const tc = await redis.checkTtclidContext(ttclidRaw, ctx).catch(() => ({ reused: false }));
-        if (tc.reused) {
-          stats.logEvent('info', { acc, title: '[cloak] ttclid reusado de outro contexto → white', gateway: 'cloak:' + entry.slug, ref: ip });
-          bumpDecision('white', 'ttclid-replay');
-          redis.bumpTtclidReplay(acc).catch(() => {}); // Item 203: contador durável de replays barrados
-          return go(white);
-        }
-      }
-      // 2) velocity por IP: N acessos na janela ao mesmo link = automação/farm.
+      // Velocity por IP: N acessos na janela ao mesmo link = automação/farm.
       // Item 254: limiar e janela configuráveis por conta (preset seguro 12/60s).
       const vcfg = config.get(acc).cloak || {};
       const vLimit = vcfg.velocityLimit || 12;
@@ -1392,7 +1363,7 @@ app.get('/c/:slug', async (req, res) => {
   }
 
   // Gate geográfico (instantâneo, sem DNS)
-  if (cloakOn && Array.isArray(entry.paises) && entry.paises.length) {
+  if (enforceCloak && Array.isArray(entry.paises) && entry.paises.length) {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
     if (!cc || entry.paises.indexOf(cc) < 0) {
       stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
@@ -1401,7 +1372,7 @@ app.get('/c/:slug', async (req, res) => {
     }
   }
   // Gate de idioma (instantâneo, via Accept-Language)
-  if (cloakOn && Array.isArray(entry.idiomas) && entry.idiomas.length) {
+  if (enforceCloak && Array.isArray(entry.idiomas) && entry.idiomas.length) {
     const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     if (!lang || entry.idiomas.indexOf(lang) < 0) {
       stats.logEvent('info', { acc, title: '[cloak] idioma ' + (lang || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
@@ -1418,9 +1389,21 @@ app.get('/c/:slug', async (req, res) => {
       : (lead0.cloakChallenge === 'fail' ? '' : null);
     const challengeData = buildCloakChallengeData(lead0);
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-    const j = await botFilter.judge(filterReq, cloakVid, challengeToken, challengeData, entry)
-      .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+    let j;
+    try {
+      j = await botFilter.judge(filterReq, cloakVid, challengeToken, challengeData, entry);
+    } catch (err) {
+      stats.logEvent('warn', { acc, title: '[cloak] motor indisponível', gateway: 'cloak:' + entry.slug, ref: String(err && err.message || 'judge_error').slice(0, 120) });
+      if (shadowMode) { bumpDecision('offer', 'shadow-engine-error'); return goWithVid(offer, cloakVid); }
+      bumpDecision('white', 'engine-error');
+      return go(white);
+    }
     if (j.verdict === 'bot') {
+      if (shadowMode) {
+        stats.logEvent('info', { acc, title: '[cloak] shadow score=' + j.score + ' — sem redirecionar', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+        bumpDecision('offer', 'shadow-score', j.score, (j.signals || []).slice(0, 5));
+        return goWithVid(offer, cloakVid);
+      }
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
       bumpDecision('white', 'score', j.score, (j.signals || []).slice(0, 5));
       // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
@@ -1444,7 +1427,7 @@ app.get('/c/:slug', async (req, res) => {
           ttlHours: acctCloak.autoBlockTtlHours,
         }).catch(() => null);
         if (risk && risk.newlyBlocked) {
-          stats.logEvent('warn', { acc, title: '[cloak] IP bloqueado automaticamente após ' + risk.count + ' acessos suspeitos no anúncio ' + risk.adKey, gateway: 'cloak:' + entry.slug, ref: risk.ipHash.slice(0, 12) });
+          stats.logEvent('warn', { acc, title: '[cloak] IP bloqueado automaticamente após ' + risk.count + ' acessos suspeitos no link ' + risk.adKey, gateway: 'cloak:' + entry.slug, ref: risk.ipHash.slice(0, 12) });
           sendPushcut('Aprovada', {
             title: 'Tráfego falso bloqueado',
             text: 'O mesmo perfil atingiu ' + risk.count + ' sinais de alto risco no anúncio ' + risk.adKey + '. O bloqueio expira sozinho.',
@@ -2573,7 +2556,10 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
         return apiError(res, 422, 'O domínio selecionado não está cadastrado nesta conta.', 'link_domain_not_found', 'Cadastre ou escolha um domínio disponível antes de salvar o link.');
       }
       if (domain.uso === 'cloaker') {
-        return apiError(res, 422, 'Este domínio está reservado para o filtro de bots.', 'link_domain_wrong_usage', 'Escolha um domínio com uso em Checkout ou Ambos.');
+        return apiError(res, 422, 'Este domínio está reservado para a proteção de tráfego.', 'link_domain_wrong_usage', 'Escolha um domínio com uso em Links ou Ambos.');
+      }
+      if (!domain.verificado || (domain.status && domain.status !== 'active')) {
+        return apiError(res, 422, 'Este domínio ainda não está pronto.', 'link_domain_not_verified', 'Aguarde DNS e HTTPS ficarem ativos em Domínios antes de usar este endereço.');
       }
       body.dominio = host;
     }
@@ -2637,15 +2623,31 @@ const cloudflareDomainProvider = require('./cloudflare-domain-provider');
 function activeDomainProvider() {
   return cloudflareDomainProvider.enabled ? cloudflareDomainProvider : railwayDomainProvider;
 }
+function providerForDomainEntry(entry) {
+  const tagged = String(entry && entry.provider || '').toLowerCase();
+  if (tagged === 'cloudflare') return cloudflareDomainProvider;
+  if (tagged === 'railway') return railwayDomainProvider;
+  // Antes do campo `provider`, providerId significava Railway. Isso evita
+  // enviar um id legado ao provider errado depois de uma mudança de preferência.
+  if (entry && entry.providerId) return railwayDomainProvider;
+  return activeDomainProvider();
+}
 // normHost/DOMAIN_RE extraídos para security-helpers.js (testáveis — item 60)
 const { normHost } = require('./security-helpers');
-const APP_CHECK_ID = 'roi-nados-tracker';
+const APP_CHECK_ID = domainSecurity.APP_CHECK_ID;
 
 // Marcador público que prova que o tráfego do domínio chega NESTE app
 // (usado pela verificação; sem auth de propósito — não expõe nada).
-app.get('/__domain-check', (_req, res) => {
+app.get('/__domain-check', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ app: APP_CHECK_ID, ok: true });
+  const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const host = normHost(rawHost);
+  const owner = host ? config.accountForDomain(host) : null;
+  let proof = null;
+  if (owner) {
+    try { proof = domainSecurity.domainProof(host, owner); } catch (_) { proof = null; }
+  }
+  res.json({ app: APP_CHECK_ID, ok: true, host: host || null, proof });
 });
 
 // ── Feed público de catálogo (CSV) — servido pelo próprio app a partir do Neon.
@@ -2847,6 +2849,20 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
   if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
 
+  // Reserva atômica no banco ANTES de falar com o provider. A checagem em
+  // memória acima é rápida, mas duas contas em instâncias diferentes podem
+  // chegar juntas; a PK host + claim fecha essa corrida no armazenamento.
+  let domainClaim = null;
+  if (db.enabled) {
+    domainClaim = await db.claimCustomDomain(req.account.id, host);
+    if (!domainClaim.ok) {
+      if (domainClaim.owner && domainClaim.owner !== req.account.id) {
+        return apiError(res, 409, 'Domínio já cadastrado em outra conta.', 'domain_owner_conflict');
+      }
+      return apiError(res, 503, 'Não foi possível reservar o domínio agora.', 'domain_claim_failed', 'Tente novamente em instantes.');
+    }
+  }
+
   // Registra o domínio na hospedagem (Railway) para ele ser roteado + ganhar
   // SSL. Se o provider estiver em modo manual (sem token), segue o fluxo antigo:
   // o lojista aponta o CNAME e adiciona o domínio na hospedagem na mão.
@@ -2865,7 +2881,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
       // genéricas — nunca expõem token nem detalhe interno da API.
       // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
-      // s�� precisa saber que o provisionamento automático não completou agora
+      // só precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
         limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
@@ -2909,11 +2925,14 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
     if (providerId && domainProvider.enabled) {
       try { await domainProvider.remove(providerId, host); } catch (_) {}
     }
+    if (domainClaim && domainClaim.claimed) {
+      try { await db.deleteCustomDomain(req.account.id, host); } catch (_) {}
+    }
     return configMutationError(res, err);
   }
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
-  // aqui cont��m segredo — são valores públicos de DNS. providerNote avisa quando
+  // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
   // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
   // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
   // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
@@ -2934,25 +2953,35 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   if (checkoutRefs.length || cloakRefs.length) {
     const refs = [];
     if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
-    if (cloakRefs.length) refs.push(cloakRefs.length + ' link' + (cloakRefs.length === 1 ? '' : 's') + ' do filtro de bots');
+    if (cloakRefs.length) refs.push(cloakRefs.length + ' link' + (cloakRefs.length === 1 ? '' : 's') + ' de proteção');
     return apiError(res, 409, 'Este domínio ainda está em uso.', 'domain_in_use', 'Troque o domínio em ' + refs.join(' e ') + ' antes de removê-lo.');
   }
 
-  // Primeiro confirma a remoção na fonte durável; só depois altera o provider.
-  // Assim uma falha de banco não deixa a UI/config dizendo que o domínio existe
-  // enquanto o registro remoto já foi apagado.
+  // Remove primeiro no provider quando o domínio é gerenciado. Se o provider
+  // estiver offline, mantemos a referência local para o usuário poder tentar de
+  // novo e para não deixar um hostname remoto órfão consumindo quota. Se o
+  // commit local falhar depois de o provider remover, o reconciliador V5
+  // detecta o binding ausente e o re-adota automaticamente.
+  const domainProvider = providerForDomainEntry(found);
+  if (found.providerId) {
+    if (!domainProvider.enabled) {
+      return apiError(res, 503, 'O provisionamento do domínio está temporariamente indisponível.', 'domain_provider_unavailable', 'Tente remover novamente em alguns instantes.', { retryable: true });
+    }
+    try {
+      await domainProvider.remove(found.providerId, found.host);
+    } catch (err) {
+      if (!(err && Number(err.status) === 404)) {
+        return apiError(res, 503, 'Não foi possível remover o domínio no provedor agora.', 'domain_provider_remove_failed', 'Tente novamente em alguns instantes.', { retryable: true });
+      }
+    }
+  }
+
   try {
     await config.setDurable(req.account.id, (latest) => ({
       customDomains: (latest.customDomains || []).filter((d) => d.host !== host),
     }));
   } catch (err) {
     return configMutationError(res, err);
-  }
-
-  const domainProvider = activeDomainProvider();
-  if (found.providerId && domainProvider.enabled) {
-    try { await domainProvider.remove(found.providerId, found.host); }
-    catch (_) { /* best-effort: o registro local já foi removido com sucesso */ }
   }
   res.json({ ok: true });
 });
@@ -3151,14 +3180,12 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // a ativação na hospedagem está pendente, o texto diz o que fazer NA dashboard.
   const gerenciado = !!(entry2 && entry2.providerId); // registro automático já feito
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
-    const r = await fetch('https://' + host + '/__domain-check', { redirect: 'manual', signal: ctrl.signal });
-    clearTimeout(t);
+    const r = await domainSecurity.httpsProbe(host, '/__domain-check', { timeoutMs: 8000, maxBytes: 8192 });
     if (r.status === 200) {
-      const j = await r.json().catch(() => null);
-      if (j && j.app === APP_CHECK_ID) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
-      else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira se o CNAME aponta para ' + appHost;
+      let j = null; try { j = JSON.parse(r.body || '{}'); } catch (_) {}
+      const signed = !!(j && j.app === APP_CHECK_ID && domainSecurity.verifyDomainProof(host, req.account.id, j.proof));
+      if (signed) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
+      else out.httpDetail = 'HTTPS responde, mas a prova assinada deste domínio não confere — confira o apontamento DNS';
     } else if (r.status === 404) {
       if (out.cloudflareProxy) {
         out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
@@ -3186,10 +3213,15 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
       }
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
-  } catch (_) {
-    out.httpDetail = out.dnsOk
-      ? 'HTTPS ainda não responde — o certificado SSL deve estar sendo emitido. Aguarde alguns minutos e clique em Verificar de novo.'
-      : 'sem resposta HTTPS — confira se o registro DNS foi criado e aguarde a propagação (pode levar de minutos a algumas horas)';
+  } catch (err) {
+    if (err && err.code === 'unsafe_address') {
+      out.httpDetail = 'Verificação bloqueada: o domínio resolve para uma rede privada ou reservada.';
+      out.securityBlocked = true;
+    } else {
+      out.httpDetail = out.dnsOk
+        ? 'HTTPS ainda não responde — o certificado SSL deve estar sendo emitido. Aguarde alguns minutos e clique em Verificar de novo.'
+        : 'sem resposta HTTPS — confira se o registro DNS foi criado e aguarde a propagação (pode levar de minutos a algumas horas)';
+    }
   }
 
   // Verificado exige a PROVA FORTE: o marcador /__domain-check deste app precisa
@@ -3197,6 +3229,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // servido depois de adicionado como Custom Domain; sem isso os /go dão 404
   // (era o falso "Verificado" que deixava os links quebrados).
   out.ok = out.httpOk;
+  out.verified = out.ok; // contrato explícito consumido pela dashboard
   out.dnsPronto = out.dnsOk && !out.httpOk; // DNS ok mas app ainda não atende
   {
     const now = new Date().toISOString();
@@ -3267,32 +3300,22 @@ app.get('/api/custom-domains/:host/diagnostics', dashboardAuth, async (req, res)
     out.dns = { cname: cn, a, resolves: !!(cn.length || a.length) };
   } catch (e) { out.dns = { error: e.message }; }
 
-  // 3. Certificado apresentado via SNI (o sintoma clássico do bug era o
-  // certificado *.up.railway.app aparecendo no domínio do cliente)
-  out.tls = await new Promise((resolve) => {
-    try {
-      const tls = require('tls');
-      const socket = tls.connect({ host, port: 443, servername: host, timeout: 8000, rejectUnauthorized: false }, () => {
-        const cert = socket.getPeerCertificate();
-        const san = String((cert && cert.subjectaltname) || '');
-        const covers = san.split(/,\s*/).some((s) => {
-          const v = s.replace(/^DNS:/i, '').toLowerCase();
-          return v === host || (v.startsWith('*.') && host.endsWith(v.slice(1)) && host.split('.').length === v.split('.').length);
-        });
-        socket.destroy();
-        resolve({ ok: covers, subject: cert && cert.subject ? cert.subject.CN : null, san: san || null, covers });
-      });
-      socket.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
-      socket.on('timeout', () => { socket.destroy(); resolve({ ok: false, error: 'timeout' }); });
-    } catch (e) { resolve({ ok: false, error: e.message }); }
-  });
+  // 3. Certificado apresentado via SNI, com IP resolvido e fixado para
+  // impedir SSRF/DNS rebinding durante o diagnóstico.
+  try { out.tls = await domainSecurity.tlsProbe(host, { timeoutMs: 8000 }); }
+  catch (e) { out.tls = { ok: false, error: e.code || e.message }; }
 
-  // 4. Marcador do app via HTTPS
+  // 4. Marcador assinado do app via HTTPS. Não basta responder o JSON
+  // estático: a prova HMAC precisa corresponder a host+conta.
   try {
-    const r = await fetch('https://' + host + '/__domain-check', { redirect: 'manual', signal: AbortSignal.timeout(8000) });
-    const j = r.status === 200 ? await r.json().catch(() => null) : null;
-    out.http = { status: r.status, servedByThisApp: !!(j && j.app === APP_CHECK_ID) };
-  } catch (e) { out.http = { error: e.name === 'TimeoutError' ? 'timeout' : e.message }; }
+    const r = await domainSecurity.httpsProbe(host, '/__domain-check', { timeoutMs: 8000, maxBytes: 8192 });
+    let j = null; if (r.status === 200) { try { j = JSON.parse(r.body || '{}'); } catch (_) {} }
+    out.http = {
+      status: r.status,
+      servedByThisApp: !!(j && j.app === APP_CHECK_ID && domainSecurity.verifyDomainProof(host, req.account.id, j.proof)),
+      address: r.address,
+    };
+  } catch (e) { out.http = { error: e.code || e.message, securityBlocked: e.code === 'unsafe_address' }; }
 
   // Veredito consolidado + causa mais provável (para o badge da UI)
   out.healthy = !!(out.tls && out.tls.ok && out.http && out.http.servedByThisApp);
@@ -3345,7 +3368,7 @@ app.post('/api/pushcut-config', dashboardAuth, async (req, res) => {
   res.json({ ok: true, updatedAt: config.get(req.account.id).updatedAt || null });
 });
 
-// ── Filtro de Bots / Revisores TikTok (cloaking, por conta) ────────────────
+// ── Proteção de tráfego contra bots/automação (por conta) ─────────────────
 app.get('/api/cloak-config', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const cfg = config.get(req.account.id);
@@ -3362,7 +3385,7 @@ app.post('/api/cloak-config', dashboardAuth, async (req, res) => {
   const next = Object.assign({}, cur);
   const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
     'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
-    'checkWebview', 'checkCoherence', 'checkEntropy', 'autoBlockEnabled', 'capiBotSignalEnabled'];
+    'checkWebview', 'checkCoherence', 'checkEntropy', 'shadowMode', 'autoBlockEnabled', 'capiBotSignalEnabled'];
   boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
@@ -3475,8 +3498,8 @@ app.get('/api/cloak/test/profiles', dashboardAuth, (req, res) => {
 
 // Testa o motor de julgamento. Por padrão usa o request ATUAL do navegador do
 // admin (deve dar 'real'). Item 165/208: quando vem `profile`, roda o mesmo
-// motor sobre um visitante SINTÉTICO (revisor ByteDance, headless, usuário do
-// anúncio no webview, etc.) para o operador ver como cada perfil seria tratado.
+// motor sobre um visitante SINTÉTICO (headless, datacenter, crawler, headers
+// incoerentes etc.) para o operador validar a proteção sem tráfego real.
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   // Item 178: rate-limit por conta — o judge faz lookup de ASN (DNS), então
@@ -3485,8 +3508,8 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     return res.status(429).json({ ok: false, error: 'Muitos testes seguidos. Aguarde um minuto e tente de novo.', code: 'rate_limited' });
   }
   // Item 134: quando vem `slug`, simula o julgamento DAQUELE link /c/:slug —
-  // usa a config do próprio entry no motor de score E reporta os gates extras
-  // (mobile, ad-click, país, idioma) que decidem ANTES do score na rota real.
+  // usa a config do próprio entry no motor de score E reporta segmentações extras
+  // (mobile, país, idioma) que decidem antes do score na rota real.
   const slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
   let cloakCfg = config.get(req.account.id).cloak || {};
   let entry = null;
@@ -3529,18 +3552,11 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     const uaRaw = String(evalReq.headers['user-agent'] || '');
     const dev = uaTools.parse(uaRaw);
     const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
-    const ref = String(evalReq.headers['referer'] || evalReq.headers['referrer'] || '');
-    const q = evalReq.query || {};
-    const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
-    const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
-    const isWebview = uaTools.isInAppTikTok(uaRaw);
-    const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
-    const adClickOk = entry.sensitivity === 'strict' ? isWebview : (fromTikTok || validTtclid);
     const cc = String(geoFromReq(evalReq).country || '').toUpperCase();
     const lang = String(evalReq.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     gates = {
       mobile: entry.mobileOnly === false ? 'off' : (isMobile ? 'pass' : 'block'),
-      adClick: entry.requireAdClick === false ? 'off' : (adClickOk ? 'pass' : 'block'),
+      adClick: 'off', // legado de contrato; origem de campanha não participa da proteção V5
       pais: !Array.isArray(entry.paises) || !entry.paises.length ? 'off' : (cc && entry.paises.indexOf(cc) >= 0 ? 'pass' : 'block'),
       idioma: !Array.isArray(entry.idiomas) || !entry.idiomas.length ? 'off' : (lang && entry.idiomas.indexOf(lang) >= 0 ? 'pass' : 'block'),
     };
@@ -3693,8 +3709,8 @@ app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
 const _ckSlugify = (s) => String(s || '').toLowerCase().normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 const _ckValidHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
-// Slug ALEATÓRIO (~8 chars): a URL /c/<slug> deixa de ser previsível a partir
-// do nome do link — mais difícil de adivinhar/enumerar por revisores.
+// Slug curto gerado para links públicos. A unicidade entre contas é validada
+// pelo índice global abaixo; o identificador não é tratado como segredo.
 const _ckRandSlug = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
 // Extrai só o hostname de um domínio digitado (aceita com ou sem https://)
 const _ckHost = (input) => {
@@ -3749,7 +3765,12 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
     if (replay) return res.json({ ok: true, entry: replay, replayed: true });
   }
   if (!slug) {
-    do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug));
+    do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug) || config.accountForCloakSlug(slug));
+  } else if (!existing) {
+    const slugOwner = config.accountForCloakSlug(slug);
+    if (slugOwner && slugOwner !== req.account.id) {
+      return apiError(res, 409, 'Não foi possível reservar este identificador público.', 'cloak_slug_conflict', 'Tente criar o link novamente.');
+    }
   }
 
   const validSensitivity = ['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)
@@ -3762,19 +3783,35 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
     ? Number(b.deadlineMs)
     : (existing ? existing.deadlineMs : undefined);
 
+  const requestedDomain = b.dominio !== undefined ? _ckHost(b.dominio) : (existing ? existing.dominio || '' : '');
+  if (requestedDomain) {
+    const allowedDomain = (config.get(req.account.id).customDomains || []).find((d) => d.host === requestedDomain);
+    if (!allowedDomain) {
+      return apiError(res, 422, 'Este domínio não pertence à sua conta.', 'cloak_domain_not_found', 'Cadastre o domínio em Domínios antes de usá-lo neste link.');
+    }
+    if (!allowedDomain.verificado || (allowedDomain.status && allowedDomain.status !== 'active')) {
+      return apiError(res, 422, 'Este domínio ainda não está pronto.', 'cloak_domain_not_verified', 'Conclua a verificação DNS/HTTPS em Domínios e tente novamente.');
+    }
+    if (allowedDomain.uso === 'checkout') {
+      return apiError(res, 422, 'Este domínio está reservado para Links.', 'cloak_domain_wrong_usage', 'Use um domínio configurado para Cloaker ou Ambos.');
+    }
+  }
+
   const entry = Object.assign({}, existing || {}, {
     slug,
     nome: nome || slug,
     // Domínio personalizado (opcional): campo AUSENTE preserva o atual;
     // string vazia remove o domínio customizado de forma explícita.
-    dominio: b.dominio !== undefined ? _ckHost(b.dominio) : (existing ? existing.dominio || '' : ''),
+    dominio: requestedDomain,
     offerUrl,
     whitePageUrl: b.whitePageUrl !== undefined
       ? (_ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '')
       : (existing ? existing.whitePageUrl || '' : ''),
     enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled !== false : true),
-    mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : true),
-    requireAdClick: typeof b.requireAdClick === 'boolean' ? b.requireAdClick : (existing ? existing.requireAdClick !== false : true),
+    // Novos links começam com segmentações de campanha desligadas: a proteção
+    // padrão é genérica (automação/bots), não dependente de plataforma.
+    mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : false),
+    requireAdClick: false, // legado desativado: origem de campanha não participa da proteção
     sensitivity: validSensitivity,
     threshold: nextThreshold,
     deadlineMs: nextDeadline,
@@ -3784,7 +3821,7 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
     criadoEm: existing ? existing.criadoEm : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
-  ['blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
+  ['shadowMode', 'blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
     'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
     'checkWebview', 'checkCoherence', 'checkEntropy'].forEach((k) => {
     if (typeof b[k] === 'boolean') entry[k] = b[k];
@@ -3805,13 +3842,25 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
 app.delete('/api/cloak/entries/:slug', dashboardAuth, async (req, res) => {
   const slug = _ckSlugify(req.params.slug);
   const cur = config.get(req.account.id).cloakLinks || [];
-  if (!cur.some((l) => l.slug === slug)) {
+  const existing = cur.find((l) => l.slug === slug);
+  if (!existing) {
     return res.status(404).json({ error: 'link de cloaking não encontrado' });
   }
+  const baseUpdatedAt = String((req.query && req.query.baseUpdatedAt) || '');
+  if (baseUpdatedAt && existing.updatedAt && baseUpdatedAt !== existing.updatedAt) {
+    return apiError(res, 409, 'Este link mudou desde que você abriu a lista.', 'cloak_revision_conflict', 'Atualize a lista antes de remover.');
+  }
   try {
-    await config.setDurable(req.account.id, (latest) => ({
-      cloakLinks: (latest.cloakLinks || []).filter((l) => l.slug !== slug),
-    }));
+    await config.setDurable(req.account.id, (latest) => {
+      const live = (latest.cloakLinks || []).find((l) => l.slug === slug);
+      if (baseUpdatedAt && live && live.updatedAt && live.updatedAt !== baseUpdatedAt) {
+        const err = new Error('Este link mudou desde que você abriu a lista.');
+        err.code = 'CONFIG_REVISION_CONFLICT';
+        err.status = 409;
+        throw err;
+      }
+      return { cloakLinks: (latest.cloakLinks || []).filter((l) => l.slug !== slug) };
+    });
   } catch (err) {
     return configMutationError(res, err);
   }
@@ -3988,6 +4037,11 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     // deadlineRate alto = lookup de ASN estourando o teto (DNS lento) e o
     // sinal de datacenter escapando com frequência.
     cloakerLatency: botFilter.getJudgeLatency(),
+    domainAutomation: domainReconciler.health(),
+    securityRuntime: {
+      trafficChallengeSecret: !!String(process.env.TRAFFIC_CHALLENGE_SECRET || '').trim(),
+      domainProofSecret: !!String(process.env.DOMAIN_PROOF_SECRET || '').trim(),
+    },
     // Poda silenciosa (auditoria): quantos leads/eventos foram descartados do
     // cache quente por exceder o cap desde o boot. >0 em leads = cache
     // subdimensionado (dados seguem no Neon; o match usa fallback no banco).
@@ -6049,7 +6103,12 @@ app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d'
 // substituindo o Vercel Blob. URL pública que o TikTok baixa. ────────
 app.use('/uploads', express.static(require('./ads-storage').UPLOAD_DIR, { maxAge: '7d', fallthrough: true }));
 
-// ── Iniciar servidor ────────���─────────────────────────────────���──────
+// ── Iniciar servidor ───────────────────────────────────────────────────
+// Hardening: em produção não iniciamos com secrets de challenge/prova de domínio
+// ausentes. Isso evita fallback previsível em ambiente real.
+domainSecurity.assertProductionConfig();
+botFilter.assertSecurityConfig();
+
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
 // de escutar, para que os dados de todas as contas já estejam disponíveis
 // no primeiro request pós-deploy.
@@ -6100,6 +6159,7 @@ stats.hydrate()
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
   console.log(`   Neon (persistência): ${db.enabled ? '✅ ativa' : '❌ desativada'}`);
+  try { domainReconciler.start(); } catch (e) { console.warn('[domain-reconciler] start falhou:', e.message); }
   });
   // Repassa o upgrade de WebSocket do painel novo (Turbopack/HMR) para o Next
   httpServer.on('upgrade', (req, socket, head) => {

@@ -8,6 +8,7 @@
 const dns = require('dns').promises;
 const db = require('./db');
 const abPredictor = require('./ab-predictor');
+const domainSecurity = require('./domain-security');
 
 let cache = []; // lista de links em memória
 // Domínios já validados nesta sessão (host → ISO). Permite validar ANTES de
@@ -131,15 +132,18 @@ function get(accountId, slug) {
   const s = slugify(slug);
   return cache.find((l) => l.slug === s && (!accountId ? !l.acc : l.acc === accountId)) || null;
 }
-// Resolve um /go/:slug público: tenta a conta do domínio primeiro (se
-// houver), senão procura em qualquer conta (primeiro match).
+// Resolve um /go/:slug público sem atravessar tenants. Quando existe uma
+// conta preferida (domínio/host já resolvido), a busca é ESTRITA nessa conta.
+// No host compartilhado, slug duplicado entre contas é ambíguo e falha fechado
+// em vez de entregar o link da primeira conta que carregou no cache.
 function resolve(slug, preferredAccountId) {
   const s = slugify(slug);
+  if (!s) return null;
   if (preferredAccountId) {
-    const own = cache.find((l) => l.slug === s && l.acc === preferredAccountId);
-    if (own) return own;
+    return cache.find((l) => l.slug === s && l.acc === preferredAccountId) || null;
   }
-  return cache.find((l) => l.slug === s) || null;
+  const matches = cache.filter((l) => l.slug === s);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function save(accountId, input) {
@@ -312,22 +316,22 @@ function experimentResult(accountId, slug) {
 async function validateDomain(input) {
   const host = hostnameOf(input);
   if (!host || !/\./.test(host)) return { ok: false, error: 'domínio inválido' };
-  // 1. DNS: o domínio existe?
+  // 1. DNS: precisa resolver apenas para IPs públicos. Isso impede que a
+  // validação seja usada como proxy para localhost/metadata/redes internas.
+  let addresses;
   try {
-    await dns.lookup(host);
-  } catch (_) {
-    return { ok: false, host, dns: false, error: 'domínio não resolve (DNS)' };
+    addresses = await domainSecurity.resolvePublicHost(host);
+  } catch (err) {
+    return { ok: false, host, dns: false, error: err && err.code === 'unsafe_address' ? 'domínio aponta para rede privada/reservada' : 'domínio não resolve (DNS)' };
   }
-  // 2. HTTP: o site responde? (HEAD com fallback GET, timeout 8s)
+  // 2. HTTPS: conexão com o IP já resolvido (pinning anti DNS-rebinding), sem
+  // seguir redirects. 2xx/3xx/4xx significam que existe um servidor HTTPS vivo.
   let httpOk = false, status = null;
   for (const method of ['HEAD', 'GET']) {
     try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 8000);
-      const r = await fetch('https://' + host + '/', { method, redirect: 'follow', signal: ctrl.signal });
-      clearTimeout(t);
+      const r = await domainSecurity.httpsProbe(host, '/', { method, addresses, timeoutMs: 8000, maxBytes: 16384 });
       status = r.status;
-      if (r.status < 500) { httpOk = true; break; } // 2xx/3xx/4xx = servidor vivo
+      if (r.status < 500) { httpOk = true; break; }
     } catch (_) { /* tenta o próximo método */ }
   }
   if (!httpOk) return { ok: false, host, dns: true, http: false, status, error: 'domínio resolve mas não responde HTTPS' };

@@ -1,115 +1,51 @@
 'use strict';
-// ── Filtro de Revisores de Anúncios TikTok Ads ───────────────────────────────
-// Pesquisa 2025-2026:
-//  • TikTok usa iPhones/Androids reais em redes de operadoras — IP/UA sozinhos
-//    não bastam. O sistema correlaciona ASN de operadora, Client Hints, timezone,
-//    WebGL renderer, biometria comportamental e o JS challenge.
-//  • ByteDance opera AS138699 (main) + AS396986 (US legacy) + roteamento via
-//    parceiros cloud. Lookup BGP em tempo real é mais confiável que CIDRs fixos.
-//  • SwiftShader / llvmpipe no WebGL renderer = headless confirmado (alto valor).
-//  • Inconsistência Client Hints (sec-ch-ua brand) vs UA string = spoofing.
-//  • Timezone do browser vs geo do IP = sinal de proxy/VPN de revisão.
-//  • Behavioral score: zero interação após 3s de página = automação.
+// ── Proteção genérica contra bots e automação ──────────────────────────────
+// Correlaciona sinais técnicos do navegador/rede (headless, datacenter,
+// inconsistências de Client Hints, WebGL, timezone, coerência e comportamento).
+// Nenhum sinal depende de identificar revisores ou infraestrutura de uma
+// plataforma de anúncios específica.
 //
 // RESULTADO: cada visita retorna { verdict:'real'|'bot', score:0-100, signals[] }
 
 const dns  = require('dns').promises;
 const crypto = require('crypto');
-const uaTools = require('./ua'); // detecção de in-app TikTok (usuário real) e crawlers
+const uaTools = require('./ua'); // parsing genérico de browser/device e crawlers
 // Redis é opcional: cache de ASN entre processos/restarts. Degrada para o Map
 // em memória se o módulo/serviço não estiver disponível.
 let _redis = null;
 try { _redis = require('./redis'); } catch (_) { _redis = null; }
 
-// ─── 1. ASNs de datacenters / ad-review / device-farms (2025-2026) ─────────
+// ─── 1. ASNs de datacenter / hosting / automação ──────────────────────────
+// Lista deliberadamente genérica: provedores de nuvem/VPS e redes de hosting.
+// Não contém ASNs escolhidos por pertencerem a plataformas de anúncios ou
+// empresas de verificação. ASN é apenas um sinal de risco, nunca decisão única.
 const DATACENTER_ASNS = new Set([
-  // ByteDance
-  396986,  // ByteDance Inc. (US legacy)
-  136907,  // ByteDance (APAC)
-  138699,  // ByteDance (main 2024+)
-  // Hyperscalers usados em revisão automática
   15169,   // Google / GCP
   8075,    // Microsoft / Azure
-  16509,   // Amazon AWS us-east
-  14618,   // Amazon AWS us-east alternate
-  7224,    // Amazon AWS eu
-  20940,   // Akamai
-  32934,   // Meta / Facebook
-  54113,   // Fastly
-  13335,   // Cloudflare
-  // Ad-verification / fraud detection (tráfego de auditoria de anúncio)
-  395747,  // DoubleVerify
-  46484,   // HUMAN Security (ex-WhiteOps)
-  46664,   // Integral Ad Science (IAS)
-  22697,   // Moat / Oracle Advertising
-  397155,  // CHEQ AI (ad fraud)
-  13649,   // TrafficGuard
-  36352,   // ColoCrossing (device farms)
-  25820,   // IT7 Networks (device farm)
-  36114,   // Cogent (hosting reseller usado em farms)
-  30633,   // Limelight Networks
-  // Proxies residenciais e mobile-proxy conhecidos por revisores
-  212238,  // Datacamp Limited (proxy residencial)
-  60068,   // CDN77 (usado como relay)
-  // Hosting / VPS de uso geral — origem clássica de scrapers, headless e
-  // proxies de datacenter. Usuário pago do TikTok vem de operadora móvel,
-  // quase nunca destes ASNs; peso datacenter (+38) é seguro aqui.
+  16509,   // Amazon AWS
+  14618,   // Amazon AWS
   16276,   // OVH
-  24940,   // Hetzner Online
+  24940,   // Hetzner
   14061,   // DigitalOcean
-  20473,   // The Constant Company / Vultr
-  63949,   // Akamai / Linode
+  20473,   // Vultr
+  63949,   // Linode / Akamai Connected Cloud
   51167,   // Contabo
-  31898,   // Oracle Cloud (OCI)
-  45102,   // Alibaba Cloud (intl)
+  31898,   // Oracle Cloud
+  45102,   // Alibaba Cloud
   132203,  // Tencent Cloud
-  37963,   // Alibaba (CN)
-  60781,   // LeaseWeb NL
-  30633,   // Leaseweb USA (também em farms)
+  37963,   // Alibaba CN
+  60781,   // LeaseWeb
   8100,    // QuadraNet
   62240,   // Clouvider
-  9009,    // M247 (VPN/proxy hosting)
-  212238,  // Datacamp/CDN (dup-safe: Set deduplica)
-  49505,   // Selectel (RU hosting)
-  201814,  // Proxy-Seller / mobile proxies
-  206092,  // IPXO (proxy leasing)
-  212238,  // Datacamp
-  50673,   // Serverius (proxy hosting)
-  29802,   // HIVELOCITY (VPS/farms)
-  40676,   // Psychz Networks (device farms)
-  53667,   // FranTech / BuyVM (proxy VPS)
-  35916,   // MULTA-ASN / hosting
-  46844,   // ReliableSite (VPS)
-  19318,   // Interserver (VPS)
+  9009,    // M247
+  49505,   // Selectel
+  50673,   // Serverius
+  29802,   // HIVELOCITY
+  53667,   // FranTech / BuyVM
+  46844,   // ReliableSite
+  19318,   // Interserver
   55286,   // ServerMania
-  35913,   // DediPath (encerrado, mas ainda visto em logs)
-  399629,  // BL Networks (proxy)
-  208046,  // Hosting proxies EU
-  14618,   // Amazon AWS (dup-safe)
 ]);
-
-// CIDRs ByteDance CONFIRMADOS via BGP.tools (AS138699, jan 2025).
-// IMPORTANTE: só entram ranges verificados — CIDR errado = falso positivo
-// (usuário real mandado pra white page = venda perdida). A detecção primária
-// é o lookup dinâmico de ASN (lookupASN) que cobre todos os ASNs ByteDance
-// com precisão; este array é só um fast-path para ranges 100% confirmados.
-// Para adicionar: confirme em https://bgp.tools/as/138699#prefixes antes.
-const BD_CIDRS_V4 = [
-  // 23.54.160.0/20 — infra edge TikTok/ByteDance (CDN + review), confirmado
-  [0x1736A000n, 0xFFFFF000n],
-];
-
-function ipToInt(ip) {
-  const p = ip.split('.').map(Number);
-  if (p.length !== 4 || p.some(n => isNaN(n))) return 0n;
-  return (BigInt(p[0]) << 24n) | (BigInt(p[1]) << 16n) | (BigInt(p[2]) << 8n) | BigInt(p[3]);
-}
-
-function inByteDanceCidr(ip) {
-  if (!ip || ip.includes(':')) return false;
-  const n = ipToInt(ip);
-  return BD_CIDRS_V4.some(([base, mask]) => (n & mask) === base);
-}
 
 // ─── 2. Sinais de request HTTP ──────────────────────────────────────────────
 const REQUIRED_BROWSER_HEADERS = ['accept', 'accept-language'];
@@ -234,17 +170,32 @@ async function lookupASN(ip) {
   return entry;
 }
 
-// ─── 4. Tokens de challenge ────────────────────���────────────────────────────
-function _secret() {
-  return (process.env.CONVERSION_WEBHOOK_SECRET || 'roi-nados-cloak-dev') + '-cloak-v2';
+// ─── 4. Tokens de challenge ────────────────────────────────────────────────
+// Chave própria, independente de webhook/conversões. Em produção o processo
+// recusa iniciar sem TRAFFIC_CHALLENGE_SECRET; em desenvolvimento existe um
+// fallback explícito apenas para não bloquear o setup local.
+function _secrets() {
+  const current = String(process.env.TRAFFIC_CHALLENGE_SECRET || '').trim();
+  const previous = String(process.env.TRAFFIC_CHALLENGE_SECRET_PREVIOUS || '').trim();
+  if (!current) {
+    if (process.env.NODE_ENV === 'production') {
+      const err = new Error('TRAFFIC_CHALLENGE_SECRET é obrigatório em produção');
+      err.code = 'missing_traffic_challenge_secret';
+      throw err;
+    }
+    return ['roi-nados-traffic-challenge-dev-only'];
+  }
+  return previous && previous !== current ? [current, previous] : [current];
 }
+function _secret() { return _secrets()[0]; }
 
-// Emite token HMAC válido por `ttl` ms (padrão 15min)
-function issueChallengeToken(visitorId, ttl = 900_000) {
+// Emite token HMAC válido por `ttl` ms. 10min reduz a janela de replay sem
+// tornar o challenge instável em conexões móveis lentas.
+function issueChallengeToken(visitorId, ttl = 600_000) {
   if (!visitorId) return '';
   const exp     = (Date.now() + ttl).toString(36);
   const payload = visitorId + '|' + exp;
-  const sig     = crypto.createHmac('sha256', _secret()).update(payload).digest('base64url').slice(0, 20);
+  const sig     = crypto.createHmac('sha256', _secret()).update(payload).digest('base64url').slice(0, 24);
   return exp + '.' + sig;
 }
 
@@ -260,17 +211,20 @@ function verifyChallengeToken(visitorId, token) {
   if (!/^[0-9a-z]+$/.test(expB36)) return { ok: false, reason: 'formato' };
   const exp = parseInt(expB36, 36);
   if (isNaN(exp) || Date.now() > exp) return { ok: false, reason: 'expirado' };
-  const expected = crypto.createHmac('sha256', _secret()).update(visitorId + '|' + expB36).digest('base64url').slice(0, 20);
-  // timingSafeEqual EXIGE buffers de mesmo tamanho, senão lança. A assinatura
-  // vem do cliente (corpo do POST) e pode ter qualquer tamanho → compara antes.
+  // Aceita a chave anterior durante rotação controlada. Tokens antigos com
+  // assinatura de 20 chars continuam válidos por compatibilidade até expirarem.
   const sigBuf = Buffer.from(sig);
-  const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length) return { ok: false, reason: 'assinatura' };
-  try {
-    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return { ok: false, reason: 'assinatura' };
-  } catch (_) {
-    return { ok: false, reason: 'assinatura' };
+  let matched = false;
+  for (const secret of _secrets()) {
+    for (const length of [24, 20]) {
+      const expected = crypto.createHmac('sha256', secret).update(visitorId + '|' + expB36).digest('base64url').slice(0, length);
+      const expBuf = Buffer.from(expected);
+      if (sigBuf.length !== expBuf.length) continue;
+      try { if (crypto.timingSafeEqual(sigBuf, expBuf)) { matched = true; break; } } catch (_) {}
+    }
+    if (matched) break;
   }
+  if (!matched) return { ok: false, reason: 'assinatura' };
   return { ok: true };
 }
 
@@ -278,18 +232,19 @@ function verifyChallengeToken(visitorId, token) {
 // Cada flag liga/desliga uma camada de detecção; threshold é o score mínimo
 // para veredito 'bot'. Presets de sensibilidade ajustam o threshold.
 const DEFAULT_CONFIG = {
-  enabled:          true,  // interruptor mestre do cloaking
+  enabled:          true,  // interruptor mestre do filtro
+  shadowMode:       false, // observa/classifica sem alterar o destino do visitante
   threshold:        40,    // score >= threshold ⇒ bot
   deadlineMs:       120,   // teto de latência do lookup de ASN (Camada C)
-  blockDatacenter:  true,  // Camada C: ASN datacenter / ByteDance
+  blockDatacenter:  true,  // Camada C: ASN de datacenter/hosting
   blockHeadless:    true,  // Camada A: UA headless + Client Hints mismatch
   checkHeaders:     true,  // Camada B: headers obrigatórios / Sec-Fetch
   requireJsChallenge: true, // Camada D1: token HMAC do challenge JS
   checkWebgl:       true,  // Camada D2: WebGL renderer (SwiftShader)
   checkTimezone:    true,  // Camada D3: timezone IANA vs geo do IP
   checkBehavior:    true,  // Camada D6: biometria comportamental
-  blockZhLang:      true,  // Camada E: accept-language zh fora do bloco CN
-  checkWebview:     true,  // Camada F: integridade de webview (UA in-app x globals)
+  blockZhLang:      true,  // legado: valida formato/coerência básica de Accept-Language
+  checkWebview:     true,  // Camada F: coerência genérica de webview
   checkCoherence:   true,  // Camada G: coerência plataforma/hardware/idioma x UA/geo
   checkEntropy:     true   // Camada H: entropia de movimento e ação-sem-trilha
 };
@@ -336,14 +291,6 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
 
   // ─── Camada A: UA ─────────────────────────────────────────────────────────
 
-  // A0. Navegador in-app da TikTok = USUÁRIO REAL do anúncio. O webview envia
-  // headers "incompletos" (sec-fetch/client-hints parciais) que as camadas B/C
-  // penalizariam — este crédito forte evita jogar o usuário pago para a white.
-  // Bots reais em datacenter/headless que spoofam essa UA continuam sendo
-  // pegos pelos sinais de ASN (+38/55) e WebGL software (+45), que dominam.
-  const inAppTikTok = uaTools.isInAppTikTok(ua);
-  if (inAppTikTok) { signals.push('ua:tiktok-inapp'); score -= 40; }
-
   // A1. UA ausente ou minúsculo
   if (!ua || ua.length < 15) {
     signals.push('ua:ausente'); score += 55;
@@ -354,7 +301,7 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     }
 
     // A3. sec-ch-ua (Client Hints) vs UA string — inconsistência = spoofing
-    // Revisores às vezes copiam sec-ch-ua de um dispositivo mas usam UA de outro
+    // Automação/spoofing pode misturar Client Hints de um ambiente com UA de outro
     const chUA = String(req.headers['sec-ch-ua'] || '');
     if (chUA) {
       // Extrai a primeira brand do sec-ch-ua: "Not/A)Brand";v="8", "Chromium";v="126", ...
@@ -366,7 +313,7 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
       if (realBrands.some(b => /Chrome|Chromium/i.test(b)) && !/Chrome|CriOS/i.test(ua)) {
         signals.push('ch-ua:brand-mismatch'); score += 30;
       }
-      // Se UA diz Safari mas sec-ch-ua tem Chrome (revisores copiando headers misturados)
+      // Se UA diz Safari mas sec-ch-ua tem Chrome, o ambiente é incoerente
       if (/Safari/i.test(ua) && !/Chrome/i.test(ua) && realBrands.some(b => /Chrome/i.test(b))) {
         signals.push('ch-ua:safari-chrome-mix'); score += 25;
       }
@@ -417,44 +364,33 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
       }
     }
 
-    // B5. Referer
+    // B5. Referer: ausência é um sinal fraco; presença coerente recebe crédito
+    // mínimo sem privilegiar nenhuma origem/plataforma específica.
     const referer = String(req.headers['referer'] || req.headers['referrer'] || '');
     if (!referer) {
       signals.push('referer:ausente'); score += 8;
-    } else if (/tiktok\.com|snssdk|musical\.ly|vm\.tiktok/i.test(referer)) {
-      signals.push('referer:tiktok'); score -= 15;
-    } else if (/google\.|facebook\.|instagram\.|youtube\./i.test(referer)) {
-      signals.push('referer:social-legit'); score -= 8;
+    } else {
+      signals.push('referer:presente'); score -= 4;
     }
   }
 
   // ─── Camada C: ASN / Infraestrutura ──────────────────────────────────────
-  if (cfg.blockDatacenter) {
-    // C1. CIDR ByteDance hardcoded (resposta imediata, sem DNS)
-    if (inByteDanceCidr(ip)) {
-      signals.push('ip:bytedance-cidr'); score += 50;
-    }
-
-    // C2. ASN via DNS Cymru — com teto de latência (deadlineMs). Se o DNS
-    // demorar, seguimos sem esse sinal; o cache popula p/ a próxima visita.
-    if (ip && !signals.includes('ip:bytedance-cidr')) {
-      const r = await lookupASNDeadline(ip, cfg.deadlineMs).catch(() => ({ asn: 0, org: '' }));
-      const asn = r.asn;
-      // Item 163: guarda o ASN/org resolvidos para o painel de teste mostrar
-      // "operadora móvel (real)" x "datacenter/ByteDance (bot)".
-      infraAsn = asn || 0;
-      infraOrg = r.org || (r._timedOut ? 'timeout' : '');
-      if (r._timedOut) {
-        signals.push('asn:deadline');
-      } else if (asn > 0) {
-        if (DATACENTER_ASNS.has(asn)) {
-          signals.push('asn:datacenter=' + asn);
-          // ByteDance ASNs têm peso maior
-          score += ([396986, 136907, 138699].includes(asn)) ? 55 : 38;
-        } else {
-          signals.push('asn:carrier=' + asn);
-          score -= 10; // ISP/operadora = usuário real
-        }
+  if (cfg.blockDatacenter && ip) {
+    // ASN via DNS Cymru — com teto de latência (deadlineMs). Se o DNS demorar,
+    // seguimos sem o sinal; nunca bloqueamos só porque o lookup falhou.
+    const r = await lookupASNDeadline(ip, cfg.deadlineMs).catch(() => ({ asn: 0, org: '' }));
+    const asn = r.asn;
+    infraAsn = asn || 0;
+    infraOrg = r.org || (r._timedOut ? 'timeout' : '');
+    if (r._timedOut) {
+      signals.push('asn:deadline');
+    } else if (asn > 0) {
+      if (DATACENTER_ASNS.has(asn)) {
+        signals.push('asn:datacenter=' + asn);
+        score += 38;
+      } else {
+        signals.push('asn:network=' + asn);
+        score -= 8;
       }
     }
   }
@@ -544,29 +480,22 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     }
   }
 
-  // ─── Camada F: Integridade de WEBVIEW ────────────────────────────────────
-  // O usuário PAGO vive no webview do app da TikTok. Esse webview expõe globals
-  // (webkit.messageHandlers no iOS, flag "; wv)" no Android, JSBridge Bytedance)
-  // que um Chrome/Safari comum — onde o revisor COLA o link — não tem. Se a UA
-  // diz in-app mas o browser não expõe NENHUM desses, é UA falsificada (bot).
+  // ─── Camada F: Coerência genérica de WEBVIEW ────────────────────────────
+  // Webview é apenas um sinal de ambiente. Não inferimos origem de campanha.
   if (cfg.checkWebview) {
     const wv = String(cd.wv || '');
-    if (inAppTikTok) {
-      if (cd.wv !== undefined && !wv) {
-        // UA in-app + zero globals de webview = revisor spoofando a UA no desktop
-        signals.push('webview:ua-spoof'); score += 45;
-      } else if (wv) {
-        signals.push('webview:ok=' + wv); score -= 15; // webview real confirmado
-      }
-      // Chrome desktop "de verdade" (window.chrome.runtime) sob UA in-app = incoerente
-      if (Number(cd.hasChrome) === 1) { signals.push('webview:chrome-runtime-inapp'); score += 22; }
+    const uaDeclaresWebview = /(?:;\s*wv[;)])|\bWebView\b/i.test(ua);
+    if (uaDeclaresWebview && cd.wv !== undefined && !wv) {
+      signals.push('webview:ua-mismatch'); score += 20;
+    } else if (wv) {
+      signals.push('webview:present'); score -= 4;
     }
   }
 
   // ─── Camada G: Coerência de ambiente ─────────────────────────────────────
   // O sinal de MAIOR confiança em 2026 é a INCONSISTÊNCIA entre camadas: um
-  // ambiente real é coerente (UA, plataforma, hardware, tela, idioma e geo
-  // fecham entre si); revisores em proxy/emulador destoam em pelo menos uma.
+  // ambiente real tende a ser coerente (UA, plataforma, hardware, tela, idioma
+  // e geo fecham entre si); automação/emulação costuma destoar em alguma camada.
   if (cfg.checkCoherence) {
     const uaIsApple = /iPhone|iPad|iPod|Macintosh/i.test(ua);
     const uaIsMobileDev = /Mobile|Android|iPhone|iPad/i.test(ua);
@@ -623,20 +552,14 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     if (Number(cd.nt) === 1) { signals.push('ent:acao-sem-trilha'); score += 22; }
   }
 
-  // ─── Camada E: Accept-Language e geo ─────────────────────────────────────
+  // ─── Camada E: Integridade básica de Accept-Language ────────────────────
+  // `blockZhLang` é mantido só por compatibilidade do contrato antigo; a regra
+  // V5 não trata nenhum idioma/país como suspeito. Ela detecta apenas formato
+  // anômalo típico de headers sintetizados.
   if (cfg.blockZhLang) {
     const acceptLang = String(req.headers['accept-language'] || '');
-    if (acceptLang) {
-      const primaryLang = acceptLang.split(',')[0].split('-')[0].toLowerCase();
-      const geo = geoCountry.toLowerCase();
-      // Revisor chinês em IP fora do bloco chinês
-      if (primaryLang === 'zh' && !['cn', 'tw', 'hk', 'sg', 'mo'].includes(geo)) {
-        signals.push('lang:zh-fora-geo'); score += 22;
-      }
-      // Sem separador de qualidade mas com muitos idiomas = header gerado
-      if (acceptLang.length > 50 && !acceptLang.includes('q=')) {
-        signals.push('lang:sem-quality-factor'); score += 8;
-      }
+    if (acceptLang.length > 80 && !acceptLang.includes('q=')) {
+      signals.push('lang:formato-suspeito'); score += 8;
     }
   }
 
@@ -644,7 +567,7 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
   score = Math.max(0, Math.min(100, Math.round(score)));
 
   // Threshold configurável pelo menu da dashboard (padrão 40):
-  // 30 (strict) = agressivo — pega mais revisores, risco maior de falso positivo
+  // 30 (strict) = agressivo — pega mais automação, risco maior de falso positivo
   // 40 (balanced) = equilíbrio recomendado
   // 55 (loose) = conservador — só pega bots muito óbvios
   const verdict = score >= cfg.threshold ? 'bot' : 'real';
@@ -763,17 +686,13 @@ function challengeSnippet(visitorId, token) {
     // 2. Timezone IANA
     try{ d.tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
 
-    // 2b. Integridade de WEBVIEW: o app do TikTok roda num webview que expõe
-    // marcadores que um Chrome/Safari normal (onde o revisor COLA o link) não
-    // tem. Montamos flags: iw=webkit.messageHandlers (iOS in-app), aw=window
-    // sem chrome real, jb=JSBridge do Bytedance, mh=nomes de handlers nativos.
+    // 2b. Sinais genéricos de WEBVIEW. Não identificam a origem do tráfego;
+    // apenas descrevem o ambiente para checagens de coerência.
     try{
       var wv='';
-      if(window.webkit&&window.webkit.messageHandlers) wv+='iw';           // iOS WKWebView
-      if(/(; ?wv[;)])/i.test(navigator.userAgent)) wv+='aw';               // Android WebView flag
-      if(window.ByteBridge||window.JSBridge||window.__bytedance||window.TTJSBridge) wv+='jb'; // Bytedance bridge
+      if(window.webkit&&window.webkit.messageHandlers) wv+='iw';
+      if(/(; ?wv[;)])/i.test(navigator.userAgent)) wv+='aw';
       if(window.ReactNativeWebView) wv+='rn';
-      // Chrome desktop "de verdade" tem window.chrome com runtime; webview não.
       d.hasChrome=!!(window.chrome&&window.chrome.runtime)?1:0;
       d.wv=wv;
     }catch(_){}
@@ -865,6 +784,12 @@ function challengeSnippet(visitorId, token) {
 })();`;
 }
 
+
+function assertSecurityConfig() {
+  if (process.env.NODE_ENV === 'production') _secrets();
+  return true;
+}
+
 module.exports = {
   judge,
   lookupASN,
@@ -878,6 +803,7 @@ module.exports = {
   DEFAULT_CONFIG,
   SENSITIVITY_THRESHOLDS,
   // Item 224: TTLs efetivos das camadas de cache, para o painel técnico
+  assertSecurityConfig,
   CACHE_TTLS: {
     presence: 60,
     dedup: 2 * 3600,

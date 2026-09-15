@@ -1,19 +1,30 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, RefreshCw, Trash2, Copy, Loader2, ShieldCheck, Clock3, AlertTriangle, ArrowUpRight, Globe } from 'lucide-react'
-import { ApiError, useDomains, apiSend } from '@/lib/api'
-import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult } from '@/lib/types'
+import { Plus, RefreshCw, Trash2, Copy, Loader2, ArrowUpRight, Globe, Stethoscope, Check } from 'lucide-react'
+import { ApiError, useDomains, apiSend, fetcher } from '@/lib/api'
+import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult, DomainDiagnostics } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 
+function normalizeHostInput(raw: string): string {
+  const value = raw.trim().toLowerCase()
+  if (!value) return ''
+  try {
+    const parsed = new URL(value.includes('://') ? value : `https://${value}`)
+    return parsed.hostname.toLowerCase().replace(/\.$/, '')
+  } catch {
+    return value.replace(/^https?:\/\//, '').split('/')[0].split(':')[0].replace(/\.$/, '')
+  }
+}
 function hostInvalidReason(raw: string): string | null {
-  const host = raw.trim().toLowerCase()
+  const host = normalizeHostInput(raw)
   if (!host) return 'Informe o domínio.'
-  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return 'Use apenas o endereço, como link.sualoja.com, sem https:// ou barras.'
+  if (host.length > 253 || host.split('.').some((label) => !label || label.length > 63)) return 'O domínio é longo demais.'
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) return 'Use um domínio válido, como link.sualoja.com.'
   return null
 }
 function apiErrorHint(error: unknown): string | undefined {
@@ -26,9 +37,8 @@ function DnsInstructions({ dns }: { dns: DomainDnsRecords | null | undefined }) 
     dns?.txt ? { type: 'TXT', name: dns.txt.host, value: dns.txt.value } : null,
     dns?.ownership, dns?.certificate,
   ].filter((record): record is { type: string; name: string; value: string } => !!record)
-  if (!records.length) return <p className="text-xs text-muted-foreground">As instruções de conexão ainda não estão disponíveis. Tente verificar novamente.</p>
-  return <div className="space-y-3">
-    <p className="text-xs text-muted-foreground">Adicione estes registros no painel onde você gerencia o domínio. Depois, clique em Verificar.</p>
+  if (!records.length) return <p className="text-xs text-muted-foreground">Registros ainda indisponíveis.</p>
+  return <div className="space-y-2">
     {records.map((record, index) => <div key={index} className="rounded-lg border border-border bg-background p-3 text-xs">
       <p className="font-medium">{record.type} · {record.name || '@'}</p>
       <div className="mt-1 flex items-start gap-2"><code className="min-w-0 flex-1 break-all text-muted-foreground">{record.value}</code><button type="button" aria-label={`Copiar valor ${record.type} ${record.name}`} className="btn-ghost shrink-0 p-1" onClick={async () => { try { await navigator.clipboard.writeText(record.value); toast.success('Valor copiado') } catch { toast.error('Não foi possível copiar. Selecione o valor e copie manualmente.') } }}><Copy className="size-3.5" /></button></div>
@@ -40,30 +50,34 @@ export function DomainsView() {
   const { data, isLoading, mutate, error: loadError } = useDomains()
   const [host, setHost] = useState('')
   const [adding, setAdding] = useState(false)
-  const [verifying, setVerifying] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState<Record<string, boolean>>({})
+  const [diagnosing, setDiagnosing] = useState<Record<string, boolean>>({})
+  const [diagnostics, setDiagnostics] = useState<Record<string, DomainDiagnostics>>({})
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [checks, setChecks] = useState<Record<string, DomainVerifyResult>>({})
   const [addedDns, setAddedDns] = useState<Record<string, DomainDnsRecords | null>>({})
+  const [expandedHost, setExpandedHost] = useState<string | null>(null)
   async function add() {
     const invalid = hostInvalidReason(host)
     if (invalid || adding) { setError(invalid); return }
     setAdding(true); setError(null)
-    const normalized = host.trim().toLowerCase()
+    const normalized = normalizeHostInput(host)
     try {
-      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: 'ambos', _baseUpdatedAt: data?.configUpdatedAt || undefined })
+      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: 'ambos' })
       if (!result.ok) throw new Error(result.providerNote || 'Não foi possível cadastrar o domínio.')
       setAddedDns(previous => ({ ...previous, [normalized]: result.dnsRecords }))
       setHost('')
-      toast.success('Domínio cadastrado', { hint: 'Confira os registros de conexão abaixo.' })
+      setExpandedHost(normalized)
+      toast.success('Domínio cadastrado', { hint: 'A conexão será acompanhada automaticamente.' })
       await mutate()
     } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível cadastrar.') }
     finally { setAdding(false) }
   }
   async function verify(domain: string) {
-    if (verifying) return
-    setVerifying(domain)
+    if (verifying[domain]) return
+    setVerifying(previous => ({ ...previous, [domain]: true }))
     try {
       const result = await apiSend<DomainVerifyResult>('/api/domains/verify', 'POST', { host: domain })
       setChecks(previous => ({ ...previous, [domain]: result }))
@@ -71,7 +85,21 @@ export function DomainsView() {
       else toast.info('Conexão ainda pendente', { hint: result.dnsPropagating ? 'O registro ainda está se espalhando pela rede. Tente mais tarde.' : result.dnsDetail || result.httpDetail })
       await mutate()
     } catch (err) { toast.error('Não foi possível verificar', { hint: apiErrorHint(err) }) }
-    finally { setVerifying(null) }
+    finally { setVerifying(previous => ({ ...previous, [domain]: false })) }
+  }
+  async function diagnose(domain: string) {
+    if (diagnosing[domain]) return
+    setDiagnosing(previous => ({ ...previous, [domain]: true }))
+    try {
+      const result = await fetcher<DomainDiagnostics>(`/api/custom-domains/${encodeURIComponent(domain)}/diagnostics`)
+      setDiagnostics(previous => ({ ...previous, [domain]: result }))
+      if (result.healthy) { toast.success('Domínio saudável'); await mutate() }
+      else toast.info('Diagnóstico concluído', { hint: result.likelyCause || 'A conexão ainda não terminou.' })
+    } catch (err) {
+      toast.error('Não foi possível diagnosticar', { hint: apiErrorHint(err) })
+    } finally {
+      setDiagnosing(previous => ({ ...previous, [domain]: false }))
+    }
   }
   async function remove() {
     if (!deleting || deleteBusy) return
@@ -107,9 +135,10 @@ export function DomainsView() {
     }
   }
   const domains = data?.domains ?? []
-  const readyCount = domains.filter((domain) => domain.verificado).length
+  const isReady = (domain: (typeof domains)[number]) => domain.verificado && (!domain.status || domain.status === 'active')
+  const readyCount = domains.filter(isReady).length
   const errorCount = domains.filter((domain) => domain.status === 'error').length
-  const pendingCount = Math.max(0, domains.length - readyCount - errorCount)
+  const pendingCount = domains.filter((domain) => !isReady(domain) && domain.status !== 'error').length
 
   return (
     <div className="flex flex-col gap-5">
@@ -119,46 +148,24 @@ export function DomainsView() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <GlassCard className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Prontos</p>
-              <p className="mt-2 text-xl font-semibold text-success">{readyCount}</p>
-                          </div>
-            <ShieldCheck className="size-4 text-success" />
-          </div>
-        </GlassCard>
-        <GlassCard className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Em configuração</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">{pendingCount}</p>
-                          </div>
-            <Clock3 className="size-4 text-warning" />
-          </div>
-        </GlassCard>
-        <GlassCard className={`p-4 ${errorCount ? 'border-destructive/30 bg-destructive/5' : ''}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Precisam de atenção</p>
-              <p className={`mt-2 text-xl font-semibold ${errorCount ? 'text-destructive' : 'text-success'}`}>{errorCount}</p>
-                          </div>
-            <AlertTriangle className={`size-4 ${errorCount ? 'text-destructive' : 'text-muted-foreground'}`} />
-          </div>
-        </GlassCard>
-      </div>
+      {domains.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-0.5 text-[11px] text-muted-foreground">
+          <span><strong className="font-semibold text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" /><strong className="font-semibold text-foreground">{readyCount}</strong> ativos</span>
+          {pendingCount > 0 && <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-warning" /><strong className="font-semibold text-foreground">{pendingCount}</strong> configurando</span>}
+          {errorCount > 0 && <span className="inline-flex items-center gap-1.5 text-destructive"><span className="size-1.5 rounded-full bg-destructive" /><strong>{errorCount}</strong> com atenção</span>}
+        </div>
+      )}
 
-      <GlassCard variant="thick" className="p-4 sm:p-5">
+      <GlassCard variant="thick" className="p-4 sm:p-5" title="A verificação é automática">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-xl">
+          <div>
             <h2 className="text-sm font-semibold text-foreground">Adicionar domínio</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Informe apenas o endereço, sem https://. Depois o ROINADOS mostra exatamente quais registros precisam ser criados.</p>
           </div>
           <form className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); void add() }}>
             <label className="min-w-0 flex-1">
               <span className="sr-only">Endereço do domínio</span>
-              <input className="input w-full rounded-xl border border-border/80 bg-secondary/40 px-3 py-2.5 text-xs text-foreground focus:border-brand-cyan/50" value={host} onChange={event => setHost(event.target.value)} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+              <input className="input w-full rounded-xl border border-border/80 bg-secondary/40 px-3 py-2.5 text-xs text-foreground focus:border-brand-cyan/50" value={host} onChange={event => setHost(event.target.value)} onBlur={() => host && setHost(normalizeHostInput(host))} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
             </label>
             <button type="submit" className="btn-primary shrink-0" disabled={adding || !host.trim()}>
               {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
@@ -167,7 +174,7 @@ export function DomainsView() {
           </form>
         </div>
         {error && <p role="alert" className="mt-3 text-xs text-error">{error}</p>}
-        {data?.providerDegraded ? <p className="mt-3 rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">O provedor de domínio está em modo degradado. O cadastro continua disponível, mas pode exigir configuração manual adicional.</p> : null}
+        {data?.providerDegraded ? <p className="mt-3 rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">Provisionamento automático indisponível. A conexão pode exigir ajuste manual.</p> : null}
       </GlassCard>
 
       {loadError && <ErrorState title="Não foi possível atualizar os domínios" onRetry={() => mutate()} />}
@@ -185,14 +192,15 @@ export function DomainsView() {
         <div className="grid gap-4 xl:grid-cols-2">
           {domains.map((domain, index) => {
             const check = checks[domain.host]
-            const ready = domain.verificado
+            const diagnostic = diagnostics[domain.host]
+            const ready = isReady(domain)
             const dns = check?.dnsRecords || domain.dns || addedDns[domain.host]
             const statusLabel = ready
-              ? 'Pronto para usar'
+              ? 'Ativo'
               : domain.status === 'pending_ssl'
-                ? 'DNS conectado · finalizando segurança'
+                ? 'Ativando HTTPS'
                 : domain.status === 'error'
-                  ? 'Conexão precisa de ajuste'
+                  ? 'Atenção'
                   : 'Aguardando DNS'
             return (
               <GlassCard key={domain.host} className="flex flex-col gap-4 rounded-[24px] border border-border/70 p-4 sm:p-5 transition-all hover:border-brand-cyan/25" style={{ animationDelay: `${index * 50}ms` }}>
@@ -208,36 +216,49 @@ export function DomainsView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={!!verifying} onClick={() => void verify(domain.host)}>
-                      <RefreshCw className={`size-3.5 ${verifying === domain.host ? 'animate-spin text-brand-cyan' : ''}`} />
-                      {verifying === domain.host ? 'Verificando…' : 'Verificar'}
-                    </button>
+                    {!ready && (domain.status === 'error' || domain.lastError) ? (
+                      <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={!!diagnosing[domain.host]} onClick={() => void diagnose(domain.host)}>
+                        {diagnosing[domain.host] ? <Loader2 className="size-3.5 animate-spin text-brand-cyan" /> : <Stethoscope className="size-3.5" />}
+                        {diagnosing[domain.host] ? 'Analisando…' : 'Diagnosticar'}
+                      </button>
+                    ) : (
+                      <button type="button" className={ready ? 'btn-ghost p-2' : 'btn-secondary px-3 py-1.5 text-xs'} aria-label={ready ? `Verificar ${domain.host} novamente` : undefined} disabled={!!verifying[domain.host]} onClick={() => void verify(domain.host)}>
+                        <RefreshCw className={`size-3.5 ${verifying[domain.host] ? 'animate-spin text-brand-cyan' : ''}`} />
+                        {!ready && <span>{verifying[domain.host] ? 'Verificando…' : 'Verificar agora'}</span>}
+                      </button>
+                    )}
                     <button type="button" className="btn-ghost p-2 text-muted-foreground hover:text-destructive" aria-label={`Remover domínio ${domain.host}`} onClick={() => setDeleting(domain.host)}><Trash2 className="size-4" /></button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="rounded-xl border border-border/50 bg-secondary/15 p-3">
-                    <p className="uppercase tracking-[0.16em] text-muted-foreground">DNS</p>
-                    <p className={`mt-1 font-medium ${domain.status === 'error' ? 'text-destructive' : ready || domain.status === 'pending_ssl' ? 'text-success' : 'text-warning'}`}>{ready || domain.status === 'pending_ssl' ? 'Conectado' : domain.status === 'error' ? 'Revisar' : 'Pendente'}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 bg-secondary/15 p-3">
-                    <p className="uppercase tracking-[0.16em] text-muted-foreground">HTTPS</p>
-                    <p className={`mt-1 font-medium ${ready ? 'text-success' : 'text-muted-foreground'}`}>{ready ? 'Seguro' : domain.status === 'pending_ssl' ? 'Emitindo certificado' : 'Aguardando DNS'}</p>
-                  </div>
+                <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-secondary/10 px-3 py-2.5 text-[10px]">
+                  {[
+                    { label: 'DNS', done: ready || domain.status === 'pending_ssl' },
+                    { label: 'HTTPS', done: ready },
+                    { label: 'Ativo', done: ready },
+                  ].map((step, stepIndex) => (
+                    <div key={step.label} className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${step.done ? 'border-success/40 bg-success/15 text-success' : domain.status === 'error' ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground'}`}>{step.done ? <Check className="size-2.5" /> : stepIndex + 1}</span>
+                      <span className={step.done ? 'text-foreground' : 'text-muted-foreground'}>{step.label}</span>
+                      {stepIndex < 2 && <span className={`ml-auto h-px min-w-3 flex-1 ${step.done ? 'bg-success/35' : 'bg-border'}`} />}
+                    </div>
+                  ))}
                 </div>
 
-                {!ready && (domain.lastError || domain.providerNote) ? <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">{domain.lastError || domain.providerNote}</p> : null}
+                {diagnostic && !diagnostic.healthy ? <div className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning"><span className="font-medium">Próxima ação:</span> {diagnostic.likelyCause || 'Tente verificar novamente em instantes.'}</div> : !ready && (domain.lastError || domain.providerNote) ? <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">{domain.lastError || domain.providerNote}</p> : null}
 
-                <details className="rounded-xl border border-border/60 bg-secondary/10 p-3" open={!ready}>
-                  <summary className="cursor-pointer text-xs font-medium text-foreground">{ready ? 'Ver configuração técnica' : 'O que preciso fazer agora?'}</summary>
+                <details className="rounded-xl border border-border/60 bg-secondary/10 p-3" open={expandedHost === domain.host} onToggle={(event) => setExpandedHost(event.currentTarget.open ? domain.host : null)}>
+                  <summary className="cursor-pointer text-xs font-medium text-foreground">DNS e detalhes</summary>
                   <div className="mt-3"><DnsInstructions dns={dns} /></div>
                 </details>
 
                 <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
-                  <span className="text-[10px] text-muted-foreground">{domain.lastCheckedAt ? `Última verificação: ${new Date(domain.lastCheckedAt).toLocaleString('pt-BR')}` : 'Ainda não verificado manualmente'}</span>
-                  {ready && domain.uso !== 'cloaker' ? (
-                    <a href={`/links?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Criar link com este domínio <ArrowUpRight className="size-3" /></a>
+                  <span className="text-[10px] text-muted-foreground">{domain.lastCheckedAt ? `Atualizado ${new Date(domain.lastCheckedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Verificação automática ativa'}</span>
+                  {ready ? (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {domain.uso !== 'cloaker' ? <a href={`/links?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar em Links <ArrowUpRight className="size-3" /></a> : null}
+                      {domain.uso !== 'checkout' ? <a href={`/cloak?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar no Cloaker <ArrowUpRight className="size-3" /></a> : null}
+                    </div>
                   ) : null}
                 </div>
               </GlassCard>
@@ -246,7 +267,7 @@ export function DomainsView() {
         </div>
       )}
 
-      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="O ROINADOS não remove domínios que ainda estejam sendo usados por links. O domínio continuará registrado no seu provedor." confirmLabel="Remover domínio" confirmText={domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
+      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Domínios em uso precisam ser trocados antes. Quando gerenciado automaticamente, o recurso remoto também é removido." confirmLabel="Remover domínio" confirmText={domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
     </div>
   )
 }
