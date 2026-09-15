@@ -1,7 +1,4 @@
-// Dashboard "Pulse" — servida como HTML estático em /dashboard.
-// Todos os dados são carregados via /api/stats, /api/config e /api/health (client-side).
-// IMPORTANTE: este arquivo é uma template string — não usar crase nem interpolacao de template no conteudo.
-module.exports = `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt" class="dark">
 <head>
 <meta charset="utf-8" />
@@ -806,7 +803,7 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .abrow .abr-top .lbl{color:var(--muted)}
 .abrow .abr-top .va,.abrow .abr-top .vb{text-align:right;min-width:92px;font-family:'Geist Mono';font-weight:600;font-size:13px}
 .abrow .abr-top .lead-val{position:relative}
-.abrow .abr-top .lead-val::after{content:'\\25B4';font-size:9px;margin-left:4px;opacity:.9}
+.abrow .abr-top .lead-val::after{content:'\25B4';font-size:9px;margin-left:4px;opacity:.9}
 .abrow .abr-bars{display:flex;flex-direction:column;gap:3px;margin-top:7px}
 .abrow .abr-bars .b{height:5px;border-radius:3px;min-width:3px;transition:width .8s cubic-bezier(.2,.7,.3,1)}
 .abrow .abr-bars .b.s{background:linear-gradient(90deg,var(--cyan),rgba(47,125,255,.55))}
@@ -864,7 +861,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .geo-collapse{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden;margin-top:6px}
 .geo-collapse>summary{list-style:none;cursor:pointer;padding:13px 15px;font-size:13.5px;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:relative}
 .geo-collapse>summary::-webkit-details-marker{display:none}
-.geo-collapse>summary::after{content:'\\25be';margin-left:auto;color:var(--muted2);transition:transform .2s}
+.geo-collapse>summary::after{content:'\25be';margin-left:auto;color:var(--muted2);transition:transform .2s}
 .geo-collapse[open]>summary::after{transform:rotate(180deg)}
 .geo-collapse>summary:hover{background:var(--card2)}
 .geo-collapse>summary b{font-weight:600}
@@ -1606,7 +1603,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 /* Gate do Liquid Glass: só Chromium + pointer fino + sem reduced-motion + GPU ok */
 (function(){
   try{
-    var isChromium=navigator.userAgentData?navigator.userAgentData.brands.some(function(b){return /Chromium/.test(b.brand)}):(!!window.chrome&&/Chrome\\//.test(navigator.userAgent));
+    var isChromium=navigator.userAgentData?navigator.userAgentData.brands.some(function(b){return /Chromium/.test(b.brand)}):(!!window.chrome&&/Chrome\//.test(navigator.userAgent));
     var finePointer=matchMedia('(pointer:fine)').matches;
     var noReduce=!matchMedia('(prefers-reduced-motion:reduce)').matches;
     var gpuOk=(navigator.deviceMemory===undefined||navigator.deviceMemory>=4)&&(navigator.hardwareConcurrency===undefined||navigator.hardwareConcurrency>=4);
@@ -2869,7 +2866,7 @@ function renderOverview(m){
     mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr',((cur&&prev)?deltaChip(cur.approval,prev.approval):'')+(hasAttempts?sparkBars(seriesFor('approval'),apColor):''))+
     mstat(hasSales?'#22c55e':'#6b7183',hasSales?'rgba(34,197,94,.12)':'rgba(107,113,131,.10)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,((cur&&prev&&prev.bought>0)?deltaChip(cur.bought?cur.rev/cur.bought:0,prev.rev/prev.bought):'')+(hasSales?spark(seriesFor('ticket'),'#22c55e'):''))+
     mstat(hasGeo?'#06b6d4':'#6b7183',hasGeo?'rgba(6,182,212,.1)':'rgba(107,113,131,.10)',I.globe,'Países ativos',m.countries.length,(hasGeo?'':'aguardando leads'),null,null,'ov-cu-geo',geoMini(m.countries))+
-    mstat(refColor,m.refunds?'rgba(217,119,6,.12)':'rgba(34,197,94,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref',m.refunds?spark(seriesFor('refunds'),refColor):'')+
+    mstat(refColor,m.refunds?'rgba(217,119,6,.12)':'rgba(34,197,94,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige atenção':'nenhum no período',null,null,'ov-cu-ref',m.refunds?spark(seriesFor('refunds'),refColor):'')+
     mstat(dispColor,m.disputes?'rgba(220,38,38,.12)':'rgba(34,197,94,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp',m.disputes?spark(seriesFor('disputes'),dispColor):'');
 
   // dispara contagens e barras animadas (todos os números sobem animados)
@@ -3168,7 +3165,7 @@ function bindNotes(){
     var today=new Date(); var def=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
     var d=prompt('Dia da nota (AAAA-MM-DD):',def); if(!d) return;
     d=d.trim();
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ toast('Data inv\u00e1lida \u2014 use AAAA-MM-DD'); return; }
+    if(!/^d{4}-d{2}-d{2}$/.test(d)){ toast('Data inválida — use AAAA-MM-DD'); return; }
     var text=prompt('Nota (ex.: subi criativo novo, aumentei budget):',''); if(!text||!text.trim()) return;
     fetch('/api/notes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({d:d,text:text.trim()})})
       .then(function(r){return r.json();})
@@ -3280,7 +3277,7 @@ function renderLeadsTable(){
     var origin=(l.utm&&l.utm.source)?esc(l.utm.source):(l.referer?'ref':'direto');
     var val=l.reportedAmount?money(l.reportedAmount,l.reportedCurrency):(l.expectedAmount?('<span class="muted">'+money(l.expectedAmount,l.expectedCurrency)+'</span>'):'—');
     var shortId=l.id.slice(0,12);
-    return '<tr onclick="openLead(\\''+esc(l.id)+'\\')">'+
+    return '<tr onclick="openLead(\''+esc(l.id)+'\')">'+
       '<td><span style="font-family:monospace;font-size:12px">'+esc(shortId)+'</span></td>'+
       '<td>'+stageTag+'</td>'+
       '<td>'+gwTag+' <span class="muted" style="font-size:11px">'+path+'</span></td>'+
@@ -3538,9 +3535,9 @@ function notifBeep(){
 }
 function notifSub(e){
   var geo=[e.city,e.countryName||e.country].filter(Boolean).join(', ');
-  if(e.type==='sale')   return (e.amount!=null?money(e.amount,e.currency||'EUR')+' \u00b7 ':'')+(geo||e.email||'');
-  if(e.type==='failed') return (e.amount!=null?money(e.amount,e.currency||'EUR')+' \u00b7 ':'')+(e.reason||geo||'');
-  if(e.type==='refund'||e.type==='dispute') return (e.amount!=null?money(e.amount,e.currency||'EUR'):'')+(geo?' \u00b7 '+geo:'');
+  if(e.type==='sale')   return (e.amount!=null?money(e.amount,e.currency||'EUR')+' · ':'')+(geo||e.email||'');
+  if(e.type==='failed') return (e.amount!=null?money(e.amount,e.currency||'EUR')+' · ':'')+(e.reason||geo||'');
+  if(e.type==='refund'||e.type==='dispute') return (e.amount!=null?money(e.amount,e.currency||'EUR'):'')+(geo?' · '+geo:'');
   return geo||(e.page||'')||'';
 }
 function ingestNotifs(){
@@ -3561,7 +3558,7 @@ function ingestNotifs(){
     // toast global: venda aparece em QUALQUER aba, sem precisar estar no Ao Vivo
     if(notifBooted&&e.type==='sale'){
       var geo=[e.city,e.countryName||e.country].filter(Boolean).join(', ');
-      toast('Venda aprovada'+(e.amount!=null?' \u00b7 '+money(e.amount,e.currency||'EUR'):'')+(geo?' \u00b7 '+geo:''));
+      toast('Venda aprovada'+(e.amount!=null?' · '+money(e.amount,e.currency||'EUR'):'')+(geo?' · '+geo:''));
     }
   });
   if(NOTIFS.length>30) NOTIFS.length=30;
@@ -3572,7 +3569,7 @@ function renderNotifs(){
   var el=document.getElementById('notif-list'); if(!el) return;
   wireNotifTools();
   if(!NOTIFS.length){
-    el.innerHTML='<div class="notif-empty">Sem notifica\u00e7\u00f5es por enquanto.<br>Vendas, leads e alertas aparecem aqui em tempo real.</div>';
+    el.innerHTML='<div class="notif-empty">Sem notificações por enquanto.<br>Vendas, leads e alertas aparecem aqui em tempo real.</div>';
     return;
   }
   el.innerHTML=NOTIFS.map(function(e){
@@ -3581,7 +3578,7 @@ function renderNotifs(){
     var ago=t?fmtAgo(Date.now()-t.getTime()):'';
     return '<div class="nrow">'+
       '<div class="nico '+m.ico+'">'+m.svg+'</div>'+
-      '<div class="nbody"><b>'+m.t+'</b><span>'+esc(notifSub(e)||'\u2014')+'</span></div>'+
+      '<div class="nbody"><b>'+m.t+'</b><span>'+esc(notifSub(e)||'—')+'</span></div>'+
       '<div class="ntime" title="'+(t?fmtHM(t.getTime()):'')+'">'+ago+'</div>'+
     '</div>';
   }).join('');
@@ -3596,7 +3593,7 @@ function wireNotifTools(){
   function paintSnd(){
     snd.innerHTML=notifSound?NOTIF_SND_ON:NOTIF_SND_OFF;
     snd.classList.toggle('on',notifSound);
-    snd.title=notifSound?'Som ligado \u2014 clique para silenciar':'Som desligado \u2014 clique para ativar';
+    snd.title=notifSound?'Som ligado — clique para silenciar':'Som desligado — clique para ativar';
   }
   paintSnd();
   snd.onclick=function(){
@@ -3612,10 +3609,10 @@ function wireNotifTools(){
 function fmtHM(t){ var d=new Date(t); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
 function fmtAgo(ms){
   var s=Math.round(ms/1000);
-  if(s<60) return 'h\u00e1 '+s+'s';
+  if(s<60) return 'há '+s+'s';
   var m=Math.floor(s/60);
-  if(m<60) return 'h\u00e1 '+m+' min';
-  return 'h\u00e1 '+Math.floor(m/60)+'h'+(m%60?(m%60)+'m':'');
+  if(m<60) return 'há '+m+' min';
+  return 'há '+Math.floor(m/60)+'h'+(m%60?(m%60)+'m':'');
 }
 function renderTrafficPulse(){
   var el=document.getElementById('traffic-pulse'); if(!el) return;
@@ -3651,29 +3648,29 @@ function renderTrafficPulse(){
     var h=Math.max(4,Math.round(v/max*100));
     var t=now-(WINDOW-1-i)*MIN;
     var cls='tb'+(i===buckets.length-1?' cur':'')+(v>=max&&max>1&&v>0?' hot':'');
-    return '<div class="'+cls+'" style="height:'+h+'%" title="'+fmtHM(t)+' \u2014 '+v+' entrada(s)"></div>';
+    return '<div class="'+cls+'" style="height:'+h+'%" title="'+fmtHM(t)+' — '+v+' entrada(s)"></div>';
   }).join('');
   // eixo de tempo abaixo das barras
   var axis='<div class="tf-axis">'+
     '<span>'+fmtHM(now-29*MIN)+'</span><span>'+fmtHM(now-20*MIN)+'</span>'+
-    '<span>'+fmtHM(now-10*MIN)+'</span><span class="ax-now">agora \u00b7 '+fmtHM(now)+'</span></div>';
+    '<span>'+fmtHM(now-10*MIN)+'</span><span class="ax-now">agora · '+fmtHM(now)+'</span></div>';
   var tCls=trend>0?'up':(trend<0?'down':'flat');
   var tIco=trend>0?ARR_UP:(trend<0?ARR_DN:'');
-  var tTxt=trend>0?('+'+trend+' subindo'):(trend<0?(trend+' caindo'):'est\u00e1vel');
+  var tTxt=trend>0?('+'+trend+' subindo'):(trend<0?(trend+' caindo'):'estável');
   if(inCk>=3){ tCls='hot'; tTxt=inCk+' no checkout agora'; }
   el.innerHTML=
     '<div class="tf-now">'+
       '<span class="tf-big">'+total+'</span><span class="tf-lbl">leads em 30 min</span>'+
-      '<span class="tf-avg">m\u00e9dia <b>'+avgTxt+'</b>/min</span>'+
+      '<span class="tf-avg">média <b>'+avgTxt+'</b>/min</span>'+
     '</div>'+
     '<div class="tf-mid"><div class="tf-bars">'+bars+'</div>'+axis+'</div>'+
     '<div class="tf-trend '+tCls+'">'+tIco+tTxt+'</div>'+
     '<div class="tf-sub">'+
-      '<span class="tfs"><i class="tfd" style="background:var(--cyan)"></i>\u00daltima entrada: <b>'+(lastAt?fmtHM(lastAt)+' \u00b7 '+fmtAgo(now-lastAt):'\u2014')+'</b></span>'+
-      '<span class="tfs"><i class="tfd" style="background:var(--amber)"></i>Pico: <b>'+(peakTime?peakTime+' \u00b7 '+peakVal+' lead'+(peakVal>1?'s':''):'\u2014')+'</b></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--cyan)"></i>Última entrada: <b>'+(lastAt?fmtHM(lastAt)+' · '+fmtAgo(now-lastAt):'—')+'</b></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--amber)"></i>Pico: <b>'+(peakTime?peakTime+' · '+peakVal+' lead'+(peakVal>1?'s':''):'—')+'</b></span>'+
       '<span class="tfs"><i class="tfd" style="background:var(--pink)"></i>No checkout: <b>'+inCk+'</b> <span class="tfm">(estimativa &middot; checkouts externos)</span></span>'+
       '<span class="tfs"><i class="tfd" style="background:var(--green)"></i>Online agora: <b>'+((LIVE.summary&&LIVE.summary.online)||0)+'</b></span>'+
-      '<span class="tfs tfm" style="margin-left:auto">'+(recent)+' entradas nos \u00faltimos 15 min \u00b7 '+(older)+' nos 15 anteriores</span>'+
+      '<span class="tfs tfm" style="margin-left:auto">'+(recent)+' entradas nos últimos 15 min · '+(older)+' nos 15 anteriores</span>'+
     '</div>';
 }
 // Um lead está "no checkout" quando a página atual contém checkout.
@@ -3700,7 +3697,7 @@ function renderLive(){
   list.innerHTML=sorted.length?header+sorted.map(function(v){
     var idle=v.idleMs>20000;
     var inCk=isCheckoutLead(v);
-    var funnel=(v.pageviews||1)>1?'<span class="lfun" title="p\u00e1ginas vistas nesta sess\u00e3o">'+v.pageviews+' p\u00e1gs</span>':'';
+    var funnel=(v.pageviews||1)>1?'<span class="lfun" title="páginas vistas nesta sessão">'+v.pageviews+' págs</span>':'';
     return '<div class="lrow'+(idle?' idle':'')+(inCk?' hot':'')+'">'+
       '<span class="ldot"></span>'+
       '<span class="lflag">'+flag(v.country)+'</span>'+
@@ -3770,7 +3767,7 @@ function renderLiveGlobe(){
   // subtítulo com presença atual
   var n=(LIVE.summary&&LIVE.summary.online)||0;
   var sub=document.getElementById('ov-globe-sub');
-  if(sub)sub.textContent=n>0?(n+' pessoa'+(n>1?'s':'')+' online \u00b7 '+cs.length+' pa\u00eds'+(cs.length>1?'es':'')):'aguardando visitantes';
+  if(sub)sub.textContent=n>0?(n+' pessoa'+(n>1?'s':'')+' online · '+cs.length+' país'+(cs.length>1?'es':'')):'aguardando visitantes';
   renderGlobeSide();
   renderTrafficPulse(); // pulso de tráfego vive junto do globo
 }
@@ -3884,13 +3881,13 @@ function renderGlobeSide(){
     var inCk=isCheckoutLead(v);
     return '<div class="gs-row'+(inCk?' hot':'')+'" style="animation-delay:'+(i*.05)+'s">'+
       '<span class="gr-flag">'+flag(v.country)+'</span>'+
-      '<div class="gr-main"><b>'+esc(v.countryName||v.country||'Desconhecido')+(v.city?' \u00b7 '+esc(v.city):'')+'</b>'+
+      '<div class="gr-main"><b>'+esc(v.countryName||v.country||'Desconhecido')+(v.city?' · '+esc(v.city):'')+'</b>'+
         '<span>'+esc(pageLabel(v.page))+'</span></div>'+
       (inCk?'<span class="gr-ck" title="no checkout">'+I.cart+'</span>':'')+
       '<span class="gr-dur">'+liveDur(v.durationMs)+'</span>'+
     '</div>';
-  }).join('')+(extra>0?'<div class="gs-more">+'+extra+' lead'+(extra>1?'s':'')+' navegando \u2014 veja todos na aba Ao Vivo</div>':'')
-  :'<div class="live-empty" style="padding:20px">Ningu\u00e9m navegando agora.</div>';
+  }).join('')+(extra>0?'<div class="gs-more">+'+extra+' lead'+(extra>1?'s':'')+' navegando — veja todos na aba Ao Vivo</div>':'')
+  :'<div class="live-empty" style="padding:20px">Ninguém navegando agora.</div>';
 }
 
 /* ── Links de Checkout ────��───────────────────────────────────────── */
@@ -3925,9 +3922,9 @@ function renderLinks(){
         :'<span class="badge-warn">'+esc(l.dominio)+' &mdash; n&atilde;o verificado</span>'))+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-          '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
-          '<button class="btn-icon" onclick="editLink(\\''+esc(l.slug)+'\\')">Editar</button>'+
-          '<button class="btn-icon" style="color:var(--red)" onclick="delLink(\\''+esc(l.slug)+'\\')">Excluir</button>'+
+          '<button class="btn-icon" onclick="copyLink(\''+esc(l.slug)+'\')">Copiar URL</button>'+
+          '<button class="btn-icon" onclick="editLink(\''+esc(l.slug)+'\')">Editar</button>'+
+          '<button class="btn-icon" style="color:var(--red)" onclick="delLink(\''+esc(l.slug)+'\')">Excluir</button>'+
         '</div>'+
       '</div>';
     }).join('');
@@ -3971,7 +3968,7 @@ function renderPageConv(){
     var rt=r.rate.toFixed(1);
     var cls=r.rate>=3?'pos':(r.rate>=1?'amb':'');
     return '<tr>'+
-      '<td><span style="font-family:\\'Geist Mono\\',monospace;font-size:12px">'+esc(r.p)+'</span></td>'+
+      '<td><span style="font-family:\'Geist Mono\',monospace;font-size:12px">'+esc(r.p)+'</span></td>'+
       '<td>'+r.leads+'</td>'+
       '<td>'+r.ck+' <span class="hint">('+(r.leads?Math.round(r.ck/r.leads*100):0)+'%)</span></td>'+
       '<td>'+r.buy+'</td>'+
@@ -4102,14 +4099,14 @@ function renderDomains(){
       return '<div class="lrow" style="cursor:default">'+
         '<span class="ldot" style="background:'+(d.verificado?'var(--green)':'var(--amber,#e8a33d)')+';box-shadow:none"></span>'+
         '<div class="lmain">'+
-          '<b style="font-family:\\'Geist Mono\\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
+          '<b style="font-family:\'Geist Mono\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
           '<span>'+(d.verificado
             ?'<span class="badge-ok">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
             :'<span class="badge-warn">Aguardando DNS &mdash; verificamos automaticamente</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-          (d.verificado?'':'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="dmTutOpen(\\''+esc(d.host)+'\\')">Configurar</button>')+
-          '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
+          (d.verificado?'':'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="dmTutOpen(\''+esc(d.host)+'\')">Configurar</button>')+
+          '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\''+esc(d.host)+'\')">Remover</button>'+
         '</div>'+
       '</div>';
     }).join('');
@@ -4152,7 +4149,7 @@ function silentVerifyDomain(host){
         if(DMTUT_HOST===host && !d.ok) dmTutRender(); // mostra alvo real + TXT
       }
       if(d.ok){
-        toast('Dom\u00ednio verificado: '+host);
+        toast('Domínio verificado: '+host);
         if(DMTUT_HOST===host) dmTutSuccess(host); // modal aberto no mesmo host: anima
         loadDomains();
       }
@@ -4161,7 +4158,7 @@ function silentVerifyDomain(host){
 function addDomain(){
   var inp=document.getElementById('dm-host');
   var host=(inp.value||'').trim();
-  if(!host){ toast('Informe o dom\u00ednio (ex.: link.seudominio.com)',false); return; }
+  if(!host){ toast('Informe o domínio (ex.: link.seudominio.com)',false); return; }
   fetch('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -4222,8 +4219,8 @@ function dmTutRender(){
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">1</span>'+
       '<div class="dmtut-txt">'+
-        '<b>Acesse o painel do seu dom\u00ednio</b>'+
-        '<p>Entre no site onde voc\u00ea comprou o dom\u00ednio (Cloudflare, Registro.br, Hostgator, GoDaddy\u2026) e abra a <b>Configura\u00e7\u00e3o de DNS</b>.</p>'+
+        '<b>Acesse o painel do seu domínio</b>'+
+        '<p>Entre no site onde você comprou o domínio (Cloudflare, Registro.br, Hostgator, GoDaddy…) e abra a <b>Configuração de DNS</b>.</p>'+
       '</div>'+
     '</div>'+
     '<div class="dmtut-step">'+
@@ -4238,8 +4235,8 @@ function dmTutRender(){
           '<div class="dmtut-row"><span class="dmtut-lbl">Destino / Valor</span><span class="dmtut-val accent">'+esc(cnameTarget)+'</span>'+
             '<button class="dmtut-copy" data-copy="'+esc(cnameTarget)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
         '</div>'+
-        (name==='@'?'<div class="dmtut-note">Dom\u00ednio raiz: alguns pain\u00e9is n\u00e3o aceitam CNAME em "@" \u2014 use a op\u00e7\u00e3o <b>ALIAS</b> ou <b>CNAME flattening</b> (autom\u00e1tico na Cloudflare).</div>':'')+
-        '<div class="dmtut-note">Usa Cloudflare? Deixe a nuvem <b>cinza (Somente DNS)</b>, n\u00e3o laranja.</div>'+
+        (name==='@'?'<div class="dmtut-note">Domínio raiz: alguns painéis não aceitam CNAME em "@" — use a opção <b>ALIAS</b> ou <b>CNAME flattening</b> (automático na Cloudflare).</div>':'')+
+        '<div class="dmtut-note">Usa Cloudflare? Deixe a nuvem <b>cinza (Somente DNS)</b>, não laranja.</div>'+
       '</div>'+
     '</div>';
   if(txt){
@@ -4248,8 +4245,8 @@ function dmTutRender(){
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">'+stepN+'</span>'+
       '<div class="dmtut-txt">'+
-        '<b>Crie tamb\u00e9m este registro TXT</b>'+
-        '<p>A hospedagem exige um TXT de verifica\u00e7\u00e3o para emitir o certificado:</p>'+
+        '<b>Crie também este registro TXT</b>'+
+        '<p>A hospedagem exige um TXT de verificação para emitir o certificado:</p>'+
         '<div class="dmtut-dns">'+
           '<div class="dmtut-row"><span class="dmtut-lbl">Tipo</span><span class="dmtut-val pink">TXT</span></div>'+
           '<div class="dmtut-row"><span class="dmtut-lbl">Nome / Host</span><span class="dmtut-val">'+esc(txt.host||name)+'</span>'+
@@ -4265,9 +4262,9 @@ function dmTutRender(){
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">'+stepN+'</span>'+
       '<div class="dmtut-txt">'+
-        '<b>Verifique a conex\u00e3o</b>'+
-        '<p style="margin-bottom:10px">Salvou o registro? Clique abaixo \u2014 ou aguarde, verificamos automaticamente a cada 30 segundos.</p>'+
-        '<button class="btn primary" id="dmtut-verify" style="min-width:180px">Verificar dom\u00ednio</button>'+
+        '<b>Verifique a conexão</b>'+
+        '<p style="margin-bottom:10px">Salvou o registro? Clique abaixo — ou aguarde, verificamos automaticamente a cada 30 segundos.</p>'+
+        '<button class="btn primary" id="dmtut-verify" style="min-width:180px">Verificar domínio</button>'+
         '<div class="dmtut-warn" id="dmtut-warn"></div>'+
       '</div>'+
     '</div>';
@@ -4281,8 +4278,8 @@ function dmTutSuccess(host){
   body.innerHTML=
     '<div class="dmtut-okbox">'+
       '<svg class="dmtut-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M14 27l8 8 16-16"/></svg>'+
-      '<b>Dom\u00ednio verificado!</b>'+
-      '<p>Tudo pronto \u2014 seus links j\u00e1 podem usar <span class="dmtut-host" style="font-size:12px">'+esc(host)+'</span>.</p>'+
+      '<b>Domínio verificado!</b>'+
+      '<p>Tudo pronto — seus links já podem usar <span class="dmtut-host" style="font-size:12px">'+esc(host)+'</span>.</p>'+
       '<button class="btn primary" id="dmtut-done" style="min-width:140px">Concluir</button>'+
     '</div>';
 }
@@ -4299,7 +4296,7 @@ function dmTutVerify(){
   var host=DMTUT_HOST;
   if(!btn||!host) return;
   btn.disabled=true;
-  btn.innerHTML='<span class="dmtut-spin"></span> Verificando\u2026';
+  btn.innerHTML='<span class="dmtut-spin"></span> Verificando…';
   fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -4307,35 +4304,35 @@ function dmTutVerify(){
       // Reconectou à hospedagem agora? Atualiza os registros DNS reais.
       if(d.reconectado && d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
       if(d.ok){
-        toast('Dom\u00ednio verificado: '+host);
+        toast('Domínio verificado: '+host);
         dmTutSuccess(host);
         loadDomains();
       } else if(d.reconectado && d.dnsRecords){
         // Passou de manual para gerenciado: re-renderiza mostrando alvo real + TXT.
         dmTutRender();
         var wb0=document.getElementById('dmtut-warn');
-        if(wb0){ wb0.style.display='block'; wb0.innerHTML='<b>Conectado \u00e0 hospedagem</b><p>Atualize o CNAME para o novo destino acima (e o TXT, se houver) e verifique de novo.</p>'; }
+        if(wb0){ wb0.style.display='block'; wb0.innerHTML='<b>Conectado à hospedagem</b><p>Atualize o CNAME para o novo destino acima (e o TXT, se houver) e verifique de novo.</p>'; }
       } else {
         var det=d.dnsPronto
-          ?'DNS propagado! Falta o certificado/app responder \u2014 tente novamente em instantes.'
-          :(d.dnsDetail||d.httpDetail||'O registro ainda n\u00e3o foi encontrado.');
+          ?'DNS propagado! Falta o certificado/app responder — tente novamente em instantes.'
+          :(d.dnsDetail||d.httpDetail||'O registro ainda não foi encontrado.');
         var wb=document.getElementById('dmtut-warn');
         if(!/[.!?]$/.test(det)) det+='.';
-        if(wb){ wb.style.display='block'; wb.innerHTML='<b>Ainda n\u00e3o propagou</b><p>'+esc(det)+' A propaga\u00e7\u00e3o pode levar de alguns minutos at\u00e9 algumas horas.</p>'; }
+        if(wb){ wb.style.display='block'; wb.innerHTML='<b>Ainda não propagou</b><p>'+esc(det)+' A propagação pode levar de alguns minutos até algumas horas.</p>'; }
         btn.disabled=false; btn.textContent='Verificar novamente';
       }
     })
     .catch(function(){
       if(DMTUT_HOST!==host) return;
-      toast('Erro de rede na verifica\u00e7\u00e3o',false);
-      btn.disabled=false; btn.textContent='Verificar dom\u00ednio';
+      toast('Erro de rede na verificação',false);
+      btn.disabled=false; btn.textContent='Verificar domínio';
     });
 }
 function delDomain(host){
-  uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
+  uiConfirm({title:'Remover este domínio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
     fetch('/api/domains/'+encodeURIComponent(host),{method:'DELETE'})
       .then(function(r){return r.json();})
-      .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
+      .then(function(d){ if(d.ok){ toast('Domínio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
       .catch(function(){ toast('Erro ao remover',false); });
   });
 }
@@ -4351,8 +4348,8 @@ function saveLink(){
   dominio:document.getElementById('lk-domain').value.trim(),
   ativo:document.getElementById('lk-active').checked
   };
-  if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
-  if(!body.variantes.length){ toast('Informe a URL do checkout (come\u00e7ando com https://)',false); return; }
+  if(!body.nome){ toast('Dê um nome ao link',false); return; }
+  if(!body.variantes.length){ toast('Informe a URL do checkout (começando com https://)',false); return; }
   fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -4368,10 +4365,10 @@ function saveLink(){
 function domainSelectOptions(selected){
   var verified=(DM_LIST||[]).filter(function(d){return d.verificado;});
   var sel=function(v){return v===(selected||'')?' selected':'';};
-  var opts='<option value=""'+sel('')+'>Dom\u00ednio padr\u00e3o do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
-  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'"'+sel(d.host)+'>'+esc(d.host)+' \u2014 verificado</option>'; });
+  var opts='<option value=""'+sel('')+'>Domínio padrão do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
+  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'"'+sel(d.host)+'>'+esc(d.host)+' — verificado</option>'; });
   if(selected && !verified.some(function(d){return d.host===selected;})){
-    opts+='<option value="'+esc(selected)+'"'+sel(selected)+'>'+esc(selected)+' \u2014 n\u00e3o verificado</option>';
+    opts+='<option value="'+esc(selected)+'"'+sel(selected)+'>'+esc(selected)+' — não verificado</option>';
   }
   return opts;
 }
@@ -4386,11 +4383,11 @@ function updateLinkDomainStatus(){
   var sel=document.getElementById('lk-domain'); var st=document.getElementById('lk-domain-status');
   if(!sel||!st) return;
   var host=sel.value;
-  if(!host){ st.innerHTML='<span class="hint">Usando o dom\u00ednio padr\u00e3o do app.</span>'; return; }
+  if(!host){ st.innerHTML='<span class="hint">Usando o domínio padrão do app.</span>'; return; }
   var ok=(DM_LIST||[]).some(function(x){return x.verificado&&x.host===host;});
   st.innerHTML=ok
     ? '<span class="pos">Verificado &middot; '+esc(host)+'</span>'
-    : '<span class="amb">'+esc(host)+' ainda n\u00e3o verificado &mdash; verifique em Dom\u00ednio personalizado</span>';
+    : '<span class="amb">'+esc(host)+' ainda não verificado &mdash; verifique em Domínio personalizado</span>';
 }
 
 /* ── Heatmap de vendas (hora × dia da semana) ── */
@@ -4441,7 +4438,7 @@ function renderActivity(){
     // crédito de atribuição é duvidoso. Alerta o operador no feed.
     if(e.matchAmbiguous) meta.push('<span class="amb" title="'+esc((e.matchCandidates||2)+' leads de campanhas diferentes casaram com este contato — a campanha creditada pode estar errada')+'">atribui&ccedil;&atilde;o amb&iacute;gua ('+esc(String(e.matchCandidates||2))+')</span>');
     var amt=e.amount?'<div class="amt">'+money(e.amount,e.currency)+'</div>':'';
-    var ts=e.at?fmtDateLocal(e.at).replace(/.*,\s*/,''):'';
+    var ts=e.at?fmtDateLocal(e.at).replace(/.*,s*/,''):'';
     return '<div class="ev" style="border-left:2px solid '+mp.c+'20">'+
       '<div class="ei" style="color:'+mp.c+';background:'+mp.c+'18;border-radius:8px;padding:6px">'+mp.i+'</div>'+
       '<div style="min-width:0;flex:1">'+
@@ -4485,7 +4482,7 @@ function savePushcutConfig(){
   fetch('/api/pushcut-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ toast('Notifica\u00e7\u00f5es salvas'); loadPushcutConfig(); }
+      if(d.ok){ toast('Notificações salvas'); loadPushcutConfig(); }
       else toast(d.error||'Erro ao salvar',false);
     }).catch(function(){ toast('Erro ao salvar',false); });
 }
@@ -4517,10 +4514,10 @@ var CK_LAYERS=[
   ['checkEntropy','Movimento natural','Analisa a "textura" do movimento (micro-tremores do dedo/mouse). Robôs se movem em linha reta perfeita ou clicam sem mexer antes.']
 ];
 var CK_SENS_DESC={
-  strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
-  balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
-  loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
-  custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
+  strict:'Agressivo: barra o máximo de bots (pode reter alguns usuários legítimos)',
+  balanced:'Equilibrado: a melhor proporção de segurança e conversão — recomendado',
+  loose:'Conservador: libera quase todos os acessos (alguns bots avançados podem passar)',
+  custom:'Manual: você define o rigor da filtragem usando o controle abaixo'
 };
 function loadCloakConfig(){
   fetch('/api/cloak/entries',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
@@ -4630,8 +4627,8 @@ function renderCloakEditor(l,isNew){
   var nameField=
     '<div class="ck-field full"><label>Nome do link '+slugHint+'</label>'+
       '<input class="inp" id="cke-nome" type="text" placeholder="ex.: Campanha Espanha - Julho" value="'+esc(l.nome||'')+'" style="width:100%"></div>'+
-    '<div class="ck-field full"><label>Dom\u00ednio do link <span class="hint">&mdash; verificado na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom\u00ednios</a></span></label>'+
-      '<select class="inp" id="cke-dominio" style="width:100%;font-family:\\'Geist Mono\\',monospace">'+domainSelectOptions(l.dominio||'')+'</select></div>';
+    '<div class="ck-field full"><label>Domínio do link <span class="hint">&mdash; verificado na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Domínios</a></span></label>'+
+      '<select class="inp" id="cke-dominio" style="width:100%;font-family:\'Geist Mono\',monospace">'+domainSelectOptions(l.dominio||'')+'</select></div>';
   var layers=CK_LAYERS.map(function(x){
     var lon=l[x[0]]!==false;
     return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
@@ -4933,15 +4930,15 @@ function bindCloak(){
   var gwSave=document.getElementById('ck-global-white-save');
   if(gwSave) gwSave.addEventListener('click',function(){
     var v=(gw&&gw.value||'').trim();
-    if(v && v.slice(0,8).toLowerCase()!=='https://'){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
+    if(v && v.slice(0,8).toLowerCase()!=='https://'){ toast('A página segura deve começar com https://',false); return; }
     fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({defaultWhitePage:v})})
       .then(function(r){return r.json();})
-      .then(function(d){ toast(d&&d.ok!==false?'P\u00e1gina segura salva':'Erro ao salvar', d&&d.ok!==false); })
+      .then(function(d){ toast(d&&d.ok!==false?'Página segura salva':'Erro ao salvar', d&&d.ok!==false); })
       .catch(function(){ toast('Erro ao salvar',false); });
   });
   // Atualizar métricas de decisão (offer/white).
   var rf=document.getElementById('ck-stats-refresh');
-  if(rf) rf.addEventListener('click',function(){ loadCloakStats(); toast('M\u00e9tricas atualizadas'); });
+  if(rf) rf.addEventListener('click',function(){ loadCloakStats(); toast('Métricas atualizadas'); });
 }
 
 /* ─��� Links curtos rastreáveis (/l/:slug) ── */
@@ -5007,12 +5004,12 @@ function bindPublicApi(){
   // Item 418: rotação — revoga o token atual e gera um novo (com confirmação).
   var rot=document.getElementById('api-rotate');
   if(rot) rot.addEventListener('click',function(){
-    uiConfirm({title:'Gerar um novo token?',msg:'O token atual \u00e9 revogado na hora \u2014 planilhas e integra\u00e7\u00f5es que usam a URL antiga param de funcionar at\u00e9 voc\u00ea atualizar.',okLabel:'Gerar novo',danger:true},function(){
+    uiConfirm({title:'Gerar um novo token?',msg:'O token atual é revogado na hora — planilhas e integrações que usam a URL antiga param de funcionar até você atualizar.',okLabel:'Gerar novo',danger:true},function(){
       fetch('/api/public-token/rotate',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
         if(!d.ok||!d.token) return toast(d.error||'Erro ao gerar novo token',false);
         inp.value=location.origin+'/api/v1/summary?token='+d.token;
         copy.hidden=false;
-        toast('Novo token gerado \u2014 o antigo foi revogado');
+        toast('Novo token gerado — o antigo foi revogado');
       }).catch(function(){ toast('Erro ao gerar novo token',false); });
     });
   });
@@ -5021,7 +5018,7 @@ function bindPublicApi(){
   if(scope) scope.addEventListener('change',function(){
     fetch('/api/public-token/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:scope.value})})
       .then(function(r){return r.json();})
-      .then(function(d){ toast(d&&d.ok?'Escopo do token: '+(d.scope==='stats+leads'?'m\u00e9tricas + leads':'s\u00f3 m\u00e9tricas'):(d&&d.error)||'Erro ao salvar escopo',!!(d&&d.ok)); })
+      .then(function(d){ toast(d&&d.ok?'Escopo do token: '+(d.scope==='stats+leads'?'métricas + leads':'só métricas'):(d&&d.error)||'Erro ao salvar escopo',!!(d&&d.ok)); })
       .catch(function(){ toast('Erro ao salvar escopo',false); });
   });
 }
@@ -5062,7 +5059,7 @@ function bindPreferences(){
     };
     fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();})
-      .then(function(d){ toast(d&&d.ok?'Prefer\u00eancias salvas':(d&&d.error)||'Erro ao salvar',!!(d&&d.ok)); })
+      .then(function(d){ toast(d&&d.ok?'Preferências salvas':(d&&d.error)||'Erro ao salvar',!!(d&&d.ok)); })
       .catch(function(){ toast('Erro ao salvar',false); });
   });
   // Item 424: teste de disparo do webhook.
@@ -5080,7 +5077,7 @@ function bindPreferences(){
 // UA resumido: "Chrome · Windows" em vez do user-agent gigante.
 function shortUa(ua){
   if(!ua) return 'Dispositivo desconhecido';
-  // Sem "\\/" nas regexes: este código vive num template literal do servidor,
+  // Sem "\/" nas regexes: este código vive num template literal do servidor,
   // que come a barra invertida e quebraria a regex na página servida.
   var u=ua.toLowerCase(), b='Navegador';
   if(u.indexOf('edg')>-1) b='Edge'; else if(u.indexOf('opr')>-1) b='Opera';
@@ -5090,22 +5087,22 @@ function shortUa(ua){
   if(/windows/i.test(ua)) os='Windows'; else if(/iphone|ipad/i.test(ua)) os='iOS';
   else if(/android/i.test(ua)) os='Android'; else if(/mac os/i.test(ua)) os='macOS';
   else if(/linux/i.test(ua)) os='Linux';
-  return b+(os?' \u00b7 '+os:'');
+  return b+(os?' · '+os:'');
 }
 function loadAccountSessions(){
   var el=document.getElementById('sess-list'); if(!el) return;
   fetch('/api/account/sessions',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     var list=(d&&d.sessions)||[];
-    if(!list.length){ el.innerHTML='<p class="hint" style="margin:0">Nenhuma sess\u00e3o ativa encontrada.</p>'; return; }
+    if(!list.length){ el.innerHTML='<p class="hint" style="margin:0">Nenhuma sessão ativa encontrada.</p>'; return; }
     el.innerHTML=list.map(function(s){
       var when=s.createdAt?new Date(s.createdAt).toLocaleString('pt-BR'):'--';
-      var chip=s.current?'<span class="chip grn" style="margin-left:8px">esta sess\u00e3o</span>':'';
-      var btn=s.current?'':'<button class="btn-icon" data-sid="'+esc(s.sid)+'" title="Encerrar esta sess\u00e3o">Encerrar</button>';
+      var chip=s.current?'<span class="chip grn" style="margin-left:8px">esta sessão</span>':'';
+      var btn=s.current?'':'<button class="btn-icon" data-sid="'+esc(s.sid)+'" title="Encerrar esta sessão">Encerrar</button>';
       return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line,rgba(255,255,255,.05));font-size:12.5px">'+
         '<div style="flex:1;min-width:0"><b>'+esc(shortUa(s.ua))+'</b>'+chip+
-        '<div class="muted" style="font-size:11px;margin-top:2px">entrou em '+esc(when)+(s.ip?' \u00b7 IP '+esc(s.ip):'')+'</div></div>'+btn+'</div>';
+        '<div class="muted" style="font-size:11px;margin-top:2px">entrou em '+esc(when)+(s.ip?' · IP '+esc(s.ip):'')+'</div></div>'+btn+'</div>';
     }).join('');
-  }).catch(function(){ el.innerHTML='<p class="hint" style="margin:0">Erro ao carregar sess\u00f5es.</p>'; });
+  }).catch(function(){ el.innerHTML='<p class="hint" style="margin:0">Erro ao carregar sessões.</p>'; });
 }
 function loadAccountSecurity(){
   var nameInp=document.getElementById('acc-name');
@@ -5152,22 +5149,22 @@ function bindTwofa(){
   });
   document.getElementById('tfa-confirm').addEventListener('click',function(){
     var code=document.getElementById('tfa-code').value.trim();
-    if(code.length!==6) return toast('Digite os 6 d\u00edgitos do app',false);
+    if(code.length!==6) return toast('Digite os 6 dígitos do app',false);
     fetch('/api/account/2fa/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d&&d.ok){ toast('2FA ativado \u2014 o pr\u00f3ximo login pedir\u00e1 o c\u00f3digo'); loadTwofa(); }
-        else toast((d&&d.error)||'C\u00f3digo incorreto',false);
+        if(d&&d.ok){ toast('2FA ativado — o próximo login pedirá o código'); loadTwofa(); }
+        else toast((d&&d.error)||'Código incorreto',false);
       }).catch(function(){ toast('Erro ao confirmar',false); });
   });
   document.getElementById('tfa-disable').addEventListener('click',function(){
     var code=document.getElementById('tfa-dis-code').value.trim();
-    if(code.length!==6) return toast('Digite o c\u00f3digo atual do app',false);
+    if(code.length!==6) return toast('Digite o código atual do app',false);
     fetch('/api/account/2fa/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
       .then(function(r){return r.json();})
       .then(function(d){
         if(d&&d.ok){ toast('2FA desativado'); document.getElementById('tfa-dis-code').value=''; loadTwofa(); }
-        else toast((d&&d.error)||'C\u00f3digo incorreto',false);
+        else toast((d&&d.error)||'Código incorreto',false);
       }).catch(function(){ toast('Erro ao desativar',false); });
   });
 }
@@ -5181,7 +5178,7 @@ function loadDangerPreview(){
     var c=d.counts;
     el.textContent='Hoje: '+(c.leads||0)+' lead(s), '+(c.events||0)+' evento(s)'+(c.events_arquivados?' (+'+c.events_arquivados+' arquivados)':'');
     var dp=document.getElementById('del-preview');
-    if(dp) dp.textContent='Ser\u00e1 apagado: '+(c.leads||0)+' lead(s), '+(c.events||0)+' evento(s), '+(c.links||0)+' link(s), '+(c.pixels||0)+' pixel(s), '+(c.gateways||0)+' gateway(s), '+(c.dominios||0)+' dom\u00ednio(s) e toda a configura\u00e7\u00e3o. N\u00e3o h\u00e1 como desfazer.';
+    if(dp) dp.textContent='Será apagado: '+(c.leads||0)+' lead(s), '+(c.events||0)+' evento(s), '+(c.links||0)+' link(s), '+(c.pixels||0)+' pixel(s), '+(c.gateways||0)+' gateway(s), '+(c.dominios||0)+' domínio(s) e toda a configuração. Não há como desfazer.';
   }).catch(function(){});
 }
 // Item 427: modal de exclusão com confirmação forte (senha + frase exata).
@@ -5220,12 +5217,12 @@ function bindAccountSecurity(){
     var cur=document.getElementById('pw-cur').value, nv=document.getElementById('pw-new').value, nv2=document.getElementById('pw-new2').value;
     if(!cur||!nv){ toast('Preencha a senha atual e a nova',false); return; }
     if(nv.length<8){ toast('A nova senha precisa ter pelo menos 8 caracteres',false); return; }
-    if(nv!==nv2){ toast('A confirma\u00e7\u00e3o n\u00e3o confere com a nova senha',false); return; }
+    if(nv!==nv2){ toast('A confirmação não confere com a nova senha',false); return; }
     fetch('/api/account/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nv})})
       .then(function(r){return r.json();})
       .then(function(d){
         if(d&&d.ok){
-          toast('Senha alterada'+(d.revoked?' \u2014 '+d.revoked+' outra(s) sess\u00e3o(\u00f5es) encerrada(s)':''));
+          toast('Senha alterada'+(d.revoked?' — '+d.revoked+' outra(s) sessão(ões) encerrada(s)':''));
           document.getElementById('pw-cur').value='';document.getElementById('pw-new').value='';document.getElementById('pw-new2').value='';
           loadAccountSessions();
         } else toast((d&&d.error)||'Erro ao trocar a senha',false);
@@ -5233,20 +5230,20 @@ function bindAccountSecurity(){
   });
   // Item 414/415: encerrar todas as outras sessões.
   document.getElementById('sess-revoke-all').addEventListener('click',function(){
-    uiConfirm({title:'Encerrar as outras sess\u00f5es?',msg:'Todos os outros dispositivos logados nesta conta ser\u00e3o desconectados na hora. Esta sess\u00e3o continua ativa.',okLabel:'Encerrar todas',danger:true},function(){
+    uiConfirm({title:'Encerrar as outras sessões?',msg:'Todos os outros dispositivos logados nesta conta serão desconectados na hora. Esta sessão continua ativa.',okLabel:'Encerrar todas',danger:true},function(){
       fetch('/api/account/sessions/revoke-others',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
-        toast(d&&d.ok?((d.revoked||0)+' sess\u00e3o(\u00f5es) encerrada(s)'):'Erro ao encerrar sess\u00f5es',!!(d&&d.ok));
+        toast(d&&d.ok?((d.revoked||0)+' sessão(ões) encerrada(s)'):'Erro ao encerrar sessões',!!(d&&d.ok));
         loadAccountSessions();
-      }).catch(function(){ toast('Erro ao encerrar sess\u00f5es',false); });
+      }).catch(function(){ toast('Erro ao encerrar sessões',false); });
     });
   });
   // Item 414: encerrar UMA sessão específica.
   document.getElementById('sess-list').addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('[data-sid]'):null; if(!b) return;
     var sid=b.getAttribute('data-sid');
-    uiConfirm({title:'Encerrar esta sess\u00e3o?',msg:'O dispositivo \u00e9 desconectado na hora e precisa fazer login de novo.',okLabel:'Encerrar',danger:true},function(){
+    uiConfirm({title:'Encerrar esta sessão?',msg:'O dispositivo é desconectado na hora e precisa fazer login de novo.',okLabel:'Encerrar',danger:true},function(){
       fetch('/api/account/sessions/'+sid,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
-        toast(d&&d.ok?'Sess\u00e3o encerrada':(d&&d.error)||'Erro ao encerrar',!!(d&&d.ok));
+        toast(d&&d.ok?'Sessão encerrada':(d&&d.error)||'Erro ao encerrar',!!(d&&d.ok));
         loadAccountSessions();
       }).catch(function(){ toast('Erro ao encerrar',false); });
     });
@@ -5273,7 +5270,7 @@ function loadEmqTrend(){
   var box=document.getElementById('emq-trend'); if(!box) return;
   fetch('/api/pixels/emq-trend').then(function(r){return r.json();}).then(function(d){
     if(!d.ok||!d.pixels||!d.pixels.length){
-      box.innerHTML='<div class="muted" style="font-size:12.5px">Sem dados de EMQ ainda \u2014 aparece aqui quando os pixels come\u00e7arem a disparar.</div>';
+      box.innerHTML='<div class="muted" style="font-size:12.5px">Sem dados de EMQ ainda — aparece aqui quando os pixels começarem a disparar.</div>';
       return;
     }
     box.innerHTML=d.pixels.map(function(p){
@@ -5284,7 +5281,7 @@ function loadEmqTrend(){
         var col=t.avg>=6?'var(--success)':(t.avg>=3?'var(--amber,#e6a700)':'var(--pink)');
         return '<span title="'+esc(t.day)+': '+t.avg+'/10 ('+t.count+' disparos)" style="display:inline-block;width:8px;height:'+h+'px;background:'+col+';border-radius:2px;vertical-align:bottom;margin-right:2px"></span>';
       }).join('');
-      if(!bars) bars='<span class="muted" style="font-size:11.5px">sem hist\u00f3rico</span>';
+      if(!bars) bars='<span class="muted" style="font-size:11.5px">sem histórico</span>';
       var recent=p.recentAvg!=null?p.recentAvg+'/10':'--';
       var recentCls=p.recentAvg==null?'':(p.recentAvg>=6?'grn':(p.recentAvg>=3?'amb':'neg'));
       var alertChip='';
@@ -5292,7 +5289,7 @@ function loadEmqTrend(){
       else if(p.alert==='queda') alertChip='<span class="chip amb" style="margin-left:8px">queda de '+((p.baseAvg||0)-(p.recentAvg||0)).toFixed(1)+' pts</span>';
       return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06))">'+
         '<div style="min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.pixel)+alertChip+'</div>'+
-        '<div class="muted" style="font-size:11px;margin-top:2px">m\u00e9dia recente <b class="'+recentCls+'">'+recent+'</b>'+(p.baseAvg!=null?' \u00b7 base '+p.baseAvg+'/10':'')+'</div></div>'+
+        '<div class="muted" style="font-size:11px;margin-top:2px">média recente <b class="'+recentCls+'">'+recent+'</b>'+(p.baseAvg!=null?' · base '+p.baseAvg+'/10':'')+'</div></div>'+
         '<div style="display:flex;align-items:flex-end;height:28px">'+bars+'</div>'+
       '</div>';
     }).join('');
@@ -5308,7 +5305,7 @@ function loadCapiHealth(){
     }
     if(d.total===0){
       set('ph-rate','--'); set('ph-emq','--'); set('ph-queue',d.retryQueue||0); set('ph-total','0');
-      document.getElementById('ph-events').textContent='Nenhum disparo ainda \u2014 os n\u00fameros aparecem aqui assim que o pixel come\u00e7ar a disparar.';
+      document.getElementById('ph-events').textContent='Nenhum disparo ainda — os números aparecem aqui assim que o pixel começar a disparar.';
       document.getElementById('ph-errors').innerHTML='';
       return;
     }
@@ -5318,10 +5315,10 @@ function loadCapiHealth(){
     set('ph-total',String(d.total));
     document.getElementById('ph-events').textContent=(d.events||[]).map(function(e){
       return e.event+' '+e.rate+'%'+(e.emq!=null?' (match '+e.emq+')':'');
-    }).join(' \u00b7 ');
+    }).join(' · ');
     var errs=d.errors||[];
     document.getElementById('ph-errors').innerHTML=errs.length?errs.map(function(e){
-      return '<div class="ph-err"><span>'+esc(e.pixel||'?')+' \u00b7 '+esc(e.event||'?')+' \u2014 '+esc(String(e.message||'erro').slice(0,80))+'</span><span class="pe-t">'+timeAgo(e.at)+'</span></div>';
+      return '<div class="ph-err"><span>'+esc(e.pixel||'?')+' · '+esc(e.event||'?')+' — '+esc(String(e.message||'erro').slice(0,80))+'</span><span class="pe-t">'+timeAgo(e.at)+'</span></div>';
     }).join(''):'';
   }).catch(function(){});
 }
@@ -5340,14 +5337,14 @@ function renderPixels(){
       '<span class="ldot" style="background:'+(p.active?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
       '<div class="lmain">'+
         '<b>'+esc(p.name)+' <span class="hint" style="font-weight:400">pixels/'+esc(p.slug)+'.json</span></b>'+
-        '<span style="font-family:\\'Geist Mono\\',monospace">'+esc(p.pixelCode)+'</span>'+
+        '<span style="font-family:\'Geist Mono\',monospace">'+esc(p.pixelCode)+'</span>'+
         '<span>Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-        (p.scriptTag?'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="pxTutOpen(\\''+esc(p.slug)+'\\')" title="Passo a passo de instala\u00e7\u00e3o deste pixel">Instalar</button>':'')+
-        '<button class="btn-icon" onclick="testPixel(\\''+esc(p.slug)+'\\')">Testar</button>'+
-        '<button class="btn-icon" onclick="editPixel(\\''+esc(p.slug)+'\\')">Editar</button>'+
-        '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\\''+esc(p.slug)+'\\')">Excluir</button>'+
+        (p.scriptTag?'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="pxTutOpen(\''+esc(p.slug)+'\')" title="Passo a passo de instalação deste pixel">Instalar</button>':'')+
+        '<button class="btn-icon" onclick="testPixel(\''+esc(p.slug)+'\')">Testar</button>'+
+        '<button class="btn-icon" onclick="editPixel(\''+esc(p.slug)+'\')">Editar</button>'+
+        '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\''+esc(p.slug)+'\')">Excluir</button>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -5380,13 +5377,13 @@ function pxTutOpen(slug){
 function pxTutOpenPx(px){
   if(!px||!px.scriptTag) return;
   PXTUT_PX=px;
-  document.getElementById('pxtut-host').textContent=px.name+' \u00b7 '+px.pixelCode;
+  document.getElementById('pxtut-host').textContent=px.name+' · '+px.pixelCode;
   document.getElementById('pxtut-body').innerHTML=
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">1</span>'+
       '<div class="dmtut-txt">'+
         '<b>Copie o script deste pixel</b>'+
-        '<p>Este c\u00f3digo \u00e9 exclusivo do pixel <b>'+esc(px.name)+'</b> \u2014 s\u00f3 ele dispara nas p\u00e1ginas onde for colado.</p>'+
+        '<p>Este código é exclusivo do pixel <b>'+esc(px.name)+'</b> — só ele dispara nas páginas onde for colado.</p>'+
         '<div class="dmtut-code">'+esc(px.scriptTag)+'</div>'+
         '<button class="dmtut-copy big" id="pxtut-copy">'+DMTUT_COPY_ICO+' Copiar script</button>'+
       '</div>'+
@@ -5394,8 +5391,8 @@ function pxTutOpenPx(px){
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">2</span>'+
       '<div class="dmtut-txt">'+
-        '<b>Cole no seu criador de p\u00e1ginas</b>'+
-        '<p>No campo de <b>scripts personalizados / cabe\u00e7alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc. Salve e publique a p\u00e1gina.</p>'+
+        '<b>Cole no seu criador de páginas</b>'+
+        '<p>No campo de <b>scripts personalizados / cabeçalho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc. Salve e publique a página.</p>'+
       '</div>'+
     '</div>'+
     '<div class="dmtut-step">'+
@@ -5423,7 +5420,7 @@ function delPixel(slug){
 }
 function testPixel(slug){
   var btn=document.getElementById('pxtut-test');
-  if(btn){ btn.disabled=true; btn.innerHTML='<span class="dmtut-spin"></span> Enviando\u2026'; }
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="dmtut-spin"></span> Enviando…'; }
   else toast('Enviando evento de teste...');
   fetch('/api/pixels/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug})})
   .then(function(r){return r.json();})
@@ -5436,7 +5433,7 @@ function testPixel(slug){
   })
   .catch(function(){
     toast('Erro de rede no teste',false);
-    pxTutShowResult(slug,false,'Erro de rede \u2014 tente novamente.');
+    pxTutShowResult(slug,false,'Erro de rede — tente novamente.');
   })
   .finally(function(){
     var b=document.getElementById('pxtut-test');
@@ -5445,10 +5442,10 @@ function testPixel(slug){
 }
 // Traduz a resposta do teste em mensagem acionável para o usuário leigo
 function pxTestMsg(d){
-  if(d.ok) return 'Evento recebido pelo TikTok \u2014 pixel e token est\u00e3o corretos.';
+  if(d.ok) return 'Evento recebido pelo TikTok — pixel e token estão corretos.';
   var m=d.message||d.error||'';
-  if(/access.?token|auth|permission/i.test(m)) return 'Token de acesso inv\u00e1lido \u2014 gere um novo em TikTok Events Manager \u2192 Configura\u00e7\u00f5es do pixel \u2192 Gerar token.';
-  if(/pixel|event_source_id|not exist/i.test(m)) return 'C\u00f3digo do pixel n\u00e3o reconhecido \u2014 confira o Pixel ID no TikTok Events Manager.';
+  if(/access.?token|auth|permission/i.test(m)) return 'Token de acesso inválido — gere um novo em TikTok Events Manager → Configurações do pixel → Gerar token.';
+  if(/pixel|event_source_id|not exist/i.test(m)) return 'Código do pixel não reconhecido — confira o Pixel ID no TikTok Events Manager.';
   return m||'ver o log de disparos abaixo';
 }
 // Mostra o resultado do teste dentro do modal de instalação (se aberto)
@@ -5524,20 +5521,20 @@ function renderGateways(){
     return;
   }
   el.innerHTML=GW_LIST.map(function(g){
-    var st=g.lastEventAt?(timeAgo(g.lastEventAt)+' \u00b7 '+(g.lastEventStatus||'')):'nenhum webhook recebido ainda';
+    var st=g.lastEventAt?(timeAgo(g.lastEventAt)+' · '+(g.lastEventStatus||'')):'nenhum webhook recebido ainda';
     var stOk=g.lastEventStatus&&g.lastEventStatus.indexOf('ok')===0;
     var prov=GW_PROVIDERS.filter(function(x){return x.id===g.provider;})[0];
     return '<div class="lrow" style="cursor:default">'+
       '<span class="ldot" style="background:'+(g.lastEventAt?(stOk?'var(--green)':'var(--red)'):'var(--muted2)')+';box-shadow:none"></span>'+
       '<div class="lmain">'+
         '<b>'+esc(g.name)+' <span class="hint" style="font-weight:400">'+esc(prov?prov.label:g.provider)+'</span></b>'+
-        '<span style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px;word-break:break-all">'+esc(g.webhookUrl||'')+'</span>'+
+        '<span style="font-family:\'Geist Mono\',monospace;font-size:11.5px;word-break:break-all">'+esc(g.webhookUrl||'')+'</span>'+
         '<span>'+esc(st)+(g.hasSecret?' &middot; assinatura verificada':'')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-        '<button class="btn-icon" onclick="copyGwUrl(\\''+esc(g.id)+'\\')">Copiar URL</button>'+
-        '<button class="btn-icon" onclick="editGateway(\\''+esc(g.id)+'\\')">Editar</button>'+
-        '<button class="btn-icon" style="color:var(--red)" onclick="delGateway(\\''+esc(g.id)+'\\')">Excluir</button>'+
+        '<button class="btn-icon" onclick="copyGwUrl(\''+esc(g.id)+'\')">Copiar URL</button>'+
+        '<button class="btn-icon" onclick="editGateway(\''+esc(g.id)+'\')">Editar</button>'+
+        '<button class="btn-icon" style="color:var(--red)" onclick="delGateway(\''+esc(g.id)+'\')">Excluir</button>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -5545,7 +5542,7 @@ function renderGateways(){
 function copyGwUrl(id){
   var g=GW_LIST.filter(function(x){return x.id===id;})[0];
   if(!g||!g.webhookUrl) return;
-  navigator.clipboard.writeText(g.webhookUrl).then(function(){ toast('URL do webhook copiada \u2014 cole no painel do gateway'); });
+  navigator.clipboard.writeText(g.webhookUrl).then(function(){ toast('URL do webhook copiada — cole no painel do gateway'); });
 }
 function showGwForm(g){
   var grid=document.getElementById('gw-grid'); if(grid) grid.classList.add('form-open');
@@ -5566,7 +5563,7 @@ function editGateway(id){
 }
 function delGateway(id){
   var g=GW_LIST.filter(function(x){return x.id===id;})[0];
-  uiConfirm({title:'Excluir este gateway?',msg:'"'+(g?g.name:id)+'" para de receber vendas na hora \u2014 a URL de notifica\u00e7\u00e3o deixa de funcionar.',okLabel:'Excluir',danger:true},function(){
+  uiConfirm({title:'Excluir este gateway?',msg:'"'+(g?g.name:id)+'" para de receber vendas na hora — a URL de notificação deixa de funcionar.',okLabel:'Excluir',danger:true},function(){
     fetch('/api/gateways/'+encodeURIComponent(id),{method:'DELETE'})
       .then(function(r){return r.json();})
       .then(function(d){ if(d.ok){ toast('Gateway removido'); loadGateways(); } else toast(d.error||'Erro',false); })
@@ -5592,7 +5589,7 @@ function saveGateway(){
         var grid=document.getElementById('gw-grid'); if(grid) grid.classList.remove('form-open');
         loadGateways();
         if(d.gateway&&d.gateway.webhookUrl&&navigator.clipboard){
-          navigator.clipboard.writeText(d.gateway.webhookUrl).then(function(){ toast('Gateway salvo \u2014 URL do webhook j\u00e1 copiada'); }).catch(function(){ toast('Gateway salvo \u2014 copie a URL na lista'); });
+          navigator.clipboard.writeText(d.gateway.webhookUrl).then(function(){ toast('Gateway salvo — URL do webhook já copiada'); }).catch(function(){ toast('Gateway salvo — copie a URL na lista'); });
         } else toast('Gateway salvo');
       }
       else toast(d.error||'Erro ao salvar',false);
@@ -5612,13 +5609,13 @@ function loadPxLog(){
       if(e.emq!=null){
         var cls=e.emq>=6?'grn':(e.emq>=3?'amb':'neg');
         var flds=(e.emqFields||[]).join(', ')||'nenhum sinal';
-        emqCell='<span class="'+cls+'" title="Sinais: '+esc(flds)+'" style="font-family:\\'Geist Mono\\',monospace;font-weight:700">'+e.emq+'/10</span>';
+        emqCell='<span class="'+cls+'" title="Sinais: '+esc(flds)+'" style="font-family:\'Geist Mono\',monospace;font-weight:700">'+e.emq+'/10</span>';
       }
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
         '<td>'+esc(e.pixel||'—')+'</td>'+
         '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
-        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
+        '<td style="font-family:\'Geist Mono\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
         '<td>'+emqCell+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
@@ -5651,16 +5648,16 @@ function renderConvLog(){
   var gw=fsel?fsel.value:'';
   var log=gw?CW_LOG.filter(function(e){return (e.gateway||'')===gw;}):CW_LOG;
   log=log.slice(0,12);
-  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 cadastre um gateway na aba Gateways e cole a URL no painel da plataforma.')+'</td></tr>'; return; }
+  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda — cadastre um gateway na aba Gateways e cole a URL no painel da plataforma.')+'</td></tr>'; return; }
   tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok', dd=e.status==='dedup';
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
-        '<td>'+esc(e.gateway||'\u2014')+'</td>'+
-        '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'\u2014')+'</span></td>'+
-        '<td>'+(e.amount?money(e.amount,e.currency):'\u2014')+'</td>'+
-        '<td>'+(e.match==='\u00f3rf\u00e3'?'<span class="neg">\u00f3rf\u00e3</span>':'<span class="grn">'+esc(e.match||'\u2014')+'</span>')+'</td>'+
-        '<td><span class="'+(ok?'grn':(dd?'':'neg'))+'">'+esc(e.status||'\u2014')+'</span></td>'+
+        '<td>'+esc(e.gateway||'—')+'</td>'+
+        '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
+        '<td>'+(e.amount?money(e.amount,e.currency):'—')+'</td>'+
+        '<td>'+(e.match==='órfã'?'<span class="neg">órfã</span>':'<span class="grn">'+esc(e.match||'—')+'</span>')+'</td>'+
+        '<td><span class="'+(ok?'grn':(dd?'':'neg'))+'">'+esc(e.status||'—')+'</span></td>'+
       '</tr>';
     }).join('');
 }
@@ -5671,8 +5668,8 @@ function setupItems(){
   // SaaS: apenas 3 itens configuráveis pelo usuário (infra é transparente)
   if(!HEALTH) return null;
   var items=[
-    {ok:!!HEALTH.conversionWebhook,label:'Receber vendas do checkout',todo:'Copie a URL de notifica\u00e7\u00e3o e cole no painel do seu checkout \u2014 as vendas passam a entrar sozinhas',act:{t:'Configurar',go:'pixels'}},
-    {ok:!!HEALTH.tiktok,label:'Pixel TikTok',todo:'Adicione um pixel TikTok com a chave de acesso v\u00e1lida',act:{t:'Adicionar pixel',go:'pixels'}},
+    {ok:!!HEALTH.conversionWebhook,label:'Receber vendas do checkout',todo:'Copie a URL de notificação e cole no painel do seu checkout — as vendas passam a entrar sozinhas',act:{t:'Configurar',go:'pixels'}},
+    {ok:!!HEALTH.tiktok,label:'Pixel TikTok',todo:'Adicione um pixel TikTok com a chave de acesso válida',act:{t:'Adicionar pixel',go:'pixels'}},
     {ok:!!HEALTH.pushcut,label:'Alertas no celular',todo:'Cole a URL do seu app Pushcut para receber alertas de venda em tempo real',act:{t:'Configurar',go:'config'}}
   ];
   return items;
@@ -5685,7 +5682,7 @@ function setupChecklistHTML(compact){
   // no modo compacto (Visão Geral) o card carrega o título; em Configurações o título vem da seção
   var html='<div class="setup-head">'+
     '<div>'+(compact?'<b class="setup-title">Configura&ccedil;&atilde;o do sistema</b>':'')+
-    '<span class="setup-sub">'+done+' de '+total+' conclu\u00eddos</span></div>'+
+    '<span class="setup-sub">'+done+' de '+total+' concluídos</span></div>'+
     '<div class="setup-bar"><i style="width:'+pct+'%"></i></div></div>';
   var list=compact?pend:items;
   html+='<div class="setup-list">'+list.map(function(it){
@@ -5717,13 +5714,13 @@ function pruneNoticeHTML(){
   var p=HEALTH&&HEALTH.prune; if(!p) return '';
   if(!p.leads&&!p.events) return '';
   var parts=[];
-  if(p.leads) parts.push('<b>'+p.leads.toLocaleString('pt-BR')+'</b> lead(s) '+(p.leadsLastAt?'&mdash; \u00faltima '+timeAgo(p.leadsLastAt):''));
+  if(p.leads) parts.push('<b>'+p.leads.toLocaleString('pt-BR')+'</b> lead(s) '+(p.leadsLastAt?'&mdash; última '+timeAgo(p.leadsLastAt):''));
   if(p.events) parts.push('<b>'+p.events.toLocaleString('pt-BR')+'</b> evento(s) do feed');
   var warn=p.leads>0;
   return '<div class="prune-notice'+(warn?' warn':'')+'" style="margin-top:10px;padding:10px 12px;border-radius:10px;'+
     'font-size:12.5px;line-height:1.5;background:'+(warn?'var(--warn-bg,rgba(240,180,40,.10))':'var(--card2,rgba(255,255,255,.03))')+';'+
     'border:1px solid '+(warn?'var(--warn,rgba(240,180,40,.35))':'var(--border,rgba(255,255,255,.08))')+';color:var(--muted2)">'+
-    '<b style="color:var(--fg)">Poda do cache</b> &mdash; descartado(s) desde o \u00faltimo reinício (cap '+
+    '<b style="color:var(--fg)">Poda do cache</b> &mdash; descartado(s) desde o último reinício (cap '+
     (p.maxLeads||0).toLocaleString('pt-BR')+' leads / '+(p.maxEvents||0).toLocaleString('pt-BR')+' eventos): '+
     parts.join(' &middot; ')+'. Os dados permanecem no banco; o match de vendas usa fallback no Neon.'+
     '</div>';
@@ -5845,7 +5842,7 @@ function toast(msg,ok){
 /* ── Exportação CSV ─��� */
 function downloadCSV(name,rows){
   var NL=String.fromCharCode(10);
-  var csv=rows.map(function(r){ return r.map(function(c){ c=(c==null?'':String(c)); if(/[",;\\n]/.test(c)) c='"'+c.replace(/"/g,'""')+'"'; return c; }).join(';'); }).join(NL);
+  var csv=rows.map(function(r){ return r.map(function(c){ c=(c==null?'':String(c)); if(/[",;\n]/.test(c)) c='"'+c.replace(/"/g,'""')+'"'; return c; }).join(';'); }).join(NL);
   var blob=new Blob([String.fromCharCode(0xFEFF)+csv],{type:'text/csv;charset=utf-8'});
   var url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -5903,7 +5900,7 @@ function drSyncHours(){
 function drSyncHourLabel(){
   var h1=+document.getElementById('dr-h-from').value, h2=+document.getElementById('dr-h-to').value;
   if(h1>h2){ var tmp=h1;h1=h2;h2=tmp; }
-  document.getElementById('dr-hlbl').textContent=drPad(h1)+':00 \u2013 '+drPad(h2)+':59';
+  document.getElementById('dr-hlbl').textContent=drPad(h1)+':00 – '+drPad(h2)+':59';
 }
 function applyDr(){
   var fv=document.getElementById('dr-from').value, tv=document.getElementById('dr-to').value;
@@ -5923,14 +5920,14 @@ function applyDr(){
   // rótulo compacto no botão: "12/05" ou "12–15/05" ou "12/05 09–18h"
   var fd=new Date(from), td=new Date(to);
   var lbl=sameDay
-    ? drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+((+document.getElementById('dr-h-from').value!==0||+document.getElementById('dr-h-to').value!==23)?' '+drPad(fd.getHours())+'\u2013'+drPad(td.getHours())+'h':'')
-    : drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+'\u2013'+drPad(td.getDate())+'/'+drPad(td.getMonth()+1);
+    ? drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+((+document.getElementById('dr-h-from').value!==0||+document.getElementById('dr-h-to').value!==23)?' '+drPad(fd.getHours())+'–'+drPad(td.getHours())+'h':'')
+    : drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+'–'+drPad(td.getDate())+'/'+drPad(td.getMonth()+1);
   document.getElementById('period-custom-lbl').textContent=lbl;
   document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')==='custom');});
   closeDrPop();
   RENDERED_GROUPS={}; // range mudou: repintar tudo
   renderAll();
-  toast('Per\u00edodo segmentado aplicado');
+  toast('Período segmentado aplicado');
 }
 
 /* ─�� Paleta de comandos ⌘K ─�� */
@@ -5943,7 +5940,7 @@ var CMD_ITEMS=[
   {g:'Ir para',t:'Pixel TikTok',h:'dentro de Rastreamento',ic:I.zap,act:function(){setView('pixels');}},
   {g:'Ir para',t:'Gateways',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('gateways');}},
   {g:'Ir para',t:'Filtro de Bots',h:'dentro de Rastreamento',ic:I.shield,act:function(){setView('cloak');}},
-  {g:'Ir para',t:'Dom\u00ednios',h:'dentro de Rastreamento',ic:I.globe,act:function(){setView('domains');}},
+  {g:'Ir para',t:'Domínios',h:'dentro de Rastreamento',ic:I.globe,act:function(){setView('domains');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
@@ -6042,7 +6039,7 @@ var VIEW_GROUPS={
   config:['Configurações','Notificações, chaves e saúde do sistema']
   };
   // rótulos das sub-abas do Rastreamento (aparecem no page-sub)
-  var TRACK_LABELS={links:'Links de Checkout',cloak:'Filtro de Bots',domains:'Dom\u00ednios',pixels:'Pixel TikTok',gateways:'Gateways'};
+  var TRACK_LABELS={links:'Links de Checkout',cloak:'Filtro de Bots',domains:'Domínios',pixels:'Pixel TikTok',gateways:'Gateways'};
   var trackingTab=localStorage.getItem('trackingTab')||'links';
   if(!TRACK_LABELS[trackingTab]) trackingTab='links';
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
@@ -6064,8 +6061,8 @@ function setView(v){
   if(v==='config'&&!localStorage.getItem('cfgWelcomed')){
     localStorage.setItem('cfgWelcomed','1');
     setTimeout(function(){
-      uiConfirm({title:'Bem-vindo \u00e0s Configura\u00e7\u00f5es',
-        msg:'Aqui ficam o script de acompanhamento para as suas p\u00e1ginas, os dom\u00ednios pr\u00f3prios e a API. Copie o script e cole nas suas p\u00e1ginas para come\u00e7ar a medir visitas.',
+      uiConfirm({title:'Bem-vindo às Configurações',
+        msg:'Aqui ficam o script de acompanhamento para as suas páginas, os domínios próprios e a API. Copie o script e cole nas suas páginas para começar a medir visitas.',
         okLabel:'Entendi',icon:'hi',noCancel:true});
     },350);
   }
@@ -6115,7 +6112,7 @@ function applySetView(v){
     tt.querySelectorAll('button').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-t')===trackingTab); });
   }
   document.getElementById('page-title').textContent=titles[g][0];
-  document.getElementById('page-sub').textContent=(g==='tracking')?('Rastreamento \u00b7 '+TRACK_LABELS[trackingTab]):titles[g][1];
+  document.getElementById('page-sub').textContent=(g==='tracking')?('Rastreamento · '+TRACK_LABELS[trackingTab]):titles[g][1];
   document.getElementById('sidebar').classList.remove('open');
   var scrim=document.getElementById('side-scrim'); if(scrim) scrim.classList.remove('open');
   window.scrollTo(0,0); // aba nova abre sempre no topo (não herda o scroll da anterior)
@@ -6272,7 +6269,7 @@ document.getElementById('drawer-bg').addEventListener('click',closeDrawer);
 document.getElementById('drawer-copy').addEventListener('click',function(){
   if(!currentLeadId) return;
   if(navigator.clipboard){ navigator.clipboard.writeText(currentLeadId).then(function(){toast('ID copiado');}).catch(function(){toast('Erro ao copiar',false);}); }
-  else{ toast('Clipboard indispon\u00edvel',false); }
+  else{ toast('Clipboard indisponível',false); }
 });
 document.getElementById('export-leads').addEventListener('click',exportLeads);
 document.getElementById('export-events').addEventListener('click',exportEvents);
@@ -6350,9 +6347,9 @@ document.getElementById('pxtut-body').addEventListener('click',function(e){
   if(e.target.closest('#pxtut-test')&&PXTUT_PX){ testPixel(PXTUT_PX.slug); return; }
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
-  uiConfirm({title:'Apagar todos os dados?',msg:'Todos os leads e eventos ser\u00e3o apagados de forma permanente. N\u00e3o h\u00e1 como recuperar depois.',okLabel:'Apagar tudo',danger:true},function(){
+  uiConfirm({title:'Apagar todos os dados?',msg:'Todos os leads e eventos serão apagados de forma permanente. Não há como recuperar depois.',okLabel:'Apagar tudo',danger:true},function(){
     fetch('/api/reset-stats',{method:'POST'})
-      .then(function(){ toast('Estat\u00edsticas zeradas'); refresh(); })
+      .then(function(){ toast('Estatísticas zeradas'); refresh(); })
       .catch(function(){toast('Erro',false);});
   });
 });
@@ -6404,4 +6401,4 @@ refresh().then(function(){
 });
 </script>
 </body>
-</html>`;
+</html>

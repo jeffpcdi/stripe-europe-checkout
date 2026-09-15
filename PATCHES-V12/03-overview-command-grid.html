@@ -1,0 +1,34 @@
+      <!-- ── Visão Geral · Command Center V12 ── -->
+      <section class="view active" id="view-overview">
+        <!-- Setup guiado: só aparece com pendências; some quando 100% -->
+        <div id="ov-setup" hidden></div>
+        <div class="overview-command-grid">
+          <div class="grid kpis kpis-xl" id="ov-kpis" aria-busy="true"><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div></div>
+          <div class="overview-globe-frame" id="overview-globe-frame">
+            <div class="overview-globe-hud">
+              <div class="overview-globe-title"><span>Telemetria Global de Vendas</span><span class="overview-live-pill"><i></i>Em Tempo Real</span></div>
+              <span class="overview-country-pill" id="hero-active-countries">0 países monitorados</span>
+            </div>
+            <div class="globe-skel" id="ov-globe-skel"></div>
+            <div id="globe-hero" hidden></div>
+            <div class="overview-globe-tools" aria-label="Controles do globo">
+              <button id="hero-globe-zoom-in" title="Aproximar" aria-label="Aproximar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button id="hero-globe-zoom-out" title="Afastar" aria-label="Afastar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+              <span class="tool-div"></span>
+              <button id="hero-globe-reset" title="Resetar câmera" aria-label="Resetar câmera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.8 9.8 0 00-6.9 2.8L3 8"/><path d="M3 3v5h5"/></svg></button>
+              <button id="hero-globe-fs" title="Tela cheia" aria-label="Tela cheia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="overview-lower-grid">
+          <div class="card overview-lower-card">
+            <div class="overview-lower-head"><strong><span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg></span>Top Países</strong><span id="ov-top-countries-meta">período atual</span></div>
+            <div class="overview-lower-body" id="ov-top-countries"></div>
+          </div>
+          <div class="card overview-lower-card">
+            <div class="overview-lower-head"><strong><span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8 10-4-4-4 5"/><path d="M16 7h4v4"/></svg></span>Compras Recentes</strong><span id="ov-recent-purchases-meta">período atual</span></div>
+            <div class="overview-lower-body" id="ov-recent-purchases"></div>
+          </div>
+        </div>
+        <div class="ministats" id="ov-chips" aria-busy="true"><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div></div>
+        <div class="card traffic-card reveal" id="traffic-pulse"></div>
