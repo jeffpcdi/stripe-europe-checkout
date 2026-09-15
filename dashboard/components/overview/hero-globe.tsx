@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, MapPin, Globe2, ArrowUpRight, X } from 'lucide-react'
+import { MapPin, Globe2, ArrowUpRight, X, RefreshCw } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
@@ -36,7 +36,7 @@ interface HeroGlobeProps {
 }
 
 /** Um painel, um canvas. Métricas e atividade não dependem do carregamento do WebGL. */
-export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
+export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
   const { data, error, mutate, isLoading } = useLive()
   const [now, setNow] = useState(() => Date.now())
   const [selected, setSelected] = useState<string | null>(focusCode || null)
@@ -60,7 +60,6 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refre
   }, [purchases, now])
   const onlineTotal = live.countries.reduce((sum, country) => sum + country.count, 0)
 
-  // Primeira leitura/reconexão estabelece a base: somente aumento real gera pulso.
   useEffect(() => {
     const increased = live.fresh ? presenceIncreases(previous.current, live.countries) : []
     previous.current = live.fresh ? live.countries : null
@@ -91,13 +90,6 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refre
 
   return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
     <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
-    <header className="observatory-header observatory-header--minimal">
-      <h2 className="observatory-heading">Visão geral</h2>
-      <button type="button" className="observatory-refresh" onClick={() => { onRefresh(); void mutate() }} disabled={refreshing} aria-label={refreshing ? 'Atualizando indicadores' : 'Atualizar indicadores'} title="Atualizar indicadores">
-        <RefreshCw size={16} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" />
-        <span>{refreshing ? 'Atualizando' : 'Atualizar'}</span>
-      </button>
-    </header>
 
     <OverviewMetrics {...metrics} globe={
       <GlobeBoundary embedded>

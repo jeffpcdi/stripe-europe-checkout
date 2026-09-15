@@ -1,6 +1,7 @@
 import { ViewTransition } from 'react'
 import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
+import { SubNav } from '@/components/shell/subnav'
 import { TabNotifier } from '@/components/shell/tab-notifier'
 import { RouteProgress } from '@/components/shell/route-progress'
 import { CommandPalette } from '@/components/shell/command-palette'
@@ -36,6 +37,7 @@ export default function DashboardLayout({
       {/* Som de dinheiro (cha-ching) quando push de venda chega com o painel aberto */}
       <PushSound />
       <TopNav><Header /></TopNav>
+      <SubNav />
 
       <div className="min-w-0 flex-1 flex flex-col transition-colors duration-200">
         {/* Redesign: largura total fluida sem bordas/faixas pretas nas laterais em qualquer monitor (1080p, 1440p, 4K, ultrawide). */}

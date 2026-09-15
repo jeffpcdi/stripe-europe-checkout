@@ -21,15 +21,15 @@ export function CloakView() {
       </div>
 
       <Tabs.Root defaultValue="overview" className="flex flex-col gap-5">
-        <Tabs.List className="grid gap-2 rounded-[24px] border border-border/60 bg-card/45 p-2 md:grid-cols-3">
-          <Tabs.Trigger value="overview" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Activity className="size-4" /> Resultados</div>
+        <Tabs.List className="section-tabs" aria-label="Áreas do Cloaker">
+          <Tabs.Trigger value="overview" className="section-tabs__item">
+            <Activity className="size-4" aria-hidden="true" /><span>Resultados</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="rules" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><SlidersHorizontal className="size-4" /> Regras</div>
+          <Tabs.Trigger value="rules" className="section-tabs__item">
+            <SlidersHorizontal className="size-4" aria-hidden="true" /><span>Regras</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="traffic" className="group rounded-2xl border border-transparent px-4 py-3 text-left transition-all hover:bg-secondary/20 data-[state=active]:border-brand-cyan/25 data-[state=active]:bg-brand-cyan/10 focus:outline-none">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Link2 className="size-4" /> Links</div>
+          <Tabs.Trigger value="traffic" className="section-tabs__item">
+            <Link2 className="size-4" aria-hidden="true" /><span>Links</span>
           </Tabs.Trigger>
         </Tabs.List>
 

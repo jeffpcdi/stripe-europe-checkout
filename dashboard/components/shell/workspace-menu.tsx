@@ -1,8 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import Link from 'next/link'
-import { Check, ChevronDown, Megaphone } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useSWRConfig } from 'swr'
 import { apiSend, useAccount, useAdsAccounts, useAdsStatus } from '@/lib/api'
@@ -58,10 +57,6 @@ export function WorkspaceMenu() {
               </DropdownMenu.RadioItem>
             ))}
           </DropdownMenu.RadioGroup>
-          <DropdownMenu.Separator className="premium-navbar-popup__separator" />
-          <DropdownMenu.Item asChild className="premium-navbar-popup__item">
-            <Link href="/ads/tiktok"><Megaphone size={15} aria-hidden="true" />TikTok Ads</Link>
-          </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

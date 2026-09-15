@@ -1,0 +1,37 @@
+'use strict'
+
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+
+const dashboard = path.join(__dirname, '..', 'dashboard')
+const read = rel => fs.readFileSync(path.join(dashboard, rel), 'utf8')
+
+const layout = read('app/(dashboard)/layout.tsx')
+const header = read('components/shell/header.tsx')
+const topnav = read('components/shell/topnav.tsx')
+const subnav = read('components/shell/subnav.tsx')
+const navigation = read('lib/navigation.ts')
+const workspace = read('components/shell/workspace-menu.tsx')
+const cloak = read('components/cloak/cloak-view.tsx')
+const ads = read('components/ads/tiktok-ads-view.tsx')
+const config = read('components/config/config-view.tsx')
+const css = read('app/dashboard-refinement.css')
+
+assert.match(layout, /<SubNav\s*\/>/, 'layout deve renderizar navegação contextual')
+assert.doesNotMatch(header, /TrackingStatus/, 'status de tracking não deve voltar ao menubar')
+assert.doesNotMatch(header, /NAV_SECTIONS/, 'avatar não deve duplicar navegação operacional')
+assert.match(header, />Conta<\/Link>/, 'avatar deve manter acesso à Conta')
+assert.match(topnav, /Visão Geral[\s\S]*Rastreamento[\s\S]*Vendas[\s\S]*TikTok Ads/, 'navegação principal deve preservar as quatro áreas')
+assert.doesNotMatch(workspace, />TikTok Ads<\/Link>/, 'seletor de workspace não deve duplicar a aba TikTok Ads')
+assert.match(navigation, /label: 'Links'[\s\S]*label: 'Cloaker'[\s\S]*label: 'Domínios'[\s\S]*label: 'Pixel'/, 'Rastreamento deve expor suas quatro áreas no rail contextual')
+assert.match(subnav, /pathname\.startsWith\('\/gateways'\)/, 'rotas legadas de Pixel devem manter estado ativo coerente')
+assert.match(cloak, /className="section-tabs"/, 'Cloaker deve usar o sistema de tabs compacto')
+assert.match(ads, /section-tabs section-tabs--ads/, 'TikTok Ads deve usar o mesmo sistema de tabs')
+assert.match(config, /className="settings-tabs hide-scrollbar"/, 'Conta deve usar tabs responsivas consistentes')
+assert.match(css, /\.context-nav-shell/, 'CSS deve conter o rail contextual')
+assert.match(css, /\.section-tabs__item/, 'CSS deve conter tabs internas compartilhadas')
+assert.match(css, /navbar-popover-in/, 'popovers devem ter microinteração compartilhada')
+assert.match(css, /@media \(max-width: 559px\)[\s\S]*premium-navbar__calendar/, 'header deve compactar o calendário em telas estreitas')
+
+console.log('navigation-refinement-v6: OK')

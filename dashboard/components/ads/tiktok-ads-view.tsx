@@ -523,7 +523,7 @@ export function TikTokAdsView() {
               (pill tablist) é o mesmo da aba Atividade. */}
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-stretch gap-2 rounded-[22px] border border-border/70 bg-card/55 p-2 backdrop-blur-md lg:min-w-[720px]">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="section-tabs section-tabs--ads">
                 {SUBTABS.map((item) => {
                   const attentionCount = item.value === 'automation'
                     ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
@@ -533,16 +533,12 @@ export function TikTokAdsView() {
                     <Tabs.Trigger
                       key={item.value}
                       value={item.value}
-                      className="tiktok-section-tab touch-manipulation !min-h-[64px] !justify-start !gap-3 !rounded-2xl !px-3.5 !py-3 text-left"
+                      className="section-tabs__item tiktok-section-tab touch-manipulation"
                     >
-                      <span className="hidden size-9 shrink-0 items-center justify-center rounded-xl border border-white/8 bg-black/15 sm:flex">
-                        <item.icon className="size-4" aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-semibold sm:text-sm">{item.label}</span>
-                                              </span>
+                      <item.icon className="size-4" aria-hidden="true" />
+                      <span className="min-w-0 truncate">{item.label}</span>
                       {attentionCount > 0 && (
-                        <span className="flex min-w-5 items-center justify-center self-start rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
+                        <span className="section-tabs__badge" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
                           {attentionCount}
                         </span>
                       )}

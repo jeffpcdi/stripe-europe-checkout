@@ -48,7 +48,7 @@ export function ConfigView() {
       <Tabs.Root defaultValue="prefs" className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
         <Tabs.List
           aria-label="Configurações da conta"
-          className="hide-scrollbar flex gap-2 overflow-x-auto rounded-[22px] border border-white/5 bg-white/[0.025] p-2 backdrop-blur-md lg:sticky lg:top-24 lg:flex-col lg:overflow-visible"
+          className="settings-tabs hide-scrollbar"
         >
           <SettingsTab value="prefs" icon={SlidersHorizontal} title="Preferências" description="Interface, moeda e operação" />
           <SettingsTab value="integrations" icon={PlugZap} title="Integrações" description="Webhook e mensagens" />
@@ -154,15 +154,15 @@ function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof
   return (
     <Tabs.Trigger
       value={value}
-      className="group flex min-w-[190px] items-center gap-3 rounded-2xl border border-transparent px-3 py-3 text-left transition-all hover:border-border/45 hover:bg-secondary/25 data-[state=active]:border-brand-cyan/20 data-[state=active]:bg-brand-cyan/10 lg:min-w-0"
+      className="settings-tabs__item group"
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-black/20 text-muted-foreground transition-colors group-data-[state=active]:border-brand-cyan/20 group-data-[state=active]:text-brand-cyan">
+      <span className="settings-tabs__icon">
         <Icon className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold text-foreground">{title}</span>
       </span>
-      <ChevronRight className="hidden size-3.5 text-muted-foreground transition-transform group-data-[state=active]:translate-x-0.5 group-data-[state=active]:text-brand-cyan lg:block" />
+      <ChevronRight className="settings-tabs__chevron" aria-hidden="true" />
     </Tabs.Trigger>
   )
 }

@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { LogOut, Eye, EyeOff } from 'lucide-react'
-import { NAV_SECTIONS } from '@/lib/navigation'
+import { LogOut, Eye, EyeOff, Settings } from 'lucide-react'
 import { useAccount } from '@/lib/api'
 import { DurabilityBadge } from './durability-badge'
 import { NotificationBell } from './notification-bell'
-import { TrackingStatus } from './tracking-status'
 import { OverviewCalendar } from './overview-calendar'
+import { WorkspaceMenu } from './workspace-menu'
 import { usePrefs } from '@/lib/prefs'
 
 function UserMenu() {
@@ -36,30 +35,31 @@ function UserMenu() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className="premium-navbar__avatar-button" aria-label="Menu do usuário">
+        <button type="button" className="premium-navbar__avatar-button" aria-label="Menu da conta">
           <span className="premium-navbar__avatar-ring"><span className="premium-navbar__avatar-crop">
-            <Image src="/dashboard/roi-nados-mascot.jpeg" alt="" width={192} height={193} sizes="82px" className="premium-navbar__avatar-image" />
+            <Image src="/dashboard/roi-nados-avatar-nav.png" alt="" width={512} height={512} sizes="88px" className="premium-navbar__avatar-image" />
           </span></span>
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={8} collisionPadding={12} className="premium-navbar-popup">
+        <DropdownMenu.Content align="end" sideOffset={10} collisionPadding={12} className="premium-navbar-popup premium-navbar-popup--account">
           <DropdownMenu.Label className="premium-navbar-popup__label">
-            <span className="block truncate text-foreground">{account?.name || 'Conta'}</span>
+            <span className="block truncate text-foreground text-sm font-medium">{account?.name || 'Conta'}</span>
             <span className="block truncate font-normal">{account?.email}</span>
           </DropdownMenu.Label>
           <DropdownMenu.Separator className="premium-navbar-popup__separator" />
-          {NAV_SECTIONS.flatMap(section => section.items).filter(item => item.href !== '/').map(item => (
-            <DropdownMenu.Item key={item.id} asChild className="premium-navbar-popup__item">
-              <Link href={item.href}><item.icon size={15} aria-hidden="true" />{item.label}</Link>
-            </DropdownMenu.Item>
-          ))}
-          <DropdownMenu.Separator className="premium-navbar-popup__separator" />
-          <DropdownMenu.CheckboxItem checked={privateValues} onCheckedChange={checked => update({ privacy: checked ? 'on' : 'off' })}
-            className="premium-navbar-popup__item">
+          <DropdownMenu.Item asChild className="premium-navbar-popup__item">
+            <Link href="/config"><Settings size={15} aria-hidden="true" />Conta</Link>
+          </DropdownMenu.Item>
+          <DropdownMenu.CheckboxItem
+            checked={privateValues}
+            onCheckedChange={checked => update({ privacy: checked ? 'on' : 'off' })}
+            className="premium-navbar-popup__item"
+          >
             {privateValues ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
             Ocultar valores sensíveis
           </DropdownMenu.CheckboxItem>
+          <DropdownMenu.Separator className="premium-navbar-popup__separator" />
           <DropdownMenu.Item className="premium-navbar-popup__item premium-navbar-popup__item--danger" onSelect={logout}>
             <LogOut size={15} aria-hidden="true" />Sair
           </DropdownMenu.Item>
@@ -72,9 +72,9 @@ function UserMenu() {
 export function Header() {
   return (
     <div className="premium-navbar__actions">
-      <div className="premium-navbar__durability"><DurabilityBadge /></div>
-      <TrackingStatus />
+      <div className="premium-navbar__workspace premium-navbar__workspace--utility"><WorkspaceMenu /></div>
       <OverviewCalendar />
+      <div className="premium-navbar__durability"><DurabilityBadge /></div>
       <NotificationBell />
       <UserMenu />
     </div>

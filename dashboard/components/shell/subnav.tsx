@@ -3,12 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { activeGroup } from '@/lib/navigation'
-import { cn } from '@/lib/utils'
 
-/**
- * Faixa de sub-abas centralizada — réplica das abas do "Rastreamento"
- * do dashboard legado (Links de Checkout · Filtro de Bots · ...).
- */
+/** Navegação contextual: aparece apenas quando a seção realmente possui sub-áreas. */
 export function SubNav() {
   const pathname = usePathname()
   const group = activeGroup(pathname)
@@ -16,30 +12,24 @@ export function SubNav() {
   if (!group.tabs) return null
 
   return (
-    <nav
-      className="anim-row-in mb-6 flex justify-center"
-      aria-label={`Seções de ${group.label}`}
-    >
-      <div className="glass flex max-w-full items-center gap-1 overflow-x-auto rounded-[12px] p-1">
+    <div className="context-nav-shell" data-tv-hide>
+      <nav className="context-nav" aria-label={`Seções de ${group.label}`}>
         {group.tabs.map((tab) => {
-          const active = pathname.startsWith(tab.href)
+          const active = tab.href === '/conversions'
+            ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+            : pathname === tab.href || pathname.startsWith(tab.href + '/')
           return (
             <Link
               key={tab.href}
               href={tab.href}
               aria-current={active ? 'page' : undefined}
-              className={cn(
-                'whitespace-nowrap rounded-[9px] px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150',
-                active
-                  ? 'bg-[var(--active)] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]'
-                  : 'text-muted-foreground hover:bg-[var(--hover)] hover:text-foreground',
-              )}
+              className="context-nav__item"
             >
               {tab.label}
             </Link>
           )
         })}
-      </div>
-    </nav>
+      </nav>
+    </div>
   )
 }
