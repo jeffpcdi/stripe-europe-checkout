@@ -1,0 +1,35 @@
+name: V16.14 add missing new files
+
+on:
+  push:
+    branches:
+      - release/v16.14-convergence
+    paths:
+      - '.release/v16.14-newfiles.tar.gz.b64'
+      - '.github/workflows/v16-14-newfiles.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  add-files:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v16.14-convergence
+          fetch-depth: 0
+      - name: Extract canonical new files
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .release/v16.14-newfiles.tar.gz.b64 > /tmp/v16.14-newfiles.tar.gz
+          tar -xzf /tmp/v16.14-newfiles.tar.gz
+          rm -rf .release
+          rm -f .github/workflows/v16-14-newfiles.yml
+          git config user.name 'roi-nados-release'
+          git config user.email 'release@roi-nados.local'
+          git add -A
+          git commit -m 'fix(v16.14): include backend modules and regression files'
+          git push origin HEAD:release/v16.14-convergence
