@@ -11,7 +11,6 @@ import { countryFlag, fmtCurrency, timeAgo } from '@/lib/format'
 import { GlobeBoundary } from '@/components/geo/globe-boundary'
 import { OverviewMetrics, type OverviewMetricsProps } from '@/components/overview/overview-metrics'
 
-
 export interface GlobePurchase {
   at: string
   country?: string
@@ -28,13 +27,13 @@ interface HeroGlobeProps {
   focusCode?: string | null
   purchases?: GlobePurchase[]
   metrics: OverviewMetricsProps
-  onRefresh: () => void
+  onRefresh: () => void | Promise<void>
   refreshing?: boolean
   purchasesStale?: boolean
 }
 
-/** Um painel, um canvas. Métricas e atividade não dependem do carregamento do WebGL. */
-export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRefresh, refreshing: _refreshing = false, purchasesStale = false }: HeroGlobeProps) {
+/** Um painel, um canvas. Métricas e presença continuam úteis mesmo se o WebGL falhar. */
+export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refreshing = false, purchasesStale = false }: HeroGlobeProps) {
   const { data, error, mutate, isLoading } = useLive()
   const [now, setNow] = useState(() => Date.now())
   const [selected, setSelected] = useState<string | null>(focusCode || null)
@@ -82,28 +81,45 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
     setFocusRevision(value => value + 1)
   }
 
+  async function refreshOverview() {
+    await Promise.allSettled([
+      Promise.resolve(onRefresh()),
+      mutate(),
+    ])
+  }
+
   return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
     <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
 
     <OverviewMetrics {...metrics} globe={
-      <GlobeBoundary embedded>
-        <GlobePanel embedded countries={live.countries} online={live.online} focusCode={selected} focusRevision={focusRevision} pulseCodes={pulseCodes}>
-          {selected && (
-            <div className="observatory-globe-caption">
-              <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país">{countryName(selected)}<X size={12} aria-hidden="true" /></button>
+      <>
+        <div className="observatory-globe-live" aria-live="polite" aria-label={live.fresh ? `${live.online ?? 0} visitantes ao vivo` : 'Visitantes ao vivo sem atualização'}>
+          <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
+          <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
+          <span>{live.fresh ? 'ao vivo' : 'sem atualização'}</span>
+          <button
+            type="button"
+            onClick={() => void refreshOverview()}
+            disabled={refreshing || isLoading}
+            aria-label="Atualizar indicadores"
+            title="Atualizar indicadores"
+          >
+            <RefreshCw size={12} aria-hidden="true" className={refreshing ? 'animate-spin' : undefined} />
+          </button>
+        </div>
+        <GlobeBoundary embedded>
+          <GlobePanel embedded countries={live.countries} online={live.online} focusCode={selected} focusRevision={focusRevision} pulseCodes={pulseCodes}>
+            {selected && (
+              <div className="observatory-globe-caption">
+                <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país">{countryName(selected)}<X size={12} aria-hidden="true" /></button>
+              </div>
+            )}
+            <div className="observatory-fullscreen-countries" role="group" aria-label="Localizar país no globo ampliado">
+              {live.countries.slice(0, 3).map(country => <button type="button" key={country.code} aria-pressed={selected === country.code} onClick={() => focusCountry(country.code)}><span aria-hidden="true">{countryFlag(country.code)}</span>{countryName(country.code)}<strong>{country.count}</strong></button>)}
             </div>
-          )}
-          <div className="observatory-globe-live" aria-live="polite" aria-label={live.fresh ? `${live.online ?? 0} visitantes online agora` : 'Presença ao vivo indisponível'}>
-            <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
-            <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
-            <span>online</span>
-            {!live.fresh && !isLoading && <button type="button" onClick={() => void mutate()} aria-label="Atualizar presença ao vivo" title="Atualizar presença"><RefreshCw size={12} aria-hidden="true" /></button>}
-          </div>
-          <div className="observatory-fullscreen-countries" role="group" aria-label="Localizar país no globo ampliado">
-            {live.countries.slice(0, 3).map(country => <button type="button" key={country.code} aria-pressed={selected === country.code} onClick={() => focusCountry(country.code)}><span aria-hidden="true">{countryFlag(country.code)}</span>{countryName(country.code)}<strong>{country.count}</strong></button>)}
-          </div>
-        </GlobePanel>
-      </GlobeBoundary>
+          </GlobePanel>
+        </GlobeBoundary>
+      </>
     } />
 
     <div className="observatory-activity" aria-label="Atividade atual, independente do período">

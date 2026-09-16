@@ -1,3 +1,62 @@
+# V16.14 — convergência de produção e deploy Railway
+
+- Consolida no GitHub/Railway a fonte de verdade construída nas V16.10–V16.13, sem introduzir nova regra financeira, automação ou mudança visual.
+- O release parte exclusivamente de `roi-nados-v16.13.zip`; o `main` anterior (V16.9) não é usado como base para reconstruir código.
+- `railway.json` troca o healthcheck legado `/login` pelo liveness dedicado `/healthz` e reduz a janela para 30s; builder/runtime/replicas/domínios permanecem fora do escopo.
+- V16.12 entra em produção com analytics durável da Home e presença escopada por `accountId + visitorId`; migrations permanecem idempotentes e executadas pelo `db.init()`.
+- V16.13 entra em produção com elegibilidade do scheduler baseada em contas reais, isolamento de testes e telemetria do tick; resíduos órfãos permanecem auditáveis, sem cleanup destrutivo automático.
+- Gate local da release reexecuta as suites focadas de Home, tracking/conversão, Ads sync/automação/account scope/IA e leases Redis antes do push.
+- O deploy passa a ser validado por build, healthcheck, logs de boot, disponibilidade da dashboard e comportamento real do scheduler antes de a versão ser considerada concluída.
+- `/api/ads/roas`, `/api/ads/profitability`, cobertura 90×365 dias e demais cálculos financeiros ficam explicitamente reservados para a próxima leva.
+
+# V16.13 — higiene operacional do scheduler TikTok Ads
+
+- Scheduler de background passa a aceitar somente `account_id` existente em `accounts`; `config`/`ads_sync_state` órfãos não criam tenancy implícita.
+- `listActiveAdvertisers()` faz `INNER JOIN accounts`; resíduos recentes continuam auditáveis, mas geram zero chamadas Pipeboard.
+- Automações 24/7 filtram configs por conjunto de contas reais sem semear/migrar perfis durante a descoberta.
+- Tick ganhou boundary por advertiser e telemetria de duração, elegibilidade, órfãos, freshness, bloqueios, unauthorized e falhas.
+- Mantido processamento sequencial; nenhuma concorrência nova contra o rate limit do Pipeboard.
+- `config.js` passa a respeitar `DATA_DIR`; helper de testes neutraliza Neon/Redis/Pipeboard/Stripe/IA externos salvo opt-in explícito.
+- Testes Ads de maior risco passam a carregar o isolamento antes dos módulos da aplicação.
+- Adicionado `scripts/audit-ads-sync-orphans.js`, estritamente read-only, para inventariar configs/sync/automation state sem conta correspondente.
+- Nenhum cleanup automático, nenhuma alteração de Railway e nenhuma mudança em ROAS/profitability/UI.
+
+## V16.12 — Backend da Home: analytics durável e presença multi-tenant
+
+- Visão Geral deixa de usar o cache quente global de `stats.js` como fonte matemática dos KPIs: novo `GET /api/overview/analytics` resolve período + timezone no backend e agrega diretamente no Neon por conta, consultando `events` + `events_archive` e `leads` sem herdar os caps de 8.000/3.000 nem o `leads.slice(0, 3000)`.
+- `/api/stats` permanece compatível para tracking, Funil, Atividade e listas recentes; a Home espera o agregado durável e só recorre ao snapshot antigo quando o Neon está indisponível, sinalizando a falha pelo estado de atualização existente.
+- Agregado durável cobre faturamento multimoeda, vendas/falhas/aprovação, visitas, checkout, início de pagamento, compras, série diária no timezone da conta, países e ranking UTM; período `Tudo` mantém a semântica de 365 dias.
+- `/api/overview/health` passa a usar fatos de cobertura e frescor calculados no Neon (janela operacional de 365d), com cache curto de 15s; snapshot quente fica apenas como fallback.
+- Boot do banco faz backfill idempotente de `account_id` legado em `leads`, `events` e `events_archive` para que o arquivo frio não fique fora dos agregados históricos.
+- Presença ao vivo passa a identificar sessão por `accountId + visitorId` em memória, Upstash e Neon; heartbeat/leave/listagem são escopados por conta e o Upstash usa namespace `presence:<accountId>:<visitorId>` com `SCAN` restrito ao tenant.
+- Schema `sessions` migra de PK global `visitor_id` para `PRIMARY KEY (account_id, visitor_id)` após backfill seguro de sessões legadas; `upsertSession` usa o mesmo conflito composto. Chaves Upstash antigas expiram naturalmente pelo TTL de 60s.
+- Nenhuma variável, serviço, réplica ou deploy do Railway foi alterado; o serviço Redis TCP do Railway também não foi tocado porque a presença ativa da aplicação usa Upstash REST.
+- Adicionado `overview-window.js` para janelas civis backend e `overview-backend-v16-12.test.js` cobrindo timezone, >8.000 leads, fonte durável, health completo, isolamento de presença, leave por tenant, namespace Upstash e contrato de PK composta.
+- `package.json` inclui o teste V16.12 no `pretest`; TikTok Ads, ROAS, profitability, janela de sync e scheduler permanecem fora desta versão.
+
+## V16.11 — Visão Geral: leitura executiva e confiança operacional
+
+- KPIs principais preservam a composição sem cards, mas recuperam microcontexto útil: vendas e comparação de faturamento, margem do lucro, vendas atribuídas, base da conversão e CPA do ROAS.
+- `Lucro` deixa de usar o fallback simplificado `faturamento - mídia` quando a composição completa de custos não está disponível; nesses casos mostra `—` em vez de sugerir precisão inexistente.
+- Presença ao vivo foi retirada de dentro da barreira WebGL: contagem/status e atualização continuam acessíveis mesmo se o canvas do globo falhar. O refresh do observatório agora revalida também a presença ao vivo.
+- Atividade recente passa a ordenar/exibir o timestamp real da etapa (checkout, pagamento ou compra) e usa o timezone configurado da conta, em vez de fixar São Paulo no tooltip.
+- Ranking de campanhas preserva ausência de gasto como `—`, mostra ROAS real `0,00x` quando aplicável e direciona `Ver tudo` para TikTok Ads ou Atividade conforme a fonte atualmente exibida.
+- Card `Dados` ganhou estado operacional compacto, primeira pendência acionável e recuperação local quando a saúde do pipeline não carrega, sem reintroduzir uma faixa grande de alertas.
+- Nenhum endpoint, regra de atribuição, cálculo backend, TikTok Ads, tracking ou fluxo fora da Visão Geral foi alterado.
+- Adicionado `dashboard-overview-refinement-v16-11.test.js` cobrindo os novos contratos visuais/operacionais.
+
+## V16.10 — TikTok Ads: fechamento operacional de Campanhas
+
+- Histórico da Central passa a ser filtrado por advertiser/campanha no backend antes do `LIMIT`, evitando o falso estado “sem alterações” quando os eventos da campanha ficaram fora dos últimos eventos globais da conta.
+- `GET /api/ads/ops/audit` ganhou apenas filtros opcionais `advertiserId`/`campaignId`; nenhum endpoint novo foi criado e o store continua usando a auditoria existente.
+- Métricas ausentes de anúncios na Estrutura preservam `—` em vez de serem convertidas visualmente em gasto/impressões `0`.
+- Ações em massa de Pausar/Ativar agora enviam somente campanhas elegíveis para a transição, mostram a quantidade efetiva no próprio botão e evitam requisições redundantes para campanhas que já estão no estado desejado.
+- Confirmação de ativação em massa explicita quantas campanhas pausadas serão enviadas, quais selecionadas ficarão de fora e resume os orçamentos que podem começar a gastar.
+- Orçamento em massa ganhou revisão antes de salvar com totais antes → depois para orçamento diário/total, aviso quando o potencial de gasto aumenta e validação visual do mínimo TikTok no modo de valor fixo.
+- Seletor do ajuste de orçamento foi achatado para tabs textuais, mantendo a identidade silenciosa da dashboard e sem criar automação financeira nova.
+- Criação de campanhas, Smart+, Spark, Catálogo, Automações, Redis/Neon, filas, idempotência, retries e demais áreas fechadas permanecem fora do escopo desta leva.
+- Adicionado `dashboard-tiktok-final-v16-10.test.js` cobrindo histórico filtrado, falso zero e previsibilidade das ações financeiras em massa.
+
 ## V16.9 — TikTok Ads: consistência final de navegação e estado
 
 - Trabalho local do Catálogo passa a agregar uploads do detalhe, Product Link e Batch, sem criar store global ou persistência nova.

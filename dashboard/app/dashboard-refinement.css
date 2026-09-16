@@ -5177,3 +5177,111 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
 }
 .refined-dashboard .ads-context-icon:active:not(:disabled) { transform: scale(.97); }
 .refined-dashboard .ads-context-icon:disabled { opacity: .4; cursor: wait; }
+
+/* ========================================================================== */
+/* V16.11 — Visão Geral: contexto operacional, confiança e estados reais.     */
+/* ========================================================================== */
+.refined-dashboard .overview-observatory--premium .observatory-metric-context {
+  display: block;
+  min-height: 17px;
+  margin-top: 10px;
+  color: rgb(160 181 197 / 66%);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -.004em;
+  text-wrap: balance;
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--revenue .observatory-metric-context {
+  color: rgb(180 201 211 / 70%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-metric--profit[data-tone='negative'] .observatory-metric-context {
+  color: rgb(226 164 173 / 72%);
+}
+.refined-dashboard .overview-observatory--premium .observatory-globe-live > button:disabled {
+  opacity: .45;
+  cursor: wait;
+}
+.refined-dashboard .overview-observatory--premium .observatory-globe-live > button:disabled:hover {
+  background: transparent;
+  color: rgb(183 208 220 / 72%);
+}
+.refined-dashboard .overview-data-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.refined-dashboard .overview-health-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--refine-dim);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.refined-dashboard .overview-health-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 999px;
+  background: rgb(148 163 184 / 58%);
+}
+.refined-dashboard .overview-health-state[data-state='healthy'] { color: rgb(128 211 176 / 82%); }
+.refined-dashboard .overview-health-state[data-state='healthy']::before { background: rgb(110 219 177 / 82%); }
+.refined-dashboard .overview-health-state[data-state='warning'] { color: rgb(229 192 111 / 84%); }
+.refined-dashboard .overview-health-state[data-state='warning']::before { background: rgb(229 192 111 / 84%); }
+.refined-dashboard .overview-health-state[data-state='critical'] { color: rgb(236 132 145 / 88%); }
+.refined-dashboard .overview-health-state[data-state='critical']::before { background: rgb(236 132 145 / 88%); }
+.refined-dashboard .overview-data-action {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid var(--overview-secondary-line);
+  background: transparent;
+  color: var(--refine-muted);
+  font-size: 11.5px;
+  font-weight: 540;
+  line-height: 1.35;
+  text-align: left;
+  text-decoration: none;
+}
+.refined-dashboard .overview-data-action > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refined-dashboard .overview-data-action svg { flex: 0 0 auto; opacity: .72; }
+.refined-dashboard .overview-data-action:hover { color: var(--refine-cyan); }
+.refined-dashboard .overview-data-action[data-severity='critical'] { color: rgb(236 132 145 / 88%); }
+.refined-dashboard .overview-data-action[data-severity='warning'] { color: rgb(229 192 111 / 84%); }
+.refined-dashboard .overview-data-loading {
+  display: inline-flex;
+  padding-top: 8px;
+  color: var(--refine-dim);
+  font-size: 11.5px;
+}
+@media (max-width: 1199px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metric-context {
+    margin-top: 7px;
+    font-size: 11px;
+  }
+}
+@media (max-width: 639px) {
+  .refined-dashboard .overview-observatory--premium .observatory-metric-context {
+    min-height: 0;
+    margin-top: 6px;
+    font-size: 10.5px;
+  }
+  .refined-dashboard .overview-health-state { font-size: 10.5px; }
+  .refined-dashboard .overview-data-action > span { white-space: normal; }
+}

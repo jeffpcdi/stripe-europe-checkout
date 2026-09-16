@@ -17,8 +17,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 'use strict';
 
-const Anthropic = require('@anthropic-ai/sdk');
 const automationWindow = require('./ads-automation-window');
+let Anthropic = null;
 
 // Sem gateway intermediário: a chave fica vinculada apenas à Anthropic.
 // O prefixo legado `anthropic/` continua aceito para não quebrar ambientes já
@@ -50,7 +50,10 @@ function enabled() {
 let anthropicClient = null;
 function getClient() {
   if (!enabled()) throw new Error('ANTHROPIC_API_KEY não configurada');
-  if (!anthropicClient) anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!anthropicClient) {
+    if (!Anthropic) Anthropic = require('@anthropic-ai/sdk');
+    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
   return anthropicClient;
 }
 

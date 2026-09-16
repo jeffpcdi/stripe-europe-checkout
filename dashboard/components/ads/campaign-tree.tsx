@@ -60,6 +60,90 @@ function fmtMoney(v: number | undefined, currency: string): string {
   }
 }
 
+type BulkBudgetMode = 'percent_up' | 'percent_down' | 'fixed'
+
+function adjustedBudgetAmount(currentAmount: number, mode: BulkBudgetMode, value: number) {
+  if (mode === 'percent_up') return Math.round(currentAmount * (1 + value / 100))
+  if (mode === 'percent_down') return Math.max(TIKTOK_MIN_BUDGET, Math.round(currentAmount * (1 - value / 100)))
+  return Math.max(TIKTOK_MIN_BUDGET, value)
+}
+
+function budgetSummary(campaigns: AdsTreeCampaign[], currency: string) {
+  let dailyCount = 0
+  let dailyTotal = 0
+  let lifetimeCount = 0
+  let lifetimeTotal = 0
+  let adSetOwned = 0
+  let unavailable = 0
+
+  for (const campaign of campaigns) {
+    if (campaign.budgetOwner !== 'campaign') {
+      adSetOwned++
+      continue
+    }
+    const amount = Number(campaign.budget?.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      unavailable++
+      continue
+    }
+    if (campaign.budget?.type === 'lifetime') {
+      lifetimeCount++
+      lifetimeTotal += amount
+    } else if (campaign.budget?.type === 'daily') {
+      dailyCount++
+      dailyTotal += amount
+    } else {
+      unavailable++
+    }
+  }
+
+  const parts: string[] = []
+  if (dailyCount) parts.push(`${dailyCount} ${dailyCount === 1 ? 'diária' : 'diárias'} · ${fmtMoney(dailyTotal, currency)}/dia`)
+  if (lifetimeCount) parts.push(`${lifetimeCount} ${lifetimeCount === 1 ? 'total' : 'totais'} · ${fmtMoney(lifetimeTotal, currency)}/total`)
+  if (adSetOwned) parts.push(`${adSetOwned} ${adSetOwned === 1 ? 'ABO nos conjuntos' : 'ABO nos conjuntos'}`)
+  if (unavailable) parts.push(`${unavailable} sem orçamento comparável`)
+  return parts
+}
+
+function budgetImpactSummary(campaigns: AdsTreeCampaign[], mode: BulkBudgetMode, value: number, currency: string) {
+  if (!Number.isFinite(value) || value <= 0) return []
+  const buckets = {
+    daily: { count: 0, before: 0, after: 0 },
+    lifetime: { count: 0, before: 0, after: 0 },
+  }
+
+  for (const campaign of campaigns) {
+    if (campaign.budgetOwner !== 'campaign') continue
+    const current = Number(campaign.budget?.amount)
+    const type = campaign.budget?.type
+    if (!Number.isFinite(current) || current <= 0 || (type !== 'daily' && type !== 'lifetime')) continue
+    const next = adjustedBudgetAmount(current, mode, value)
+    const bucket = buckets[type]
+    bucket.count++
+    bucket.before += current
+    bucket.after += next
+  }
+
+  const parts: { label: string; before: string; after: string; delta: number }[] = []
+  if (buckets.daily.count) {
+    parts.push({
+      label: `${buckets.daily.count} orçamento${buckets.daily.count === 1 ? '' : 's'} diário${buckets.daily.count === 1 ? '' : 's'}`,
+      before: `${fmtMoney(buckets.daily.before, currency)}/dia`,
+      after: `${fmtMoney(buckets.daily.after, currency)}/dia`,
+      delta: buckets.daily.after - buckets.daily.before,
+    })
+  }
+  if (buckets.lifetime.count) {
+    parts.push({
+      label: `${buckets.lifetime.count} ${buckets.lifetime.count === 1 ? 'orçamento total' : 'orçamentos totais'}`,
+      before: `${fmtMoney(buckets.lifetime.before, currency)}/total`,
+      after: `${fmtMoney(buckets.lifetime.after, currency)}/total`,
+      delta: buckets.lifetime.after - buckets.lifetime.before,
+    })
+  }
+  return parts
+}
+
 
 type CampaignAutomationView = {
   label: string
@@ -619,7 +703,7 @@ export function CampaignTree({
   
   // Ajuste de orçamento em lote
   const [bulkBudgetOpen, setBulkBudgetOpen] = useState(false)
-  const [bulkBudgetMode, setBulkBudgetMode] = useState<'percent_up' | 'percent_down' | 'fixed'>('percent_up')
+  const [bulkBudgetMode, setBulkBudgetMode] = useState<BulkBudgetMode>('percent_up')
   const [bulkBudgetValue, setBulkBudgetValue] = useState('20')
   const [bulkBudgetBusy, setBulkBudgetBusy] = useState(false)
 
@@ -671,24 +755,32 @@ export function CampaignTree({
   }
 
   async function bulkStatus(status: 'active' | 'paused') {
-    if (selected.size === 0 || bulkBusy || busyId) return
-    if (selected.size > 50) { toast.error('Selecione até 50 campanhas por vez'); return false }
+    if (selected.size === 0 || bulkBusy || busyId) return false
+    const targets = campaigns.filter((campaign) =>
+      selected.has(campaign.platformCampaignId)
+      && (status === 'active' ? campaign.status === 'paused' : campaign.status === 'active'),
+    )
+    if (targets.length === 0) {
+      toast.info(status === 'active' ? 'Nenhuma campanha pausada selecionada' : 'Nenhuma campanha ativa selecionada')
+      return false
+    }
+    if (targets.length > 50) { toast.error('Selecione até 50 campanhas por vez'); return false }
     setBulkBusy(true)
     try {
       const r = await apiSend<CampaignStatusResult>(
         '/api/ads/campaigns/bulk-status',
         'POST',
         {
-          campaigns: Array.from(selected).map((id) => ({ platformCampaignId: id })),
+          campaigns: targets.map((campaign) => ({ platformCampaignId: campaign.platformCampaignId })),
           status,
-          adAccountId: campaigns.find((campaign) => selected.has(campaign.platformCampaignId))?.platformAdAccountId,
+          adAccountId: targets[0]?.platformAdAccountId,
         },
       )
-      const outcome = campaignStatusOutcome(r, selected.size)
+      const outcome = campaignStatusOutcome(r, targets.length)
       if (outcome === 'simulated') { toast.info('Simulação concluída', { hint: 'Modo teste: nenhuma campanha foi alterada.' }); return true }
       if (outcome === 'failed') throw new Error('Nenhuma alteração foi aceita. Atualize a lista e tente novamente.')
       if (outcome === 'partial') toast.error('Parte das campanhas não foi alterada', { hint: `${r.totals?.updated} enviada(s), ${r.totals?.skipped} ignorada(s), ${r.totals?.failed} falha(s).` })
-      else toast.info('Solicitação enviada', { hint: 'A lista mostrará o status após a sincronização com o TikTok.' })
+      else toast.info('Solicitação enviada', { hint: `${targets.length} ${targets.length === 1 ? 'campanha elegível' : 'campanhas elegíveis'} enviada${targets.length === 1 ? '' : 's'}. O status será atualizado após a sincronização com o TikTok.` })
       actionFeedback()
       setSelected(new Set())
       onMutate()
@@ -708,6 +800,10 @@ export function CampaignTree({
       toast.error('Informe um valor numérico válido')
       return
     }
+    if (bulkBudgetMode === 'fixed' && val < TIKTOK_MIN_BUDGET) {
+      toast.error(tiktokMinimumBudgetMessage(currency))
+      return
+    }
 
     const budgetTargets = campaigns.filter(c => selected.has(c.platformCampaignId))
     if (budgetTargets.some(c => c.budgetOwner !== 'campaign' || !Number.isFinite(c.budget?.amount) || !['daily', 'lifetime'].includes(c.budget?.type || ''))) {
@@ -724,14 +820,7 @@ export function CampaignTree({
     for (const c of selectedCampaigns) {
       try {
         const curAmount = Number(c.budget?.amount)
-        let newAmount = curAmount
-        if (bulkBudgetMode === 'percent_up') {
-          newAmount = Math.round(curAmount * (1 + val / 100))
-        } else if (bulkBudgetMode === 'percent_down') {
-          newAmount = Math.max(TIKTOK_MIN_BUDGET, Math.round(curAmount * (1 - val / 100)))
-        } else {
-          newAmount = Math.max(TIKTOK_MIN_BUDGET, val)
-        }
+        const newAmount = adjustedBudgetAmount(curAmount, bulkBudgetMode, val)
 
         const result = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(c.platformCampaignId)}`, 'PUT', {
           budget: { amount: newAmount, type: c.budget?.type || 'daily' },
@@ -1441,8 +1530,17 @@ export function CampaignTree({
   }
 
   const selectedCampaigns = campaigns.filter((campaign) => selected.has(campaign.platformCampaignId))
+  const selectedActiveCampaigns = selectedCampaigns.filter((campaign) => campaign.status === 'active')
+  const selectedPausedCampaigns = selectedCampaigns.filter((campaign) => campaign.status === 'paused')
+  const selectedNotPausedCount = selectedCampaigns.length - selectedPausedCampaigns.length
+  const activationBudgetSummary = budgetSummary(selectedPausedCampaigns, currency)
   const ineligibleBudgetCount = selectedCampaigns.filter((campaign) => campaign.budgetOwner !== 'campaign' || !Number.isFinite(campaign.budget?.amount) || !['daily', 'lifetime'].includes(campaign.budget?.type || '')).length
   const bulkBudgetEligible = selectedCampaigns.length > 0 && ineligibleBudgetCount === 0
+  const bulkBudgetNumericValue = Number(bulkBudgetValue.replace(',', '.'))
+  const bulkBudgetValueValid = Number.isFinite(bulkBudgetNumericValue)
+    && bulkBudgetNumericValue > 0
+    && (bulkBudgetMode !== 'fixed' || bulkBudgetNumericValue >= TIKTOK_MIN_BUDGET)
+  const bulkBudgetImpact = budgetImpactSummary(selectedCampaigns, bulkBudgetMode, bulkBudgetValueValid ? bulkBudgetNumericValue : Number.NaN, currency)
 
   return (
     <section className="min-w-0">
@@ -1580,8 +1678,8 @@ export function CampaignTree({
       {/* Confirmação de exclusão de anúncio */}
       <ConfirmDialog
         open={Boolean(activation)}
-        title={activation?.kind === 'bulk' ? `Ativar ${selected.size} campanhas?` : 'Ativar esta campanha?'}
-        description={activation?.kind === 'single' ? <><strong>{activation.campaign.campaignName || activation.campaign.platformCampaignId}</strong><br />Conta: {activation.campaign.platformAdAccountName || activation.campaign.platformAdAccountId}<br />Orçamento: {campaignBudget(activation.campaign).amount !== null ? fmtMoney(campaignBudget(activation.campaign).amount!, activation.campaign.currency || currency) : 'Definido nos conjuntos'} · {campaignBudget(activation.campaign).detail}<br />Ao ativar, a campanha poderá começar a gastar.</> : 'As campanhas selecionadas poderão começar a gastar. Confira os orçamentos antes de ativar.'}
+        title={activation?.kind === 'bulk' ? `Ativar ${selectedPausedCampaigns.length} ${selectedPausedCampaigns.length === 1 ? 'campanha' : 'campanhas'}?` : 'Ativar esta campanha?'}
+        description={activation?.kind === 'single' ? <><strong>{activation.campaign.campaignName || activation.campaign.platformCampaignId}</strong><br />Conta: {activation.campaign.platformAdAccountName || activation.campaign.platformAdAccountId}<br />Orçamento: {campaignBudget(activation.campaign).amount !== null ? fmtMoney(campaignBudget(activation.campaign).amount!, activation.campaign.currency || currency) : 'Definido nos conjuntos'} · {campaignBudget(activation.campaign).detail}<br />Ao ativar, a campanha poderá começar a gastar.</> : <>{selectedPausedCampaigns.length} {selectedPausedCampaigns.length === 1 ? 'campanha pausada será enviada' : 'campanhas pausadas serão enviadas'} para ativação.{activationBudgetSummary.length ? <><br />Orçamentos: {activationBudgetSummary.join(' · ')}</> : null}{selectedNotPausedCount > 0 ? <><br />{selectedNotPausedCount}{selectedNotPausedCount === 1 ? ' selecionada que já está ativa ou usa outro status não será enviada.' : ' selecionadas que já estão ativas ou usam outro status não serão enviadas.'}</> : null}<br />Ao ativar, essas campanhas poderão começar a gastar.</>}
         confirmLabel="Ativar"
         appearance="quiet"
         busy={activation?.kind === 'bulk' ? bulkBusy : Boolean(activation?.kind === 'single' && busyId === activation.campaign.platformCampaignId)}
@@ -1624,8 +1722,8 @@ export function CampaignTree({
       {selected.size > 0 && (
         <div className="campaign-bulk-actions fixed bottom-5 left-1/2 z-40 flex max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 shadow-lg sm:gap-3 sm:px-4">
           <span className="text-xs font-semibold text-foreground">{selected.size} selecionada{selected.size === 1 ? '' : 's'}</span>
-          <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => bulkStatus('paused')} disabled={bulkBusy}><Pause className="size-3.5" />Pausar</button>
-          <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50" onClick={() => setActivation({ kind: 'bulk' })} disabled={bulkBusy}><Play className="size-3.5" />Ativar</button>
+          <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => void bulkStatus('paused')} disabled={bulkBusy || selectedActiveCampaigns.length === 0} title={selectedActiveCampaigns.length === 0 ? 'Nenhuma campanha ativa selecionada' : `Pausar ${selectedActiveCampaigns.length} campanha${selectedActiveCampaigns.length === 1 ? '' : 's'} ativa${selectedActiveCampaigns.length === 1 ? '' : 's'}`}><Pause className="size-3.5" />Pausar{selectedActiveCampaigns.length ? ` · ${selectedActiveCampaigns.length}` : ''}</button>
+          <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50" onClick={() => setActivation({ kind: 'bulk' })} disabled={bulkBusy || selectedPausedCampaigns.length === 0} title={selectedPausedCampaigns.length === 0 ? 'Nenhuma campanha pausada selecionada' : `Ativar ${selectedPausedCampaigns.length} campanha${selectedPausedCampaigns.length === 1 ? '' : 's'} pausada${selectedPausedCampaigns.length === 1 ? '' : 's'}`}><Play className="size-3.5" />Ativar{selectedPausedCampaigns.length ? ` · ${selectedPausedCampaigns.length}` : ''}</button>
           <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => { if (bulkBudgetEligible) setBulkBudgetOpen(true) }} disabled={bulkBusy || !bulkBudgetEligible} title={!bulkBudgetEligible ? `${ineligibleBudgetCount} campanha${ineligibleBudgetCount === 1 ? '' : 's'} usam orçamento nos conjuntos ou não têm orçamento compatível.` : 'Ajustar orçamentos'}><DollarSign className="size-3.5" />Orçamento</button>
           <button type="button" className="btn-ghost h-9 px-2 text-xs text-muted-foreground" onClick={() => setSelected(new Set())} disabled={bulkBusy}>Limpar</button>
           {!bulkBudgetEligible && ineligibleBudgetCount > 0 ? <p className="basis-full text-center text-xs text-warning">Orçamento em massa indisponível · {ineligibleBudgetCount} {ineligibleBudgetCount === 1 ? 'campanha usa' : 'campanhas usam'} orçamento nos conjuntos ou formato incompatível.</p> : null}
@@ -1634,30 +1732,30 @@ export function CampaignTree({
 
       {/* Modal de Ajuste de Orçamento em Lote */}
       {bulkBudgetOpen && <Modal isOpen={bulkBudgetOpen} onClose={() => { if (!bulkBudgetBusy) setBulkBudgetOpen(false) }} title="Ajustar orçamentos" description={`${selected.size} ${selected.size === 1 ? 'campanha selecionada' : 'campanhas selecionadas'}. O período de cada orçamento será mantido.`}>
-            <div className="mb-4 grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-secondary/20 p-1">
+            <div className="mb-4 flex items-center gap-5 overflow-x-auto border-b border-border/60" role="tablist" aria-label="Tipo de ajuste de orçamento">
               <button
                 type="button"
-                className={`h-9 text-xs font-medium rounded-md transition-colors ${
-                  bulkBudgetMode === 'percent_up' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-                }`}
+                role="tab"
+                aria-selected={bulkBudgetMode === 'percent_up'}
+                className={cn('min-h-10 shrink-0 border-b-2 px-1 text-xs font-medium transition-colors', bulkBudgetMode === 'percent_up' ? 'border-brand-cyan text-brand-cyan' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 onClick={() => { setBulkBudgetMode('percent_up'); setBulkBudgetValue('20') }}
               >
                 Aumentar (%)
               </button>
               <button
                 type="button"
-                className={`h-9 text-xs font-medium rounded-md transition-colors ${
-                  bulkBudgetMode === 'percent_down' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-                }`}
+                role="tab"
+                aria-selected={bulkBudgetMode === 'percent_down'}
+                className={cn('min-h-10 shrink-0 border-b-2 px-1 text-xs font-medium transition-colors', bulkBudgetMode === 'percent_down' ? 'border-brand-cyan text-brand-cyan' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 onClick={() => { setBulkBudgetMode('percent_down'); setBulkBudgetValue('20') }}
               >
                 Reduzir (%)
               </button>
               <button
                 type="button"
-                className={`h-9 text-xs font-medium rounded-md transition-colors ${
-                  bulkBudgetMode === 'fixed' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-                }`}
+                role="tab"
+                aria-selected={bulkBudgetMode === 'fixed'}
+                className={cn('min-h-10 shrink-0 border-b-2 px-1 text-xs font-medium transition-colors', bulkBudgetMode === 'fixed' ? 'border-brand-cyan text-brand-cyan' : 'border-transparent text-muted-foreground hover:text-foreground')}
                 onClick={() => { setBulkBudgetMode('fixed'); setBulkBudgetValue('100') }}
               >
                 Definir valor
@@ -1670,14 +1768,30 @@ export function CampaignTree({
               </label>
               <input
                 type="number"
-                min="1"
+                min={bulkBudgetMode === 'fixed' ? TIKTOK_MIN_BUDGET : 1}
                 step="1"
                 id="campaign-bulk-budget"
                 value={bulkBudgetValue}
                 onChange={(e) => setBulkBudgetValue(e.target.value)}
                 className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold tabular-nums text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
+              {bulkBudgetMode === 'fixed' ? <p className="mt-1.5 text-xs text-muted-foreground">Mínimo aceito: {fmtMoney(TIKTOK_MIN_BUDGET, currency)} por orçamento.</p> : null}
             </div>
+
+            {bulkBudgetImpact.length > 0 ? (
+              <div className="mb-5 border-y border-border/50 py-3">
+                <p className="text-xs font-semibold text-foreground">Impacto antes de salvar</p>
+                <div className="mt-2 divide-y divide-border/40">
+                  {bulkBudgetImpact.map((item) => (
+                    <div key={item.label} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
+                      <span className="text-xs font-medium tabular-nums text-foreground">{item.before} → {item.after}</span>
+                    </div>
+                  ))}
+                </div>
+                {bulkBudgetImpact.some((item) => item.delta > 0) ? <p className="mt-2 text-xs leading-relaxed text-warning">Este ajuste aumenta o potencial de gasto das campanhas selecionadas. Revise os valores antes de aplicar.</p> : null}
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2">
               <button
@@ -1692,7 +1806,7 @@ export function CampaignTree({
                 type="button"
                 className="btn-primary text-xs font-semibold px-4 py-2"
                 onClick={applyBulkBudget}
-                disabled={bulkBudgetBusy}
+                disabled={bulkBudgetBusy || !bulkBudgetValueValid}
               >
                 {bulkBudgetBusy ? (
                   <>
@@ -1700,7 +1814,7 @@ export function CampaignTree({
                     Aplicando...
                   </>
                 ) : (
-                  'Salvar orçamentos'
+                  bulkBudgetMode === 'percent_up' ? 'Aplicar aumento' : bulkBudgetMode === 'percent_down' ? 'Aplicar redução' : 'Salvar orçamentos'
                 )}
               </button>
             </div>

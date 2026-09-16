@@ -45,6 +45,7 @@ function pct(part, total) {
 function buildOverviewHealth(input) {
   input = input || {};
   const snapshot = input.snapshot || {};
+  const facts = input.facts && typeof input.facts === 'object' ? input.facts : null;
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
   const leads = (Array.isArray(snapshot.leads) ? snapshot.leads : []).filter((lead) => lead && !lead.orphan);
   const orphanLeads = (Array.isArray(snapshot.leads) ? snapshot.leads : []).filter(
@@ -58,24 +59,39 @@ function buildOverviewHealth(input) {
     ['sale', 'failed', 'refund', 'dispute'].includes(String(event && event.type || ''))
   );
   const saleEvents = paymentEvents.filter((event) => event.type === 'sale');
-  const trackedPurchases = leads.filter((lead) => lead.stage === 'purchased').length;
-  const orphanPurchases = orphanLeads.length;
-  const purchaseBase = Math.max(saleEvents.length, trackedPurchases + orphanPurchases);
-  const attributedVisits = leads.filter((lead) => lead.linkSlug || campaignOf(lead)).length;
-  const knownCountryVisits = leads.filter((lead) => lead.country).length;
+  const leadsTotal = facts ? Number(facts.leads_total) || 0 : leads.length;
+  const trackedPurchases = facts ? Number(facts.tracked_purchases) || 0 : leads.filter((lead) => lead.stage === 'purchased').length;
+  const orphanPurchases = facts ? Number(facts.orphan_purchases) || 0 : orphanLeads.length;
+  const saleEventCount = facts ? Number(facts.sale_events) || 0 : saleEvents.length;
+  const purchaseBase = Math.max(saleEventCount, trackedPurchases + orphanPurchases);
+  const attributedVisits = facts ? Number(facts.attributed_visits) || 0 : leads.filter((lead) => lead.linkSlug || campaignOf(lead)).length;
+  const knownCountryVisits = facts ? Number(facts.country_visits) || 0 : leads.filter((lead) => lead.country).length;
 
   const hostMap = new Map();
-  for (const lead of leads) {
-    let sites = Array.isArray(lead.sites) ? lead.sites : [];
-    if (!sites.length && lead.site) sites = [{ host: lead.site, hits: 1, lastAt: lead.lastSeen || lead.at }];
-    for (const site of sites) {
-      const host = cleanHost(site && site.host);
+  if (facts && Array.isArray(facts.hosts)) {
+    for (const item of facts.hosts) {
+      const host = cleanHost(item && item.host);
       if (!host) continue;
       const row = hostMap.get(host) || { host, visits: 0, lastAt: null, pixels: new Set() };
-      row.visits += Math.max(1, Number(site && site.hits) || 1);
-      row.lastAt = latest([row.lastAt, site && site.lastAt, lead.lastSeen, lead.at]);
-      if (lead.pixelSlug) row.pixels.add(String(lead.pixelSlug));
+      row.visits += Math.max(1, Number(item && item.visits) || 1);
+      row.lastAt = latest([row.lastAt, item && (item.last_at || item.lastAt)]);
+      const sourcePixels = Array.isArray(item && item.pixels) ? item.pixels : [];
+      sourcePixels.filter(Boolean).forEach((pixel) => row.pixels.add(String(pixel)));
       hostMap.set(host, row);
+    }
+  } else {
+    for (const lead of leads) {
+      let sites = Array.isArray(lead.sites) ? lead.sites : [];
+      if (!sites.length && lead.site) sites = [{ host: lead.site, hits: 1, lastAt: lead.lastSeen || lead.at }];
+      for (const site of sites) {
+        const host = cleanHost(site && site.host);
+        if (!host) continue;
+        const row = hostMap.get(host) || { host, visits: 0, lastAt: null, pixels: new Set() };
+        row.visits += Math.max(1, Number(site && site.hits) || 1);
+        row.lastAt = latest([row.lastAt, site && site.lastAt, lead.lastSeen, lead.at]);
+        if (lead.pixelSlug) row.pixels.add(String(lead.pixelSlug));
+        hostMap.set(host, row);
+      }
     }
   }
 
@@ -118,7 +134,7 @@ function buildOverviewHealth(input) {
       '/funnel?orphan=1'
     );
   }
-  if (leads.length >= 10 && attributedVisits / leads.length < 0.5) {
+  if (leadsTotal >= 10 && attributedVisits / leadsTotal < 0.5) {
     addAction(
       'attribution',
       'warning',
@@ -139,8 +155,8 @@ function buildOverviewHealth(input) {
     );
   }
 
-  const lastTrafficAt = latest(leads.flatMap((lead) => [lead.lastSeen, lead.at]));
-  const lastPaymentAt = latest(paymentEvents.map((event) => event.at));
+  const lastTrafficAt = facts ? latest([facts.last_traffic_at]) : latest(leads.flatMap((lead) => [lead.lastSeen, lead.at]));
+  const lastPaymentAt = facts ? latest([facts.last_payment_at]) : latest(paymentEvents.map((event) => event.at));
   const lastDataAt = latest([snapshot.updatedAt, lastTrafficAt, lastPaymentAt]);
   const critical = actions.filter((action) => action.severity === 'critical').length;
   const warnings = actions.filter((action) => action.severity === 'warning').length;
@@ -153,7 +169,7 @@ function buildOverviewHealth(input) {
       lastTrafficAt,
       lastPaymentAt,
       pollSeconds: 12,
-      timezone: 'America/Sao_Paulo'
+      timezone: String(input.timeZone || 'America/Sao_Paulo')
     },
     setup: {
       links: { total: links.length, active: activeLinks.length },
@@ -170,8 +186,8 @@ function buildOverviewHealth(input) {
         orphan: orphanPurchases,
         rate: pct(Math.min(trackedPurchases, purchaseBase), purchaseBase)
       },
-      attribution: { total: leads.length, identified: attributedVisits, rate: pct(attributedVisits, leads.length) },
-      geography: { total: leads.length, identified: knownCountryVisits, rate: pct(knownCountryVisits, leads.length) },
+      attribution: { total: leadsTotal, identified: attributedVisits, rate: pct(attributedVisits, leadsTotal) },
+      geography: { total: leadsTotal, identified: knownCountryVisits, rate: pct(knownCountryVisits, leadsTotal) },
       hosts: { total: hosts.length, uncovered: uncoveredHosts.length, items: hosts.slice(0, 12) }
     },
     actions: actions.slice(0, 8)

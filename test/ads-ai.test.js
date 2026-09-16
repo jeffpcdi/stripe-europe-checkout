@@ -5,6 +5,7 @@
 // D. budgetProposal — guardas: teto global, mín. 2 vendas, ±30%, exclusões
 // Nenhum teste toca rede/Neon/IA: cache e atribuição são stubs.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-ai-');
 const fs = require('fs');
 const path = require('path');
 

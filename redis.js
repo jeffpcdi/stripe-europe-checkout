@@ -44,14 +44,20 @@ const TTL = {
 };
 
 // ── Presença ao vivo ───────────────────────────────────────────────────────
-// Cada visitante tem uma chave "presence:<id>" com TTL de 60s.
-// O heartbeat chama touchPresence() a cada ~12s, renovando o TTL.
-// list() faz SCAN + MGET — rápido para ≤ 500 visitantes simultâneos.
+// V16.12: chaves namespaced por conta: presence:<accountId>:<visitorId>.
+// Chaves antigas presence:<visitorId> expiram naturalmente em 60s; não são
+// lidas para não reintroduzir mistura entre tenants durante a transição.
+function presencePrefix(accountId) {
+  return 'presence:' + encodeURIComponent(String(accountId || '')) + ':';
+}
+function presenceKey(accountId, id) {
+  return presencePrefix(accountId) + encodeURIComponent(String(id || ''));
+}
 
-async function touchPresence(id, data) {
+async function touchPresence(accountId, id, data) {
   if (!enabled || !id) return false;
   try {
-    await redis.set('presence:' + id, JSON.stringify(data), { ex: TTL.presence });
+    await redis.set(presenceKey(accountId, id), JSON.stringify(data), { ex: TTL.presence });
     return true;
   } catch (err) {
     console.error('[redis] touchPresence:', err.message);
@@ -59,28 +65,27 @@ async function touchPresence(id, data) {
   }
 }
 
-async function leavePresence(id) {
+async function leavePresence(accountId, id) {
   if (!enabled || !id) return;
-  try { await redis.del('presence:' + id); } catch (_) {}
+  try { await redis.del(presenceKey(accountId, id)); } catch (_) {}
 }
 
-async function listPresence() {
+async function listPresence(accountId) {
   if (!enabled) return null;
   try {
-    // SCAN incremental para não bloquear o servidor Redis
+    const prefix = presencePrefix(accountId);
     let cursor = 0, keys = [];
     do {
-      const [next, batch] = await redis.scan(cursor, { match: 'presence:*', count: 100 });
+      const [next, batch] = await redis.scan(cursor, { match: prefix + '*', count: 100 });
       cursor = Number(next);
       keys = keys.concat(batch);
     } while (cursor !== 0);
     if (!keys.length) return [];
     const values = await redis.mget(...keys);
-    const now = Date.now();
     return values
       .filter(Boolean)
       .map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } })
-      .filter(Boolean)
+      .filter((row) => row && String(row.acc || '') === String(accountId || ''))
       .sort((a, b) => (a.idleMs || 0) - (b.idleMs || 0));
   } catch (err) {
     console.error('[redis] listPresence:', err.message);

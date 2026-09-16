@@ -3,6 +3,7 @@
 // dayparting (janela normal, cruzando meia-noite, autoria de pausa) e
 // não-regressão do contrato das rotas.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-automation-');
 const fs = require('fs');
 const path = require('path');
 
@@ -648,7 +649,7 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.match(routes, /adsOps\.listAuditEvents/, 'GET /ops/audit usa listAuditEvents');
     assert.match(routes, /adsOps\.getAuditEvent/, 'rollback lê o evento pelo id');
     const sync = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
-    assert.match(sync, /automation\.maybeSweep\(accId, scope\.advertiserId\)/, 'tick do sync varre automações 24/7 por advertiser explícito');
+    assert.match(sync, /automation\.maybeSweep\(scope\.accountId, scope\.advertiserId\)/, 'tick do sync varre automações 24/7 por advertiser explícito');
     assert.match(sync, /automation\.noteRecovery/, 'auto-recuperação de conta bloqueada ligada no tick');
     const auto = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
     assert.doesNotMatch(auto, /require\('\.\/ads-sync'\)/, 'sem require circular: automation não importa ads-sync');

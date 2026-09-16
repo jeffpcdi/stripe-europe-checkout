@@ -373,10 +373,19 @@ function profileHasEnabledAutomation(raw) {
   return hasAlerts || hasRules;
 }
 
-function listPersistentAutomationScopes() {
+function inspectPersistentAutomationScopes(validAccountIds) {
   const scopes = new Map();
+  const valid = validAccountIds == null
+    ? null
+    : (validAccountIds instanceof Set ? validAccountIds : new Set(validAccountIds));
+  let configAccounts = 0;
+  let skippedOrphanAccounts = 0;
+  let skippedOrphanScopes = 0;
+
   for (const accountId of config.accountIds()) {
+    configAccounts += 1;
     const state = provider.getState(accountId);
+    const candidates = new Map();
     const profiles = state.automationProfiles && typeof state.automationProfiles === 'object'
       ? state.automationProfiles
       : {};
@@ -385,12 +394,10 @@ function listPersistentAutomationScopes() {
       const advertiserId = cleanAdvertiserId(rawAdvertiserId);
       if (!advertiserId || advertiserId === '__default__') continue;
       if (!profileHasEnabledAutomation(rawProfile)) continue;
-      scopes.set(accountId + ':' + advertiserId, { accountId, advertiserId });
+      candidates.set(accountId + ':' + advertiserId, { accountId, advertiserId });
     }
 
     // Compatibilidade com configurações anteriores aos perfis por advertiser.
-    // O legado só é elegível quando há um advertiser concreto salvo; ao abrir
-    // a dashboard, getAutomationProfile() continua responsável pela migração.
     const legacyAdvertiserId = cleanAdvertiserId(state.advertiserId);
     const hasLegacy = Array.isArray(state.rules)
       || (state.alerts && typeof state.alerts === 'object');
@@ -401,14 +408,31 @@ function listPersistentAutomationScopes() {
         autonomy: state.autonomy,
       };
       if (profileHasEnabledAutomation(rawLegacy)) {
-        scopes.set(accountId + ':' + legacyAdvertiserId, {
+        candidates.set(accountId + ':' + legacyAdvertiserId, {
           accountId,
           advertiserId: legacyAdvertiserId,
         });
       }
     }
+
+    if (valid && !valid.has(accountId)) {
+      if (candidates.size > 0) skippedOrphanAccounts += 1;
+      skippedOrphanScopes += candidates.size;
+      continue;
+    }
+    for (const [key, scope] of candidates) scopes.set(key, scope);
   }
-  return [...scopes.values()];
+
+  return {
+    scopes: [...scopes.values()],
+    configAccounts,
+    skippedOrphanAccounts,
+    skippedOrphanScopes,
+  };
+}
+
+function listPersistentAutomationScopes(validAccountIds) {
+  return inspectPersistentAutomationScopes(validAccountIds).scopes;
 }
 
 function revisionConflict(current) {
@@ -3215,6 +3239,7 @@ module.exports = {
   getAutomationSnapshot,
   getEngineStatus,
   listPersistentAutomationScopes,
+  inspectPersistentAutomationScopes,
   getAlertCfg,
   getRules,
   getRulesLog,

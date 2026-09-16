@@ -10,7 +10,9 @@ const redis = require('./redis');
 //   2. em arquivo local (snapshot de fallback, um mapa com todas as contas).
 // A chave 'main' é o legado pré-multi-tenant; claimLegacyData() a converte
 // para a conta do primeiro admin no registro.
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'config.json');
 const LEGACY_KEY = 'main';
 

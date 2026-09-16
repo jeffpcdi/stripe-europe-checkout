@@ -1,36 +1,41 @@
 // ── Presença ao vivo (quem está navegando AGORA) ─────────────────────────
-// Mapa em memória keyed por visitor id (rápido, tempo real). Cada página do
-// funil envia um "heartbeat" a cada ~12s. Consideramos online quem foi visto
-// nos últimos ONLINE_WINDOW ms.
-// Camada durável dupla:
-//   1. Upstash Redis — presença com TTL de 60s (sobrevive a restarts, ~1ms)
-//   2. Neon — histórico de sessões para analytics
-const db    = require('./db');
-const rdb   = require('./redis');
+// V16.12: a identidade de sessão é SEMPRE (accountId + visitorId). Isso vale
+// para memória, Upstash e Neon; visitorId sozinho nunca atravessa tenants.
+const db  = require('./db');
+const rdb = require('./redis');
 
 const ONLINE_WINDOW = 35 * 1000; // 35s sem heartbeat = offline
 const DB_WRITE_INTERVAL = 60 * 1000; // grava no Neon no máx. 1x/min por sessão
-const live = new Map();          // visitorId -> sessão
+const live = new Map(); // `${accountId}\x1f${visitorId}` -> sessão
+
+function normalizeAccountId(accountId) {
+  return String(accountId || '');
+}
+
+function sessionKey(accountId, visitorId) {
+  return normalizeAccountId(accountId) + '\x1f' + String(visitorId || '');
+}
 
 // Registra/atualiza um heartbeat de um visitante.
 function touch(data) {
   data = data || {};
   const id = data.visitorId;
   if (!id) return null;
+  const acc = normalizeAccountId(data.acc);
+  const key = sessionKey(acc, id);
   const now = Date.now();
-  let s = live.get(id);
+  let s = live.get(key);
   if (!s) {
     s = {
       visitorId: id,
-      acc: data.acc || null, // conta dona (multi-tenant)
+      acc,
       firstSeen: now,
       pageviews: 0,
       country: null, countryName: null, city: null,
       page: null, referrer: null, ua: null, ip: null, variant: null
     };
-    live.set(id, s);
+    live.set(key, s);
   }
-  if (data.acc && !s.acc) s.acc = data.acc;
   // atualiza campos (mantém geo já conhecido se não vier)
   let pageChanged = false;
   if (data.page) { if (data.page !== s.page) { s.pageviews++; pageChanged = true; } s.page = data.page; }
@@ -44,53 +49,50 @@ function touch(data) {
   s.lastSeen = now;
   if (!s.pageviews) s.pageviews = 1;
 
-  // Upstash Redis: renova TTL de 60s a cada heartbeat (~12s) — sobrevive
-  // a restarts do servidor sem perder quem está online agora.
   const redisPayload = {
-    id: s.visitorId, acc: s.acc || null, page: s.page, referrer: s.referrer,
+    id: s.visitorId, acc: s.acc, page: s.page, referrer: s.referrer,
     country: s.country, countryName: s.countryName, city: s.city,
     variant: s.variant, ua: s.ua, pageviews: s.pageviews,
     durationMs: now - s.firstSeen, idleMs: 0
   };
-  rdb.touchPresence(s.visitorId, redisPayload); // non-blocking
+  rdb.touchPresence(s.acc, s.visitorId, redisPayload); // non-blocking
 
-  // Neon: grava apenas na 1ª vez, mudança de página ou a cada DB_WRITE_INTERVAL
+  // Neon: grava apenas na 1ª vez, mudança de página ou a cada intervalo.
   if (!s._lastDbWrite || pageChanged || (now - s._lastDbWrite) >= DB_WRITE_INTERVAL) {
     s._lastDbWrite = now;
-    db.upsertSession(s.acc || null, s);
+    db.upsertSession(s.acc, s);
   }
   return s;
 }
 
-// Marca saída imediata (beacon no unload/visibilitychange).
-function leave(id) {
+// Marca saída imediata (beacon no unload/visibilitychange), sempre por conta.
+function leave(accountId, id) {
   if (!id) return;
-  live.delete(id);
-  rdb.leavePresence(id); // remove do Redis imediatamente
+  const acc = normalizeAccountId(accountId);
+  live.delete(sessionKey(acc, id));
+  rdb.leavePresence(acc, id); // remove somente a sessão daquele tenant
 }
 
 // Remove sessões expiradas do mapa em memória.
 function prune() {
   const cut = Date.now() - ONLINE_WINDOW;
-  for (const [id, s] of live) {
-    if (s.lastSeen < cut) live.delete(id);
+  for (const [key, s] of live) {
+    if (s.lastSeen < cut) live.delete(key);
   }
 }
 
 // Lista de visitantes online agora (ordenada por mais recente).
-// Retorna Promise quando Redis está ativo (dados mesclados), array síncrono
-// quando só há memória local. O caller (server.js /api/live) usa await.
 async function list(accountId) {
   prune();
   const now = Date.now();
+  const acc = normalizeAccountId(accountId);
 
-  // mapa local (sempre disponível, mais fresco)
   const localMap = new Map();
   for (const s of live.values()) {
-    if (accountId && s.acc !== accountId) continue; // isola contas
+    if (s.acc !== acc) continue;
     localMap.set(s.visitorId, {
       id: s.visitorId,
-      acc: s.acc || null,
+      acc: s.acc,
       page: s.page,
       referrer: s.referrer,
       country: s.country,
@@ -104,13 +106,13 @@ async function list(accountId) {
     });
   }
 
-  // Redis: acrescenta quem sobreviveu a um restart (não está em memória local)
+  // Upstash já escaneia APENAS o namespace da conta, evitando SCAN global.
   if (rdb.enabled) {
     try {
-      const redisRows = await rdb.listPresence();
+      const redisRows = await rdb.listPresence(acc);
       if (redisRows) {
         for (const r of redisRows) {
-          if (accountId && r.acc !== accountId) continue; // isola contas
+          if (r.acc !== acc) continue; // defesa em profundidade
           if (r.id && !localMap.has(r.id)) localMap.set(r.id, r);
         }
       }
@@ -120,12 +122,9 @@ async function list(accountId) {
   return [...localMap.values()].sort((a, b) => (a.idleMs || 0) - (b.idleMs || 0));
 }
 
-// Resumo por país (para o globo) + contagem total.
 async function summary(accountId) {
   const rows = await list(accountId);
   const byCountry = {};
-  // Item 226: presença por entrada do funil (qual /go ou /c está com gente agora).
-  // Deriva a entrada do path da página: /go/:slug e /c/:slug; senão usa o path.
   const byEntry = {};
   rows.forEach((r) => {
     if (r.country) {
@@ -150,4 +149,4 @@ async function summary(accountId) {
   };
 }
 
-module.exports = { touch, leave, prune, list, summary };
+module.exports = { touch, leave, prune, list, summary, sessionKey };

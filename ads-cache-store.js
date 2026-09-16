@@ -14,11 +14,17 @@
 //   - @neondatabase/serverless com tagged-template `sql`;
 //   - ensureSchema() idempotente (CREATE TABLE IF NOT EXISTS), chamado no boot;
 //   - multi-tenant: toda linha carrega account_id.
-const { neon } = require('@neondatabase/serverless');
-
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
-const sql = (!isPlaceholder && URL) ? neon(URL) : null;
+let neon = null;
+if (!isPlaceholder && URL) {
+  try { ({ neon } = require('@neondatabase/serverless')); }
+  catch (err) {
+    err.message = 'DATABASE_URL está configurada, mas @neondatabase/serverless não está instalado: ' + err.message;
+    throw err;
+  }
+}
+const sql = neon ? neon(URL) : null;
 const enabled = !!sql;
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
@@ -486,11 +492,52 @@ async function listActiveAdvertisers(sinceMinutes) {
   await ensureSchema();
   const mins = Math.max(1, Math.min(10080, Number(sinceMinutes) || 1440));
   const rows = await sql`
-    SELECT account_id, advertiser_id, last_synced_at, status
-    FROM ads_sync_state
-    WHERE requested_at IS NOT NULL AND requested_at > now() - make_interval(mins => ${mins})
-    ORDER BY last_synced_at ASC NULLS FIRST`;
+    SELECT s.account_id, s.advertiser_id, s.last_synced_at, s.status
+    FROM ads_sync_state s
+    INNER JOIN accounts a ON a.id = s.account_id
+    WHERE s.requested_at IS NOT NULL AND s.requested_at > now() - make_interval(mins => ${mins})
+    ORDER BY s.last_synced_at ASC NULLS FIRST`;
   return rows.map((r) => ({ accountId: r.account_id, advertiserId: r.advertiser_id, lastSyncedAt: r.last_synced_at, status: r.status }));
+}
+
+// Quantifica atividade recente órfã sem devolvê-la ao worker. Usado somente
+// para telemetria: resíduos antigos permanecem auditáveis, mas geram zero I/O.
+async function countOrphanActiveAdvertisers(sinceMinutes) {
+  if (!enabled) return 0;
+  await ensureSchema();
+  const mins = Math.max(1, Math.min(10080, Number(sinceMinutes) || 1440));
+  const rows = await sql`
+    SELECT count(*)::int AS n
+    FROM ads_sync_state s
+    LEFT JOIN accounts a ON a.id = s.account_id
+    WHERE a.id IS NULL
+      AND s.requested_at IS NOT NULL
+      AND s.requested_at > now() - make_interval(mins => ${mins})`;
+  return Number(rows[0] && rows[0].n) || 0;
+}
+
+async function listOrphanSyncStates(limit) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const n = Math.max(1, Math.min(1000, Number(limit) || 200));
+  return sql`SELECT s.account_id, s.advertiser_id, s.status, s.last_synced_at, s.requested_at, s.updated_at
+    FROM ads_sync_state s
+    LEFT JOIN accounts a ON a.id = s.account_id
+    WHERE a.id IS NULL
+    ORDER BY s.updated_at DESC
+    LIMIT ${n}`;
+}
+
+async function listOrphanAutomationStates(limit) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const n = Math.max(1, Math.min(1000, Number(limit) || 200));
+  return sql`SELECT s.account_id, s.key, s.kind, s.last_fired_at
+    FROM ads_automation_state s
+    LEFT JOIN accounts a ON a.id = s.account_id
+    WHERE a.id IS NULL
+    ORDER BY s.last_fired_at DESC
+    LIMIT ${n}`;
 }
 
 async function listSyncStates(accountId) {
@@ -698,6 +745,9 @@ module.exports = {
   upsertSyncState,
   touchActivity,
   listActiveAdvertisers,
+  countOrphanActiveAdvertisers,
+  listOrphanSyncStates,
+  listOrphanAutomationStates,
   listSyncStates,
   classifyEntity,
   classifyEntities,

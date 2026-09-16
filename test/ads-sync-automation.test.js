@@ -2,6 +2,7 @@
 // ciclo mesmo sem touchActivity/requested_at recente e volta após reinício.
 // Tudo usa stubs; nenhuma chamada chega ao Neon, Pipeboard ou TikTok.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-sync-automation-');
 
 const config = require('../config');
 const provider = require('../ads-provider');
@@ -59,7 +60,8 @@ const persistedStates = {
 config.accountIds = () => Object.keys(persistedStates);
 provider.getState = (accountId) => persistedStates[accountId] || {};
 
-const persistentScopes = automation.listPersistentAutomationScopes()
+const validAccounts = new Set(['acc_rules', 'acc_alerts', 'acc_idle', 'acc_legacy', 'acc_corrupt']);
+const persistentScopes = automation.listPersistentAutomationScopes(validAccounts)
   .map((scope) => scope.accountId + ':' + scope.advertiserId)
   .sort();
 assert.deepStrictEqual(persistentScopes, [
@@ -81,6 +83,7 @@ const paths = {
   ops: require.resolve('../ads-ops-store'),
   automation: require.resolve('../ads-automation'),
   ai: require.resolve('../ads-ai'),
+  db: require.resolve('../db'),
 };
 const previous = new Map(Object.values(paths).map((id) => [id, require.cache[id]]));
 function install(id, exports) {
@@ -114,6 +117,7 @@ install(paths.provider, {
 });
 install(paths.cache, {
   enabled: true,
+  countOrphanActiveAdvertisers: async () => 0,
   listActiveAdvertisers: async () => {
     recentReads += 1;
     // Vazio representa requested_at ausente ou com mais de 6 horas. A última
@@ -132,8 +136,10 @@ install(paths.cache, {
 });
 install(paths.pipeboard, { getCallStats: () => ({ total: 0 }) });
 install(paths.ops, { syncAdRejections: async () => {} });
+install(paths.db, { listAccountIds: async () => ['acc_24h'] });
 install(paths.automation, {
   listPersistentAutomationScopes: () => [{ accountId: 'acc_24h', advertiserId: 'adv_24h' }],
+  inspectPersistentAutomationScopes: () => ({ scopes: [{ accountId: 'acc_24h', advertiserId: 'adv_24h' }], skippedOrphanAccounts: 0 }),
   maybeSweep: (accountId, advertiserId) => {
     assert.strictEqual(accountId, 'acc_24h');
     assert.strictEqual(advertiserId, 'adv_24h');
@@ -150,18 +156,14 @@ install(paths.ai, {
 (async () => {
   delete require.cache[paths.sync];
   const firstProcess = require('../ads-sync');
-  assert.deepStrictEqual(
-    firstProcess.getRuntimeStatus(),
-    {
-      started: false,
-      running: false,
-      lastTickStartedAt: null,
-      lastTickCompletedAt: null,
-      lastTickError: null,
-      intervalMs: firstProcess._config.SYNC_INTERVAL_MS,
-    },
-    'processo novo não reaproveita heartbeat de outro runtime',
-  );
+  const initialRuntime = firstProcess.getRuntimeStatus();
+  assert.strictEqual(initialRuntime.started, false, 'processo novo começa sem timer');
+  assert.strictEqual(initialRuntime.running, false, 'processo novo não herda execução');
+  assert.strictEqual(initialRuntime.lastTickStartedAt, null, 'processo novo não reaproveita início de tick');
+  assert.strictEqual(initialRuntime.lastTickCompletedAt, null, 'processo novo não reaproveita conclusão');
+  assert.strictEqual(initialRuntime.lastTickError, null, 'processo novo não reaproveita erro');
+  assert.strictEqual(initialRuntime.targetsEligible, 0, 'telemetria também nasce zerada');
+  assert.strictEqual(initialRuntime.intervalMs, firstProcess._config.SYNC_INTERVAL_MS);
   await firstProcess.tick();
   const firstRuntime = firstProcess.getRuntimeStatus();
   assert.ok(firstRuntime.lastTickStartedAt, 'tick registra início real');

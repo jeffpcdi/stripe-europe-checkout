@@ -13,6 +13,7 @@ import {
   useAdsCampaignDecisions,
   useAccountSettings,
   useOverviewHealth,
+  useOverviewAnalytics,
 } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { aggregate, periodStart, prevWindow } from '@/lib/metrics'
@@ -70,6 +71,11 @@ export function OverviewView() {
   const afterFirstPaint = useAfterFirstPaint()
   const { data: accountSettings } = useAccountSettings(afterFirstPaint)
   const accountTimeZone = accountSettings?.timezone || 'America/Sao_Paulo'
+  const {
+    data: overviewAnalytics,
+    error: overviewAnalyticsError,
+    mutate: mutateOverviewAnalytics,
+  } = useOverviewAnalytics(period, accountTimeZone, true)
   const { data: adsStatus, error: adsError, mutate: mutateAdsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
@@ -103,14 +109,14 @@ export function OverviewView() {
     return adsTree.campaigns
       .map((c) => {
         const campaignId = String(c.platformCampaignId || '')
-        const spend = c.metrics?.spend ?? 0
+        const spend = typeof c.metrics?.spend === 'number' && Number.isFinite(c.metrics.spend) ? c.metrics.spend : null
         const decision = campaignDecisions?.byCampaign?.[campaignId]
         const sales = decision ? Number(decision.sales) || 0 : null
         const revenueCents = decision ? Number(decision.revenueCents) || 0 : null
         const decisionCurrency = String(decision?.currency || adCurrency || 'BRL').toUpperCase()
         const comparableCurrency = !adCurrency || decisionCurrency === adCurrency
-        const cpa = sales != null && sales > 0 && spend > 0 ? spend / sales : null
-        const campaignRoas = revenueCents != null && spend > 0 && comparableCurrency
+        const cpa = sales != null && sales > 0 && spend != null && spend > 0 ? spend / sales : null
+        const campaignRoas = revenueCents != null && spend != null && spend > 0 && comparableCurrency
           ? (revenueCents / 100) / spend
           : null
         return {
@@ -125,7 +131,7 @@ export function OverviewView() {
           roas: campaignRoas,
         }
       })
-      .sort((a, b) => (b.sales ?? -1) - (a.sales ?? -1) || (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || b.spend - a.spend)
+      .sort((a, b) => (b.sales ?? -1) - (a.sales ?? -1) || (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || (b.spend ?? -1) - (a.spend ?? -1))
       .slice(0, 5)
   }, [adsTree?.campaigns, campaignDecisions?.byCampaign, roas?.currency, adsStatus?.currency])
 
@@ -154,6 +160,7 @@ export function OverviewView() {
     try {
       await Promise.all([
         mutateStats(),
+        mutateOverviewAnalytics(),
         mutateAdsStatus(),
         mutateRoas(),
         mutateProfitability(),
@@ -168,17 +175,23 @@ export function OverviewView() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [mutateStats, mutateAdsStatus, mutateRoas, mutateProfitability, mutateAdsTree, mutateDecisions, mutateEmq, mutateHealth])
+  }, [mutateStats, mutateOverviewAnalytics, mutateAdsStatus, mutateRoas, mutateProfitability, mutateAdsTree, mutateDecisions, mutateEmq, mutateHealth])
 
   // Métricas do período ATUAL e ANTERIOR
-  const { cur, prev } = useMemo(() => {
-    if (!data) return { cur: null, prev: null }
+  const { cur, prev, durableOverview } = useMemo(() => {
+    if (overviewAnalytics?.complete) {
+      return { cur: overviewAnalytics.current, prev: overviewAnalytics.previous, durableOverview: true }
+    }
+    // Enquanto o agregado durável está carregando, não exibir números derivados
+    // do snapshot truncado. O snapshot só vira fallback se o Neon falhar.
+    if (!overviewAnalyticsError) return { cur: null, prev: null, durableOverview: false }
+    if (!data) return { cur: null, prev: null, durableOverview: false }
     const now = new Date()
     const curMetrics = aggregate(data, periodStart(period, now, accountTimeZone), now, accountTimeZone)
     const pw = prevWindow(period, now, accountTimeZone)
     const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo, accountTimeZone) : null
-    return { cur: curMetrics, prev: prevMetrics }
-  }, [data, period, accountTimeZone, calendarTick])
+    return { cur: curMetrics, prev: prevMetrics, durableOverview: false }
+  }, [overviewAnalytics, data, period, accountTimeZone, calendarTick])
 
 
   // Estado de Erro
@@ -231,6 +244,11 @@ export function OverviewView() {
     .filter(([c, v]) => c !== cur.mainCur && v > 0)
     .sort((a, b) => b[1] - a[1])
 
+  const showingTikTokCampaigns = campaignTab === 'tiktok' && adsConnected && tikTokCampaigns.length > 0
+  const campaignDrilldownHref = showingTikTokCampaigns ? '/ads/tiktok' : '/activity'
+  const campaignDrilldownLabel = showingTikTokCampaigns ? 'Abrir TikTok Ads' : 'Abrir atividade'
+  const healthIssueCount = overviewHealth?.actions?.length ?? 0
+
   const globePurchases: GlobePurchase[] = (data?.leads ?? [])
     .flatMap((lead) => {
       const at = lead.convertedAt || lead.purchasedAt || (lead.stage === 'purchased' ? lead.at : null)
@@ -250,7 +268,7 @@ export function OverviewView() {
       }`}
     >
       {/* Métricas e presença compartilham a composição, não a janela de dados. */}
-      {(error || roasError || profitabilityError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      {(error || overviewAnalyticsError || roasError || profitabilityError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
       <HeroGlobe
         focusCode={focusCountry}
         purchases={globePurchases}
@@ -270,7 +288,7 @@ export function OverviewView() {
           profitability,
           adsError: Boolean(roasError || profitabilityError),
           allPeriod: period === 'all',
-          series: data && otherRev.length > 0
+          series: !durableOverview && data && otherRev.length > 0
           ? aggregate({ ...data, events: data.events.filter(event => (event.currency || 'BRL').toUpperCase() === cur.mainCur) }, periodStart(period, new Date(), accountTimeZone), new Date(), accountTimeZone).series
           : cur.series,
         }}
@@ -288,7 +306,7 @@ export function OverviewView() {
           payment={cur.paymentStarted}
           purchased={cur.purchased}
         />
-        <LiveFeed leads={data?.leads ?? []} />
+        <LiveFeed leads={data?.leads ?? []} timeZone={accountTimeZone} />
       </section>
 
       {/* ── SEÇÃO 4: MOSTRADORES DE DESEMPENHO E SAÚDE ──────────────────── */}
@@ -324,12 +342,12 @@ export function OverviewView() {
                 </div>
               )}
             </div>
-            <Link href="/ads/tiktok" className="overview-campaign-view-all">
+            <Link href={campaignDrilldownHref} className="overview-campaign-view-all" aria-label={campaignDrilldownLabel}>
               Ver tudo <ArrowUpRight className="size-3" aria-hidden="true" />
             </Link>
           </div>
 
-          {campaignTab === 'tiktok' && adsConnected && tikTokCampaigns.length > 0 ? (
+          {showingTikTokCampaigns ? (
             <div className="overview-campaign-table" role="table" aria-label="Campanhas do TikTok Ads">
               <div className="overview-campaign-table-head overview-campaign-grid overview-campaign-grid--tiktok" role="row">
                 <span role="columnheader">Campanha</span>
@@ -350,11 +368,11 @@ export function OverviewView() {
                           {isActive ? 'Ativa' : 'Pausada'}
                         </span>
                       </div>
-                      <span className="overview-campaign-value" role="cell">{fmtAdsMoney(c.spend, roas?.currency || 'BRL')}</span>
+                      <span className="overview-campaign-value" role="cell">{c.spend == null ? '—' : fmtAdsMoney(c.spend, roas?.currency || 'BRL')}</span>
                       <span className="overview-campaign-value" role="cell">{c.sales == null ? '—' : c.sales}</span>
                       <span className="overview-campaign-value" role="cell">{c.cpa !== null ? fmtAdsMoney(c.cpa, roas?.currency || 'BRL') : '—'}</span>
                       <span className="overview-campaign-value overview-campaign-roas" role="cell">
-                        {c.roas !== null && c.roas > 0 ? `${c.roas.toFixed(2).replace('.', ',')}x` : '—'}
+                        {c.roas !== null ? `${c.roas.toFixed(2).replace('.', ',')}x` : '—'}
                       </span>
                     </div>
                   )
@@ -441,8 +459,13 @@ export function OverviewView() {
 
         {/* Dados */}
         <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
-          <div className="overview-insight-heading">
+          <div className="overview-insight-heading overview-data-heading">
             <span className="text-sm font-semibold text-foreground">Dados</span>
+            {overviewHealth ? (
+              <span className="overview-health-state" data-state={overviewHealth.status}>
+                {healthIssueCount > 0 ? `${healthIssueCount} ${healthIssueCount === 1 ? 'pendência' : 'pendências'}` : 'Operação estável'}
+              </span>
+            ) : null}
           </div>
 
           <div className="my-auto space-y-3 py-2">
@@ -452,11 +475,23 @@ export function OverviewView() {
               alerts={emqSummary?.alerts ?? 0}
             />
             {overviewHealth ? (
-              <div className="overview-data-coverage">
-                <span><small>Compras rastreadas</small><strong>{overviewHealth.coverage.purchases.rate == null ? '—' : `${overviewHealth.coverage.purchases.rate}%`}</strong></span>
-                <span><small>Origem identificada</small><strong>{overviewHealth.coverage.attribution.rate == null ? '—' : `${overviewHealth.coverage.attribution.rate}%`}</strong></span>
-              </div>
-            ) : null}
+              <>
+                <div className="overview-data-coverage">
+                  <span><small>Compras rastreadas</small><strong>{overviewHealth.coverage.purchases.rate == null ? '—' : `${overviewHealth.coverage.purchases.rate}%`}</strong></span>
+                  <span><small>Origem identificada</small><strong>{overviewHealth.coverage.attribution.rate == null ? '—' : `${overviewHealth.coverage.attribution.rate}%`}</strong></span>
+                </div>
+                {overviewHealth.actions?.[0] ? (
+                  <Link href={overviewHealth.actions[0].href} className="overview-data-action" data-severity={overviewHealth.actions[0].severity}>
+                    <span>{overviewHealth.actions[0].title}</span>
+                    <ArrowUpRight size={13} aria-hidden="true" />
+                  </Link>
+                ) : null}
+              </>
+            ) : overviewHealthError ? (
+              <button type="button" className="overview-data-action" onClick={() => void mutateHealth()}>Saúde dos dados indisponível · tentar novamente</button>
+            ) : (
+              <span className="overview-data-loading">Verificando cobertura…</span>
+            )}
           </div>
         </GlassCard>
       </section>

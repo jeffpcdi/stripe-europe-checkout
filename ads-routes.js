@@ -295,7 +295,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/ops/audit', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      res.json({ enabled: adsOps.enabled, events: await adsOps.listAuditEvents(req.account.id, req.query.limit) });
+      res.json({
+        enabled: adsOps.enabled,
+        events: await adsOps.listAuditEvents(req.account.id, req.query.limit, {
+          advertiserId: req.query.advertiserId,
+          campaignId: req.query.campaignId,
+        }),
+      });
     } catch (err) { fail(res, err); }
   });
 
