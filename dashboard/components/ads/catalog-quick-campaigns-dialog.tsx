@@ -6,6 +6,7 @@ import { creativeFileError } from '@/lib/ads-upload'
 import { MarketSelector, defaultMarket } from './market-selector'
 
 import { Modal } from '@/components/ui/modal'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { MoneyField } from '@/components/ui/money-field'
 
 // Fluxo único: vários criativos, quantidade e orçamento. Pixel, evento de Compra,
@@ -13,7 +14,7 @@ import { MoneyField } from '@/components/ui/money-field'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Loader2, Video, X } from 'lucide-react'
-import { ApiError, adsCatalogApiUrl, apiSend, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
+import { ApiError, adsCatalogApiUrl, apiSend, adsCreateCatalogCampaignBatch, adsPreflightCatalogCampaign, adsUpload, useAdsCatalogIdentities, useAdsSafetyPolicy } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -47,6 +48,7 @@ export function CatalogQuickCampaignsDialog({
   onClose,
   onCreated,
   onAssetsChanged,
+  onLocalWorkStateChange,
 }: {
   catalog: AdsCatalog
   advertiserId: string
@@ -57,6 +59,7 @@ export function CatalogQuickCampaignsDialog({
   onClose: () => void
   onCreated: () => void
   onAssetsChanged?: () => void
+  onLocalWorkStateChange?: (state: { uploading: boolean; pending: number }) => void
 }) {
   const linkedCreatives = useRef(catalog.creatives || [])
   linkedCreatives.current = catalog.creatives || []
@@ -76,12 +79,17 @@ export function CatalogQuickCampaignsDialog({
   const [showVideoSources, setShowVideoSources] = useState(false)
   const [submissionError, setSubmissionError] = useState('')
   const [accepted, setAccepted] = useState('')
+  const [preflight, setPreflight] = useState<Awaited<ReturnType<typeof adsPreflightCatalogCampaign>> | null>(null)
+  const [preflightBusy, setPreflightBusy] = useState(false)
+  const [confirmCreate, setConfirmCreate] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [busy, setBusy] = useState(false)
   const idempotencyKeyRef = useRef<string | null>(null)
+  const { data: safetyData } = useAdsSafetyPolicy(open)
+  const dryRun = safetyData?.policy?.dryRun === true
   const uploadGeneration = useRef(0)
   const uploadLock = useRef(false)
-  const close = useCallback(() => { if (!busy) onClose() }, [busy, onClose])
+  const close = useCallback(() => { if (!busy && !uploading) onClose() }, [busy, onClose, uploading])
   const {
     data: identityData,
     isLoading: identitiesLoading,
@@ -121,6 +129,8 @@ export function CatalogQuickCampaignsDialog({
     setShowVideoSources(false)
     setSubmissionError('')
     setAccepted('')
+    setPreflight(null)
+    setConfirmCreate(false)
     setUploading(false)
     setBusy(false)
     idempotencyKeyRef.current = null
@@ -131,12 +141,18 @@ export function CatalogQuickCampaignsDialog({
   function update<T>(setter: (value: T) => void, value: T) {
     setter(value)
     setSubmissionError('')
+    setPreflight(null)
     idempotencyKeyRef.current = null
   }
 
   const count = onePerCreative ? Math.max(1, creatives.length) : customCount
   const videosReady = creatives.length > 0 && creatives.every((creative) => creative.status === 'ready' && creative.url)
   const readyCount = creatives.filter((creative) => creative.status === 'ready').length
+  const localPendingCount = open ? creatives.filter((creative) => creative.status !== 'ready').length : 0
+  useEffect(() => {
+    onLocalWorkStateChange?.({ uploading: open && uploading, pending: localPendingCount })
+  }, [localPendingCount, onLocalWorkStateChange, open, uploading])
+  useEffect(() => () => onLocalWorkStateChange?.({ uploading: false, pending: 0 }), [onLocalWorkStateChange])
   const unusedCreatives = count < creatives.length
 
   const budgetNumber = Number(String(budget).replace(',', '.'))
@@ -172,36 +188,71 @@ export function CatalogQuickCampaignsDialog({
           ? 'A quantidade deve incluir todos os criativos'
         : ''
 
+  function campaignBody(videoUrl = creatives[0]?.url || '') {
+    return {
+      name: sampleName(1),
+      budgetAmount: budgetNumber,
+      budgetType: 'daily',
+      budgetOptimization: 'adgroup',
+      countries: market.countries,
+      languages: market.languages,
+      bidStrategy,
+      bidAmount: bidStrategy === 'cost_cap' ? bidAmountNumber : undefined,
+      deliveryMode: acceleratedDelivery && bidStrategy === 'cost_cap' ? 'accelerated' : 'standard',
+      productScope: 'all',
+      videoUrl,
+      identityId: selectedIdentity?.identityId,
+      identityType: selectedIdentity?.identityType,
+      identityBcId: selectedIdentity?.identityBcId || selectedIdentity?.bcId,
+      autoActivate: true,
+    }
+  }
+
+  function validateForReview() {
+    if (!countValid) return `Escolha de 1 a ${MAX_COUNT} campanhas`
+    if (!budgetValid) return tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia')
+    if (!bidValid) return 'Informe um CPA alvo maior que zero'
+    if (!videosReady) return 'Conclua o envio de todos os criativos'
+    if (unusedCreatives) return 'Escolha ao menos uma campanha por criativo'
+    return ''
+  }
+
+  async function reviewCreation() {
+    const invalid = validateForReview()
+    if (invalid) return toast.error(invalid)
+    if (busy || uploadLock.current || preflightBusy) return
+    setPreflightBusy(true)
+    setSubmissionError('')
+    try {
+      const result = await adsPreflightCatalogCampaign(catalog.id, advertiserId, campaignBody())
+      setPreflight(result)
+    } catch (error) {
+      setPreflight(null)
+      setSubmissionError(error instanceof ApiError ? error.display : error instanceof Error ? error.message : 'Ainda não é possível criar estas campanhas.')
+    } finally {
+      setPreflightBusy(false)
+    }
+  }
+
   async function create() {
-    if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
-    if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
-    if (!bidValid) return toast.error('Informe um CPA alvo maior que zero')
+    if (!countValid) { toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`); return }
+    if (!budgetValid) { toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia')); return }
+    if (!bidValid) { toast.error('Informe um CPA alvo maior que zero'); return }
     if (busy || uploadLock.current) return
-    if (!videosReady) return toast.error('Conclua o envio de todos os criativos')
-    if (unusedCreatives) return toast.error('Escolha ao menos uma campanha por criativo')
+    if (!videosReady) { toast.error('Conclua o envio de todos os criativos'); return }
+    if (unusedCreatives) { toast.error('Escolha ao menos uma campanha por criativo'); return }
     setBusy(true)
     setSubmissionError('')
     try {
       const result = await adsCreateCatalogCampaignBatch(catalog.id, advertiserId, {
+        ...campaignBody(),
         count,
-        budgetAmount: budgetNumber,
-        budgetType: 'daily',
-        budgetOptimization: 'adgroup',
-        countries: market.countries,
-        languages: market.languages,
-        bidStrategy,
-        bidAmount: bidStrategy === 'cost_cap' ? bidAmountNumber : undefined,
-        deliveryMode: acceleratedDelivery && bidStrategy === 'cost_cap' ? 'accelerated' : 'standard',
-        productScope: 'all',
         videoUrls: creatives.map((creative) => creative.url!),
         namePrefix: effectivePrefix,
-        identityId: selectedIdentity?.identityId,
-        identityType: selectedIdentity?.identityType,
-        identityBcId: selectedIdentity?.identityBcId || selectedIdentity?.bcId,
-        autoActivate: true,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
       })
       idempotencyKeyRef.current = null
+      setConfirmCreate(false)
       if (result.dryRun) {
         toast.info('Modo teste: criação validada sem publicar', { hint: `${result.count ?? count} campanha(s) simulada(s).` })
       } else if (result.waitingForPixel) {
@@ -275,6 +326,7 @@ export function CatalogQuickCampaignsDialog({
       onAssetsChanged?.()
       if (generation !== uploadGeneration.current) return
       idempotencyKeyRef.current = null
+      setPreflight(null)
       setCreatives(current => [...current, { id: randomKey(), name: item.name, url: item.url, status: 'ready' }])
     } catch (error) {
       if (generation === uploadGeneration.current) toast.error('Não foi possível vincular o vídeo', { hint: error instanceof Error ? error.message : undefined })
@@ -284,24 +336,28 @@ export function CatalogQuickCampaignsDialog({
   }
 
   return (
-    <Modal isOpen={open} onClose={close} busy={busy} title="Criar campanhas"
-      description={`${catalog.name} · produtos, criativos e entrega em uma única revisão`} maxWidth="max-w-5xl" className="catalog-compose"
+    <>
+    <Modal isOpen={open} onClose={close} busy={busy || uploading} title="Criar campanhas"
+      description={`${catalog.name} · produtos, criativos e entrega em uma única revisão`} maxWidth="max-w-5xl" className="catalog-compose tiktok-create-flow"
       footer={accepted ? <button type="button" className="btn-primary" onClick={close}>Ver acompanhamento no catálogo</button> : <div className="flex w-full flex-wrap items-center justify-between gap-3">
-        <p className={`text-[11px] ${submitHint || submissionError ? 'text-warning' : 'text-success'}`} role={submissionError ? 'alert' : 'status'}>
-          {submissionError || submitHint || `${count} campanha${count === 1 ? '' : 's'} pronta${count === 1 ? '' : 's'} para entrar na fila.`}
+        <p className={`text-xs ${submitHint || submissionError ? 'text-warning' : preflight ? 'text-success' : 'text-muted-foreground'}`} role={submissionError ? 'alert' : 'status'}>
+          {submissionError || submitHint || (preflight ? 'Revisão concluída. Confira a ativação e o gasto potencial antes de criar.' : 'Revise a configuração antes de iniciar a fila.')}
         </p>
         <div className="flex items-center gap-2">
-          <button type="button" className="btn-ghost text-xs" onClick={close} disabled={busy}>Cancelar</button>
-          <button type="button" className="btn-primary text-xs" onClick={create}
-            disabled={!countValid || !budgetValid || !bidValid || !videosReady || unusedCreatives || uploading || busy}>
+          <button type="button" className="btn-ghost min-h-10 text-sm" onClick={close} disabled={busy || uploading}>Cancelar</button>
+          {!preflight ? <button type="button" className="btn-primary min-h-10 text-sm" onClick={() => void reviewCreation()}
+            disabled={!countValid || !budgetValid || !bidValid || !videosReady || unusedCreatives || uploading || busy || preflightBusy}>
+            {preflightBusy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {preflightBusy ? 'Revisando…' : 'Revisar criação'}
+          </button> : <button type="button" className="btn-primary min-h-10 text-sm" onClick={() => dryRun ? void create() : setConfirmCreate(true)} disabled={busy}>
             {busy && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
             {busy ? 'Enviando solicitação…' : `Criar e ativar ${count} campanha${count === 1 ? '' : 's'}`}
-          </button>
+          </button>}
         </div>
       </div>}>
       {accepted ? <div className="launch-accepted" role="status"><Check aria-hidden="true" /><h3>Solicitação registrada</h3><p>{accepted}</p></div> :
       <div className="launch-composer-grid"><fieldset disabled={busy} className="launch-composer-main border-0 p-0">
-        <section className="launch-section-card" aria-label="Vídeos da campanha"><span className="launch-section-kicker">1 · Criativos</span><p className="launch-section-copy mb-3">Cada vídeo pode originar uma campanha própria, mantendo o catálogo e os produtos sincronizados.</p>
+        <section className="border-b border-border/60 pb-5" aria-label="Vídeos da campanha"><h3 className="text-sm font-semibold text-foreground">Criativos</h3><p className="launch-section-copy mb-3">Cada vídeo pode originar uma campanha própria, mantendo o catálogo e os produtos sincronizados.</p>
           <div className="launch-section-heading">
             <h3>Vídeos <span>{creatives.length}</span></h3>
             <button type="button" className="btn-secondary" aria-expanded={showVideoSources}
@@ -313,7 +369,7 @@ export function CatalogQuickCampaignsDialog({
                 aria-label="Enviar criativos" disabled={uploading || busy || creatives.length >= MAX_COUNT}
                 onChange={event => { addVideos(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
             </label>
-            <SavedVideos selectedUrls={creatives.map(item => item.url || '')} disabled={busy || uploading || creatives.length >= MAX_COUNT}
+            <SavedVideos appearance="creation" selectedUrls={creatives.map(item => item.url || '')} disabled={busy || uploading || creatives.length >= MAX_COUNT}
               onPick={item => { void addSavedVideo(item) }} />
           </div>}
           {!creatives.length && <p className="launch-help">Selecione ao menos um vídeo MP4 ou MOV.</p>}
@@ -338,15 +394,15 @@ export function CatalogQuickCampaignsDialog({
             {!countValid || unusedCreatives ? <p role="alert">Escolha entre {Math.max(1, creatives.length)} e {MAX_COUNT} campanhas para incluir todos os vídeos.</p> : null}
           </details>
         </section>
-        <section className="launch-section-card"><span className="launch-section-kicker">2 · Investimento</span><h3 className="launch-section-title">Orçamento por campanha</h3><div className="mt-4"><MoneyField label="Orçamento diário por campanha" currency={advertiserCurrency} value={budget}
+        <section className="border-b border-border/60 py-5"><h3 className="text-sm font-semibold text-foreground">Investimento</h3><div className="mt-4"><MoneyField label="Orçamento diário por campanha" currency={advertiserCurrency} value={budget}
             min={TIKTOK_MIN_BUDGET} onChange={value => update(setBudget, value)}
             hint={`Mínimo de ${money.format(TIKTOK_MIN_BUDGET)} por campanha/dia.`}
             error={!budgetValid && budget.trim() !== '' ? `Informe ao menos ${money.format(TIKTOK_MIN_BUDGET)}.` : undefined} /></div>
         </section>
-        <section className="launch-section-card launch-targeting"><span className="launch-section-kicker">3 · Público e identidade</span>
+        <section className="launch-targeting border-b border-border/60 py-5"><h3 className="text-sm font-semibold text-foreground">Mercado e identidade</h3>
           <details>
             <summary><span><strong>Público</strong><span className="launch-help">{marketSummary}</span></span><span>Alterar</span></summary>
-            <MarketSelector value={market} onChange={value => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
+            <MarketSelector appearance="creation" value={market} onChange={value => update(setMarket, value)} languageAvailable={capabilities?.catalogLanguages === true} />
           </details>
           <label className="launch-profile"><span>Perfil do anúncio</span>
             <select className="input-base" value={identityKey} onChange={event => update(setIdentityKey, event.target.value)} disabled={identitiesLoading} aria-label="Perfil mostrado no anúncio">
@@ -354,9 +410,10 @@ export function CatalogQuickCampaignsDialog({
               {identities.map(identity => <option key={`${identity.identityId}:${identity.identityType}`} value={`${identity.identityId}:${identity.identityType}`}>{identity.displayName || identity.username || identity.identityId}</option>)}
             </select>
           </label>
+          {!selectedIdentity && !identitiesLoading && !identitiesError ? <p className="launch-help">Automático usa uma identidade compatível já autorizada para este Business Center.</p> : null}
           {identitiesLoading ? <p className="launch-help" role="status">Carregando perfis…</p> : identitiesError ? <button type="button" className="btn-ghost text-warning" onClick={() => void reloadIdentities()}>Falha ao consultar perfis. Tentar novamente</button> : selectedIdentity ? <p className="launch-help">{identityHandle(selectedIdentity) || identityName(selectedIdentity)}</p> : null}
         </section>
-        <section className="launch-section-card launch-advanced">
+        <section className="launch-advanced py-5">
           <button type="button" aria-expanded={advancedOpen} className="launch-advanced-toggle" onClick={() => setAdvancedOpen(!advancedOpen)}>
             <span>Mais configurações <small>{advancedSummary}</small></span><ChevronDown className="size-4" aria-hidden="true" />
           </button>
@@ -376,8 +433,7 @@ export function CatalogQuickCampaignsDialog({
       </fieldset>
       <aside className="launch-review" aria-label="Revisão das campanhas de catálogo">
         <div className="launch-review-head">
-          <div><p className="launch-review-title">Revisão do lote</p><p className="launch-review-copy">Estrutura que será enviada para o TikTok.</p></div>
-          <span className="launch-review-badge">Catálogo</span>
+          <div><p className="launch-review-title">Revisão</p><p className="launch-review-copy">Campanhas Product Link usando o catálogo aprovado.</p></div>
         </div>
         <div className="launch-review-list">
           <div className="launch-review-row"><span>Catálogo</span><strong>{catalog.name}</strong></div>
@@ -387,15 +443,27 @@ export function CatalogQuickCampaignsDialog({
           <div className="launch-review-row"><span>Mercado</span><strong>{marketSummary}</strong></div>
           <div className="launch-review-row"><span>Perfil</span><strong>{selectedIdentity ? identityName(selectedIdentity) : 'Automático'}</strong></div>
           <div className="launch-review-row"><span>Entrega</span><strong>{bidStrategy === 'cost_cap' ? `CPA alvo ${bidValid ? money.format(bidAmountNumber) : '—'}` : 'Máxima entrega'}</strong></div>
+          <div className="launch-review-row"><span>Pixel</span><strong>{preflight ? (preflight.waitingForPixel ? 'Pixel da conta · aguardando Compra' : 'Pixel da conta · Compra') : 'Será validado na revisão'}</strong></div>
           <div className="launch-review-row"><span>Nomes</span><strong>{sampleName(1)}</strong></div>
         </div>
         <div className="launch-review-total">
-          <span className="text-[11px] text-muted-foreground">Orçamento diário do lote</span>
+          <span className="text-xs text-muted-foreground">Gasto diário potencial</span>
           <strong>{budgetValid && countValid ? money.format(budgetNumber * count) : '—'}</strong>
-          <p className="mt-1 text-[10px] text-muted-foreground">{count} × {budgetValid ? money.format(budgetNumber) : '—'} por campanha/dia</p>
+          <p className="mt-1 text-xs text-muted-foreground">{count} × {budgetValid ? money.format(budgetNumber) : '—'} por campanha/dia</p>
         </div>
-        {(submitHint || submissionError) ? <div className="launch-review-warning"><span>{submissionError || submitHint}</span></div> : <div className="launch-review-ready"><Check className="mt-0.5 size-3.5 shrink-0" /><span>Pronto para entrar na fila. A estrutura será validada e ativada automaticamente.</span></div>}
+        {(submitHint || submissionError) ? <div className="launch-review-warning"><span>{submissionError || submitHint}</span></div> : preflight ? <><div className="launch-review-ready"><Check className="mt-0.5 size-3.5 shrink-0" /><span>Preflight concluído. Catálogo e estrutura estão aptos a entrar na fila.</span></div><div className="mt-3 border-t border-warning/25 pt-3 text-xs leading-relaxed text-muted-foreground"><strong className="text-warning">Ativação automática:</strong> depois que catálogo, Pixel e estrutura forem confirmados, o ROI-NADOS poderá ativar automaticamente campanha, conjunto e anúncio. A partir desse momento, as campanhas podem começar a gastar.</div></> : <div className="launch-review-warning"><span>Use “Revisar criação” para validar catálogo, Product Link e Pixel antes de criar.</span></div>}
       </aside></div>}
     </Modal>
+    <ConfirmDialog
+      open={confirmCreate}
+      appearance="quiet"
+      title="Criar e permitir ativação automática?"
+      description={<><strong className="text-foreground">{count} campanha{count === 1 ? '' : 's'} · até {budgetValid && countValid ? money.format(budgetNumber * count) : '—'}/dia.</strong><br />As campanhas serão criadas pausadas, verificadas e poderão ser ativadas automaticamente quando todos os requisitos forem confirmados.</>}
+      confirmLabel="Criar campanhas"
+      busy={busy}
+      onConfirm={create}
+      onClose={() => { if (!busy) setConfirmCreate(false) }}
+    />
+    </>
   )
 }

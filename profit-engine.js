@@ -44,6 +44,10 @@ function calculate(events, adSpendMajor, options) {
   const toDate = String(opts.toDate || '9999-99-99');
   const timeZone = opts.timeZone || 'America/Sao_Paulo';
   const config = opts.config || {};
+  const fixedCostCurrency = /^[A-Z]{3}$/.test(String(config.fixedCostCurrency || '').toUpperCase())
+    ? String(config.fixedCostCurrency).toUpperCase()
+    : currency;
+  const fixedCurrencyCompatible = fixedCostCurrency === currency;
   const rows = (Array.isArray(events) ? events : []).filter((event) => {
     const day = dayAt(event.at, timeZone);
     return day >= fromDate && day <= toDate
@@ -61,6 +65,7 @@ function calculate(events, adSpendMajor, options) {
   let exactFees = 0;
   let exactTaxes = 0;
   let exactProductCosts = 0;
+  let skippedFixedCosts = 0;
 
   for (const event of sales) {
     const gross = cents(event.amount) || 0;
@@ -76,7 +81,11 @@ function calculate(events, adSpendMajor, options) {
     if (exactFee == null && net != null && gross >= net + tax) exactFee = gross - net - tax;
     if (exactFee == null) {
       const fallback = configuredFee(event, config);
-      gatewayFeesCents += Math.round(gross * fallback.feePct / 100) + fallback.fixedFeeCents;
+      gatewayFeesCents += Math.round(gross * fallback.feePct / 100);
+      if (fallback.fixedFeeCents > 0) {
+        if (fixedCurrencyCompatible) gatewayFeesCents += fallback.fixedFeeCents;
+        else skippedFixedCosts++;
+      }
     } else {
       gatewayFeesCents += exactFee;
       exactFees++;
@@ -84,8 +93,12 @@ function calculate(events, adSpendMajor, options) {
 
     const exactCost = cents(event.productCostCents);
     if (exactCost == null) {
-      productCostsCents += Math.round(gross * pct(config.productCostPct) / 100)
-        + (cents(config.productCostFixedCents) || 0);
+      productCostsCents += Math.round(gross * pct(config.productCostPct) / 100);
+      const fixedProductCost = cents(config.productCostFixedCents) || 0;
+      if (fixedProductCost > 0) {
+        if (fixedCurrencyCompatible) productCostsCents += fixedProductCost;
+        else skippedFixedCosts++;
+      }
     } else {
       productCostsCents += exactCost;
       exactProductCosts++;
@@ -107,8 +120,9 @@ function calculate(events, adSpendMajor, options) {
     productCostExactPct: sales.length ? Math.round(exactProductCosts / sales.length * 1000) / 10 : 100,
     adSpendExact: opts.adSpendExact === true,
   };
+  const fixedCostCurrencyMismatch = skippedFixedCosts > 0;
   const allExact = coverage.feeExactPct === 100 && coverage.taxExactPct === 100
-    && coverage.productCostExactPct === 100 && coverage.adSpendExact;
+    && coverage.productCostExactPct === 100 && coverage.adSpendExact && !fixedCostCurrencyMismatch;
 
   return {
     currency,
@@ -131,10 +145,15 @@ function calculate(events, adSpendMajor, options) {
     netMarginPct: grossRevenueCents ? Math.round(netProfitCents / grossRevenueCents * 1000) / 10 : 0,
     roas: adSpendCents ? Math.round(grossRevenueCents / adSpendCents * 100) / 100 : 0,
     coverage,
+    fixedCostCurrency,
+    fixedCostsApplied: !fixedCostCurrencyMismatch,
+    fixedCostCurrencyMismatch,
     quality: allExact ? 'exact' : 'mixed',
-    note: allExact
-      ? 'Tarifas, impostos, custos e mídia vieram de fontes exatas.'
-      : 'Os itens sem valor no webhook usam a configuração da conta e aparecem como estimativa.',
+    note: fixedCostCurrencyMismatch
+      ? `Custos fixos configurados em ${fixedCostCurrency} não foram aplicados ao resultado em ${currency}. Percentuais continuam aplicados; não há conversão cambial automática.`
+      : allExact
+        ? 'Tarifas, impostos, custos e mídia vieram de fontes exatas.'
+        : 'Os itens sem valor no webhook usam a configuração da conta e aparecem como estimativa.',
   };
 }
 

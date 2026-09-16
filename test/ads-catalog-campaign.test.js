@@ -384,10 +384,10 @@ function completeSchemas() {
     ok(/killSwitchActive/.test(routes) && /isDryRun/.test(routes), 'mantém kill switch e modo teste');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
     const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
-    ok(/Todos os produtos aprovados usam o próprio Link/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
+    ok(/Todos os produtos aprovados/.test(wizard) && !/itemGroupIds[^\n]{0,120}(input|select|textarea)/i.test(wizard), 'wizard mantém o escopo em produtos aprovados sem seleção manual de IDs na tela principal');
     ok(/adsUpload\(file, 'video',/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
-    ok(/O áudio é mantido e a capa é automática/.test(dialog), 'interface explica que o áudio vem do criativo');
-    ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
+    ok(!/music_id|audio_id|trilha|música separada/i.test(dialog), 'modal não volta a pedir áudio/música separada do criativo');
+    ok(/Product Link/.test(dialog) && !/itemGroupIds[^\n]{0,120}(input|select|textarea)/i.test(dialog), 'modal mantém Product Link sem seleção manual de IDs');
     ok(!/CatalogPresetCampaignButton|catalog_campaign_preset|Lançar Smart\+/.test(wizard) && /Criar campanhas/.test(wizard) && /<CatalogQuickCampaignsDialog/.test(wizard), 'wizard concentra o lançamento no formulário validado de catálogo');
     ok(!/Catalog Video Template ID/.test(wizard), 'remove template de vídeo legado');
   }

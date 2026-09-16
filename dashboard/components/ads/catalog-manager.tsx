@@ -37,18 +37,30 @@ export function CatalogManager({
   advertiserId,
   advertiserLabel,
   advertiserCurrency,
+  onLocalWorkStateChange,
 }: {
   request?: { action: 'create' | 'magic' | 'batch'; id: number } | null
   onRequestHandled?: () => void
   advertiserId: string
   advertiserLabel: string
   advertiserCurrency: string
+  onLocalWorkStateChange?: (state: { uploading: boolean; pending: number }) => void
 }) {
   const { data: list, mutate: mutateList, isLoading: listLoading, error: listError } = useAdsCatalogs(true, advertiserId)
   const { data: spec } = useAdsCatalogSpec(true, advertiserId)
   const { data: bc, mutate: mutateBc, error: bcError } = useAdsCatalogBusinessCenter(true, advertiserId)
   const { data: capabilitiesData } = useAdsCatalogCapabilities(true, advertiserId)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [detailWork, setDetailWork] = useState({ uploading: false, pending: 0 })
+  const [listWork, setListWork] = useState({ uploading: false, pending: 0 })
+
+  useEffect(() => {
+    onLocalWorkStateChange?.({
+      uploading: detailWork.uploading || listWork.uploading,
+      pending: detailWork.pending + listWork.pending,
+    })
+  }, [detailWork.pending, detailWork.uploading, listWork.pending, listWork.uploading, onLocalWorkStateChange])
+  useEffect(() => () => onLocalWorkStateChange?.({ uploading: false, pending: 0 }), [onLocalWorkStateChange])
 
   // Um catalogId só é válido dentro do advertiser que o criou. Ao trocar a
   // seleção global, voltamos à lista antes de qualquer request de detalhe.
@@ -114,6 +126,7 @@ export function CatalogManager({
             setSelectedId(null)
             mutateList()
           }}
+          onLocalWorkStateChange={setDetailWork}
           onCloned={(cloneId) => {
             mutateList()
             setSelectedId(cloneId)
@@ -130,6 +143,7 @@ export function CatalogManager({
           loading={listLoading && !list}
           onOpen={setSelectedId}
           onChanged={mutateList}
+          onLocalWorkStateChange={setListWork}
         />
       )}
     </div>

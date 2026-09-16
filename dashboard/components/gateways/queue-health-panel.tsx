@@ -203,13 +203,19 @@ export function IntegrityPanel() {
   )
 }
 
+type PanelAppearance = 'card' | 'embedded'
+
+interface PanelAppearanceProps {
+  appearance?: PanelAppearance
+}
+
 // ── Quarentena de webhooks REJEITADOS (prioridade #1 do handoff) ───────────
 // Antes, um webhook recusado tinha o corpo DESCARTADO — o valor de uma venda
 // que não casava com nenhum alias sumia sem deixar rastro. Agora o payload cru
 // fica preservado aqui: o operador expande a linha, vê o JSON EXATO que o
 // gateway mandou, descobre onde está o valor/e-mail e reporta o alias que
 // falta. Painel OCULTO quando não há nada em quarentena (caminho saudável).
-export function QuarantinePanel() {
+export function QuarantinePanel({ appearance = 'card' }: PanelAppearanceProps = {}) {
   const { data, mutate } = useQuarantine()
   const [expanded, setExpanded] = useState<number | null>(null)
   const [resolving, setResolving] = useState<number | null>(null)
@@ -229,6 +235,81 @@ export function QuarantinePanel() {
     } finally {
       setResolving(null)
     }
+  }
+
+  if (appearance === 'embedded') {
+    return (
+      <section className="min-w-0 pt-5" aria-labelledby="quarantine-title">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="quarantine-title" className="text-sm font-semibold text-foreground">Webhooks em quarentena</h3>
+          <span className="text-xs font-medium text-[color:var(--warning)] tabular-nums">
+            {data.pending} {data.pending === 1 ? 'pendente' : 'pendentes'}
+          </span>
+        </div>
+        <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground text-pretty">
+          Webhooks recusados ficam preservados aqui para diagnóstico antes de serem marcados como resolvidos.
+        </p>
+
+        <ul className="mt-4 max-h-[32rem] divide-y divide-border/70 overflow-y-auto border-y border-border/60">
+          {items.map((item) => {
+            const isOpen = expanded === item.id
+            return (
+              <li key={item.id} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : item.id)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-start justify-between gap-3 py-3 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/60"
+                >
+                  <span className="grid min-w-0 flex-1 gap-1 sm:grid-cols-[minmax(7rem,0.35fr)_minmax(0,1fr)] sm:items-baseline sm:gap-4">
+                    <span className="truncate font-mono text-xs text-foreground">{item.gateway_hint || 'desconhecido'}</span>
+                    <span className="text-xs leading-5 text-muted-foreground text-pretty">{item.rejection_reason || 'rejeitado'}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-xs text-muted-foreground">
+                    {timeAgo(item.received_at)}
+                    <ChevronDown className={`size-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <div className="pb-4 pt-1 text-xs">
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 border-l border-border/60 pl-3">
+                      <dt className="text-muted-foreground">Rota</dt>
+                      <dd className="min-w-0 break-all font-mono text-foreground">{item.route || '—'}</dd>
+                      <dt className="text-muted-foreground">Motivo</dt>
+                      <dd className="text-foreground text-pretty">{item.rejection_reason || '—'}</dd>
+                    </dl>
+
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-xs text-muted-foreground">Payload recebido (cru)</p>
+                      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs leading-relaxed text-foreground">
+                        {JSON.stringify(item.raw_payload, null, 2)}
+                      </pre>
+                    </div>
+
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleResolve(item.id)}
+                        disabled={resolving !== null}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+                      >
+                        {resolving === item.id ? (
+                          <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Check className="size-3.5" aria-hidden="true" />
+                        )}
+                        {resolving === item.id ? 'Resolvendo…' : 'Marcar como resolvido'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </section>
+    )
   }
 
   return (
@@ -304,7 +385,7 @@ export function QuarantinePanel() {
 // Traduz contadores internos do backend em linguagem operacional: quantas
 // conversões aguardam disparo, se o worker está vivo, quão rápido o webhook
 // vira evento no TikTok, e quantas reentregas foram ignoradas.
-export function QueueHealthPanel() {
+export function QueueHealthPanel({ appearance = 'card' }: PanelAppearanceProps = {}) {
   const { data, mutate, isLoading } = useOps()
   const [draining, setDraining] = useState(false)
 
@@ -335,6 +416,146 @@ export function QueueHealthPanel() {
   const workerActive = data?.worker.active ?? false
   const retry = data?.capiRetry ?? { count: 0, oldestAgeMs: 0 }
   const lat = data?.convLatency ?? { count: 0, p50: 0, p95: 0, max: 0 }
+
+  if (appearance === 'embedded') {
+    const workerTick = data?.worker.at
+      ? `tick ${timeAgo(new Date(data.worker.at).toISOString())}`
+      : 'sem atividade recente'
+
+    return (
+      <section className="min-w-0" aria-labelledby="queue-health-title">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id="queue-health-title" className="text-sm font-semibold text-foreground">Saúde da fila</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Acompanhe processamento, latência e tentativas de reenvio.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleDrain}
+            disabled={draining || retry.count === 0}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            title={retry.count === 0 ? 'Nada na fila de retry para reprocessar' : 'Tenta reenviar agora, ignorando o intervalo de espera'}
+          >
+            <RefreshCw className={`size-3.5 ${draining ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {draining ? 'Reprocessando…' : 'Forçar reenvio'}
+          </button>
+        </div>
+
+        {data && !data.redisEnabled && (
+          <div className="mt-4 flex items-start gap-2 border-l-2 border-[color:var(--warning)]/70 pl-3 text-xs leading-5 text-muted-foreground text-pretty">
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+            <p>
+              <span className="font-medium text-[color:var(--warning)]">Redis desligado</span>
+              {' · '}a fila roda em memória e <strong className="font-medium text-foreground">não sobrevive a reinícios</strong>.
+              {' '}Conecte o Redis para durabilidade total das conversões.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-4 border-y border-border/60 py-4 lg:grid-cols-4">
+          <div className="min-w-0">
+            <p className="text-xl font-semibold tabular-nums text-foreground">{isLoading ? '—' : queueTotal}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Na fila{data ? ` · ${data.convQueue.processing} processando` : ' · aguardando disparo'}
+            </p>
+          </div>
+
+          <div className="min-w-0">
+            <p className={`inline-flex items-center gap-2 text-sm font-medium ${workerActive ? 'text-success' : 'text-foreground'}`}>
+              <span className={`size-1.5 rounded-full ${workerActive ? 'bg-success' : 'bg-muted-foreground/60'}`} aria-hidden="true" />
+              Worker {workerActive ? 'ativo' : 'ocioso'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{workerTick}</p>
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-xl font-semibold tabular-nums text-foreground">{lat.count ? `${lat.p50}ms` : '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {lat.count ? `Latência · p95 ${lat.p95}ms · máx ${lat.max}ms` : 'Latência · webhook → TikTok'}
+            </p>
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-xl font-semibold tabular-nums text-foreground">{isLoading ? '—' : retry.count}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Retry CAPI · {retry.count ? `mais antigo há ${dur(retry.oldestAgeMs)}` : 'sem reenvios pendentes'}
+            </p>
+          </div>
+        </div>
+
+        <details className="group mt-4 border-b border-border/60 pb-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-1 text-xs font-medium text-foreground outline-none focus-visible:ring-1 focus-visible:ring-primary/60 [&::-webkit-details-marker]:hidden">
+            <span>Detalhes de infraestrutura</span>
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+
+          <div className="mt-3 space-y-3 text-xs leading-5 text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Idempotência</span>
+              {' · '}{data ? `${data.webhookDedup} reentrega(s) ignorada(s)` : 'ativa'}
+            </p>
+
+            {data?.pixelDedup && data.pixelDedup.deduped > 0 && (
+              <p>
+                <span className="font-medium text-foreground">Deduplicação Pixel</span>
+                {' · '}{data.pixelDedup.deduped} disparo(s) deduplicado(s) · navegador × servidor
+              </p>
+            )}
+
+            {data && data.reclaim.at > 0 && (
+              <p>
+                <span className="font-medium text-foreground">Resgate de órfãos</span>
+                {' · '}{data.reclaim.moved} item(ns) · {timeAgo(new Date(data.reclaim.at).toISOString())}
+              </p>
+            )}
+
+            {data?.presence && (
+              <p>
+                <span className="font-medium text-foreground">Presença</span>
+                {' · '}{data.presence.online} online agora
+                {data.presence.near && (
+                  <span className="text-[color:var(--warning)]">
+                    {' · '}próximo do limite de {data.presence.limit}; a contagem pode ficar truncada
+                  </span>
+                )}
+              </p>
+            )}
+
+            {data?.asnCache && data.asnCache.total > 0 && (
+              <p title={`${data.asnCache.memHits} hits memória · ${data.asnCache.redisHits} hits Redis · ${data.asnCache.liveLookups} lookups DNS`}>
+                <span className="font-medium text-foreground">Cache ASN</span>
+                {' · '}{Math.round(data.asnCache.hitRate * 100)}% de acerto · {data.asnCache.entries} IPs em memória
+              </p>
+            )}
+
+            {data?.cacheTtls && (
+              <p title="Tempo que cada camada lembra do visitante antes de re-julgar">
+                <span className="font-medium text-foreground">TTLs</span>
+                {' · '}presença {fmtTtl(data.cacheTtls.presence)} · dedup {fmtTtl(data.cacheTtls.dedup)} · bot (sticky){' '}
+                {fmtTtl(data.cacheTtls.sticky)} · ttclid {fmtTtl(data.cacheTtls.ttclid)} · ASN {fmtTtl(data.cacheTtls.asn)}
+              </p>
+            )}
+
+            {data?.presence && data.presence.byEntry.length > 0 && (
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">Entradas com presença</p>
+                <dl className="divide-y divide-border/50 border-y border-border/50">
+                  {data.presence.byEntry.map((entry) => (
+                    <div key={entry.entry} className="flex min-w-0 items-center justify-between gap-4 py-1.5">
+                      <dt className="min-w-0 break-all font-mono text-xs text-muted-foreground">{entry.entry}</dt>
+                      <dd className="shrink-0 tabular-nums text-foreground">{entry.count}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </div>
+        </details>
+      </section>
+    )
+  }
 
   return (
     <GlassCard className="min-w-0 p-5">

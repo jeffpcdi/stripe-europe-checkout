@@ -4,12 +4,9 @@ import { useState, useRef, useMemo, useCallback } from 'react'
 import { useSWRConfig } from 'swr'
 import { Modal } from '@/components/ui/modal'
 import {
-  Target,
-  CreditCard,
   Plus,
   Copy,
   Check,
-  Code2,
   Trash2,
   Pencil,
   Zap,
@@ -21,11 +18,8 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   ChevronDown,
   ChevronUp,
-  ArrowUpRight,
-  ShieldCheck,
   HelpCircle,
   ExternalLink,
   Info,
@@ -34,11 +28,9 @@ import {
   Filter,
   Link as LinkIcon,
   SlidersHorizontal,
-  Sparkles,
 } from 'lucide-react'
 import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend } from '@/lib/api'
 import { ErrorState } from '@/components/error-state'
-import { GlassCard } from '@/components/glass-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { timeAgo, fmtCurrency } from '@/lib/format'
@@ -54,6 +46,7 @@ import { EventDeliveryPanel } from './event-delivery-panel'
 import { QueueHealthPanel, QuarantinePanel } from '@/components/gateways/queue-health-panel'
 import { GatewaySelector } from './gateway-selector'
 import { DialogPortal } from '@/components/ui/dialog-portal'
+import { Switch } from '@/components/ui/switch'
 import { LinkGatewaysModal } from './link-gateways-modal'
 import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
@@ -99,30 +92,6 @@ const PROVIDER_HELP: Record<string, string> = {
 }
 
 type TabKey = 'pixels' | 'gateways' | 'logs'
-
-function TrackingSummaryCard({ title, value, tone = 'default', icon: Icon }: { title: string; value: string; tone?: 'default' | 'success' | 'warning' | 'accent'; icon: any }) {
-  const toneClass = tone === 'success'
-    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
-    : tone === 'warning'
-      ? 'border-warning/20 bg-warning/10 text-warning'
-      : tone === 'accent'
-        ? 'border-brand-cyan/20 bg-brand-cyan/10 text-brand-cyan'
-        : 'border-border/60 bg-secondary/20 text-foreground'
-
-  return (
-    <div className={`rounded-2xl border p-3.5 ${toneClass}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
-          <p className="mt-2 text-lg font-semibold tracking-tight text-foreground">{value}</p>
-        </div>
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-inherit">
-          <Icon className="size-4.5" aria-hidden="true" />
-        </span>
-      </div>
-    </div>
-  )
-}
 
 export function ConversionsView() {
   const { data: pxData, mutate: mutatePixels, isLoading: loadingPixels, error: pixelsError } = usePixels()
@@ -414,167 +383,176 @@ export function ConversionsView() {
       )}
 
       <div className="flex flex-col gap-4">
-        <div className="flex justify-end">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleRefreshAll}
-              disabled={isRefreshing}
-              className="btn-ghost px-3 py-2 text-xs"
-              title="Atualizar dados"
-            >
-              <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
-              Atualizar
-            </button>
-            <button type="button" onClick={() => setEditingGateway('new')} className="btn-secondary">
-              <CreditCard className="size-3.5" />
-              <span>Cadastrar checkout</span>
-            </button>
-            <button type="button" onClick={() => setEditingPixel('new')} className="btn-primary">
-              <Plus className="size-3.5 stroke-[2.5]" />
-              <span>Novo Pixel</span>
-            </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">Pixel &amp; Conversões</h1>
           </div>
+          <button
+            type="button"
+            onClick={handleRefreshAll}
+            disabled={isRefreshing}
+            className="btn-ghost self-start px-2.5 py-2 text-xs sm:self-auto"
+            title="Atualizar dados"
+          >
+            <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin text-brand-cyan' : ''}`} />
+            Atualizar
+          </button>
         </div>
 
-        <GlassCard className="p-3 sm:p-4">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <TrackingSummaryCard title="Pixels ativos" value={`${activePixels}/${pixels.length || 0}`} tone={activePixels ? 'success' : 'default'} icon={Target} />
-              <TrackingSummaryCard title="Checkouts" value={`${gateways.length}`} tone={gateways.length ? 'accent' : 'default'} icon={CreditCard} />
-              <TrackingSummaryCard title="Última venda" value={logSummary.lastSuccessfulRow ? timeAgo(String(logSummary.lastSuccessfulRow.at ?? (logSummary.lastSuccessfulRow as any).createdAt)) : 'Sem sinal'} tone={logSummary.success ? 'success' : 'default'} icon={ArrowUpRight} />
-              <TrackingSummaryCard title="Saúde" value={trackingReadiness.label} tone={trackingReadiness.tone} icon={ShieldCheck} />
-            </div>
-          </GlassCard>
+        <div className="grid grid-cols-2 gap-x-5 gap-y-4 border-y border-border/45 py-4 md:grid-cols-4">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Pixels ativos</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-foreground">{activePixels}/{pixels.length || 0}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Checkouts</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-foreground">{gateways.length}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Última venda</p>
+            <p className="mt-1 truncate text-base font-semibold tracking-tight text-foreground">
+              {logSummary.lastSuccessfulRow ? timeAgo(String(logSummary.lastSuccessfulRow.at ?? (logSummary.lastSuccessfulRow as any).createdAt)) : 'Sem sinal'}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Saúde</p>
+            <p className={`mt-1 text-base font-semibold tracking-tight ${
+              trackingReadiness.tone === 'warning' ? 'text-warning' :
+              trackingReadiness.tone === 'success' ? 'text-emerald-300' :
+              trackingReadiness.tone === 'accent' ? 'text-brand-cyan' : 'text-foreground'
+            }`}>
+              {trackingReadiness.label}
+            </p>
+          </div>
+        </div>
       </div>
 
       {syncValidation.hasFailure ? (
-        <GlassCard className="border-destructive/30 bg-destructive/5 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 status-dot status-dot--err status-dot--pulse" />
-              <div>
-                <h3 className="text-sm font-semibold text-destructive">Existe uma falha recente no rastreamento</h3>
-                <p className="mt-1 text-xs text-destructive/90">{syncValidation.failureDescription}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              {syncValidation.failedGateway ? (
-                <button
-                  type="button"
-                  onClick={() => handleTestGateway(syncValidation.failedGateway!)}
-                  disabled={testingGwId === syncValidation.failedGateway.id}
-                  className="rounded-xl bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground hover:brightness-110 disabled:opacity-50"
-                >
-                  {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
-                </button>
-              ) : null}
-              <button type="button" onClick={() => setActiveTab('logs')} className="btn-secondary text-xs">
-                Ver entregas
-              </button>
+        <div className="flex flex-col gap-3 border-y border-destructive/20 bg-destructive/[0.035] px-1 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-destructive">Falha recente no rastreamento</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{syncValidation.failureDescription}</p>
             </div>
           </div>
-        </GlassCard>
+          <div className="flex shrink-0 items-center gap-3 self-end sm:self-auto">
+            {syncValidation.failedGateway ? (
+              <button
+                type="button"
+                onClick={() => handleTestGateway(syncValidation.failedGateway!)}
+                disabled={testingGwId === syncValidation.failedGateway.id}
+                className="text-xs font-medium text-destructive transition-colors hover:text-destructive/80 disabled:opacity-50"
+              >
+                {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setActiveTab('logs')} className="text-xs font-medium text-foreground transition-colors hover:text-brand-cyan">
+              Ver entregas
+            </button>
+          </div>
+        </div>
       ) : null}
 
-      <GlassCard className="p-2">
-        <div className="grid gap-2 md:grid-cols-3">
+      <div className="border-b border-border/50">
+        <div className="flex items-center gap-6 overflow-x-auto" role="tablist" aria-label="Áreas de Pixel e Conversões">
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'pixels'}
             onClick={() => setActiveTab('pixels')}
-            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'pixels' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+            className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'pixels' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-foreground">
-                <Target className="size-4" />
-                <span className="text-sm font-semibold">Pixels</span>
-              </div>
-              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{pixels.length}</span>
-            </div>
-                      </button>
+            <span>Pixels</span>
+            <span className="text-xs tabular-nums text-muted-foreground">{pixels.length}</span>
+            {activeTab === 'pixels' ? <span className="absolute inset-x-0 bottom-0 h-px bg-brand-cyan" /> : null}
+          </button>
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'gateways'}
             onClick={() => setActiveTab('gateways')}
-            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'gateways' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+            className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'gateways' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-foreground">
-                <CreditCard className="size-4" />
-                <span className="text-sm font-semibold">Checkouts</span>
-              </div>
-              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{gateways.length}</span>
-            </div>
-                      </button>
+            <span>Checkouts</span>
+            <span className="text-xs tabular-nums text-muted-foreground">{gateways.length}</span>
+            {activeTab === 'gateways' ? <span className="absolute inset-x-0 bottom-0 h-px bg-brand-cyan" /> : null}
+          </button>
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'logs'}
             onClick={() => setActiveTab('logs')}
-            className={`rounded-2xl border px-4 py-3 text-left transition-all ${activeTab === 'logs' ? 'border-brand-cyan/35 bg-brand-cyan/10 shadow-[0_12px_28px_-18px_rgba(37,244,238,0.6)]' : 'border-transparent bg-secondary/15 hover:border-border/60 hover:bg-secondary/25'}`}
+            className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'logs' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-foreground">
-                <Clock className="size-4" />
-                <span className="text-sm font-semibold">Entregas</span>
-              </div>
-              <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{logSummary.total}</span>
-            </div>
-                      </button>
+            <span>Entregas</span>
+            <span className="text-xs tabular-nums text-muted-foreground">{logSummary.total}</span>
+            {activeTab === 'logs' ? <span className="absolute inset-x-0 bottom-0 h-px bg-brand-cyan" /> : null}
+          </button>
         </div>
-      </GlassCard>
+      </div>
 
       {/* ── CONTEÚDO DAS ABAS ── */}
 
       {/* 1. ABA: PIXELS DO TIKTOK */}
       {activeTab === 'pixels' && (
         <div className="flex flex-col gap-4">
-          <GlassCard className="p-4 sm:p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Pixels do TikTok</h3>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-[15px] font-semibold text-foreground">Pixels do TikTok</h3>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar pixel…"
+                  value={pixelSearch}
+                  onChange={(e) => setPixelSearch(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border/70 bg-input/70 pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/25"
+                />
               </div>
-              <div className="flex items-center gap-2 self-start">
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Buscar pixel…"
-                    value={pixelSearch}
-                    onChange={(e) => setPixelSearch(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
-                  />
-                </div>
-                <button type="button" onClick={() => setEditingPixel('new')} className="btn-primary shrink-0 text-xs py-2">
-                  <Plus className="size-3.5" />
-                  Novo Pixel
-                </button>
-              </div>
+              <button type="button" onClick={() => setEditingPixel('new')} className="btn-primary h-10 shrink-0 px-3 text-sm">
+                <Plus className="size-3.5" />
+                Novo Pixel
+              </button>
             </div>
-          </GlassCard>
+          </div>
 
           {loadingPixels ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="h-40 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
-              <div className="h-40 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" aria-label="Carregando pixels">
+              {[0, 1].map((item) => (
+                <div key={item} className="rounded-2xl border border-border/50 bg-card/35 p-5">
+                  <div className="h-4 w-32 rounded bg-secondary/45" />
+                  <div className="mt-5 h-px bg-border/40" />
+                  <div className="mt-4 h-3 w-44 rounded bg-secondary/35" />
+                  <div className="mt-4 h-px bg-border/40" />
+                  <div className="mt-4 h-3 w-56 max-w-full rounded bg-secondary/35" />
+                  <div className="mt-5 flex gap-2">
+                    <div className="h-9 w-32 rounded-lg bg-secondary/40" />
+                    <div className="h-9 w-28 rounded-lg bg-secondary/30" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredPixels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-10 text-center rounded-2xl border border-dashed border-border/80 bg-card/40">
-              <Target className="size-10 text-muted-foreground/60 mb-2" />
-              <h3 className="text-sm font-bold text-foreground">
+            <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-10 text-center">
+              <h3 className="text-sm font-semibold text-foreground">
                 {pixelSearch ? 'Nenhum pixel encontrado' : 'Nenhum pixel cadastrado'}
               </h3>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
                 {pixelSearch
-                  ? 'Tente buscar com outro termo ou limpe a busca.'
-                  : 'Adicione seus pixels do TikTok para gerar os códigos e receber as vendas dos seus checkouts.'}
+                  ? 'Tente outro nome ou ID.'
+                  : 'Adicione um pixel para rastrear visitas e enviar conversões ao TikTok.'}
               </p>
               {!pixelSearch && (
                 <button
                   type="button"
                   onClick={() => setEditingPixel('new')}
-                  className="btn-primary mt-4 text-xs"
+                  className="btn-primary mt-4 h-10 px-3 text-sm"
                 >
                   <Plus className="size-3.5" />
-                  Cadastrar Primeiro Pixel
+                  Novo Pixel
                 </button>
               )}
             </div>
@@ -606,54 +584,61 @@ export function ConversionsView() {
       {/* 2. ABA: CHECKOUTS & WEBHOOKS */}
       {activeTab === 'gateways' && (
         <div className="flex flex-col gap-4">
-          <GlassCard className="p-4 sm:p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Checkouts &amp; webhooks</h3>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-[15px] font-semibold text-foreground">Checkouts &amp; webhooks</h3>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar checkout…"
+                  value={gatewaySearch}
+                  onChange={(e) => setGatewaySearch(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border/70 bg-input/70 pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/25"
+                />
               </div>
-              <div className="flex items-center gap-2 self-start">
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Buscar checkout…"
-                    value={gatewaySearch}
-                    onChange={(e) => setGatewaySearch(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border/80 bg-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60"
-                  />
-                </div>
-                <button type="button" onClick={() => setEditingGateway('new')} className="btn-secondary shrink-0 text-xs py-2">
-                  <Plus className="size-3.5" />
-                  Conectar checkout
-                </button>
-              </div>
+              <button type="button" onClick={() => setEditingGateway('new')} className="btn-primary h-10 shrink-0 px-3 text-sm">
+                <Plus className="size-3.5" />
+                Conectar checkout
+              </button>
             </div>
-          </GlassCard>
+          </div>
 
           {loadingGateways ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="h-40 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
-              <div className="h-40 rounded-2xl border border-border/60 bg-secondary/20 animate-pulse" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Carregando checkouts">
+              {[0, 1].map((item) => (
+                <div key={item} className="rounded-2xl border border-border/50 bg-card/35 p-5">
+                  <div className="h-4 w-32 rounded bg-secondary/45" />
+                  <div className="mt-2 h-3 w-16 rounded bg-secondary/30" />
+                  <div className="mt-5 h-px bg-border/40" />
+                  <div className="mt-4 h-3 w-44 rounded bg-secondary/35" />
+                  <div className="mt-5 h-px bg-border/40" />
+                  <div className="mt-4 h-3 w-48 max-w-full rounded bg-secondary/35" />
+                  <div className="mt-5 flex items-center justify-between gap-3">
+                    <div className="h-3 w-28 rounded bg-secondary/30" />
+                    <div className="h-9 w-28 rounded-lg bg-secondary/35" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredGateways.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-10 text-center rounded-2xl border border-dashed border-border/80 bg-card/40">
-              <CreditCard className="size-10 text-emerald-400/60 mb-2" />
-              <h3 className="text-sm font-bold text-foreground">
+            <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-10 text-center">
+              <h3 className="text-sm font-semibold text-foreground">
                 {gatewaySearch ? 'Nenhum checkout encontrado' : 'Nenhum checkout conectado'}
               </h3>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
                 {gatewaySearch
-                  ? 'Tente buscar com outro termo.'
-                  : 'Conecte sua plataforma de pagamento (Kiwify, Hotmart, PerfectPay, Cakto, Stripe, etc.) para capturar vendas.'}
+                  ? 'Tente outro nome ou provedor.'
+                  : 'Conecte sua plataforma de pagamento para receber e distribuir vendas.'}
               </p>
               {!gatewaySearch && (
                 <button
                   type="button"
                   onClick={() => setEditingGateway('new')}
-                  className="btn-primary mt-4 text-xs"
+                  className="btn-primary mt-4 h-10 px-3 text-sm"
                 >
                   <Plus className="size-3.5" />
-                  Conectar Checkout
+                  Conectar checkout
                 </button>
               )}
             </div>
@@ -680,103 +665,140 @@ export function ConversionsView() {
       {/* 3. ABA: VENDAS RECEBIDAS */}
       {activeTab === 'logs' && (
         <div className="flex flex-col gap-4">
-          <GlassCard className="p-4 sm:p-5">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <section aria-labelledby="delivery-history-title" className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-foreground">Entregas e confirmações</h3>
+                <h3 id="delivery-history-title" className="text-base font-semibold text-foreground">Entregas e confirmações</h3>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-border/60 bg-secondary/20 px-3 py-2 text-left">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Total</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{logSummary.total}</p>
+
+              <div className="grid grid-cols-3 gap-x-6 gap-y-3 sm:flex sm:items-end sm:gap-8" aria-label="Resumo das entregas">
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tabular-nums text-foreground">{logSummary.total}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Total</p>
                 </div>
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-left">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80">Aprovadas</p>
-                  <p className="mt-1 text-sm font-semibold text-emerald-300">{logSummary.success}</p>
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tabular-nums text-emerald-400">{logSummary.success}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Aprovadas</p>
                 </div>
-                <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-left">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-destructive/80">Falhas</p>
-                  <p className="mt-1 text-sm font-semibold text-destructive">{logSummary.error}</p>
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tabular-nums text-destructive">{logSummary.error}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Falhas</p>
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex items-center gap-1 rounded-xl border border-border/60 bg-secondary/35 p-1 w-fit">
+
+            <div className="flex items-center gap-5 border-b border-border/50" role="group" aria-label="Filtrar entregas">
               <button
                 type="button"
                 onClick={() => setLogFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'all' ? 'bg-foreground text-background font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+                aria-pressed={logFilter === 'all'}
+                className={`relative -mb-px border-b-2 px-0 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/40 ${logFilter === 'all' ? 'border-brand-cyan text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               >
                 Todas
               </button>
               <button
                 type="button"
                 onClick={() => setLogFilter('success')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'success' ? 'bg-emerald-500 text-white font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+                aria-pressed={logFilter === 'success'}
+                className={`relative -mb-px border-b-2 px-0 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/40 ${logFilter === 'success' ? 'border-brand-cyan text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               >
                 Aprovadas
               </button>
               <button
                 type="button"
                 onClick={() => setLogFilter('error')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${logFilter === 'error' ? 'bg-destructive text-white font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+                aria-pressed={logFilter === 'error'}
+                className={`relative -mb-px border-b-2 px-0 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/40 ${logFilter === 'error' ? 'border-brand-cyan text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               >
                 Com falha
               </button>
             </div>
-          </GlassCard>
+          </section>
 
           {filteredLogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center rounded-2xl border border-dashed border-border/80 bg-card/40">
-              <Clock className="size-10 text-muted-foreground/50 mb-2" />
-              <h3 className="text-sm font-bold text-foreground">Nenhuma venda registrada ainda</h3>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                Vá na aba &quot;Checkouts &amp; Webhooks&quot; e clique em <strong>Simular Venda</strong> para ver uma compra de teste aparecer aqui na hora!
+            <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-10 text-center">
+              <h3 className="text-sm font-semibold text-foreground">
+                {logSummary.total === 0 ? 'Nenhuma entrega registrada' : 'Nenhuma entrega neste filtro'}
+              </h3>
+              <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
+                {logSummary.total === 0
+                  ? 'As vendas recebidas pelos checkouts aparecerão aqui.'
+                  : 'Não há registros correspondentes no momento.'}
               </p>
+              {logSummary.total === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar integração” em um checkout para validar o fluxo.</p>
+              ) : null}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/45">
-              <div className="hidden grid-cols-[1.8fr,1fr,0.8fr] items-center gap-3 border-b border-border/50 bg-secondary/20 px-4 py-3 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground md:grid">
+            <div className="border-y border-border/50">
+              <div className="hidden grid-cols-[minmax(0,1.8fr)_minmax(160px,0.9fr)_minmax(90px,0.55fr)] items-center gap-4 border-b border-border/50 px-1 py-3 text-xs font-medium text-muted-foreground md:grid">
                 <span>Evento</span>
                 <span>Status</span>
                 <span className="text-right">Recebido</span>
               </div>
-              <div className="flex flex-col gap-2 p-2">
+
+              <div>
                 {filteredLogs.map((row, idx) => {
                   const outcome = conversionStatus(row)
                   const isErr = outcome.kind === 'error'
                   const eventDate = row.at ?? (row as any).createdAt
+                  const capiFailures = Array.isArray(row.capi) ? row.capi.filter(result => !result.ok) : []
 
                   return (
                     <div
                       key={row.id || idx}
-                      className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card/70 px-4 py-3 text-xs transition-all hover:border-brand-cyan/20 hover:bg-card/90"
+                      className="border-b border-border/40 px-1 py-4 last:border-b-0"
                     >
-                      <div className="flex flex-col gap-3 md:grid md:grid-cols-[1.8fr,1fr,0.8fr] md:items-center">
-                        <div className="flex items-start gap-3">
-                          <span className={`mt-1 status-dot ${isErr ? 'status-dot--err' : outcome.kind === 'success' ? 'status-dot--ok' : ''}`} />
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-foreground">{conversionEvent(row.event)}</span>
-                              <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">{row.gateway || 'Checkout'}</span>
-                              {row.orderId ? <span className="rounded-md border border-white/5 bg-black/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">#{row.orderId}</span> : null}
-                              {row.amount != null ? <span className="font-mono text-[11px] font-semibold text-brand-cyan">{conversionAmount(row)}</span> : null}
-                            </div>
-                            <p className="mt-1 text-[11px] text-muted-foreground">Compra recebida do checkout e encaminhada para os pixels vinculados.</p>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1.8fr)_minmax(160px,0.9fr)_minmax(90px,0.55fr)] md:items-start md:gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-start justify-between gap-3 md:block">
+                            <p className="text-sm font-medium text-foreground">{conversionEvent(row.event)}</p>
+                            <span className="shrink-0 text-xs text-muted-foreground md:hidden">
+                              {eventDate ? timeAgo(String(eventDate)) : 'recentemente'}
+                            </span>
+                          </div>
+
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                            <span>{row.gateway || 'Checkout'}</span>
+                            {row.orderId ? (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-mono">#{row.orderId}</span>
+                              </>
+                            ) : null}
+                            {row.amount != null ? (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-medium tabular-nums text-brand-cyan">{conversionAmount(row)}</span>
+                              </>
+                            ) : null}
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${isErr ? 'border border-destructive/30 bg-destructive/15 text-destructive' : outcome.kind === 'success' ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border border-border bg-secondary text-muted-foreground'}`}>
-                            <ShieldCheck className="size-3" />
-                            {outcome.label}
-                          </span>
-                          {Array.isArray(row.capi) && row.capi.some(result => !result.ok) ? (
-                            <span className="text-[11px] text-destructive">{row.capi.filter(result => !result.ok).map(result => `${result.pixel}: ${result.message || 'Envio não confirmado'}`).join(' · ')}</span>
+                        <div className="min-w-0">
+                          <div className={`inline-flex items-center gap-2 text-xs font-medium ${isErr ? 'text-destructive' : outcome.kind === 'success' ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                            <span
+                              className={`size-1.5 shrink-0 rounded-full ${isErr ? 'bg-destructive' : outcome.kind === 'success' ? 'bg-emerald-400' : 'bg-muted-foreground/70'}`}
+                              aria-hidden="true"
+                            />
+                            <span>{outcome.label}</span>
+                          </div>
+
+                          {capiFailures.length > 0 ? (
+                            <div className="mt-1.5 space-y-1 text-xs leading-5 text-muted-foreground">
+                              {capiFailures.map((result, failureIndex) => (
+                                <p key={`${row.id || idx}-capi-${failureIndex}`}>
+                                  <span className="font-medium text-foreground">{result.pixel}</span>
+                                  <span aria-hidden="true"> · </span>
+                                  {result.message || 'Envio não confirmado'}
+                                </p>
+                              ))}
+                            </div>
                           ) : null}
                         </div>
 
-                        <div className="text-left text-[11px] text-muted-foreground md:text-right">
-                          <span>{eventDate ? timeAgo(String(eventDate)) : 'recentemente'}</span>
+                        <div className="hidden text-right text-xs text-muted-foreground md:block">
+                          {eventDate ? timeAgo(String(eventDate)) : 'recentemente'}
                         </div>
                       </div>
                     </div>
@@ -790,28 +812,30 @@ export function ConversionsView() {
 
       {activeTab === 'logs' && (
         <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-          <GlassCard className="p-4 sm:p-5">
-            <div className="mb-3">
-              <h3 className="text-sm font-semibold text-foreground">Diagnóstico de entrega</h3>
-              <p className="mt-1 text-[11px] text-muted-foreground">Cobertura dos pixels e status dos últimos envios processados.</p>
+          <section className="min-w-0 py-1" aria-labelledby="delivery-diagnostics-title">
+            <div className="mb-4">
+              <h3 id="delivery-diagnostics-title" className="text-base font-semibold text-foreground">Diagnóstico de entrega</h3>
+              <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground">Acompanhe os últimos eventos enviados ao TikTok e o resultado de cada Pixel.</p>
             </div>
             <EventDeliveryPanel pixels={pixels} />
-          </GlassCard>
-          <GlassCard className="p-4 sm:p-5">
+          </section>
+          <section className="min-w-0 border-y border-border/60 py-1" aria-label="Fila e quarentena">
             <details className="group">
-              <summary className="cursor-pointer list-none text-sm font-semibold text-foreground">
-                <div className="flex items-center justify-between gap-2">
-                  <span>Fila e notificações recusadas</span>
-                  <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-                </div>
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 py-3 outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary/60 [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-foreground">Fila e quarentena</span>
+                  <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                    Use este bloco para diagnosticar atrasos, retries ou webhooks recusados.
+                  </span>
+                </span>
+                <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
               </summary>
-              <p className="mt-2 text-[11px] text-muted-foreground">Use este bloco quando houver atraso, erro de fila ou webhooks que precisaram ser isolados.</p>
-              <div className="mt-4 flex flex-col gap-4">
-                <QueueHealthPanel />
-                <QuarantinePanel />
+              <div className="border-t border-border/60 pt-4">
+                <QueueHealthPanel appearance="embedded" />
+                <QuarantinePanel appearance="embedded" />
               </div>
             </details>
-          </GlassCard>
+          </section>
         </div>
       )}
 
@@ -872,6 +896,7 @@ export function ConversionsView() {
         description="Esta ação removerá a configuração deste pixel e suas vinculações. Compras já registradas no TikTok permanecerão salvas lá."
         confirmLabel="Excluir Pixel"
         tone="danger"
+        appearance="quiet"
         busy={deletingPixelBusy}
         onConfirm={handleDeletePixel}
         onClose={() => setDeletingPixel(null)}
@@ -920,99 +945,73 @@ function SimplifiedPixelInstallModal({
 
   return (
     <DialogPortal><div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label={`Instalar código de ${pixel.name}`}
+      aria-labelledby="pixel-install-title"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <GlassCard
+      <div
         ref={dialogRef}
         tabIndex={-1}
-        variant="thick"
-        className="w-full max-w-lg p-0 outline-none overflow-hidden border-border/80 shadow-2xl"
+        className="dialog-surface my-8 w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl border border-border/70 bg-background p-6 shadow-xl outline-none"
       >
-        <div className="flex items-center justify-between border-b border-border/60 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-brand-cyan/15 text-brand-cyan border border-brand-cyan/25">
-              <Code2 className="size-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-foreground">{pixel.name}</h2>
-              <p className="font-mono text-xs text-muted-foreground">
-                Código: <span className="text-foreground">{pixel.pixelCode}</span>
-              </p>
-            </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 id="pixel-install-title" className="text-base font-semibold text-foreground">Instalar no site</h2>
+            <p className="mt-1.5 truncate text-sm text-muted-foreground">
+              {pixel.name} · <span className="font-mono">{pixel.pixelCode}</span>
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="-mr-1 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <CircleX className="size-5" />
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 p-6">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Tag de Rastreamento (Cole dentro de &lt;head&gt;)
-            </span>
-            <span className="rounded-full bg-brand-cyan/10 px-2.5 py-0.5 text-[11px] font-medium text-brand-cyan">
-              Instalação Simples
-            </span>
-          </div>
+        <div className="mt-5">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Cole esta linha dentro do <code className="font-mono text-foreground">&lt;head&gt;</code> da página.
+          </p>
 
-          <div className="relative rounded-xl border border-border/80 bg-black/70 p-4 font-mono text-xs leading-relaxed text-brand-cyan break-all select-all">
+          <div className="mt-3 overflow-x-auto rounded-lg border border-border/70 bg-black/55 p-4 font-mono text-xs leading-relaxed text-foreground select-all">
             {scriptTag}
           </div>
 
           <button
             type="button"
             onClick={handleCopy}
-            className="btn-primary flex w-full items-center justify-center gap-2 py-3 px-4 text-sm font-bold text-black shadow-[0_0_20px_rgba(37,244,238,0.3)] transition-all"
+            className="mt-3 flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand-cyan px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-brand-cyan/90"
           >
-            {copied ? (
-              <>
-                <Check className="size-4 stroke-[3]" />
-                Código Copiado!
-              </>
-            ) : (
-              <>
-                <Copy className="size-4" />
-                Copiar Código do Site
-              </>
-            )}
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {copied ? 'Copiado' : 'Copiar código'}
           </button>
 
-          <div className="rounded-xl border border-border/60 bg-secondary/20 p-3.5 flex flex-col gap-1.5 text-xs text-muted-foreground">
-            <p className="font-semibold text-foreground flex items-center gap-1.5">
-              <Sparkles className="size-3.5 text-brand-cyan" />
-              Onde instalar este código?
-            </p>
-            <p className="leading-relaxed">
-              Cole esta linha no início da sua página de vendas (dentro do bloco <code className="rounded bg-secondary/80 px-1 py-0.5 text-foreground font-mono">&lt;head&gt;</code>).
-            </p>
-            <p className="leading-relaxed">
-              O script registra a jornada no site. As compras são confirmadas pelo webhook dos checkouts vinculados.
-            </p>
+          <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+            O script registra a jornada no site. As compras são confirmadas pelo webhook dos checkouts vinculados.
+          </p>
+
+          <div className="mt-5">
+            <InstallCheck pixel={pixel} />
           </div>
-          <InstallCheck pixel={pixel} />
         </div>
 
-        <div className="border-t border-border/50 bg-secondary/20 px-6 py-3.5 flex justify-end">
+        <div className="mt-6 flex justify-end border-t border-border/50 pt-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="min-h-10 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             Fechar
           </button>
         </div>
-      </GlassCard>
+      </div>
     </div></DialogPortal>
   )
 }
@@ -1090,11 +1089,13 @@ function PixelEditorWithGatewaySync({
   }
 
   const inputCls =
-    'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/40 transition-all'
+    'w-full min-h-10 rounded-lg border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-brand-cyan/60 focus:outline-none focus:ring-1 focus:ring-brand-cyan/25 disabled:cursor-not-allowed disabled:opacity-60'
+
+  const trackedEvents = ['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'] as const
 
   return (
     <DialogPortal><div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4"
       role="dialog"
       aria-modal="true"
       aria-label={pixel ? `Editar pixel ${pixel.name}` : 'Criar novo pixel TikTok'}
@@ -1102,131 +1103,163 @@ function PixelEditorWithGatewaySync({
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <GlassCard
+      <div
         ref={dialogRef}
         tabIndex={-1}
-        variant="thick"
-        className="w-full max-w-xl p-0 outline-none overflow-hidden border-border/80 shadow-2xl my-8 max-h-[90vh] flex flex-col"
+        className="my-8 flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border/75 bg-background shadow-xl outline-none"
       >
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between border-b border-border/60 px-6 py-4 shrink-0">
-          <div>
-            <h2 className="text-base font-bold text-foreground">
-              {pixel ? `Editar Pixel: ${pixel.name}` : 'Novo Pixel TikTok'}
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Preencha os dados do pixel e escolha quais checkouts devem enviar vendas para ele.
-            </p>
-          </div>
+        <div className="flex shrink-0 items-center justify-between border-b border-border/50 px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">
+            {pixel ? 'Editar Pixel' : 'Novo Pixel'}
+          </h2>
           <button
             type="button"
             onClick={onClose}
+            disabled={saving}
             aria-label="Fechar"
-            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground disabled:opacity-50"
           >
             <CircleX className="size-5" />
           </button>
         </div>
 
-        {/* Corpo com scroll */}
-        <div className="flex flex-col gap-4 p-6 overflow-y-auto">
-          {/* Nome do Pixel */}
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-foreground">
-              Nome do Pixel <span className="text-brand-cyan">*</span>
-            </span>
-            <input
-              className={inputCls}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="ex: Oferta Principal, Produto X, Contingência"
-            />
-          </label>
-
-          {/* Código do Pixel */}
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-foreground">
-              Código do Pixel no TikTok <span className="text-brand-cyan">*</span>
-            </span>
-            <input
-              className={`${inputCls} font-mono text-xs`}
-              value={pixelCode}
-              onChange={(e) => setPixelCode(e.target.value)}
-              placeholder="ex: C58LMNOPQR1234567890"
-            />
-            <span className="text-[11px] text-muted-foreground">
-              Encontrado no Gerenciador de Eventos do TikTok Ads.
-            </span>
-          </label>
-
-          {/* Token de acesso do TikTok */}
-          <label className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <ShieldCheck className="size-3.5 text-emerald-400" />
-                Token de acesso do TikTok
+        <div className="overflow-y-auto px-6 py-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-2">
+              <span className="text-[13px] font-medium text-foreground">
+                Nome <span className="text-brand-cyan">*</span>
               </span>
-              <span className="text-[10px] text-muted-foreground">Necessário para enviar eventos</span>
-            </div>
-            <div className="relative">
               <input
-                type={showToken ? 'text' : 'password'}
-                className={`${inputCls} pr-10 font-mono text-xs`}
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                placeholder={pixel?.hasToken ? '•••••••••••••••••••• (Salvo com sucesso)' : 'Cole o token de acesso'}
+                className={inputCls}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="ex: Oferta Principal"
+                disabled={saving}
               />
-              <button
-                type="button"
-                onClick={() => setShowToken((v) => !v)}
-                className="absolute inset-y-0 right-2 flex items-center p-1 text-muted-foreground hover:text-foreground"
-              >
-                {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-            <span className="text-[11px] text-muted-foreground">
-              Permite o envio direto das vendas do servidor sem bloqueios de navegador.
-            </span>
-          </label>
+            </label>
 
-          {/* Switch Ativo / Pausado */}
-          <label className="flex items-center justify-between p-3 rounded-xl border border-border/70 bg-secondary/30 cursor-pointer select-none">
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold text-foreground">Status do Rastreamento</span>
-              <span className="text-[11px] text-muted-foreground">
-                {active ? 'Envio habilitado para eventos reais' : 'Pixel pausado (ignora disparos)'}
+            <label className="flex flex-col gap-2">
+              <span className="text-[13px] font-medium text-foreground">
+                ID do Pixel <span className="text-brand-cyan">*</span>
               </span>
-            </div>
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-              className="size-4 accent-brand-cyan rounded cursor-pointer"
-            />
-          </label>
+              <input
+                className={`${inputCls} font-mono`}
+                value={pixelCode}
+                onChange={(e) => setPixelCode(e.target.value)}
+                placeholder="ex: C58LMNOPQR1234567890"
+                disabled={saving}
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
+                Encontrado no Gerenciador de Eventos do TikTok Ads.
+              </span>
+            </label>
+          </div>
 
-          <details className="rounded-xl border border-border p-3"><summary className="text-sm cursor-pointer">Eventos e modo de teste</summary><div className="mt-3 flex flex-col gap-3">
-            {(['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'] as const).map(event => <label key={event} className="flex items-center gap-3 min-h-9 text-sm"><input type="checkbox" className="size-4 accent-brand-cyan" checked={events[event] !== false} onChange={e => setEvents(previous => ({ ...previous, [event]: e.target.checked }))} />{conversionEvent(event)}</label>)}
-            <p className="text-xs text-muted-foreground">Visitas vêm do script. Carrinho e checkout dependem da ação na página. Pagamento e compra vêm do webhook do checkout.</p>
-            <label className="text-xs flex flex-col gap-2">Código de teste do TikTok<input className={inputCls} value={testEventCode} onChange={e => setTestEventCode(e.target.value)} placeholder="Opcional · Test Event Code" /></label>
-            <p className="text-xs text-muted-foreground">Usado apenas nos testes do painel. Eventos reais continuam em produção.</p>
-          </div></details>
-          <GatewaySelector gateways={gateways} selected={gatewayIds} onChange={setGatewayIds} disabled={saving} />
+          <section className="mt-6 border-t border-border/50 pt-5">
+            <label className="flex flex-col gap-2">
+              <span className="text-[13px] font-medium text-foreground">Token de acesso</span>
+              <div className="relative">
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  className={`${inputCls} pr-10 font-mono`}
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder={pixel?.hasToken ? '•••••••••••••••••••• (token salvo)' : 'Cole o token de acesso'}
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowToken((v) => !v)}
+                  disabled={saving}
+                  aria-label={showToken ? 'Ocultar token' : 'Mostrar token'}
+                  className="absolute inset-y-0 right-2 flex items-center p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                >
+                  {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                Necessário para enviar eventos pelo servidor.
+              </span>
+            </label>
+          </section>
+
+          <section className="mt-6 border-t border-border/50 pt-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Status do rastreamento</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {active ? 'Ativo · envio de eventos habilitado.' : 'Pausado · os disparos são ignorados.'}
+                </p>
+              </div>
+              <Switch
+                checked={active}
+                onChange={setActive}
+                label="Status do rastreamento"
+                disabled={saving}
+              />
+            </div>
+          </section>
+
+          <section className="mt-6 border-t border-border/50 pt-5">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Eventos enviados</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Selecione quais eventos este pixel pode enviar.
+              </p>
+            </div>
+
+            <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+              {trackedEvents.map((event) => (
+                <label key={event} className="flex min-h-10 cursor-pointer items-center gap-3 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="size-4 shrink-0 accent-brand-cyan"
+                    checked={events[event] !== false}
+                    onChange={(e) => setEvents((previous) => ({ ...previous, [event]: e.target.checked }))}
+                    disabled={saving}
+                  />
+                  <span>{conversionEvent(event)}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Visitas vêm do script. Carrinho e checkout dependem da ação na página. Pagamento e compra vêm do webhook do checkout.
+            </p>
+          </section>
+
+          <section className="mt-6 border-t border-border/50 pt-5">
+            <label className="flex flex-col gap-2">
+              <span className="text-[13px] font-medium text-foreground">Código de teste</span>
+              <input
+                className={inputCls}
+                value={testEventCode}
+                onChange={(e) => setTestEventCode(e.target.value)}
+                placeholder="Opcional · Test Event Code"
+                disabled={saving}
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                Use o código fornecido pelo TikTok Events Manager durante testes. Eventos reais continuam em produção.
+              </span>
+            </label>
+          </section>
+
+          <section className="mt-6 border-t border-border/50 pt-5">
+            <GatewaySelector gateways={gateways} selected={gatewayIds} onChange={setGatewayIds} disabled={saving} />
+          </section>
 
           {error && (
-            <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
-              {error}
+            <p className="mt-5 text-sm leading-relaxed text-destructive">
+              Não foi possível salvar: {error}
             </p>
           )}
         </div>
 
-        {/* Rodapé */}
-        <div className="flex items-center justify-end gap-2.5 border-t border-border/60 bg-secondary/20 px-6 py-4 shrink-0">
+        <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-border/50 px-6 py-4 max-sm:flex-col-reverse max-sm:items-stretch">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-xl px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors disabled:opacity-50"
+            className="min-h-10 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground disabled:opacity-50"
           >
             Cancelar
           </button>
@@ -1234,19 +1267,19 @@ function PixelEditorWithGatewaySync({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="btn-primary"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-brand-cyan px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-brand-cyan/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? (
               <>
-                <Loader2 className="size-3.5 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
                 Salvando…
               </>
             ) : (
-              'Salvar Pixel'
+              pixel ? 'Salvar alterações' : 'Criar Pixel'
             )}
           </button>
         </div>
-      </GlassCard>
+      </div>
     </div></DialogPortal>
   )
 }
@@ -1295,37 +1328,78 @@ function DirectGatewayModal({
     }
   }
 
+  const selectedProviderLabel = providers.find(item => item.id === provider)?.label || 'a plataforma'
   const helpText = PROVIDER_HELP[provider] || PROVIDER_HELP.generic
   const inputCls =
-    'w-full rounded-xl border border-border/80 bg-input px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand-cyan/60'
+    'h-11 w-full rounded-lg border border-border/70 bg-input/70 px-3.5 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-brand-cyan/60 focus:outline-none focus:ring-1 focus:ring-brand-cyan/25'
 
-  return (<Modal isOpen onClose={onClose} busy={saving} title={gateway ? 'Editar checkout' : 'Cadastrar checkout'}
-    description="Cadastre a plataforma para gerar seu endereço de webhook."
-    footer={<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>Cancelar</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Salvando…' : gateway ? 'Salvar alterações' : 'Cadastrar e gerar webhook'}</button></div>}>
-    <fieldset disabled={saving} className="launch-form">
-      <label className="launch-profile">Plataforma<select className={inputCls} value={provider} onChange={event => setProvider(event.target.value)}>{providers.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-      <details><summary className="cursor-pointer text-sm">Como configurar {providers.find(item => item.id === provider)?.label || 'a plataforma'}</summary><p className="launch-help mt-2">{helpText}</p></details>
-          {/* Nome para identificação */}
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-foreground">Nome para identificação (opcional)</span>
-            <input
-              className={inputCls}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={`ex: ${providers.find((p) => p.id === provider)?.label || 'Checkout'} Principal`}
-            />
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      busy={saving}
+      title={gateway ? 'Editar checkout' : 'Conectar checkout'}
+      description="Conecte a plataforma que enviará as confirmações de pagamento."
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvando…' : gateway ? 'Salvar alterações' : 'Conectar checkout'}
+          </button>
+        </div>
+      }
+    >
+      <fieldset disabled={saving} className="space-y-5 disabled:opacity-70">
+        <div className="space-y-2">
+          <label htmlFor="gateway-provider" className="text-[13px] font-medium text-foreground">
+            Plataforma
           </label>
+          <select
+            id="gateway-provider"
+            className={inputCls}
+            value={provider}
+            onChange={event => setProvider(event.target.value)}
+          >
+            {providers.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </div>
 
-          {/* Pixels que recebem deste checkout */}
-          <p className="text-xs text-muted-foreground">Depois de cadastrar, escolha os checkouts no cartão de cada pixel.</p>
+        <details className="group">
+          <summary className="cursor-pointer list-none text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan/35">
+            Como configurar {selectedProviderLabel}
+          </summary>
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{helpText}</p>
+        </details>
 
-          {error && (
-            <p className="rounded-xl bg-destructive/10 border border-destructive/30 p-2.5 text-xs text-destructive">
-              {error}
-            </p>
-          )}
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <label htmlFor="gateway-name" className="text-[13px] font-medium text-foreground">
+              Nome para identificação
+            </label>
+            <span className="text-xs text-muted-foreground">Opcional</span>
+          </div>
+          <input
+            id="gateway-name"
+            className={inputCls}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={`${selectedProviderLabel === 'a plataforma' ? 'Checkout' : selectedProviderLabel} Principal`}
+          />
+          <p className="text-xs leading-5 text-muted-foreground">Use um nome para diferenciar este checkout.</p>
+        </div>
 
+        <p className="text-[13px] leading-5 text-muted-foreground">
+          Depois de conectar, você pode vincular este checkout aos Pixels que devem receber as vendas.
+        </p>
 
-    </fieldset>
-  </Modal>)
+        {error && (
+          <p className="text-[13px] leading-5 text-destructive" role="alert">
+            Não foi possível salvar: {error}
+          </p>
+        )}
+      </fieldset>
+    </Modal>
+  )
 }

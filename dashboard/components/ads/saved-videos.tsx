@@ -6,26 +6,53 @@ import type { AdsLibraryItem } from '@/lib/types'
 import { Check, Film, Loader2 } from 'lucide-react'
 
 // Seleção sem exclusão: reutilizar um vídeo nunca altera a biblioteca.
-export function SavedVideos({ selectedUrls, onPick, disabled }: {
-  selectedUrls: string[]; onPick: (item: AdsLibraryItem) => void; disabled?: boolean
+export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'default' }: {
+  selectedUrls: string[]
+  onPick: (item: AdsLibraryItem) => void
+  disabled?: boolean
+  appearance?: 'default' | 'creation'
 }) {
   const [open, setOpen] = useState(false)
   const { data, error, isLoading, mutate } = useAdsLibrary(open)
   const items = data?.items ?? []
-  return <div className="space-y-1.5">
-    <button type="button" className="btn-secondary !min-h-0 h-7 text-[11px] px-2.5 rounded-md inline-flex items-center gap-1.5 font-medium" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Film className="size-3.5" aria-hidden="true" /> Biblioteca
+
+  // Default preserva Catálogo e qualquer consumidor legado sem regressão visual.
+  if (appearance === 'default') {
+    return <div className="space-y-1.5">
+      <button type="button" className="btn-secondary !min-h-0 h-7 text-[11px] px-2.5 rounded-md inline-flex items-center gap-1.5 font-medium" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Film className="size-3.5" aria-hidden="true" /> Biblioteca
+      </button>
+      {open && <div className="rounded-lg border border-border bg-card/95 p-2 shadow-md">
+        {isLoading ? <p className="flex items-center gap-2 text-xs py-1"><Loader2 className="size-3.5 animate-spin" />Carregando vídeos…</p>
+          : error ? <button type="button" className="btn-ghost !min-h-0 h-7 text-xs" onClick={() => void mutate()}>Não foi possível carregar. Tentar novamente</button>
+          : items.length === 0 ? <p className="text-xs text-muted-foreground py-1">Seus próximos uploads aparecerão aqui.</p>
+          : <ul className="max-h-40 space-y-0.5 overflow-y-auto" aria-label="Vídeos salvos">
+            {items.map((item) => {
+              const selected = selectedUrls.includes(item.url)
+              return <li key={item.url}><button type="button" disabled={disabled || selected} onClick={() => onPick(item)} className="flex w-full items-center justify-between gap-2.5 rounded-md p-1.5 text-left text-xs hover:bg-secondary/70 disabled:opacity-60">
+                <span className="truncate">{item.name}</span>
+                {selected ? <Check className="size-3.5 shrink-0 text-primary" /> : <span className="text-[11px] font-medium text-primary">Adicionar</span>}
+              </button></li>
+            })}
+          </ul>}
+      </div>}
+    </div>
+  }
+
+  return <div className="space-y-2">
+    <button type="button" className="btn-secondary inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-xs font-medium" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Film className="size-3.5" aria-hidden="true" /> Escolher da biblioteca
     </button>
-    {open && <div className="rounded-lg border border-border bg-card/95 p-2 shadow-md">
-      {isLoading ? <p className="flex items-center gap-2 text-xs py-1"><Loader2 className="size-3.5 animate-spin" />Carregando vídeos…</p>
-        : error ? <button type="button" className="btn-ghost !min-h-0 h-7 text-xs" onClick={() => void mutate()}>Não foi possível carregar. Tentar novamente</button>
-        : items.length === 0 ? <p className="text-xs text-muted-foreground py-1">Seus próximos uploads aparecerão aqui.</p>
-        : <ul className="max-h-40 space-y-0.5 overflow-y-auto" aria-label="Vídeos salvos">
+    {open && <div className="rounded-xl border border-border bg-background p-3">
+      {isLoading ? <p className="flex items-center gap-2 py-1 text-xs"><Loader2 className="size-3.5 animate-spin" />Carregando vídeos…</p>
+        : error ? <button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => void mutate()}>Não foi possível carregar. Tentar novamente</button>
+        : items.length === 0 ? <p className="py-1 text-xs text-muted-foreground">Seus próximos uploads aparecerão aqui.</p>
+        : <ul className="max-h-52 space-y-1 overflow-y-auto" aria-label="Vídeos salvos">
           {items.map((item) => {
             const selected = selectedUrls.includes(item.url)
-            return <li key={item.url}><button type="button" disabled={disabled || selected} onClick={() => onPick(item)} className="flex w-full items-center justify-between gap-2.5 rounded-md p-1.5 text-left text-xs hover:bg-secondary/70 disabled:opacity-60">
+            return <li key={item.url}><button type="button" disabled={disabled || selected} onClick={() => onPick(item)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary/60 disabled:opacity-60">
               <span className="truncate">{item.name}</span>
-              {selected ? <Check className="size-3.5 shrink-0 text-primary" /> : <span className="text-[11px] font-medium text-primary">Adicionar</span>}
+              {selected ? <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Check className="size-3.5 text-success" /> Selecionado</span> : <span className="shrink-0 text-xs font-medium text-primary">Adicionar</span>}
             </button></li>
           })}
         </ul>}

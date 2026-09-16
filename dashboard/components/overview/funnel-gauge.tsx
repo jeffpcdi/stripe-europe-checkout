@@ -1,6 +1,5 @@
 'use client'
 
-import { ArrowDownRight, CheckCircle2, Funnel } from 'lucide-react'
 import { CountUp } from '@/components/count-up'
 
 interface FunnelGaugeProps { visits: number; checkout: number; payment: number; purchased: number }
@@ -8,44 +7,43 @@ const percent = (value: number) => value.toLocaleString('pt-BR', { minimumFracti
 
 export function FunnelGauge({ visits, checkout, payment, purchased }: FunnelGaugeProps) {
   const steps = [
-    { label: 'Visitas', value: visits, detail: 'Acessaram a página' },
-    { label: 'Checkout', value: checkout, detail: 'Abriram o checkout' },
-    { label: 'Pagamento', value: payment, detail: 'Iniciaram o pagamento' },
-    { label: 'Compras', value: purchased, detail: 'Pagamento aprovado' },
+    { label: 'Visitas', value: visits },
+    { label: 'Checkout', value: checkout },
+    { label: 'Pagamento', value: payment },
+    { label: 'Compras', value: purchased },
   ]
   const convRate = visits > 0 ? (purchased / visits) * 100 : 0
 
   return (
     <section className="journey-funnel surface-card" aria-label="Funil de vendas">
-      <header className="overview-section-heading">
-        <h2><span className="overview-section-icon"><Funnel size={16} aria-hidden="true" /></span>Funil</h2>
-        <span className="overview-summary-badge" title="Compras divididas por visitas">
-          <strong>{visits > 0 ? percent(convRate) : '—'}</strong>
+      <header className="overview-section-heading overview-section-heading--plain">
+        <h2>Funil</h2>
+        <span className="funnel-conversion" title="Compras divididas por visitas">
+          {visits > 0 ? `${percent(convRate)} conversão` : 'Sem conversão'}
         </span>
       </header>
-      <ol className="journey-funnel-list">
+
+      <ol className="journey-funnel-flow">
         {steps.map((step, index) => {
           const previous = index > 0 ? steps[index - 1].value : 0
-          const width = visits > 0 ? Math.min(100, Math.max(0, (step.value / visits) * 100)) : 0
+          const rate = index === 0 ? null : previous > 0 ? (step.value / previous) * 100 : null
 
           return (
-            <li
-              key={step.label}
-              className="journey-step"
-              data-final={index === 3}
-            >
-              <div className="journey-step-head">
-                <span className="journey-step-number" aria-hidden="true">
-                  {index === 3 && step.value > 0 ? <CheckCircle2 size={13} className="text-success" /> : `0${index + 1}`}
+            <li key={step.label} className="journey-flow-item" data-final={index === steps.length - 1}>
+              {index > 0 && (
+                <span
+                  className="journey-flow-rate"
+                  title="Percentual que avançou da etapa anterior"
+                  aria-label={rate === null ? 'Taxa indisponível' : `${percent(rate)} avançaram da etapa anterior`}
+                >
+                  <span className="journey-flow-line" aria-hidden="true" />
+                  <span>{rate === null ? '—' : percent(rate)}</span>
                 </span>
-                <span title={step.detail} className="journey-step-label">{step.label}</span>
-                <strong className="journey-step-value"><CountUp value={step.value} /></strong>
-                <span className="journey-step-rate" title={index > 0 ? 'Percentual que avançou da etapa anterior' : 'Base de visitantes'}>
-                  {index > 0 && <ArrowDownRight size={12} aria-hidden="true" />}
-                  {index === 0 ? '100%' : previous > 0 ? percent((step.value / previous) * 100) : '—'}
-                </span>
+              )}
+              <div className="journey-flow-stage">
+                <strong className="journey-flow-value"><CountUp value={step.value} /></strong>
+                <span className="journey-flow-label">{step.label}</span>
               </div>
-              <div className="journey-step-track" aria-hidden="true"><span style={{ width: `${width}%` }} /></div>
             </li>
           )
         })}

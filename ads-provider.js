@@ -4672,12 +4672,21 @@ async function createLookalikeAudience(advertiserId, data = {}) {
   const sourceId = String(data.sourceAudienceId || '').trim();
   if (!name || !sourceId) throw badRequest('Nome e público semente são obrigatórios');
 
+  // Lookalike exige location_id real do TikTok. Códigos ISO como BR/PT não
+  // são aceitos diretamente pela API. Reutiliza o resolvedor já usado nos
+  // demais fluxos de criação e deixa o país explícito no contrato da UI.
+  const countries = Array.isArray(data.countries) && data.countries.length ? data.countries : ['BR'];
+  const regions = await resolveLocationIds(adv, countries, 'WEB_CONVERSIONS');
+  if (regions.missingCountries.length) {
+    throw stepError('regions', 'Alguns países não estão disponíveis como região de Lookalike nesta conta: ' + regions.missingCountries.join(', '), null, 400);
+  }
+
   const out = await pipeboard.callTool('create_tiktok_lookalike_audience', {
     advertiser_id: adv,
     custom_audience_name: name,
     source_audience_id: sourceId,
     lookalike_spec: {
-      location_ids: Array.isArray(data.locationIds) && data.locationIds.length ? data.locationIds : ['BR'],
+      location_ids: regions.locationIds,
       lookalike_type: String(data.lookalikeType || 'BALANCE'),
     },
   });

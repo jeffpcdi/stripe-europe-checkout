@@ -3,16 +3,14 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapPin, Globe2, ArrowUpRight, X, RefreshCw } from 'lucide-react'
+import { Globe2, ArrowUpRight, X, RefreshCw } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { liveGlobeData, presenceIncreases } from '@/lib/live-globe'
 import { countryName } from '@/lib/countries'
 import { countryFlag, fmtCurrency, timeAgo } from '@/lib/format'
 import { GlobeBoundary } from '@/components/geo/globe-boundary'
 import { OverviewMetrics, type OverviewMetricsProps } from '@/components/overview/overview-metrics'
-import { ObservatoryIcon } from '@/components/overview/observatory-icon'
 
-interface LatestLeadInfo { code: string; name: string; flag: string; at: number }
 
 export interface GlobePurchase {
   at: string
@@ -42,7 +40,6 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
   const [selected, setSelected] = useState<string | null>(focusCode || null)
   const [focusRevision, setFocusRevision] = useState(0)
   const [pulseCodes, setPulseCodes] = useState<string[]>([])
-  const [latestLead, setLatestLead] = useState<LatestLeadInfo | null>(null)
   const previous = useRef<{ code: string; count: number }[] | null>(null)
 
   useEffect(() => {
@@ -63,19 +60,16 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
   useEffect(() => {
     const increased = live.fresh ? presenceIncreases(previous.current, live.countries) : []
     previous.current = live.fresh ? live.countries : null
-    if (!live.fresh) { setLatestLead(null); setPulseCodes([]); return }
+    if (!live.fresh) { setPulseCodes([]); return }
     if (!increased.length) return
-    const code = increased[0]
     setPulseCodes(increased)
-    setLatestLead({ code, name: countryName(code), flag: countryFlag(code), at: Date.now() })
   }, [live])
 
   useEffect(() => {
-    if (!latestLead) return
-    const pulseTimer = window.setTimeout(() => setPulseCodes([]), 4500)
-    const bannerTimer = window.setTimeout(() => setLatestLead(null), 6000)
-    return () => { window.clearTimeout(pulseTimer); window.clearTimeout(bannerTimer) }
-  }, [latestLead])
+    if (!pulseCodes.length) return
+    const pulseTimer = window.setTimeout(() => setPulseCodes([]), 1700)
+    return () => window.clearTimeout(pulseTimer)
+  }, [pulseCodes])
 
   useEffect(() => {
     if (!focusCode) return
@@ -96,9 +90,15 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
         <GlobePanel embedded countries={live.countries} online={live.online} focusCode={selected} focusRevision={focusRevision} pulseCodes={pulseCodes}>
           {selected && (
             <div className="observatory-globe-caption">
-              <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país"><MapPin size={13} aria-hidden="true" />{countryName(selected)}<X size={13} aria-hidden="true" /></button>
+              <button type="button" onClick={() => focusCountry(null)} title="Limpar foco no país">{countryName(selected)}<X size={12} aria-hidden="true" /></button>
             </div>
           )}
+          <div className="observatory-globe-live" aria-live="polite" aria-label={live.fresh ? `${live.online ?? 0} visitantes online agora` : 'Presença ao vivo indisponível'}>
+            <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
+            <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
+            <span>online</span>
+            {!live.fresh && !isLoading && <button type="button" onClick={() => void mutate()} aria-label="Atualizar presença ao vivo" title="Atualizar presença"><RefreshCw size={12} aria-hidden="true" /></button>}
+          </div>
           <div className="observatory-fullscreen-countries" role="group" aria-label="Localizar país no globo ampliado">
             {live.countries.slice(0, 3).map(country => <button type="button" key={country.code} aria-pressed={selected === country.code} onClick={() => focusCountry(country.code)}><span aria-hidden="true">{countryFlag(country.code)}</span>{countryName(country.code)}<strong>{country.count}</strong></button>)}
           </div>
@@ -107,19 +107,8 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
     } />
 
     <div className="observatory-activity" aria-label="Atividade atual, independente do período">
-      <section className="observatory-live" aria-label="Visitantes ao vivo">
-        <div className="observatory-live-compact">
-          <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
-          <span className="observatory-live-label">Ao vivo</span>
-          <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
-          <span>visitantes</span>
-          {!live.fresh && !isLoading && <button type="button" className="observatory-text-link" onClick={() => void mutate()}><RefreshCw size={12} aria-hidden="true" />Atualizar</button>}
-          {latestLead && <button type="button" className="observatory-new-access-compact" onClick={() => focusCountry(latestLead.code)} aria-label={`Localizar novo acesso em ${latestLead.name}`}>{latestLead.flag} {latestLead.name}</button>}
-        </div>
-      </section>
-
       <section className="observatory-countries" aria-label="Top países ao vivo">
-        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="countries" /></span>Top países</h3></header>
+        <header className="observatory-activity-heading"><h3>Top países</h3></header>
         {live.countries.length > 0 ? <div className="observatory-country-list">
           {live.countries.slice(0, 3).map(country => {
             const percentage = Math.round(country.count / Math.max(1, onlineTotal) * 100)
@@ -133,7 +122,7 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh: _onRe
       </section>
 
       <section className="observatory-purchases" aria-label="Compras recentes">
-        <header className="observatory-activity-heading"><h3><span className="observatory-activity-icon"><ObservatoryIcon name="purchases" /></span>Compras</h3><span>10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver tudo <ArrowUpRight size={14} aria-hidden="true" /></Link></header>
+        <header className="observatory-activity-heading"><h3>Compras</h3><span>10 min</span><Link href="/activity" className="observatory-text-link" aria-label="Ver todas as compras no histórico">Ver tudo <ArrowUpRight size={13} aria-hidden="true" /></Link></header>
         {purchasesStale && <p className="observatory-empty" data-warning>Histórico não atualizado</p>}
         {recentPurchases.length > 0 ? <div className="observatory-purchase-list">
           {recentPurchases.slice(0, 3).map((purchase, index) => <div className="observatory-purchase" key={`${purchase.at}-${index}`}>

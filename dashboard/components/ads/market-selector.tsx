@@ -12,31 +12,62 @@ export function defaultMarket(country = 'BR'): AdMarket {
   return { countries: [country], languages: [] }
 }
 
-export function MarketSelector({ value, onChange, disabled, languageAvailable = true }: {
-  value: AdMarket; onChange: (value: AdMarket) => void; disabled?: boolean; languageAvailable?: boolean
+export function MarketSelector({ value, onChange, disabled, languageAvailable = true, appearance = 'default' }: {
+  value: AdMarket
+  onChange: (value: AdMarket) => void
+  disabled?: boolean
+  languageAvailable?: boolean
+  appearance?: 'default' | 'creation'
 }) {
-  return <fieldset disabled={disabled} className="rounded-lg border border-border/80 bg-secondary/15 p-2.5 sm:p-3 space-y-2">
-    <legend className="px-1 text-[11px] font-semibold text-foreground">Onde anunciar</legend>
-    <div className="grid gap-2 sm:grid-cols-2">
-      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">País</span>
-        <select className="input-base !min-h-0 h-7 sm:h-8 w-full text-xs py-0.5 px-2 rounded-md" value={value.countries[0]} onChange={(event) => {
-          const country = event.target.value
-          const language = MARKETS.find((market) => market[0] === country)?.[2]
-          onChange({ countries: [country], languages: languageAvailable && language ? [language] : [] })
-        }}>
+  function changeCountry(country: string) {
+    const language = MARKETS.find((market) => market[0] === country)?.[2]
+    onChange({ countries: [country], languages: languageAvailable && language ? [language] : [] })
+  }
+
+  // Default preserva exatamente a apresentação compartilhada pelo Catálogo.
+  if (appearance === 'default') {
+    return <fieldset disabled={disabled} className="rounded-lg border border-border/80 bg-secondary/15 p-2.5 sm:p-3 space-y-2">
+      <legend className="px-1 text-[11px] font-semibold text-foreground">Onde anunciar</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">País</span>
+          <select className="input-base !min-h-0 h-7 sm:h-8 w-full text-xs py-0.5 px-2 rounded-md" value={value.countries[0]} onChange={(event) => changeCountry(event.target.value)}>
+            {!MARKETS.some((market) => market[0] === value.countries[0]) && <option value={value.countries[0]}>{value.countries[0]}</option>}
+            {MARKETS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+        </label>
+        {languageAvailable && <label className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Idioma do público</span>
+          <select className="input-base !min-h-0 h-7 sm:h-8 w-full text-xs py-0.5 px-2 rounded-md" disabled={!languageAvailable} value={value.languages[0] || ''} onChange={(event) => onChange({ ...value, languages: event.target.value ? [event.target.value] : [] })}>
+            <option value="">Todos os idiomas</option>
+            {[['pt', 'Português'], ['en', 'Inglês'], ['es', 'Espanhol'], ['fr', 'Francês'], ['de', 'Alemão'], ['it', 'Italiano'], ['ja', 'Japonês']].map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          </select>
+        </label>}
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{languageAvailable ? 'Use vídeo, texto e página no idioma do público.' : 'Todos os idiomas incluídos.'}</p>
+    </fieldset>
+  }
+
+  const control = 'input-base min-h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none'
+  return <fieldset disabled={disabled} className="space-y-2 border-0 p-0">
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+        <span className="text-xs font-medium text-foreground">País</span>
+        <select className={control} value={value.countries[0]} onChange={(event) => changeCountry(event.target.value)}>
           {!MARKETS.some((market) => market[0] === value.countries[0]) && <option value={value.countries[0]}>{value.countries[0]}</option>}
           {MARKETS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
         </select>
       </label>
-      {languageAvailable && <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">Idioma do público</span>
-        <select className="input-base !min-h-0 h-7 sm:h-8 w-full text-xs py-0.5 px-2 rounded-md" disabled={!languageAvailable} value={value.languages[0] || ''} onChange={(event) => onChange({ ...value, languages: event.target.value ? [event.target.value] : [] })}>
+      {languageAvailable && <label className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+        <span className="text-xs font-medium text-foreground">Idioma do público</span>
+        <select className={control} value={value.languages[0] || ''} onChange={(event) => onChange({ ...value, languages: event.target.value ? [event.target.value] : [] })}>
           <option value="">Todos os idiomas</option>
           {[['pt', 'Português'], ['en', 'Inglês'], ['es', 'Espanhol'], ['fr', 'Francês'], ['de', 'Alemão'], ['it', 'Italiano'], ['ja', 'Japonês']].map(([code, name]) => <option key={code} value={code}>{name}</option>)}
         </select>
       </label>}
     </div>
-    <p className="text-xs text-muted-foreground leading-relaxed">{languageAvailable ? 'Use vídeo, texto e página no idioma do público.' : 'Todos os idiomas incluídos.'}</p>
+    <p className="text-xs leading-relaxed text-muted-foreground">{languageAvailable
+      ? (value.languages[0] ? 'O idioma foi sugerido pelo país. Você pode alterar ou deixar todos os idiomas.' : 'Use vídeo, texto e página no idioma do público.')
+      : 'O formato usa o mercado selecionado sem filtro manual de idioma.'}</p>
   </fieldset>
 }

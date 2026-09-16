@@ -75,7 +75,7 @@ export function TabNotifier() {
       }
       link.href = canvas.toDataURL('image/png')
     }
-    img.src = '/dashboard/roi-nados-logo.jpg'
+    img.src = '/dashboard/roi-nados-logo-ui.png'
   }, [health])
 
   return null

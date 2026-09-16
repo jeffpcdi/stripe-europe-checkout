@@ -346,12 +346,18 @@ function prepareSet(accountId, patch) {
         fixedFeeCents: clampCents(source[gatewayKey] && source[gatewayKey].fixedFeeCents),
       };
     });
+    const rawFixedCurrency = String(raw.fixedCostCurrency || '').toUpperCase();
+    const settingsCurrency = String((next.settings && next.settings.defaultCurrency) || '').toUpperCase();
+    const fixedCostCurrency = /^[A-Z]{3}$/.test(rawFixedCurrency)
+      ? rawFixedCurrency
+      : (/^[A-Z]{3}$/.test(settingsCurrency) ? settingsCurrency : 'BRL');
     next.profitability = {
       gatewayFeePct: clampPct(raw.gatewayFeePct),
       gatewayFixedFeeCents: clampCents(raw.gatewayFixedFeeCents),
       taxPct: clampPct(raw.taxPct),
       productCostPct: clampPct(raw.productCostPct),
       productCostFixedCents: clampCents(raw.productCostFixedCents),
+      fixedCostCurrency,
       gatewayOverrides,
     };
   }

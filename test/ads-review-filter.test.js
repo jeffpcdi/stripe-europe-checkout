@@ -1,9 +1,9 @@
 'use strict';
 /*
- * Filtro "Validadas" (approved) — dimensão de REVISÃO, não de entrega. Uma
+ * Filtro "Aprovadas" (approved) — dimensão de REVISÃO, não de entrega. Uma
  * campanha validada aparece como 'active'; por isso o filtro precisa olhar o
  * reviewStatus em AMBOS os caminhos de leitura (espelho Neon e live), senão
- * "Validadas" mostraria vazio ou a lista errada.
+ * "Aprovadas" mostraria vazio ou a lista errada.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -24,9 +24,9 @@ console.log('Backend — filtro approved por reviewStatus nos dois caminhos');
   ok(!/c\.status === statusFilter \|\| c\.childStatus === statusFilter/.test(provider), 'caminho live mantém filtros de entrega mutuamente exclusivos');
 }
 
-console.log('Frontend — chip Validadas + selo na campanha');
+console.log('Frontend — filtro Aprovadas + selo na campanha');
 {
-  ok(/value: 'approved', label: 'Validadas'/.test(tree), 'chip "Validadas" existe');
+  ok(/value: 'approved', label: 'Aprovadas'/.test(tree), 'filtro "Aprovadas" existe');
   ok(/reviewStatus === 'approved'/.test(tree), 'selo condicionado a reviewStatus approved');
   ok(/BadgeCheck/.test(tree), 'ícone do selo importado/usado');
 }

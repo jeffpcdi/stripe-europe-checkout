@@ -117,7 +117,7 @@ export function CatalogSyncStatus({
   }
   if ((remoteReadyWithDifference || run.status === 'completed') && uploadErrors === 0 && affectedWarnings.length === 0) return null
   return (
-    <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : remoteReadyWithDifference ? 'border-success/25 bg-success/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
+    <section className="border-y border-border/60 py-3" aria-live="polite">
       <div className="flex items-start gap-2">
         {remoteReadyWithDifference ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0 flex-1">
@@ -128,10 +128,10 @@ export function CatalogSyncStatus({
                 <span className={`font-semibold ${waitingConnector ? 'text-primary' : 'text-error'}`}>{run.error.userMessage}</span>
                 {run.error.suggestedAction ? ` ${run.error.suggestedAction}` : ''}
               </p>
-              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1 text-xs" onClick={resume} disabled={resuming}>{resuming ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />} Retomar</button>}
+              {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 min-h-10 text-sm" onClick={resume} disabled={resuming}>{resuming ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />} Retomar</button>}
             </>
           ) : (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {remoteReadyWithDifference
                 ? `${remoteProducts} produtos confirmados no TikTok.`
                 : awaitingTikTok
@@ -142,7 +142,7 @@ export function CatalogSyncStatus({
             </p>
           )}
           {uploadStatus && (uploadErrors > 0 || uploadWarnings > 0) && (
-            <p className="mt-1.5 rounded-md bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
+            <p className="mt-1.5 rounded-md bg-background/60 px-2 py-1 text-xs text-muted-foreground">
               Status: <strong className="text-foreground">{String(uploadStatus.processStatus || 'processando')}</strong>
               {uploadWarnings > 0 ? ` · ${uploadWarnings} aviso(s)` : ''}
               {uploadErrors > 0 ? ` · ${uploadErrors} erro(s)` : ''}

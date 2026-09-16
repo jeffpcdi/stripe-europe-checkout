@@ -1,13 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ShieldCheck, AlertTriangle } from 'lucide-react'
-import { ApiError, useCloakConfig, useHealth, apiSend } from '@/lib/api'
+import { useEffect, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { ApiError, apiSend, useCloakConfig, useHealth } from '@/lib/api'
 import type { CloakConfig, CloakSensitivity } from '@/lib/types'
-import { GlassCard } from '@/components/glass-card'
-import { StatusBadge } from '@/components/status-badge'
 import { Switch } from '@/components/ui/switch'
-import { SectionTitle } from '@/components/section-title'
 import { toast } from '@/lib/toast'
 
 // Camadas de detecção expostas na UI — rótulo + descrição curta.
@@ -26,14 +23,33 @@ const LAYERS: { key: keyof CloakConfig; label: string; hint: string }[] = [
 ]
 
 const SENSITIVITY: { id: CloakSensitivity; label: string; hint: string; tradeoff: string }[] = [
-  { id: 'strict', label: 'Rígido', hint: 'bloqueia mais (threshold 30)', tradeoff: 'Bloqueia mais tráfego suspeito, mas pode desviar alguns usuários legítimos.' },
-  { id: 'balanced', label: 'Equilibrado', hint: 'padrão (threshold 40)', tradeoff: 'Equilíbrio recomendado entre proteger a conta e não perder venda.' },
-  { id: 'loose', label: 'Leve', hint: 'bloqueia menos (threshold 55)', tradeoff: 'Reduz falsos positivos, mas permite mais tráfego automatizado ou suspeito.' },
-  { id: 'custom', label: 'Custom', hint: 'threshold manual', tradeoff: 'Você define o limiar exato (10–90).' },
+  {
+    id: 'strict',
+    label: 'Rígida',
+    hint: 'Mais proteção · limite 30',
+    tradeoff: 'Mais proteção, com maior chance de desviar alguns usuários legítimos.',
+  },
+  {
+    id: 'balanced',
+    label: 'Equilibrada',
+    hint: 'Recomendada · limite 40',
+    tradeoff: 'Equilíbrio recomendado entre proteção e conversão.',
+  },
+  {
+    id: 'loose',
+    label: 'Leve',
+    hint: 'Reduz falsos positivos · limite 55',
+    tradeoff: 'Menos falsos positivos, com maior tolerância a tráfego suspeito.',
+  },
+  {
+    id: 'custom',
+    label: 'Personalizada',
+    hint: 'Defina o limite manualmente',
+    tradeoff: 'Você controla exatamente o limite de suspeita entre 10 e 90.',
+  },
 ]
 
-// Item 168: camadas D–H só têm efeito quando o Challenge JS está ligado — elas
-// dependem do challengeData coletado pelo snippet /t.js.
+// Item 168: estas camadas dependem do challengeData coletado pelo snippet /t.js.
 const CHALLENGE_DEPENDENT: { key: keyof CloakConfig; label: string }[] = [
   { key: 'checkWebgl', label: 'WebGL renderer' },
   { key: 'checkTimezone', label: 'Timezone vs IP' },
@@ -41,7 +57,10 @@ const CHALLENGE_DEPENDENT: { key: keyof CloakConfig; label: string }[] = [
   { key: 'checkEntropy', label: 'Entropia de ação' },
 ]
 
-function Toggle({
+const inputClass =
+  'h-10 rounded-lg border border-border bg-input px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-brand-cyan/60 focus:ring-2 focus:ring-brand-cyan/15'
+
+function DetectionToggle({
   checked,
   onChange,
   label,
@@ -53,13 +72,13 @@ function Toggle({
   hint: string
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/20 px-3 py-2.5 transition-colors hover:bg-secondary/35">
-      <span className="min-w-0">
-        <span className="block text-sm text-foreground">{label}</span>
-        <span className="block text-[11px] text-muted-foreground">{hint}</span>
-      </span>
+    <div className="flex min-w-0 items-start justify-between gap-4 py-3.5">
+      <div className="min-w-0 pr-2">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      </div>
       <Switch checked={checked} onChange={onChange} label={label} />
-    </label>
+    </div>
   )
 }
 
@@ -92,7 +111,20 @@ export function CloakConfigPanel() {
 
   const cfg = draft ?? data
   if (!cfg) {
-    return <GlassCard className="h-64 animate-pulse p-5" />
+    return (
+      <section aria-busy="true" aria-label="Carregando configuração do Cloaker" className="space-y-5">
+        <div className="space-y-2">
+          <div className="h-5 w-36 rounded bg-secondary/70" />
+          <div className="h-4 w-72 max-w-full rounded bg-secondary/45" />
+        </div>
+        <div className="h-12 rounded-lg border border-border/50 bg-secondary/20" />
+        <div className="space-y-3 border-y border-border/50 py-3">
+          <div className="h-8 rounded bg-secondary/25" />
+          <div className="h-8 rounded bg-secondary/25" />
+        </div>
+        <div className="h-10 rounded-lg border border-border/50 bg-secondary/20" />
+      </section>
+    )
   }
 
   function patch(p: Partial<CloakConfig>) {
@@ -146,270 +178,322 @@ export function CloakConfigPanel() {
     }
   }
 
+  const selectedSensitivity =
+    SENSITIVITY.find((item) => item.id === (cfg.sensitivity ?? 'balanced')) ?? SENSITIVITY[1]
 
   return (
-    <GlassCard className="p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="flex size-8 items-center justify-center rounded-[10px] text-[color:var(--brand-cyan)]"
-            style={{ background: 'color-mix(in oklab, var(--brand-cyan) 14%, transparent)' }}
-            aria-hidden="true"
-          >
-            <ShieldCheck className="size-4" />
-          </span>
-          <div>
-            <SectionTitle>Proteção global</SectionTitle>
-            <p className="text-xs text-muted-foreground">Defina o comportamento padrão dos links protegidos</p>
-          </div>
-        </div>
-        <StatusBadge status={cfg.enabled ? 'success' : 'neutral'}>
-          {cfg.enabled ? (cfg.shadowMode ? 'observando' : 'ativo') : 'desligado'}
-        </StatusBadge>
-      </div>
-
-      {/* Item 76 + A8.1: interruptor mestre em destaque — o painel do switch
-          muda a cor de fundo conforme o estado (proteção ativa/inativa) */}
-      <div className="mb-4">
-        <div
-          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-colors duration-240 ${
-            cfg.enabled
-              ? 'border-success/25 bg-success/8'
-              : 'border-warning/25 bg-warning/8'
-          }`}
-        >
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-foreground">
-              {cfg.enabled ? (cfg.shadowMode ? 'Modo observação' : 'Proteção ativa') : 'Proteção inativa'}
-            </span>
-            <span className="block text-[11px] text-muted-foreground">
-              interruptor mestre — desliga toda a proteção
-            </span>
-          </span>
-          <Switch
-            checked={cfg.enabled}
-            onChange={(v) => patch({ enabled: v })}
-            label="Cloaking ativado"
-          />
-        </div>
-        {cfg.enabled ? (
-          <div className="anim-pop-in mt-2 flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-3 py-2">
-            <ShieldCheck className="size-3.5 text-success" aria-hidden="true" />
-            <span className="text-[11px] font-medium text-success">{cfg.shadowMode ? 'Modo observação — classifica sem alterar o destino.' : 'Proteção ativa — acessos suspeitos seguem para a página segura.'}</span>
-          </div>
-        ) : (
-          /* A8.1: estado inativo com aviso claro — todo mundo vê a offer */
-          <div className="anim-pop-in mt-2 flex items-center gap-2 rounded-lg bg-[color:var(--warning)]/10 px-3 py-2">
-            <AlertTriangle className="size-3.5 text-[color:var(--warning)]" aria-hidden="true" />
-            <span className="text-[11px] font-medium text-[color:var(--warning)]">
-              Proteção desligada — todos os acessos seguem para o destino principal
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="mb-4">
-        <Toggle
-          checked={cfg.shadowMode === true}
-          onChange={(v) => patch({ shadowMode: v })}
-          label="Modo observação"
-          hint="Classifica acessos sem alterar o destino"
-        />
-      </div>
-
-      {/* Sensibilidade */}
-      <div className="mb-4">
-        <span className="mb-1 block text-xs font-medium text-muted-foreground">Sensibilidade</span>
-        {/* Explicação completa no tooltip — menos texto na tela */}
-        <p
-          className="mb-2 text-[11px] text-muted-foreground"
-          title="Cada acesso recebe um score de suspeita (0–100). Quando o score atinge o threshold, o visitante vai para a página branca. Threshold mais baixo = protege mais, mas arrisca desviar alguns usuários reais."
-        >
-          Mais sensível = protege mais, mas pode desviar usuários reais.
+    <section className="[&_[role=switch]]:shadow-none">
+      <header className="mb-6">
+        <h2 className="text-base font-semibold text-foreground">Proteção global</h2>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          Defina como os links protegidos tratam acessos considerados suspeitos.
         </p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {SENSITIVITY.map((s) => {
-            const active = (cfg.sensitivity ?? 'balanced') === s.id
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => patch({ sensitivity: s.id })}
-                className={`rounded-lg border px-2 py-2 text-center transition-colors ${
-                  active
-                    ? 'border-[color:var(--brand-cyan)] bg-[var(--accent-light)]'
-                    : 'border-border bg-secondary/40 hover:bg-secondary'
-                }`}
-              >
-                <span className={`block text-sm font-medium ${active ? 'text-brand-cyan' : 'text-foreground'}`}>
-                  {s.label}
-                </span>
-                <span className="block text-[10px] text-muted-foreground">{s.hint}</span>
-              </button>
-            )
-          })}
-        </div>
-        {/* Item 167: trade-off do preset selecionado, em linguagem de negócio */}
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          {(SENSITIVITY.find((s) => s.id === (cfg.sensitivity ?? 'balanced')) ?? SENSITIVITY[1]).tradeoff}
-        </p>
-        {cfg.sensitivity === 'custom' && (
-          <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            Threshold manual
-            <input
-              type="number"
-              min={10}
-              max={90}
-              value={cfg.threshold}
-              onChange={(e) => patch({ threshold: Number(e.target.value) })}
-              className="w-20 rounded-lg border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <span>score ≥ threshold ⇒ suspeito</span>
-          </label>
-        )}
-      </div>
+      </header>
 
-      {/* White page global */}
-      <label className="mb-4 flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Página segura de fallback (vazio = página neutra embutida)</span>
-        <input
-          value={cfg.defaultWhitePage ?? ''}
-          onChange={(e) => patch({ defaultWhitePage: e.target.value })}
-          placeholder="https://pagina-segura.com"
-          className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        {/* Destino seguro inválido interrompe o fluxo; avisar antes de salvar. */}
-        {(cfg.defaultWhitePage ?? '').trim() !== '' && !/^https:\/\//.test((cfg.defaultWhitePage ?? '').trim()) && (
-          <span className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <span>
-              A página segura de fallback precisa começar com <code>https://</code>. Uma página quebrada leva o visitante a
-              um erro e interrompe o fluxo — corrija ou deixe vazio para usar a página neutra embutida.
-            </span>
-          </span>
-        )}
-      </label>
-
-      <details className="mb-4 rounded-2xl border border-border/60 bg-secondary/10 p-4">
-        <summary className="cursor-pointer list-none">
-          <div className="flex items-center justify-between gap-3">
+      <div className="space-y-7">
+        <section aria-labelledby="cloak-protection-state">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-foreground">Configurações avançadas</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Limites por IP, automação e camadas técnicas de detecção.</p>
+              <h3 id="cloak-protection-state" className="text-sm font-medium text-foreground">Proteção</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">{cfg.enabled ? 'Ativa' : 'Desligada'}</p>
             </div>
-            <span className="rounded-full border border-border/60 bg-secondary/20 px-2 py-0.5 text-[10px] text-muted-foreground">Opcional</span>
+            <Switch checked={cfg.enabled} onChange={(v) => patch({ enabled: v })} label="Cloaking ativado" />
           </div>
-        </summary>
-        <div className="mt-4">
 
-      {/* Itens 254/260: camada de velocity (anti device-farm). Configurável
-          por conta com clamp seguro no servidor (3–100 acessos, 10–600s). */}
-      <div className="mb-4 flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Limite de acessos por IP (anti device-farm)</span>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>máximo de</span>
-          <input
-            type="number"
-            min={3}
-            max={100}
-            value={cfg.velocityLimit ?? 12}
-            onChange={(e) => patch({ velocityLimit: Number(e.target.value) })}
-            className="w-16 rounded-lg border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            aria-label="Máximo de acessos do mesmo IP na janela"
-          />
-          <span>acessos do mesmo IP a cada</span>
-          <input
-            type="number"
-            min={10}
-            max={600}
-            value={cfg.velocityWindowSec ?? 60}
-            onChange={(e) => patch({ velocityWindowSec: Number(e.target.value) })}
-            className="w-16 rounded-lg border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            aria-label="Janela de contagem em segundos"
-          />
-          <span>segundos</span>
-        </div>
-        <span
-          className="text-[11px] text-muted-foreground"
-          title="Automação pode repetir acessos rapidamente a partir do mesmo IP; visitantes acima do limite seguem a política de proteção. O padrão (12 a cada 60s) mantém folga para redes compartilhadas."
-        >
-          Acima do limite, a política de proteção é aplicada.
-        </span>
-        {health && !health.redis && (
-          <span
-            className="text-[11px] text-warning"
-            title="Sem Redis, a contagem de acessos é feita apenas nesta instância do servidor. Uma device-farm distribuída entre várias máquinas só é barrada de forma confiável com o Redis ativo."
+          <p
+            className={`mt-3 text-sm leading-relaxed ${
+              !cfg.enabled || cfg.shadowMode ? 'text-warning' : 'text-muted-foreground'
+            }`}
           >
-            Sem Redis, a contagem vale só para esta instância.
-          </span>
-        )}
-      </div>
+            {!cfg.enabled
+              ? 'Proteção desligada · todos os acessos seguem para o destino principal.'
+              : cfg.shadowMode
+                ? 'Modo observação · os acessos são classificados, mas não são redirecionados.'
+                : 'Acessos considerados suspeitos seguem para o destino seguro.'}
+          </p>
+        </section>
 
-      <div className="mb-4 rounded-xl border border-border bg-secondary/25 p-3">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-xs font-medium text-foreground">Bloqueio automático por anúncio</span>
-            <span className="block text-[11px] text-muted-foreground">Agrupa riscos altos por IP e anúncio sem armazenar o IP bruto.</span>
-          </span>
-          <Switch checked={cfg.autoBlockEnabled === true} onChange={(value) => patch({ autoBlockEnabled: value })} label="Bloqueio automático" />
-        </div>
-        {cfg.autoBlockEnabled === true && (
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="text-[10px] text-muted-foreground">Sinais para bloquear<input type="number" min={3} max={100} value={cfg.autoBlockThreshold ?? 8} onChange={(event) => patch({ autoBlockThreshold: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
-            <label className="text-[10px] text-muted-foreground">Janela (min)<input type="number" min={5} max={1440} value={cfg.autoBlockWindowMin ?? 30} onChange={(event) => patch({ autoBlockWindowMin: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
-            <label className="text-[10px] text-muted-foreground">Bloqueio (horas)<input type="number" min={1} max={720} value={cfg.autoBlockTtlHours ?? 24} onChange={(event) => patch({ autoBlockTtlHours: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-input px-2 py-1.5 text-xs text-foreground" /></label>
+        <fieldset>
+          <legend className="text-sm font-medium text-foreground">Quando um acesso for considerado suspeito</legend>
+          {!cfg.enabled && (
+            <p className="mt-1 text-xs text-muted-foreground">Esta escolha será usada quando a proteção estiver ativa.</p>
+          )}
+          <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
+            <label className="flex cursor-pointer items-start gap-3 py-3.5">
+              <input
+                type="radio"
+                name="cloak-behavior"
+                checked={cfg.shadowMode !== true}
+                onChange={() => patch({ shadowMode: false })}
+                className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-foreground">Enviar para o destino seguro</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  A proteção redireciona o acesso suspeito.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 py-3.5">
+              <input
+                type="radio"
+                name="cloak-behavior"
+                checked={cfg.shadowMode === true}
+                onChange={() => patch({ shadowMode: true })}
+                className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-foreground">Somente observar</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  Classifica o acesso, mas mantém o destino principal.
+                </span>
+              </span>
+            </label>
           </div>
-        )}
-      </div>
+        </fieldset>
 
-      {/* Camadas de detecção */}
-      <span className="mb-2 block text-xs font-medium text-muted-foreground">Camadas de detecção</span>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {LAYERS.map((l) => (
-          <Toggle
-            key={l.key}
-            checked={cfg[l.key] as boolean}
-            onChange={(v) => patch({ [l.key]: v } as Partial<CloakConfig>)}
-            label={l.label}
-            hint={l.hint}
+        <fieldset>
+          <legend className="text-sm font-medium text-foreground">Sensibilidade</legend>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Limites menores tornam a proteção mais sensível; limites maiores reduzem falsos positivos.
+          </p>
+
+          <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
+            {SENSITIVITY.map((item) => {
+              const active = (cfg.sensitivity ?? 'balanced') === item.id
+              return (
+                <label key={item.id} className="flex cursor-pointer items-start gap-3 py-3">
+                  <input
+                    type="radio"
+                    name="cloak-sensitivity"
+                    checked={active}
+                    onChange={() => patch({ sensitivity: item.id })}
+                    className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">{item.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{item.hint}</span>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{selectedSensitivity.tradeoff}</p>
+
+          {cfg.sensitivity === 'custom' && (
+            <label className="mt-4 block max-w-xs">
+              <span className="text-sm font-medium text-foreground">Limite de suspeita</span>
+              <input
+                type="number"
+                min={10}
+                max={90}
+                value={cfg.threshold}
+                onChange={(e) => patch({ threshold: Number(e.target.value) })}
+                className={`${inputClass} mt-2 w-28`}
+              />
+              <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground">
+                Quanto menor o limite, mais sensível é a proteção. Intervalo: 10–90.
+              </span>
+            </label>
+          )}
+        </fieldset>
+
+        <label className="block">
+          <span className="text-sm font-medium text-foreground">Destino seguro padrão</span>
+          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+            Usado quando um link protegido não possui destino seguro próprio. Deixe vazio para usar a página neutra do ROI-NADOS.
+          </span>
+          <input
+            value={cfg.defaultWhitePage ?? ''}
+            onChange={(e) => patch({ defaultWhitePage: e.target.value })}
+            placeholder="https://pagina-segura.com"
+            className={`${inputClass} mt-2 w-full`}
           />
-        ))}
-      </div>
+          {(cfg.defaultWhitePage ?? '').trim() !== '' && !/^https:\/\//.test((cfg.defaultWhitePage ?? '').trim()) && (
+            <span className="mt-2 block text-xs leading-relaxed text-warning">
+              Use uma URL https:// válida ou deixe o campo vazio para usar a página neutra.
+            </span>
+          )}
+        </label>
 
-      {!cfg.requireJsChallenge &&
-        (() => {
-          const inertes = CHALLENGE_DEPENDENT.filter((l) => cfg[l.key] as boolean)
-          if (!inertes.length) return null
-          return (
-            <p
-              className="mt-3 flex items-center gap-1.5 text-[11px] text-warning"
-              title={`${inertes.map((l) => l.label).join(', ')} ${inertes.length > 1 ? 'dependem' : 'depende'} do Challenge JS, que está desligado — sem ele ${inertes.length > 1 ? 'essas camadas ficam' : 'essa camada fica'} sem efeito. Ligue o Challenge JS ou desative para evitar configuração inócua.`}
+        <details className="group border-y border-border/60 py-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/25">
+            <span>
+              <span className="block text-sm font-semibold text-foreground">Configurações avançadas</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                Limites por IP, bloqueios recorrentes e camadas técnicas de detecção.
+              </span>
+            </span>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+
+          <div className="mt-5 space-y-6">
+            <section>
+              <h3 className="text-sm font-medium text-foreground">Limite de acessos por IP</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Aplica a política de proteção quando o mesmo IP ultrapassa o volume configurado dentro da janela.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="text-xs font-medium text-muted-foreground">Acessos na janela</span>
+                  <input
+                    type="number"
+                    min={3}
+                    max={100}
+                    value={cfg.velocityLimit ?? 12}
+                    onChange={(e) => patch({ velocityLimit: Number(e.target.value) })}
+                    className={`${inputClass} mt-1.5 w-full`}
+                    aria-label="Máximo de acessos do mesmo IP na janela"
+                  />
+                </label>
+                <label>
+                  <span className="text-xs font-medium text-muted-foreground">Janela</span>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={10}
+                      max={600}
+                      value={cfg.velocityWindowSec ?? 60}
+                      onChange={(e) => patch({ velocityWindowSec: Number(e.target.value) })}
+                      className={`${inputClass} min-w-0 flex-1`}
+                      aria-label="Janela de contagem em segundos"
+                    />
+                    <span className="text-xs text-muted-foreground">segundos</span>
+                  </div>
+                </label>
+              </div>
+              {health && !health.redis && (
+                <p className="mt-3 text-xs leading-relaxed text-warning">
+                  Sem Redis, este limite é contado separadamente em cada instância do servidor.
+                </p>
+              )}
+            </section>
+
+            <section className="border-t border-border/60 pt-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-foreground">Bloqueio automático por anúncio</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Bloqueia temporariamente o mesmo IP quando ele acumula acessos de alto risco no mesmo anúncio.
+                  </p>
+                </div>
+                <Switch
+                  checked={cfg.autoBlockEnabled === true}
+                  onChange={(value) => patch({ autoBlockEnabled: value })}
+                  label="Bloqueio automático"
+                />
+              </div>
+
+              {cfg.autoBlockEnabled === true && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <label>
+                    <span className="text-xs font-medium text-muted-foreground">Acessos suspeitos</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={100}
+                      value={cfg.autoBlockThreshold ?? 8}
+                      onChange={(event) => patch({ autoBlockThreshold: Number(event.target.value) })}
+                      className={`${inputClass} mt-1.5 w-full`}
+                    />
+                  </label>
+                  <label>
+                    <span className="text-xs font-medium text-muted-foreground">Janela de análise</span>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={cfg.autoBlockWindowMin ?? 30}
+                        onChange={(event) => patch({ autoBlockWindowMin: Number(event.target.value) })}
+                        className={`${inputClass} min-w-0 flex-1`}
+                      />
+                      <span className="text-xs text-muted-foreground">min</span>
+                    </div>
+                  </label>
+                  <label>
+                    <span className="text-xs font-medium text-muted-foreground">Duração do bloqueio</span>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={720}
+                        value={cfg.autoBlockTtlHours ?? 24}
+                        onChange={(event) => patch({ autoBlockTtlHours: Number(event.target.value) })}
+                        className={`${inputClass} min-w-0 flex-1`}
+                      />
+                      <span className="text-xs text-muted-foreground">horas</span>
+                    </div>
+                  </label>
+                </div>
+              )}
+            </section>
+
+            <section className="border-t border-border/60 pt-5">
+              <h3 className="text-sm font-medium text-foreground">Camadas de detecção</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Ajustes técnicos do motor. As configurações padrão atendem à maioria das operações.
+              </p>
+
+              <div className="mt-3 grid gap-x-6 sm:grid-cols-2">
+                {LAYERS.map((layer) => (
+                  <div key={layer.key} className="border-t border-border/50 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
+                    <DetectionToggle
+                      checked={cfg[layer.key] as boolean}
+                      onChange={(value) => patch({ [layer.key]: value } as Partial<CloakConfig>)}
+                      label={layer.label}
+                      hint={layer.hint}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {!cfg.requireJsChallenge &&
+                (() => {
+                  const inertes = CHALLENGE_DEPENDENT.filter((layer) => cfg[layer.key] as boolean)
+                  if (!inertes.length) return null
+                  const names = inertes.map((layer) => layer.label).join(', ')
+                  return (
+                    <p className="mt-3 text-xs leading-relaxed text-warning">
+                      {names} {inertes.length > 1 ? 'estão sem efeito' : 'está sem efeito'} porque o Challenge JS está desligado.
+                    </p>
+                  )
+                })()}
+            </section>
+          </div>
+        </details>
+
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <div className="min-w-0">
+            {remoteChanged ? (
+              <p className="text-xs leading-relaxed text-warning">
+                Esta configuração foi alterada em outra sessão. Recarregue para continuar.
+              </p>
+            ) : dirty ? (
+              <p className="text-xs text-muted-foreground">Alterações não salvas</p>
+            ) : savedAt ? (
+              <p className="text-xs text-success">Configuração salva</p>
+            ) : null}
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {remoteChanged && (
+              <button type="button" onClick={() => void reloadRemote()} className="btn-secondary px-3 py-2 text-sm">
+                Recarregar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !dirty || remoteChanged}
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-cyan px-4 text-sm font-semibold text-slate-950 transition-colors hover:bg-brand-cyan/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/35 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-              {inertes.length} camada(s) sem efeito com o Challenge JS desligado.
-            </p>
-          )
-        })()}
-
-        </div>
-      </details>
-
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-        {remoteChanged && (
-          <>
-            <span className="mr-auto text-[11px] text-warning">Há uma versão mais nova.</span>
-            <button type="button" onClick={() => void reloadRemote()} className="btn-secondary px-3 py-2 text-xs">Recarregar</button>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || !dirty || remoteChanged}
-          className="btn-primary px-4 py-2 text-sm"
-        >
-          {saving ? 'Salvando…' : savedAt ? 'Salvo ✓' : 'Salvar'}
-        </button>
+              {saving ? 'Salvando…' : savedAt ? 'Salvo ✓' : 'Salvar'}
+            </button>
+          </div>
+        </footer>
       </div>
-    </GlassCard>
+    </section>
   )
 }

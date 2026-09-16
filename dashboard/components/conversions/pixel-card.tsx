@@ -8,28 +8,10 @@ import {
   Trash2,
   Pencil,
   Zap,
-  CheckCircle2,
-  Link as LinkIcon,
-  Globe,
 } from 'lucide-react'
 import type { Pixel, Gateway, PixelCoverage } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { timeAgo } from '@/lib/format'
-
-const PROVIDER_COLORS: Record<string, string> = {
-  kiwify: '#22c55e',
-  hotmart: '#f04e23',
-  perfectpay: '#fbbf24',
-  cakto: '#7c9a3d',
-  stripe: '#635bff',
-  vega: '#3b82f6',
-  adoorei: '#e879a0',
-  payt: '#0ea5a3',
-  eduzz: '#0055ff',
-  monetizze: '#10b981',
-  braip: '#8b5cf6',
-  generic: '#25f4ee',
-}
 
 interface PixelCardProps {
   pixel: Pixel
@@ -89,139 +71,149 @@ export function PixelCard({
     })
   }
 
+  const checkoutSummary = hasSpecificBindings
+    ? linkedGateways.length > 0
+      ? linkedGateways.map((gateway) => gateway.name).join(' · ')
+      : 'Nenhum checkout selecionado'
+    : pixel.gatewayBindingMode === 'explicit'
+      ? 'Nenhum checkout vinculado'
+      : 'Vínculo antigo · revisar'
+
+  const checkoutNeedsReview = !hasSpecificBindings && pixel.gatewayBindingMode !== 'explicit'
+  const lastCapiOk = coverage?.lastCapiStatus === 'ok'
+
   return (
-    <div className="flex flex-col justify-between gap-4 rounded-[24px] border border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4 shadow-[0_14px_34px_-22px_rgba(0,0,0,0.9)] transition-all duration-300 hover:border-brand-cyan/30 hover:bg-card/90">
-      <div className="flex flex-col gap-3">
-        {/* Topo: Nome, Status e Switch */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+    <div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card/45 p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-[15px] font-semibold text-foreground">{pixel.name}</h3>
+          <div className="mt-1 flex items-center gap-2 text-xs">
             <span
-              className={`size-2.5 rounded-full shrink-0 ${
-                pixel.active
-                  ? 'bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse'
-                  : 'bg-muted-foreground'
-              }`}
+              className={`size-1.5 shrink-0 rounded-full ${pixel.active ? 'bg-emerald-400' : 'bg-muted-foreground/70'}`}
+              aria-hidden="true"
             />
-            <h3 className="text-sm font-bold text-foreground truncate">{pixel.name}</h3>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${pixel.active ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border-border/60 bg-secondary/30 text-muted-foreground'}`}>
+            <span className={pixel.active ? 'text-emerald-400' : 'text-muted-foreground'}>
               {pixel.active ? 'Operacional' : 'Pausado'}
             </span>
           </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onToggleActive(pixel)}
-              disabled={busy}
-              className="text-[11px] font-medium px-2 py-0.5 rounded-lg border border-border/60 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-all"
-            >
-              {busy ? 'Salvando…' : pixel.active ? 'Pausar' : 'Ativar'}
-            </button>
-            <button
-              type="button"
-              onClick={() => onEditPixel(pixel)}
-              className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-              title="Editar pixel"
-            >
-              <Pencil className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeletePixel(pixel)}
-              className="p-1.5 text-destructive/70 hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors"
-              title="Excluir pixel"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          </div>
         </div>
 
-        {/* Código do Pixel */}
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/5 bg-black/35 px-3 py-2.5">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] uppercase font-mono text-muted-foreground">ID:</span>
-            <span className="font-mono text-xs font-semibold text-brand-cyan truncate select-all">
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleActive(pixel)}
+            disabled={busy}
+            className="rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? 'Salvando…' : pixel.active ? 'Pausar' : 'Ativar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onEditPixel(pixel)}
+            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan/60"
+            title="Editar pixel"
+            aria-label={`Editar ${pixel.name}`}
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeletePixel(pixel)}
+            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50"
+            title="Excluir pixel"
+            aria-label={`Excluir ${pixel.name}`}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-border/45 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 sm:flex sm:items-baseline sm:gap-3">
+            <span className="block text-xs text-muted-foreground">ID do Pixel</span>
+            <span className="mt-1 block truncate font-mono text-[13px] text-foreground sm:mt-0" title={pixel.pixelCode}>
               {pixel.pixelCode}
             </span>
           </div>
           <button
             type="button"
             onClick={() => onCopyText(pixel.pixelCode, `code-${pixel.slug}`, 'ID do Pixel copiado!')}
-            className="flex items-center gap-1 rounded-lg bg-secondary/60 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-secondary transition-colors shrink-0"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
           >
             {copiedId === `code-${pixel.slug}` ? (
               <>
                 <Check className="size-3 text-emerald-400" />
-                <span className="text-[10px] text-emerald-400 font-semibold">Copiado</span>
+                <span className="text-emerald-400">Copiado</span>
               </>
             ) : (
               <>
                 <Copy className="size-3" />
-                <span className="text-[10px]">Copiar</span>
+                <span>Copiar</span>
               </>
             )}
           </button>
         </div>
+      </div>
 
-        {/* Vínculo com checkouts */}
-        <div className="flex flex-col gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-              <LinkIcon className="size-3 text-brand-cyan" />
-              Origem das vendas
-            </span>
-            <button
-              type="button"
-              onClick={() => onOpenLinkModal(pixel)}
-              className="text-[11px] font-semibold text-brand-cyan hover:underline"
-            >
-              {hasSpecificBindings ? 'Alterar' : 'Escolher'}
-            </button>
+      <div className="border-t border-border/45 pt-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className="block text-xs text-muted-foreground">Checkouts</span>
+            <p className={`mt-1 text-[13px] leading-5 ${checkoutNeedsReview ? 'text-warning' : linkedGateways.length > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+              {checkoutSummary}
+            </p>
           </div>
-
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {hasSpecificBindings ? (
-              linkedGateways.length > 0 ? (
-                linkedGateways.map((gw) => (
-                  <span
-                    key={gw.id}
-                    className="inline-flex items-center gap-1 rounded-lg bg-background/80 px-2 py-0.5 text-[11px] font-medium text-foreground border border-border/50"
-                  >
-                    <span
-                      className="size-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: PROVIDER_COLORS[gw.provider] || '#94a3b8' }}
-                    />
-                    <span className="truncate max-w-[130px]">{gw.name}</span>
-                  </span>
-                ))
-              ) : (
-                <span className="text-[11px] text-muted-foreground italic">
-                  Nenhum checkout selecionado
-                </span>
-              )
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-
-                {pixel.gatewayBindingMode === 'explicit' ? 'Sem checkout vinculado' : 'Vínculo antigo · revisar'}
-              </span>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => onOpenLinkModal(pixel)}
+            className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-brand-cyan/10"
+          >
+            {hasSpecificBindings ? 'Alterar' : 'Escolher'}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs"><div className="rounded-xl border border-border/50 bg-secondary/15 p-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Última visita</span><p className="mt-1 text-xs font-medium text-foreground">{coverage?.lastBrowserAt ? timeAgo(coverage.lastBrowserAt) : 'Aguardando visita'}</p></div><div className="rounded-xl border border-border/50 bg-secondary/15 p-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Último envio</span><p className="mt-1 text-xs font-medium text-foreground">{coverage?.lastCapiAt ? `${coverage.lastCapiStatus === 'ok' ? 'Confirmado' : 'Ver histórico'} · ${timeAgo(coverage.lastCapiAt)}` : 'Sem envio recente'}</p></div></div>
-      {!pixel.hasToken && <p className="text-xs text-warning">Configure o token de acesso para enviar eventos pelo servidor.</p>}
-      {/* Rodapé de Ações: Copiar Código e Testar */}
-      <div className="flex items-center justify-between border-t border-border/40 pt-3">
+      <div className="grid gap-3 border-t border-border/45 pt-3 sm:grid-cols-2 sm:gap-5">
+        <div>
+          <span className="block text-xs text-muted-foreground">Última visita</span>
+          <p className="mt-1 text-[13px] font-medium text-foreground">
+            {coverage?.lastBrowserAt ? timeAgo(coverage.lastBrowserAt) : 'Aguardando visita'}
+          </p>
+        </div>
+        <div>
+          <span className="block text-xs text-muted-foreground">Último envio</span>
+          <p className="mt-1 text-[13px] font-medium text-foreground">
+            {coverage?.lastCapiAt ? (
+              <>
+                <span className={lastCapiOk ? 'text-emerald-400' : 'text-destructive'}>
+                  {lastCapiOk ? 'Confirmado' : 'Ver histórico'}
+                </span>
+                <span className="text-muted-foreground"> · {timeAgo(coverage.lastCapiAt)}</span>
+              </>
+            ) : (
+              'Sem envio recente'
+            )}
+          </p>
+        </div>
+      </div>
+
+      {!pixel.hasToken ? (
+        <p className="border-t border-border/45 pt-3 text-xs leading-5 text-warning">
+          Token de acesso necessário para enviar eventos pelo servidor.
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-2 border-t border-border/45 pt-3 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
           onClick={() => onInstallPixel(pixel)}
-          className="flex items-center gap-1.5 rounded-xl border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/20 transition-all"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-brand-cyan px-3 text-xs font-semibold text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/40"
         >
           {copiedSnippet ? (
             <>
-              <Check className="size-3.5 stroke-[3]" />
-              <span>Código Copiado!</span>
+              <Check className="size-3.5" />
+              <span>Copiado</span>
             </>
           ) : (
             <>
@@ -235,11 +227,11 @@ export function PixelCard({
           type="button"
           onClick={() => onTestPixel(pixel)}
           disabled={isTesting}
-          className="flex items-center gap-1 rounded-xl border border-border/70 bg-secondary/50 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition-all disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-transparent px-3 text-xs font-medium text-foreground transition-colors hover:bg-secondary/45 disabled:cursor-not-allowed disabled:opacity-50"
           title="Enviar disparo de teste para verificar a conexão com o TikTok"
         >
-          <Zap className="size-3 text-amber-400" />
-          {isTesting ? 'Testando…' : 'Testar'}
+          <Zap className="size-3.5 text-muted-foreground" />
+          {isTesting ? 'Testando…' : 'Testar conexão'}
         </button>
       </div>
     </div>

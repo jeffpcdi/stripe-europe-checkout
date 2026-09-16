@@ -10,26 +10,21 @@ import {
   Check,
   Pencil,
   Trash2,
-  Globe,
-  Languages,
   QrCode,
   TriangleAlert,
   Search,
   CopyPlus,
   ExternalLink,
   Power,
-  Radio,
   Download,
   Archive,
   ArchiveRestore,
   MoreHorizontal,
-  Activity,
 } from 'lucide-react'
 import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
 import type { CheckoutLink } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
-import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { SectionTitle } from '@/components/section-title'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -432,104 +427,110 @@ export function LinksView() {
           </button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <GlassCard className="p-4">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Links ativos</p>
-            <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.active} /><span className="text-sm font-medium text-muted-foreground">/{linkSummary.total}</span></p>
-                      </GlassCard>
-          <GlassCard className="p-4">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Cliques</p>
-            <p className="mt-2 text-xl font-semibold text-foreground"><CountUp value={linkSummary.clicks} /></p>
-                      </GlassCard>
-          <GlassCard className="p-4">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Conversão</p>
-            <p className="mt-2 text-xl font-semibold text-brand-cyan">{linkSummary.conversionRate.toFixed(1).replace('.', ',')}%</p>
-                      </GlassCard>
-          <GlassCard className={`p-4 ${linkSummary.attention ? 'border-warning/30 bg-warning/5' : ''}`}>
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Atenção</p>
-            <p className={`mt-2 text-xl font-semibold ${linkSummary.attention ? 'text-warning' : 'text-success'}`}>{linkSummary.attention}</p>
-                      </GlassCard>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-border/60 py-4 lg:grid-cols-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Links ativos</p>
+            <p className="mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] text-foreground tabular-nums"><CountUp value={linkSummary.active} /><span className="text-sm font-medium text-muted-foreground">/{linkSummary.total}</span></p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Cliques</p>
+            <p className="mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] text-foreground tabular-nums"><CountUp value={linkSummary.clicks} /></p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Conversão</p>
+            <p className="mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] text-foreground tabular-nums">{linkSummary.conversionRate.toFixed(1).replace('.', ',')}%</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Atenção</p>
+            <p className={`mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] tabular-nums ${linkSummary.attention ? 'text-warning' : 'text-foreground'}`}>{linkSummary.attention}</p>
+          </div>
         </div>
 
-        <GlassCard className="p-3 sm:p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Activity className="size-3.5 text-brand-cyan" />
-              <span>{showArchived ? `${archivedCount} arquivado${archivedCount === 1 ? '' : 's'}` : `${visibleLinks.length} link${visibleLinks.length === 1 ? '' : 's'} na lista`}</span>
-              {query.trim() ? <span className="text-foreground">· filtro ativo</span> : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {links.length > 1 && (
-                <>
-                  <label className="relative min-w-[210px] flex-1 lg:flex-none">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                    <input
-                      type="search"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Buscar nome, slug ou domínio…"
-                      aria-label="Buscar link por nome, slug ou domínio"
-                      className="w-full rounded-xl border border-border bg-input/50 py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-brand-cyan/50 focus:outline-none"
-                    />
-                  </label>
-                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} aria-label="Ordenar links" className="rounded-xl border border-border bg-input px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
-                    {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABELS[k]}</option>)}
-                  </select>
-                </>
-              )}
-              {archivedCount > 0 && (
-                <button type="button" onClick={() => setShowArchived((v) => !v)} aria-pressed={showArchived} className={`btn-ghost text-xs ${showArchived ? 'border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan' : ''}`}>
-                  <Archive className="size-3.5" aria-hidden="true" />
-                  {showArchived ? 'Voltar aos ativos' : `Arquivados (${archivedCount})`}
-                </button>
-              )}
-            </div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          {links.length > 1 ? (
+            <label className="relative min-w-0 flex-1 lg:max-w-xl">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar links..."
+                aria-label="Buscar link por nome, slug ou domínio"
+                className="h-10 w-full rounded-lg border border-border/80 bg-input/40 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-cyan/50 focus:outline-none focus:ring-2 focus:ring-brand-cyan/10"
+              />
+            </label>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+            {links.length > 1 ? (
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+                aria-label="Ordenar links"
+                className="h-10 rounded-lg border border-border/80 bg-input/40 px-3 text-sm text-foreground focus:border-brand-cyan/50 focus:outline-none focus:ring-2 focus:ring-brand-cyan/10"
+              >
+                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABELS[k]}</option>)}
+              </select>
+            ) : null}
+
+            {archivedCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowArchived((v) => !v)}
+                aria-pressed={showArchived}
+                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30 ${showArchived ? 'border-brand-cyan/35 bg-brand-cyan/10 text-brand-cyan' : 'border-border/80 bg-transparent text-muted-foreground hover:bg-secondary/40 hover:text-foreground'}`}
+              >
+                <Archive className="size-4" aria-hidden="true" />
+                {showArchived ? 'Voltar aos ativos' : `Arquivados (${archivedCount})`}
+              </button>
+            ) : null}
           </div>
-        </GlassCard>
+        </div>
+
+        <div className="flex min-h-5 items-center gap-2 text-xs text-muted-foreground">
+          <span>{showArchived ? `${archivedCount} arquivado${archivedCount === 1 ? '' : 's'}` : `${visibleLinks.length} link${visibleLinks.length === 1 ? '' : 's'} na lista`}</span>
+          {query.trim() ? <span className="text-foreground/80">· filtro ativo</span> : null}
+        </div>
       </div>
 
       {links.length === 0 ? (
-        <GlassCard className="flex flex-col items-center justify-center gap-4 p-12 text-center border-dashed border-border/80">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan">
-            <Link2 className="size-7" />
-          </div>
-
-          <div className="flex flex-col items-center gap-1 max-w-sm">
-            <h3 className="text-base font-semibold text-foreground">
+        <section className="flex min-h-[220px] flex-col items-center justify-center gap-3 py-10 text-center" aria-labelledby="links-empty-title">
+          <Link2 className="size-5 text-brand-cyan/70" aria-hidden="true" />
+          <div className="max-w-md space-y-1.5">
+            <h3 id="links-empty-title" className="text-base font-semibold text-foreground">
               Nenhum link criado
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Crie links de checkout para rastrear cliques, vendas e enviar dados ao TikTok.
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Crie seu primeiro link para começar a rastrear cliques e conversões.
             </p>
           </div>
-
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="mt-2 flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background hover:opacity-90 transition-opacity"
+            className="mt-1 inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand-cyan px-3.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-brand-cyan/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/35"
           >
-            <Plus className="size-3.5" />
-            Criar Primeiro Link
+            <Plus className="size-4" aria-hidden="true" />
+            Novo link
           </button>
-        </GlassCard>
+        </section>
       ) : (
         <div className="flex flex-col gap-3" data-tour="links-list">
           {/* Item 72: barra de ações em massa (aparece quando há seleção) */}
           {selected.size > 0 && (
             <div
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-y border-border/50 py-2.5"
               role="toolbar"
               aria-label="Ações em massa nos links selecionados"
             >
-              <span className="text-xs text-muted-foreground tabular-nums">
+              <span className="text-sm font-medium text-foreground tabular-nums">
                 {selected.size} selecionado{selected.size === 1 ? '' : 's'}
               </span>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => bulkSetAtivo(true)}
                   disabled={bulkBusy}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                  className="inline-flex h-8 items-center rounded-md px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Ativar
                 </button>
@@ -537,7 +538,7 @@ export function LinksView() {
                   type="button"
                   onClick={() => bulkSetAtivo(false)}
                   disabled={bulkBusy}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                  className="inline-flex h-8 items-center rounded-md px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Pausar
                 </button>
@@ -545,19 +546,19 @@ export function LinksView() {
                   type="button"
                   onClick={bulkDelete}
                   disabled={bulkBusy}
-                  className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                  className={`inline-flex h-8 min-w-[72px] items-center justify-center rounded-md px-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     confirmBulkDelete
-                      ? 'bg-destructive text-white hover:opacity-90'
-                      : 'border border-destructive/40 text-destructive hover:bg-destructive/10'
+                      ? 'bg-destructive/12 text-destructive ring-1 ring-inset ring-destructive/30 hover:bg-destructive/16'
+                      : 'text-destructive hover:bg-destructive/8'
                   }`}
                 >
-                  {confirmBulkDelete ? `Confirmar exclusão de ${selected.size}` : 'Excluir'}
+                  {confirmBulkDelete ? 'Confirmar exclusão' : 'Excluir'}
                 </button>
                 <button
                   type="button"
                   onClick={clearSelection}
                   disabled={bulkBusy}
-                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                  className="inline-flex h-8 items-center rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Limpar
                 </button>
@@ -565,11 +566,11 @@ export function LinksView() {
             </div>
           )}
           {visibleLinks.length === 0 && (
-            <GlassCard className="p-6 text-center shadow-[0_0_15px_rgba(37,244,238,0.15)] transition-all">
+            <div className="py-8 text-center">
               <p className="text-sm text-muted-foreground">
                 Nenhum link corresponde a &quot;{query}&quot;.
               </p>
-            </GlassCard>
+            </div>
           )}
           {visibleLinks.map((l, index) => {
             const clicks = l.variantes.reduce((s, v) => s + v.clicks, 0)
@@ -589,183 +590,118 @@ export function LinksView() {
             const pixelPaused = !!pixel && !pixel.active
             const busy = busySlug === l.slug
             return (
-              /* A5.2: hover eleva com borda ciano 40% + shadow-lg; ações do
-                 card aparecem no hover em desktop (sempre visíveis no mobile,
-                 e também com foco de teclado via focus-within) */
-              /* V2-87: spotlight que segue o cursor nos cards de link */
-              <GlassCard
+              <div
                 key={l.slug}
-                spotlight
-                className="relative group flex-col rounded-[24px] border border-border/70 p-4 sm:p-5 transition-all duration-300 hover:border-brand-cyan/25 hover:bg-card/90 animate-in fade-in slide-in-from-bottom-4 fill-mode-both"
-                style={{ animationDelay: `${index * 50}ms` }}
+                className="group relative border-b border-border/45 py-4 sm:py-5 last:border-b-0"
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    {/* Item 72: checkbox de seleção (só aparece com 2+ links) */}
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-5">
+                  <div className="flex min-w-0 flex-1 items-start gap-2.5">
                     {links.length > 1 && (
                       <input
                         type="checkbox"
                         checked={selected.has(l.slug)}
                         onChange={() => toggleSelect(l.slug)}
                         aria-label={`Selecionar o link ${l.nome}`}
-                        className="mt-0.5 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                        className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
                       />
                     )}
-                    <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">{l.nome}</h3>
-                      {/* A5.4: badge de estado unificado com .status-dot —
-                          ativo (verde pulsante), pausado (âmbar), arquivado (neutro) */}
-                      <span
-                        className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-all duration-300 ${
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <h3 className="truncate text-sm font-semibold text-foreground" title={l.nome}>{l.nome}</h3>
+                        <span className={`inline-flex items-center gap-1.5 text-[12px] font-medium ${
                           l.arquivado
-                            ? 'bg-muted/30 text-muted-foreground border border-muted/50 backdrop-blur-sm'
+                            ? 'text-muted-foreground'
                             : l.ativo
-                              ? 'bg-[color:var(--success)]/10 text-[color:var(--success)] border border-[color:var(--success)]/25'
-                              : 'bg-[color:var(--warning)]/10 text-[color:var(--warning)] border border-[color:var(--warning)]/25'
-                        }`}
-                      >
-                        <span className="relative flex h-2 w-2 items-center justify-center">
-                          {l.ativo && (
-                            <>
-                              <span className="absolute inline-flex h-full w-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-[color:var(--success)] opacity-75" />
-                              <span className="absolute inline-flex h-full w-full animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite_0.5s] rounded-full bg-[color:var(--success)] opacity-40" />
-                            </>
-                          )}
+                              ? 'text-[color:var(--success)]'
+                              : 'text-[color:var(--warning)]'
+                        }`}>
+                          <span className={`size-1.5 rounded-full ${
+                            l.arquivado
+                              ? 'bg-muted-foreground/60'
+                              : l.ativo
+                                ? 'bg-[color:var(--success)]'
+                                : 'bg-[color:var(--warning)]'
+                          }`} aria-hidden="true" />
+                          {l.arquivado ? 'Arquivado' : l.ativo ? 'Ativo' : 'Pausado'}
+                        </span>
+                        {l.urlWhitePage ? (
+                          <span className="text-[12px] font-medium text-[color:var(--brand-pink)]">Cloak</span>
+                        ) : null}
+                        {(l.dominio && !verifiedHosts.has(l.dominio)) || pixelMissing || pixelPaused ? (
                           <span
-                            className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
-                              l.arquivado
-                                ? 'bg-muted-foreground/50'
-                                : l.ativo
-                                  ? 'bg-[color:var(--success)]'
-                                  : 'bg-[color:var(--warning)]'
-                            }`}
-                            aria-hidden="true"
-                          />
-                        </span>
-                        {l.arquivado ? 'Arquivado' : l.ativo ? 'Ativo' : 'Pausado'}
-                      </span>
-                      {l.urlWhitePage && (
-                        <span className="rounded-full border border-[color:var(--brand-pink)]/25 bg-[color:var(--brand-pink)]/10 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--brand-pink)]">
-                          Cloak
-                        </span>
-                      )}
-                      {/* Aviso: o link usa domínio próprio que ainda não verificou — a URL vai dar erro */}
-                      {l.dominio && !verifiedHosts.has(l.dominio) && (
-                        <span
-                          className="flex items-center gap-1 rounded-md bg-[color:var(--warning)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--warning)]"
-                          title={`O domínio ${l.dominio} ainda não foi verificado na aba Domínios — este link não funciona até verificar.`}
-                        >
-                          <TriangleAlert className="size-3" aria-hidden="true" /> domínio não verificado
-                        </span>
-                      )}
-                      {/* Item 68: pixel associado ao link, com alerta se sumiu ou está pausado */}
-                      {l.pixelSlug && (
-                        <span
-                          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
-                            pixelMissing || pixelPaused
-                              ? 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'
-                              : 'bg-secondary/60 text-muted-foreground'
-                          }`}
-                          title={
-                            pixelMissing
-                              ? `O pixel "${l.pixelSlug}" não existe mais — os eventos deste link não disparam.`
-                              : pixelPaused
-                                ? `O pixel "${l.pixelSlug}" está pausado — os eventos deste link não disparam.`
-                                : `Eventos deste link disparam no pixel "${l.pixelSlug}".`
-                          }
-                        >
-                          <Radio className="size-3" aria-hidden="true" />
-                          {l.pixelSlug}
-                          {pixelMissing && ' (não existe)'}
-                          {pixelPaused && ' (pausado)'}
-                        </span>
-                      )}
-                    </div>
-                    {/* A5.1: prefixo esmaecido, slug em destaque ciano */}
-                    <p className="mt-1 truncate font-mono text-xs">
-                      <span className="text-muted-foreground/50">
-                        https://{l.dominio || appHost}/go/
-                      </span>
-                      <span className="text-primary">{l.slug}</span>
-                    </p>
-                    {/* A5.3: mini-barra de conversão cliques→conversões */}
-                    {clicks > 0 && (
-                      <div
-                        className="mt-3 flex items-center gap-2 group/conv"
-                        role="img"
-                        aria-label={`${convs} conversões em ${clicks} cliques`}
-                      >
-                        <div className="h-1.5 w-32 overflow-hidden rounded-full bg-secondary shadow-inner">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] transition-[width] duration-1000 ease-out group-hover/conv:drop-shadow-[0_0_5px_rgba(37,244,238,0.8)]"
-                            style={{ width: `${Math.min(100, (convs / clicks) * 100)}%` }}
-                          />
-                        </div>
-                        <span className="font-mono text-[10px] tabular-nums text-foreground/60 transition-colors group-hover/conv:text-[color:var(--brand-cyan)] group-hover/conv:drop-shadow-[0_0_5px_rgba(37,244,238,0.5)]">
-                          {((convs / clicks) * 100).toFixed(1).replace('.', ',')}%
-                        </span>
+                            className="inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--warning)]"
+                            title="Há configurações deste link que precisam de atenção. Abra Detalhes para revisar."
+                          >
+                            <TriangleAlert className="size-3" aria-hidden="true" />
+                            {[l.dominio && !verifiedHosts.has(l.dominio), pixelMissing || pixelPaused].filter(Boolean).length} problema{[l.dominio && !verifiedHosts.has(l.dominio), pixelMissing || pixelPaused].filter(Boolean).length === 1 ? '' : 's'}
+                          </span>
+                        ) : null}
                       </div>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>
-                        {l.variantes.length} versão{l.variantes.length === 1 ? '' : 'ões'}
-                      </span>
-                      <span className="tabular-nums"><CountUp value={clicks} /> cliques</span>
-                      <span className="tabular-nums"><CountUp value={convs} /> conversões</span>
-                      {/* Item 65: taxa de conversão + receita por moeda */}
-                      {convRate !== null && (
-                        <span className="tabular-nums" data-tooltip="Conversões ÷ cliques">
-                          {convRate.toFixed(1).replace('.', ',')}% conv.
-                        </span>
-                      )}
-                      {revenueEntries.map(([cur, cents]) => (
-                        <span
-                          key={cur}
-                          className="font-medium tabular-nums text-[color:var(--success)]"
-                          title={`Receita atribuída a este link em ${cur}`}
-                        >
-                          {formatMoney(cents, cur)}
-                        </span>
-                      ))}
-                      {l.paises.length > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Globe className="size-3" /> {l.paises.join(', ')}
-                        </span>
-                      )}
-                      {l.idiomas.length > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Languages className="size-3" /> {l.idiomas.join(', ')}
-                        </span>
-                      )}
-                    </div>
-                    {/* Item 66: leitura rápida do A/B — peso configurado vs. participação
-                        real nas conversões de cada versão */}
-                    {l.variantes.length >= 2 && (
-                      <details className="mt-3 rounded-xl border border-border/50 bg-secondary/15 p-3">
-                        <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
-                          Desempenho do teste A/B · {l.variantes.length} variantes
+
+                      <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                        <span className="text-muted-foreground/60">https://{l.dominio || appHost}/go/</span>
+                        <span className="text-brand-cyan/90">{l.slug}</span>
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted-foreground">
+                        <span className="tabular-nums"><CountUp value={clicks} /> cliques</span>
+                        <span className="tabular-nums"><CountUp value={convs} /> conversões</span>
+                        {convRate !== null ? (
+                          <span className="tabular-nums text-foreground/80">{convRate.toFixed(1).replace('.', ',')}%</span>
+                        ) : null}
+                        {revenueEntries.map(([cur, cents]) => (
+                          <span key={cur} className="font-medium tabular-nums text-foreground" title={`Receita atribuída a este link em ${cur}`}>
+                            {formatMoney(cents, cur)}
+                          </span>
+                        ))}
+                      </div>
+
+                      <details className="mt-3 text-[12px] text-muted-foreground">
+                        <summary className="w-fit cursor-pointer select-none font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20">
+                          Detalhes
                         </summary>
-                        <div className="mt-3 flex flex-col gap-2">
-                          {l.variantes.map((v) => {
-                            const share = convs > 0 ? (v.conversions / convs) * 100 : 0
-                            return (
-                              <div key={v.id} className="flex items-center gap-2 text-[11px]">
-                                <span className="w-24 truncate text-muted-foreground" title={v.nome}>{v.nome}</span>
-                                <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary/80" role="img" aria-label={`${v.nome}: peso ${v.peso}%, ${v.conversions} de ${convs} conversões`}>
-                                  <div className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/20" style={{ width: `${Math.min(100, v.peso)}%` }} />
-                                  <div className="absolute inset-y-0 left-0 rounded-full bg-brand-cyan/80 transition-[width] duration-700" style={{ width: `${Math.min(100, share)}%` }} />
-                                </div>
-                                <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% conv.` : <><CountUp value={v.conversions} /> conv.</>}</span>
-                              </div>
-                            )
-                          })}
+                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 border-l border-border/50 pl-3">
+                          <span>{l.variantes.length} versão{l.variantes.length === 1 ? '' : 'ões'}</span>
+                          {l.urlWhitePage ? <span>Cloaker ativo</span> : null}
+                          {l.pixelSlug ? (
+                            <span className={pixelMissing || pixelPaused ? 'text-[color:var(--warning)]' : ''}>
+                              Pixel: {l.pixelSlug}{pixelMissing ? ' · não existe' : pixelPaused ? ' · pausado' : ''}
+                            </span>
+                          ) : null}
+                          {l.dominio && !verifiedHosts.has(l.dominio) ? (
+                            <span className="text-[color:var(--warning)]">Domínio não verificado</span>
+                          ) : null}
+                          {l.paises.length > 0 ? <span>Países: {l.paises.join(', ')}</span> : null}
+                          {l.idiomas.length > 0 ? <span>Idiomas: {l.idiomas.join(', ')}</span> : null}
                         </div>
                       </details>
-                    )}
+
+                      {l.variantes.length >= 2 && (
+                        <details className="mt-2 text-[12px] text-muted-foreground">
+                          <summary className="w-fit cursor-pointer select-none font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20">
+                            Teste A/B · {l.variantes.length} variantes
+                          </summary>
+                          <div className="mt-2 flex flex-col gap-2 border-l border-border/50 pl-3">
+                            {l.variantes.map((v) => {
+                              const share = convs > 0 ? (v.conversions / convs) * 100 : 0
+                              return (
+                                <div key={v.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 text-[12px]">
+                                  <span className="truncate text-foreground/80" title={v.nome}>{v.nome}</span>
+                                  <span className="tabular-nums text-right">peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% conv.` : <><CountUp value={v.conversions} /> conv.</>}</span>
+                                  <div className="col-span-2 h-px overflow-hidden bg-border/45" role="img" aria-label={`${v.nome}: peso ${v.peso}%, ${v.conversions} de ${convs} conversões`}>
+                                    <div className="h-full bg-brand-cyan/70" style={{ width: `${Math.min(100, share)}%` }} />
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </details>
+                      )}
+                    </div>
                   </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
+
+                  <div className="flex shrink-0 items-center gap-1.5 self-start lg:pt-0.5">
                     <button type="button" onClick={() => copyUrl(l)} className="btn-secondary px-3 py-1.5 text-xs" title="Copiar link">
                       {copied === l.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                       {copied === l.slug ? 'Copiado' : 'Copiar'}
@@ -775,34 +711,34 @@ export function LinksView() {
                       Editar
                     </button>
                     <details className="relative">
-                      <summary className="list-none cursor-pointer rounded-xl border border-border/70 bg-secondary/20 p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" aria-label={`Mais ações para ${l.nome}`}>
+                      <summary className="list-none cursor-pointer rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20" aria-label={`Mais ações para ${l.nome}`}>
                         <MoreHorizontal className="size-4" />
                       </summary>
-                      <div className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-2xl backdrop-blur-xl">
-                        <button type="button" onClick={() => toggleAtivo(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                      <div className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-xl border border-border/70 bg-card p-1 shadow-lg">
+                        <button type="button" onClick={() => toggleAtivo(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary/45 hover:text-foreground disabled:opacity-40">
                           <Power className="size-3.5" /> {l.ativo ? 'Pausar link' : 'Ativar link'}
                         </button>
-                        <button type="button" onClick={() => duplicateLink(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                        <button type="button" onClick={() => duplicateLink(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary/45 hover:text-foreground disabled:opacity-40">
                           <CopyPlus className="size-3.5" /> Duplicar
                         </button>
-                        <button type="button" onClick={() => setQrFor(l.slug)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        <button type="button" onClick={() => setQrFor(l.slug)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary/45 hover:text-foreground">
                           <QrCode className="size-3.5" /> Ver QR Code
                         </button>
-                        <button type="button" onClick={() => downloadQr(l)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        <button type="button" onClick={() => downloadQr(l)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary/45 hover:text-foreground">
                           <Download className="size-3.5" /> Baixar QR
                         </button>
-                        <button type="button" onClick={() => toggleArquivado(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+                        <button type="button" onClick={() => toggleArquivado(l)} disabled={busy} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary/45 hover:text-foreground disabled:opacity-40">
                           {l.arquivado ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />} {l.arquivado ? 'Restaurar' : 'Arquivar'}
                         </button>
                         <div className="my-1 border-t border-border/50" />
-                        <button type="button" onClick={() => setDeleting(l.slug)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10">
+                        <button type="button" onClick={() => setDeleting(l.slug)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10">
                           <Trash2 className="size-3.5" /> Excluir
                         </button>
                       </div>
                     </details>
                   </div>
                 </div>
-              </GlassCard>
+              </div>
             )
           })}
         </div>
@@ -812,24 +748,30 @@ export function LinksView() {
         const link = links.find((item) => item.slug === qrFor)
         if (!link) return null
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label={`QR Code de ${link.nome}`} onClick={(event) => { if (event.target === event.currentTarget) setQrFor(null) }}>
-            <GlassCard variant="thick" className="w-full max-w-sm p-5 shadow-2xl">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">QR Code</p>
-                  <h3 className="mt-1 text-base font-semibold text-foreground">{link.nome}</h3>
-                  <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{publicUrl(link)}</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`QR Code de ${link.nome}`} onClick={(event) => { if (event.target === event.currentTarget) setQrFor(null) }}>
+            <div className="w-full max-w-sm rounded-2xl border border-border/70 bg-background p-5 shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-foreground">QR Code</h3>
+                  <p className="mt-3 truncate text-sm font-medium text-foreground">{link.nome}</p>
+                  <p className="mt-1 break-all text-xs leading-relaxed text-muted-foreground">{publicUrl(link)}</p>
                 </div>
-                <button type="button" className="btn-ghost p-2" onClick={() => setQrFor(null)} aria-label="Fechar QR Code">×</button>
+                <button type="button" className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/40" onClick={() => setQrFor(null)} aria-label="Fechar QR Code">×</button>
               </div>
-              <div className="mt-5 flex min-h-44 items-center justify-center rounded-2xl border border-border/60 bg-black/30 p-4">
-                {qrDataUrl ? <img src={qrDataUrl} alt={`QR Code para ${link.nome}`} className="size-40 rounded-xl" /> : <div className="size-40 animate-pulse rounded-xl bg-secondary/40" />}
+              <div className="mt-5 flex min-h-48 items-center justify-center p-2">
+                {qrDataUrl ? (
+                  <div className="rounded-xl bg-white p-3">
+                    <img src={qrDataUrl} alt={`QR Code para ${link.nome}`} className="size-40" />
+                  </div>
+                ) : (
+                  <div className="flex size-40 items-center justify-center rounded-xl border border-border/60 bg-secondary/20 text-xs text-muted-foreground">Gerando QR...</div>
+                )}
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-5 grid grid-cols-2 gap-2 max-sm:grid-cols-1">
                 <button type="button" className="btn-secondary justify-center" onClick={() => copyUrl(link)}><Copy className="size-3.5" /> Copiar URL</button>
                 <button type="button" className="btn-primary justify-center" onClick={() => downloadQr(link)}><Download className="size-3.5" /> Baixar PNG</button>
               </div>
-            </GlassCard>
+            </div>
           </div>
         )
       })()}
@@ -840,43 +782,30 @@ export function LinksView() {
         const dlConvs = dl ? dl.variantes.reduce((s, v) => s + v.conversions, 0) : 0
         const dlTraffic = dlClicks > 0 || dlConvs > 0
         return (
-          <>
-            {/* Red Room Effect Backdrop */}
-            {Boolean(dl) && (
-              <div className="fixed inset-0 z-40 bg-red-950/20 backdrop-blur-md backdrop-saturate-150 animate-in fade-in duration-300 pointer-events-none" />
-            )}
-            <ConfirmDialog
-              open={Boolean(dl)}
-              title={dl ? `Excluir permanentemente "${dl.nome}"?` : ''}
-              description={
-                dl && (
-                  <div className="flex flex-col gap-3 mt-2">
-                    <p className="text-sm">
-                      A URL <strong className="text-foreground">/go/{dl.slug}</strong> deixará de funcionar imediatamente, quebrando qualquer anúncio ativo.
-                    </p>
-                    {dlTraffic && (
-                      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 mt-2">
-                        <p className="text-xs text-red-200">
-                          <TriangleAlert className="inline-block size-3.5 mr-1 mb-0.5 text-red-400" />
-                          Este link possui tráfego ativo que <strong>será perdido</strong>:
-                        </p>
-                        <div className="mt-2 flex items-center gap-2 font-mono text-sm font-bold text-red-400">
-                          <span className="rounded-md bg-red-950/50 px-2 py-1 shadow-inner border border-red-500/20">{dlClicks} cliques</span>
-                          <span className="rounded-md bg-red-950/50 px-2 py-1 shadow-inner border border-red-500/20">{dlConvs} conversões</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              }
-              confirmLabel="Excluir Permanentemente"
-              confirmText={dl && dlTraffic ? dl.nome : undefined}
-              busy={deleteBusy}
-              onConfirm={async () => { if (deleting) await handleDelete(deleting) }}
-              onClose={() => setDeleting(null)}
-              tone="danger"
-            />
-          </>
+          <ConfirmDialog
+            open={Boolean(dl)}
+            title={dl ? `Excluir "${dl.nome}"?` : ''}
+            description={
+              dl && (
+                <div className="space-y-3">
+                  <p>Essa ação é permanente e a URL <strong className="text-foreground">/go/{dl.slug}</strong> deixará de funcionar imediatamente.</p>
+                  {dlTraffic && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-destructive">Este link possui tráfego registrado.</p>
+                      <p className="text-xs tabular-nums text-muted-foreground">{dlClicks} cliques · {dlConvs} conversões</p>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            confirmLabel="Excluir link"
+            confirmText={dl && dlTraffic ? dl.nome : undefined}
+            busy={deleteBusy}
+            onConfirm={async () => { if (deleting) await handleDelete(deleting) }}
+            onClose={() => setDeleting(null)}
+            tone="danger"
+            appearance="quiet"
+          />
         )
       })()}
 

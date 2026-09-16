@@ -26,7 +26,7 @@ export function Sidebar() {
       <div className="relative flex flex-col items-start justify-center px-5 py-7 overflow-hidden">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(37,244,238,0.10)_0%,rgba(254,44,85,0.04)_42%,transparent_72%)]" aria-hidden="true" />
         <Link href="/" className="group relative z-10 flex items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4" aria-label="ROI-NADOS — Visão geral">
-          <Image src="/dashboard/roi-nados-wordmark.jpeg" alt="ROI-NADOS" width={720} height={180} priority className="h-10 w-auto object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
+          <Image src="/dashboard/roi-nados-wordmark-ui.png" alt="ROI-NADOS" width={860} height={257} priority className="h-10 w-auto object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
         </Link>
         <div className="absolute bottom-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-brand-cyan/30 to-transparent" aria-hidden="true" />
       </div>

@@ -13,7 +13,6 @@ import {
   Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw, Sparkles,
   Search, ArrowUpDown, MoreHorizontal, SlidersHorizontal,
 } from 'lucide-react'
-import { GlassCard } from '@/components/glass-card'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
   useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
@@ -113,6 +112,7 @@ export function CatalogList({
   loading,
   onOpen,
   onChanged,
+  onLocalWorkStateChange,
 }: {
   request?: { action: 'create' | 'magic' | 'batch'; id: number } | null
   onRequestHandled?: () => void
@@ -123,6 +123,7 @@ export function CatalogList({
   loading: boolean
   onOpen: (id: string) => void
   onChanged: () => void
+  onLocalWorkStateChange?: (state: { uploading: boolean; pending: number }) => void
 }) {
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [search, setSearch] = useState('')
@@ -134,6 +135,7 @@ export function CatalogList({
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
   const [cloningId, setCloningId] = useState<string | null>(null)
+  const [cloneTarget, setCloneTarget] = useState<AdsCatalog | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdsCatalog | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -203,6 +205,7 @@ export function CatalogList({
           ? `Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`
           : `Catálogo clonado com ${res.productCount} produto(s)`,
       )
+      setCloneTarget(null)
       onChanged()
       onOpen(res.catalog.id)
     } catch (e) {
@@ -255,11 +258,10 @@ export function CatalogList({
   }, [catalogs])
 
   const catalogSummary = useMemo(() => ({
-    products: catalogs.reduce((total, catalog) => total + catalogProductCount(catalog).count, 0),
     linked: statusCounts.linked || 0,
     attention: statusCounts.needs_attention || 0,
     review: statusCounts.in_review || 0,
-  }), [catalogs, statusCounts])
+  }), [statusCounts])
 
   const filteredCatalogs = useMemo(() => {
     return catalogs
@@ -314,14 +316,14 @@ export function CatalogList({
     const isSyncing = syncingId === c.id
     return (
       <details className="catalog-row-menu relative inline-block" onClick={(event) => event.stopPropagation()}>
-        <summary className="btn-ghost !min-h-0 !size-7 cursor-pointer list-none justify-center p-0 text-muted-foreground" aria-label={`Ações de ${c.name}`} title="Mais ações">
+        <summary className="btn-ghost !size-10 cursor-pointer list-none justify-center p-0 text-muted-foreground" aria-label={`Ações de ${c.name}`} title="Mais ações">
           <MoreHorizontal className="size-3.5" />
         </summary>
         <div className="catalog-row-popover">
           <button type="button" disabled={Boolean(syncingId) || catalogProductCount(c).count === 0} onClick={() => void handleSyncFromList(c.id)}>
             {isSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Sincronizar novamente
           </button>
-          <button type="button" disabled={Boolean(cloningId)} onClick={() => void handleCloneFromList(c.id)}>
+          <button type="button" disabled={Boolean(cloningId)} onClick={() => setCloneTarget(c)}>
             {isCloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />} Clonar catálogo
           </button>
           <button type="button" className="text-error" onClick={() => setDeleteTarget(c)}>
@@ -334,61 +336,17 @@ export function CatalogList({
 
   return (
     <>
-      <GlassCard className="campaign-workspace min-w-0 overflow-visible p-0">
-        <div className="border-b border-border/60 p-4 sm:p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <section className="min-w-0 overflow-visible border-y border-border/60 bg-card/20">
+        <div className="campaign-toolbar !gap-3 px-0">
+          <div className="campaign-toolbar-title flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2">
-                <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
-                <h2 className="text-sm font-semibold text-foreground">Catálogo comercial</h2>
-              </div>
-              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-                Organize produtos, acompanhe a publicação no TikTok e identifique rapidamente o que ainda impede uma campanha de catálogo.
+              <h2 className="text-base font-semibold text-foreground">Catálogos</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {catalogs.length} catálogo{catalogs.length === 1 ? '' : 's'} · {catalogSummary.linked} sincronizado{catalogSummary.linked === 1 ? '' : 's'}
+                {catalogSummary.review > 0 ? ` · ${catalogSummary.review} em análise` : ''}
+                {catalogSummary.attention > 0 ? ` · ${catalogSummary.attention} precisa${catalogSummary.attention === 1 ? '' : 'm'} de atenção` : ''}
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-4 xl:min-w-[520px]">
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Catálogos</p>
-                <p className="mt-1 text-base font-semibold text-foreground">{catalogs.length}</p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-secondary/15 px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Produtos</p>
-                <p className="mt-1 text-base font-semibold text-foreground">{catalogSummary.products}</p>
-              </div>
-              <div className="rounded-2xl border border-success/20 bg-success/8 px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-success/80">Vinculados</p>
-                <p className="mt-1 text-base font-semibold text-success">{catalogSummary.linked}</p>
-              </div>
-              <div className={`rounded-2xl border px-3 py-2.5 ${catalogSummary.attention > 0 ? 'border-error/20 bg-error/8' : 'border-border/60 bg-secondary/15'}`}>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Atenção</p>
-                <p className={`mt-1 text-base font-semibold ${catalogSummary.attention > 0 ? 'text-error' : 'text-foreground'}`}>{catalogSummary.attention}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="campaign-toolbar !gap-3">
-          <div className="campaign-toolbar-title flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground">Catálogos</h2>
-              <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">{catalogs.length}</span>
-            </div>
-
-            <details className="catalog-actions-menu relative">
-              <summary className="btn-primary cursor-pointer list-none px-3 py-1.5 text-xs font-semibold" aria-label="Criar catálogo">
-                <Plus className="size-3.5" aria-hidden="true" /> Novo catálogo <ChevronDown className="size-3.5 opacity-70" aria-hidden="true" />
-              </summary>
-              <div className="catalog-actions-popover">
-                <button type="button" onClick={() => { if (!magicBusy) { setShowMagicImport(true); setCreating(false) } }}>
-                  <Sparkles className="size-3.5 text-primary" /> Importar por link
-                </button>
-                <button type="button" onClick={() => { if (!magicBusy) { setCreating(true); setShowMagicImport(false) } }}>
-                  <Plus className="size-3.5" /> Criar manualmente
-                </button>
-                <button type="button" onClick={() => setBatchRequest(value => value + 1)}>
-                  <UploadCloud className="size-3.5" /> Importação em lote
-                </button>
-              </div>
-            </details>
           </div>
 
           <div className="campaign-search-row flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -402,30 +360,18 @@ export function CatalogList({
               )}
             </label>
 
-            <div className="flex shrink-0 items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setStatusFilter('')}
-                aria-pressed={statusFilter === ''}
-                className={`catalog-compact-filter ${statusFilter === '' ? 'catalog-compact-filter--active' : ''}`}
-              >
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+              <button type="button" onClick={() => setStatusFilter('')} aria-pressed={statusFilter === ''} className={`catalog-compact-filter min-h-10 ${statusFilter === '' ? 'catalog-compact-filter--active' : ''}`}>
                 Todos <span>{statusCounts.all}</span>
               </button>
               {statusCounts.needs_attention > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter(statusFilter === 'needs_attention' ? '' : 'needs_attention')}
-                  aria-pressed={statusFilter === 'needs_attention'}
-                  className={`catalog-compact-filter catalog-compact-filter--warning ${statusFilter === 'needs_attention' ? 'catalog-compact-filter--active' : ''}`}
-                >
+                <button type="button" onClick={() => setStatusFilter(statusFilter === 'needs_attention' ? '' : 'needs_attention')} aria-pressed={statusFilter === 'needs_attention'} className={`catalog-compact-filter catalog-compact-filter--warning min-h-10 ${statusFilter === 'needs_attention' ? 'catalog-compact-filter--active' : ''}`}>
                   <AlertCircle className="size-3.5" /> Atenção <span>{statusCounts.needs_attention}</span>
                 </button>
               )}
-
               <details className="catalog-actions-menu relative">
-                <summary className={`catalog-icon-filter cursor-pointer list-none ${['linked', 'in_review', 'draft'].includes(statusFilter) ? 'catalog-icon-filter--active' : ''}`} aria-label="Outros filtros" title={selectedFilterLabel}>
-                  <SlidersHorizontal className="size-3.5" />
-                  <span className="hidden lg:inline">{selectedFilterLabel}</span>
+                <summary className={`catalog-icon-filter min-h-10 cursor-pointer list-none ${['linked', 'in_review', 'draft'].includes(statusFilter) ? 'catalog-icon-filter--active' : ''}`} aria-label="Outros filtros" title={selectedFilterLabel}>
+                  <SlidersHorizontal className="size-3.5" /><span className="hidden lg:inline">{selectedFilterLabel}</span>
                 </summary>
                 <div className="catalog-actions-popover">
                   <button type="button" onClick={() => setStatusFilter('linked')}><Check className="size-3.5" /> Vinculados <span className="ml-auto tabular-nums">{statusCounts.linked}</span></button>
@@ -434,11 +380,8 @@ export function CatalogList({
                   {statusFilter && statusFilter !== 'needs_attention' && <button type="button" onClick={() => setStatusFilter('')}><RotateCcw className="size-3.5" /> Limpar filtro</button>}
                 </div>
               </details>
-
               <details className="catalog-actions-menu relative">
-                <summary className="catalog-icon-filter cursor-pointer list-none" aria-label="Ordenar catálogos" title="Ordenar">
-                  <ArrowUpDown className="size-3.5" />
-                </summary>
+                <summary className="catalog-icon-filter min-h-10 cursor-pointer list-none" aria-label="Ordenar catálogos" title="Ordenar"><ArrowUpDown className="size-3.5" /></summary>
                 <div className="catalog-actions-popover">
                   <button type="button" onClick={() => setSort('newest')}>{sort === 'newest' ? <Check className="size-3.5 text-primary" /> : <Clock className="size-3.5" />} Recentes</button>
                   <button type="button" onClick={() => setSort('products')}>{sort === 'products' ? <Check className="size-3.5 text-primary" /> : <PackageOpen className="size-3.5" />} Mais produtos</button>
@@ -449,7 +392,7 @@ export function CatalogList({
           </div>
         </div>
 
-        <CatalogBatchDialog hideTrigger openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
+        <CatalogBatchDialog hideTrigger openRequest={batchRequest} advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} onLocalWorkStateChange={onLocalWorkStateChange} />
 
         {showMagicImport && (
           <CatalogProductImport
@@ -489,7 +432,7 @@ export function CatalogList({
               </div>
               <div className="mt-1 flex items-center justify-end gap-2">
                 <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>Cancelar</button>
-                <button type="button" className="btn-primary px-4 py-1.5 text-xs font-semibold" onClick={() => void handleCreate()} disabled={busy || !name.trim()}>
+                <button type="button" className="btn-primary min-h-10 px-4 text-sm font-semibold" onClick={() => void handleCreate()} disabled={busy || !name.trim()}>
                   {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />} Criar catálogo
                 </button>
               </div>
@@ -503,13 +446,13 @@ export function CatalogList({
           <div className="flex flex-col items-center gap-3 p-10 text-center">
             <div className="rounded-full bg-secondary/70 p-3 text-muted-foreground/60"><PackageOpen className="size-7" /></div>
             <div className="max-w-md"><p className="text-sm font-semibold text-foreground">Nenhum catálogo criado ainda</p><p className="mt-1 text-xs text-muted-foreground">Cole o link de um produto e deixe o ROINADOS preparar o catálogo automaticamente.</p></div>
-            <button type="button" className="btn-primary mt-1 px-4 py-2 text-xs font-semibold" onClick={() => setShowMagicImport(true)}><Sparkles className="mr-1.5 size-3.5" /> Importar por link</button>
+            <button type="button" className="btn-primary mt-1 px-4 py-2 text-xs font-semibold" onClick={() => setShowMagicImport(true)}><Sparkles className="mr-1.5 size-3.5" /> Criar pelo link</button>
           </div>
         ) : filteredCatalogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <SearchCheck className="size-8 text-muted-foreground/40" />
             <div className="max-w-sm"><p className="text-sm font-semibold text-foreground">Nenhum catálogo encontrado</p><p className="mt-1 text-xs text-muted-foreground">Ajuste a busca ou limpe o filtro atual.</p></div>
-            <button type="button" onClick={() => { setSearch(''); setStatusFilter('') }} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-xs font-medium text-foreground"><RotateCcw className="size-3.5" /> Limpar filtros</button>
+            <button type="button" onClick={() => { setSearch(''); setStatusFilter('') }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-3 text-xs font-medium text-foreground"><RotateCcw className="size-3.5" /> Limpar filtros</button>
           </div>
         ) : (
           <>
@@ -517,10 +460,10 @@ export function CatalogList({
               <table className="w-full border-collapse text-left text-xs" style={{ minWidth: '720px' }}>
                 <thead className="border-b border-border/60 bg-secondary/25 text-muted-foreground">
                   <tr>
-                    <th className="min-w-[280px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Catálogo</th>
-                    <th className="w-[130px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Produtos</th>
-                    <th className="w-[190px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Status</th>
-                    <th className="w-[160px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider">Atualização</th>
+                    <th className="min-w-[280px] px-4 py-2.5 text-xs font-semibold">Catálogo</th>
+                    <th className="w-[130px] px-4 py-2.5 text-xs font-semibold">Produtos</th>
+                    <th className="w-[190px] px-4 py-2.5 text-xs font-semibold">Status</th>
+                    <th className="w-[160px] px-4 py-2.5 text-xs font-semibold">Atualização</th>
                     <th className="w-12 px-4 py-2.5"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
@@ -532,14 +475,14 @@ export function CatalogList({
                         <td className="px-4 py-3 align-middle">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary" title={c.name}>{c.name}</p>
-                            <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
                               {c.currency} · {c.country || 'BR'}{c.tiktokCatalogId ? ` · TikTok ${c.tiktokCatalogId}` : ''}
                             </p>
                           </div>
                         </td>
                         <td className="px-4 py-3 align-middle font-medium tabular-nums text-foreground">{displayCount} {displayCount === 1 ? 'produto' : 'produtos'}</td>
                         <td className="px-4 py-3 align-middle text-xs">{renderStatus(c)}</td>
-                        <td className="px-4 py-3 align-middle text-[11px] text-muted-foreground">{formatTimestamp(c.syncedAt || c.updatedAt || c.createdAt)}</td>
+                        <td className="px-4 py-3 align-middle text-xs text-muted-foreground">{formatTimestamp(c.syncedAt || c.updatedAt || c.createdAt)}</td>
                         <td className="px-4 py-3 text-right align-middle">{catalogActions(c)}</td>
                       </tr>
                     )
@@ -556,11 +499,11 @@ export function CatalogList({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-foreground" title={c.name}>{c.name}</p>
-                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{c.currency} · {c.country || 'BR'}{c.tiktokCatalogId ? ` · TikTok ${c.tiktokCatalogId}` : ''}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{c.currency} · {c.country || 'BR'}{c.tiktokCatalogId ? ` · TikTok ${c.tiktokCatalogId}` : ''}</p>
                       </div>
                       {catalogActions(c)}
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5 text-[11px]">
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5 text-xs">
                       <span className="font-medium text-foreground">{displayCount} {displayCount === 1 ? 'produto' : 'produtos'}</span>
                       <span>{renderStatus(c)}</span>
                     </div>
@@ -570,7 +513,18 @@ export function CatalogList({
             </div>
           </>
         )}
-      </GlassCard>
+      </section>
+
+      <ConfirmDialog
+        open={Boolean(cloneTarget)}
+        appearance="quiet"
+        title="Clonar este catálogo?"
+        description={<>Será criada uma cópia independente de <strong className="text-foreground">{cloneTarget?.name}</strong> com os mesmos produtos. Se a conexão com o TikTok estiver pronta, a sincronização do novo catálogo poderá começar automaticamente.</>}
+        confirmLabel="Clonar catálogo"
+        busy={Boolean(cloningId)}
+        onConfirm={() => { if (cloneTarget) return handleCloneFromList(cloneTarget.id) }}
+        onClose={() => { if (!cloningId) setCloneTarget(null) }}
+      />
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
@@ -578,6 +532,7 @@ export function CatalogList({
         description={<>O catálogo <strong className="text-foreground">{deleteTarget?.name}</strong>, seus produtos e o histórico local serão removidos. O catálogo remoto no TikTok não será apagado.</>}
         confirmLabel="Excluir catálogo"
         confirmText={deleteTarget?.name}
+        appearance="quiet"
         busy={deleting}
         onConfirm={handleDeleteFromList}
         onClose={() => { if (!deleting) setDeleteTarget(null) }}
@@ -617,7 +572,7 @@ export function BusinessCenterBar({
     setBusy(true)
     try {
       await apiSend(adsCatalogApiUrl('/api/ads/catalogs/business-center', advertiserId), 'POST', { bcId: selectedId })
-      toast.success('Conexão TikTok pronta')
+      toast.success('Business Center salvo')
       setEditing(false)
       onChanged()
     } catch (e) {
@@ -633,12 +588,12 @@ export function BusinessCenterBar({
         <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-card/40 px-3.5 py-2 text-xs">
           <div className="flex items-center gap-2 min-w-0">
             <span className="size-2 rounded-full bg-success shrink-0" />
-            <span className="font-semibold text-foreground">TikTok conectado</span>
-            <span className="font-mono text-[11px] text-muted-foreground truncate hidden sm:inline">BC: {bcId}</span>
+            <span className="font-semibold text-foreground">Business Center</span>
+            <span className="text-xs text-muted-foreground truncate hidden sm:inline">{autoDetected ? 'Detectado automaticamente' : fromEnv ? 'Configurado para a conta' : `ID ${bcId}`}</span>
           </div>
           <button
             type="button"
-            className="btn-ghost py-1 px-2 text-xs text-muted-foreground hover:text-foreground h-auto"
+            className="btn-ghost min-h-10 px-3 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => { setValue(bcId); setEditing(true) }}
             title="Alterar Business Center"
           >
@@ -657,10 +612,10 @@ export function BusinessCenterBar({
     if (candidates.length > 1) {
       return (
         <div className="rounded-xl border border-border bg-card p-3">
-          <p className="text-xs font-semibold text-foreground">Selecione a organização TikTok</p>
+          <p className="text-xs font-semibold text-foreground">Escolha o Business Center usado pelos catálogos</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {candidates.map((candidate) => (
-              <button key={candidate.id} type="button" className="btn-secondary text-xs py-1 px-2.5" onClick={() => save(candidate.id)} disabled={busy}>
+              <button key={candidate.id} type="button" className="btn-secondary min-h-10 px-3 text-xs" onClick={() => save(candidate.id)} disabled={busy}>
                 <Building2 className="size-3.5 mr-1" aria-hidden="true" /> {candidate.label || candidate.id}
               </button>
             ))}
@@ -672,13 +627,13 @@ export function BusinessCenterBar({
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-2 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
           <Building2 className="size-3.5 text-warning shrink-0" aria-hidden="true" />
-          <span>{discoveryError ? 'Falha ao detectar organização TikTok.' : 'Organização TikTok não detectada.'}</span>
+          <span>{discoveryError ? 'Falha ao detectar o Business Center.' : 'Business Center não detectado.'}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <button type="button" className="btn-ghost py-1 px-2 text-xs h-auto" onClick={onChanged}>
+          <button type="button" className="btn-ghost min-h-10 px-3 text-xs" onClick={onChanged}>
             <RefreshCw className="size-3 mr-1" aria-hidden="true" /> Repetir
           </button>
-          <button type="button" className="btn-secondary py-1 px-2 text-xs h-auto" onClick={() => { setValue(''); setEditing(true) }}>
+          <button type="button" className="btn-secondary min-h-10 px-3 text-xs" onClick={() => { setValue(''); setEditing(true) }}>
             Informar ID
           </button>
         </div>
@@ -690,19 +645,19 @@ export function BusinessCenterBar({
     <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
       <input
         autoFocus
-        className="input-base text-xs flex-1"
+        className="input-base min-h-10 flex-1 text-sm"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="ID do Business Center (ex.: 7012345678901234567)"
+        placeholder="ID do Business Center"
         inputMode="numeric"
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) save()
         }}
       />
-      <button type="button" className="btn-ghost text-xs py-1.5 px-2.5 h-auto" onClick={() => setEditing(false)} disabled={busy}>
+      <button type="button" className="btn-ghost min-h-10 px-3 text-sm" onClick={() => setEditing(false)} disabled={busy}>
         Cancelar
       </button>
-      <button type="button" className="btn-primary text-xs py-1.5 px-3 h-auto" onClick={() => save()} disabled={busy}>
+      <button type="button" className="btn-primary min-h-10 px-3 text-sm" onClick={() => save()} disabled={busy}>
         {busy ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <Check className="size-3.5 mr-1" />}
         Salvar
       </button>

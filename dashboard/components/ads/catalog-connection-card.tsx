@@ -106,23 +106,23 @@ export function CatalogConnectionCard({
 
   return (
     <>
-    <section className={`rounded-xl border p-3.5 sm:p-4 ${verified ? 'border-success/30 bg-success/5' : catalog.linkStatus === 'error' ? 'border-error/30 bg-error/5' : 'border-primary/25 bg-primary/5'}`}>
+    <section className="border-y border-border/60 py-4">
       {verified ? (
         <details>
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
               <Check className="size-4 shrink-0 text-success" />
-              TikTok vinculado
-              <span className="truncate text-[10px] font-normal text-muted-foreground">
+              Conexão com o TikTok
+              <span className="truncate text-xs font-normal text-muted-foreground">
                 {currentRemoteCount} produto(s) no último status
               </span>
             </span>
-            <span className="text-[10px] font-medium text-muted-foreground">Detalhes</span>
+            <span className="text-xs font-medium text-muted-foreground">Detalhes</span>
           </summary>
 
           <div className="mt-3 border-t border-success/20 pt-3">
             {catalog.remoteSnapshot && (
-              <dl className="grid gap-2 rounded-lg bg-background/60 p-3 text-[11px] sm:grid-cols-3">
+              <dl className="grid gap-2 rounded-lg bg-background/60 p-3 text-xs sm:grid-cols-3">
                 <div><dt className="text-muted-foreground">Catálogo</dt><dd className="font-medium text-foreground">{catalog.remoteSnapshot.name || catalog.tiktokCatalogId}</dd></div>
                 <div><dt className="text-muted-foreground">Moeda / país</dt><dd className="font-medium text-foreground">{catalog.remoteSnapshot.currency || '—'} · {catalog.remoteSnapshot.country || '—'}</dd></div>
                 <div><dt className="text-muted-foreground">Business Center</dt><dd className="font-medium text-foreground">{catalog.bcId || '—'}</dd></div>
@@ -130,12 +130,12 @@ export function CatalogConnectionCard({
             )}
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <input
-                className="input-neon min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
+                className="input-base min-h-10 min-w-0 flex-1 text-sm text-muted-foreground"
                 value={catalogId}
                 aria-label="Catalog ID do TikTok"
                 disabled
               />
-              <button type="button" className="btn-ghost text-xs text-error" onClick={() => setConfirmDisconnect(true)} disabled={busy}>
+              <button type="button" className="btn-ghost min-h-10 text-sm text-error" onClick={() => setConfirmDisconnect(true)} disabled={busy}>
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Unlink className="size-3.5" />} Desconectar
               </button>
             </div>
@@ -149,23 +149,23 @@ export function CatalogConnectionCard({
                 {catalog.linkStatus === 'error' ? <AlertCircle className="size-4 text-error" /> : <Link2 className="size-4 text-primary" />}
                 Conectar ao TikTok
               </p>
-              <p className="mt-1 text-pretty text-[11px] text-muted-foreground">
+              <p className="mt-1 text-pretty text-xs text-muted-foreground">
                 {catalog.linkError || 'Informe o catálogo existente; a dashboard confere o vínculo antes de salvar.'}
               </p>
             </div>
           </div>
 
           {catalog.linkStatus === 'error' && (
-            <p className="mt-3 rounded-lg border border-error/20 bg-background/60 p-2.5 text-pretty text-[10px] leading-relaxed text-muted-foreground">
+            <p className="mt-3 rounded-lg border border-error/20 bg-background/60 p-2.5 text-pretty text-xs leading-relaxed text-muted-foreground">
               Seus produtos locais estão seguros. Informe outro catálogo do mesmo Business Center.
             </p>
           )}
 
           <div className="mt-3 flex flex-col gap-2">
-            <label className="text-[10px] text-muted-foreground">
-              Business Center do catálogo
+            <label className="text-xs text-muted-foreground">
+              Business Center
               <input
-                className="input-neon mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
+                className="input-base mt-1 min-h-10 w-full text-sm text-foreground"
                 value={bcValue}
                 onChange={(event) => setBcValue(event.target.value.replace(/\D/g, '').slice(0, 30))}
                 inputMode="numeric"
@@ -176,7 +176,7 @@ export function CatalogConnectionCard({
             </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                className="input-neon min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
+                className="input-base min-h-10 min-w-0 flex-1 text-sm text-foreground"
                 value={catalogId}
                 onChange={(event) => setCatalogId(event.target.value.replace(/\D/g, '').slice(0, 30))}
                 inputMode="numeric"
@@ -184,17 +184,21 @@ export function CatalogConnectionCard({
                 aria-label="Catalog ID do TikTok"
                 disabled={busy}
               />
-            <button type="button" className="btn-primary text-xs" onClick={connect} disabled={busy || !bcValue || !catalogId}>
+            <button type="button" className="btn-primary min-h-10 text-sm" onClick={connect} disabled={busy || !bcValue || !catalogId}>
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />} Verificar e conectar
             </button>
             </div>
           </div>
-          <p className="mt-2 text-[10px] text-muted-foreground">Use o Catalog ID e o Business Center do mesmo catálogo.</p>
+          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+            <p>Use o Catalog ID e o Business Center do mesmo catálogo.</p>
+            <p>Alterar o Business Center aqui também atualiza o padrão usado pelos outros fluxos de catálogo desta conta.</p>
+          </div>
         </>
       )}
     </section>
     <ConfirmDialog
       open={confirmDisconnect}
+      appearance="quiet"
       title="Remover vínculo com o TikTok?"
       description="O Catalog ID será removido desta dashboard. Seus produtos locais, feed e o catálogo remoto no TikTok serão preservados."
       confirmLabel="Remover vínculo"

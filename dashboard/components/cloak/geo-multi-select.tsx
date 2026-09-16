@@ -5,26 +5,18 @@ import { Search, X, Plus } from 'lucide-react'
 import type { GeoOption } from '@/lib/geo-options'
 
 interface Props {
-  /** Códigos selecionados (ex.: ['BR','PT']). */
   value: string[]
   onChange: (next: string[]) => void
   options: GeoOption[]
-  /** Como normalizar um código digitado/selecionado. */
   normalize: (raw: string) => string
-  /** Resolve o rótulo de um código (inclusive os fora da lista). */
   labelFor: (code: string) => string
-  /** Texto quando nada foi selecionado (= sem filtro). */
   emptyLabel: string
   placeholder: string
-  /** Regex do formato aceito ao adicionar um código manual. */
   manualPattern: RegExp
   id?: string
-  /** A8.5: mostra bandeira do país nos chips e no dropdown (só para ISO-2). */
   flags?: boolean
 }
 
-// Converte código ISO-2 (BR, PT…) em emoji de bandeira via Regional
-// Indicator Symbols. Códigos fora do padrão retornam string vazia.
 function flagEmoji(code: string): string {
   if (!/^[A-Za-z]{2}$/.test(code)) return ''
   return code
@@ -32,10 +24,6 @@ function flagEmoji(code: string): string {
     .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
 }
 
-// Seletor por NOME com busca. O usuário não precisa saber a sigla — digita o
-// nome do país/idioma e seleciona. Mostra a sigla como badge para ele aprender.
-// Permite ainda adicionar um código digitado manualmente (o backend aceita
-// qualquer ISO), cobrindo mercados fora da lista curada.
 export function GeoMultiSelect({
   value,
   onChange,
@@ -62,7 +50,6 @@ export function GeoMultiSelect({
       .slice(0, 40)
   }, [options, selected, q, normalize])
 
-  // Permite "adicionar BR" quando o texto é um código válido fora da lista.
   const manualCode = normalize(query.trim())
   const canAddManual =
     !!query.trim() &&
@@ -78,9 +65,6 @@ export function GeoMultiSelect({
     inputRef.current?.focus()
   }
 
-  // "Colar lista": ao colar vários códigos separados por vírgula/espaço/quebra
-  // de linha, adiciona todos os válidos de uma vez (item 75). Um token único
-  // cai no fluxo normal de digitação.
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
     const text = e.clipboardData.getData('text')
     const tokens = text
@@ -110,27 +94,22 @@ export function GeoMultiSelect({
 
   return (
     <div className="relative">
-      {/* Chips dos selecionados */}
-      <div className="mb-1.5 flex flex-wrap gap-1.5">
+      <div className="mb-2 flex flex-wrap gap-1.5">
         {selected.length === 0 ? (
-          <span className="rounded-md bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">
-            {emptyLabel}
-          </span>
+          <span className="text-xs text-muted-foreground">{emptyLabel}</span>
         ) : (
           selected.map((code) => (
             <span
               key={code}
-              className="flex items-center gap-1 rounded-md border border-[color:var(--brand-cyan)]/40 bg-[var(--accent-light)] px-2 py-1 text-xs font-medium text-foreground"
+              className="flex items-center gap-1.5 rounded-md border border-border/70 bg-secondary/35 px-2 py-1.5 text-xs font-medium text-foreground"
             >
-              {flags && flagEmoji(code) ? (
-                <span className="drop-shadow-md" aria-hidden="true">{flagEmoji(code)}</span>
-              ) : null}
-              {labelFor(code)}
-              <span className="font-mono text-[10px] text-muted-foreground">{code}</span>
+              {flags && flagEmoji(code) ? <span aria-hidden="true">{flagEmoji(code)}</span> : null}
+              <span>{labelFor(code)}</span>
+              <span className="font-mono text-xs text-muted-foreground">{code}</span>
               <button
                 type="button"
                 onClick={() => remove(code)}
-                className="rounded-sm text-muted-foreground transition-colors hover:text-destructive"
+                className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20"
                 aria-label={`Remover ${labelFor(code)}`}
               >
                 <X className="size-3" />
@@ -140,9 +119,8 @@ export function GeoMultiSelect({
         )}
       </div>
 
-      {/* Campo de busca */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           id={id}
           ref={inputRef}
@@ -162,28 +140,25 @@ export function GeoMultiSelect({
             }
           }}
           placeholder={placeholder}
-          className="w-full rounded-lg border border-border bg-secondary/60 py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none"
+          className="h-11 w-full rounded-lg border border-border bg-secondary/35 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none focus:ring-2 focus:ring-brand-cyan/10"
         />
       </div>
 
-      {/* Dropdown de opções */}
       {open && (query || filtered.length > 0) && (
-        <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-2xl">
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg">
           {filtered.map((o) => (
             <button
               key={o.code}
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => add(o.code)}
-              className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+              className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
             >
-              <span>
-                {flags && flagEmoji(o.code) ? (
-                  <span className="mr-1.5 drop-shadow-md" aria-hidden="true">{flagEmoji(o.code)}</span>
-                ) : null}
+              <span className="min-w-0 truncate">
+                {flags && flagEmoji(o.code) ? <span className="mr-1.5" aria-hidden="true">{flagEmoji(o.code)}</span> : null}
                 {o.name}
               </span>
-              <span className="font-mono text-[10px] text-muted-foreground">{o.code}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">{o.code}</span>
             </button>
           ))}
           {canAddManual && (
@@ -191,7 +166,7 @@ export function GeoMultiSelect({
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => add(query.trim())}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+              className="flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
             >
               <Plus className="size-3.5" />
               Adicionar código <span className="font-mono">{manualCode}</span>

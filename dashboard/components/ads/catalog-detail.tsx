@@ -99,6 +99,7 @@ export function CatalogDetail({
   onBack,
   onDeleted,
   onCloned,
+  onLocalWorkStateChange,
 }: {
   catalogId: string
   spec: CatalogSpec | null
@@ -112,6 +113,7 @@ export function CatalogDetail({
   onBack: () => void
   onDeleted: () => void
   onCloned: (cloneId: string) => void
+  onLocalWorkStateChange?: (state: { uploading: boolean; pending: number }) => void
 }) {
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
@@ -133,11 +135,18 @@ export function CatalogDetail({
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [confirmClone, setConfirmClone] = useState(false)
+  const [confirmBack, setConfirmBack] = useState(false)
   const cloneRequestKeyRef = useRef<string | null>(null)
   const [fixing, setFixing] = useState(false)
   const [quickCampaignsOpen, setQuickCampaignsOpen] = useState(false)
   const [creativeBusy, setCreativeBusy] = useState(false)
   const [creativePending, setCreativePending] = useState(0)
+  const [quickCampaignWork, setQuickCampaignWork] = useState({ uploading: false, pending: 0 })
+  const localUploading = creativeBusy || quickCampaignWork.uploading
+  const localPending = creativePending + quickCampaignWork.pending
+  useEffect(() => { onLocalWorkStateChange?.({ uploading: localUploading, pending: localPending }) }, [localPending, localUploading, onLocalWorkStateChange])
+  useEffect(() => () => onLocalWorkStateChange?.({ uploading: false, pending: 0 }), [onLocalWorkStateChange])
   const [productOrder, setProductOrder] = useState<string[]>([])
   const [dragProductId, setDragProductId] = useState<string | null>(null)
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
@@ -484,18 +493,39 @@ export function CatalogDetail({
     })
   }
 
+  function openTechnicalDetails() {
+    const element = document.getElementById('catalog-technical-details')
+    if (element instanceof HTMLDetailsElement) element.open = true
+    window.setTimeout(() => element?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+
   function handleReadinessAction(action: NonNullable<typeof readinessData>['readiness']['nextAction']) {
     if (action === 'add_products') setShowUrlImport(true)
     else if (action === 'fix_products' && products[0]) setEditing(products.find((product) => !product.valid) || products[0])
     else if (action === 'sync') void handleSyncTiktok()
     else if (action === 'refresh_audit') void handleRefreshAudit()
     else if (action === 'select_advertiser') toast.info('Selecione uma conta de anúncios no topo da aba TikTok Ads.')
-    else if (action === 'connect_tiktok' || action === 'verify_link') toast.info('Use o cartão Conexão com o TikTok logo abaixo.')
-    else if (action === 'create_campaign') document.getElementById('catalog-campaign-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else if (action === 'connect_tiktok' || action === 'verify_link') openTechnicalDetails()
+    else if (action === 'create_campaign') {
+      if (catalogCapabilities?.catalogSingleVideoCampaign !== true) {
+        toast.info('Criação de campanhas de catálogo indisponível para esta conta no momento.')
+        return
+      }
+      setQuickCampaignsOpen(true)
+    }
+  }
+
+  const hasCreativeLocalWork = localUploading || localPending > 0
+  function requestBack() {
+    if (hasCreativeLocalWork) {
+      setConfirmBack(true)
+      return
+    }
+    onBack()
   }
 
   async function handleClone() {
-    if (cloning) return
+    if (cloning || hasCreativeLocalWork) return
     setCloning(true)
     const idempotencyKey = cloneRequestKeyRef.current || crypto.randomUUID()
     cloneRequestKeyRef.current = idempotencyKey
@@ -504,13 +534,14 @@ export function CatalogDetail({
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', { idempotencyKey },
       )
       cloneRequestKeyRef.current = null
+      setConfirmClone(false)
       if (res.syncStarted) {
         toast.success(`Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`, {
           hint: 'Acompanhe o progresso no catálogo clonado.',
         })
       } else {
         toast.success(`Catálogo clonado com ${res.productCount} produto(s)`, {
-          hint: 'Sincronize ao TikTok manualmente quando estiver pronto.',
+          hint: 'O clone ficou salvo localmente. A sincronização começará quando a conexão estiver pronta.',
         })
       }
       onCloned(res.catalog.id)
@@ -524,7 +555,7 @@ export function CatalogDetail({
   if (detailError) {
     return (
       <div className="flex flex-col gap-3">
-        <button type="button" className="btn-ghost w-fit text-xs" onClick={onBack}>
+        <button type="button" className="btn-ghost w-fit text-xs" onClick={requestBack}>
           <ChevronLeft className="size-3.5" aria-hidden="true" /> Voltar aos catálogos
         </button>
         <ErrorState
@@ -539,19 +570,20 @@ export function CatalogDetail({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" className="btn-ghost text-xs" onClick={onBack}>
+        <button type="button" className="btn-ghost text-xs" onClick={requestBack}>
           <ChevronLeft className="size-3.5" aria-hidden="true" />
           Voltar
         </button>
         <details className="catalog-actions-menu relative">
-          <summary className="btn-ghost !min-h-0 !size-8 cursor-pointer list-none justify-center p-0" aria-label="Mais ações do catálogo" title="Mais ações">
+          <summary className="btn-ghost !size-10 cursor-pointer list-none justify-center p-0" aria-label="Mais ações do catálogo" title="Mais ações">
             <MoreHorizontal className="size-4" aria-hidden="true" />
           </summary>
           <div className="catalog-actions-popover">
+            {hasCreativeLocalWork ? <p className="px-3 py-2 text-xs leading-relaxed text-muted-foreground">{localUploading ? 'Conclua ou cancele o envio atual antes de clonar ou excluir o catálogo.' : 'Resolva ou remova os envios pendentes antes de clonar. Eles serão descartados se o catálogo for excluído.'}</p> : null}
             <button type="button" onClick={() => void handleSyncTiktok()} disabled={syncing || validCount === 0}>
               {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Sincronizar agora
             </button>
-            <button type="button" onClick={handleClone} disabled={cloning || !catalog}>
+            <button type="button" onClick={() => setConfirmClone(true)} disabled={cloning || !catalog || hasCreativeLocalWork} title={hasCreativeLocalWork ? 'Conclua ou remova os envios pendentes antes de clonar.' : undefined}>
               {cloning ? <Loader2 className="size-3.5 animate-spin" /> : <CopyPlus className="size-3.5" />} Clonar catálogo
             </button>
             {publications.length > 0 && (
@@ -563,7 +595,7 @@ export function CatalogDetail({
                 <History className="size-3.5" /> Histórico de sincronização
               </button>
             )}
-            <button type="button" className="text-error" onClick={() => setDeleteTarget({ kind: 'catalog', name: catalog?.name || 'catálogo' })}>
+            <button type="button" className="text-error" onClick={() => setDeleteTarget({ kind: 'catalog', name: catalog?.name || 'catálogo' })} disabled={localUploading} title={localUploading ? 'Conclua ou cancele o envio atual antes de excluir o catálogo.' : undefined}>
               <Trash2 className="size-3.5" /> Excluir catálogo
             </button>
           </div>
@@ -582,38 +614,37 @@ export function CatalogDetail({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="truncate text-base font-bold text-foreground">{catalog?.name || 'Catálogo'}</h2>
-                  {(publishFailed || reviewIssueCount > 0 || invalidCount > 0) && (
-                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning">Precisa de atenção</span>
-                  )}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   <span className="font-semibold text-foreground">{catalog?.currency || 'BRL'}</span>
-                  {catalog?.tiktokCatalogId ? <><span>·</span><details className="inline-block"><summary className="cursor-pointer">Identificação TikTok</summary><span className="font-mono">{catalog.tiktokCatalogId}</span></details></> : <><span>·</span><span className="text-warning">TikTok não vinculado</span></>}
+                  {catalog?.linkStatus === 'verified' ? <><span>·</span><span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-success" /> Sincronizado</span></> : <><span>·</span><span className="text-warning">TikTok não vinculado</span></>}
                   {catalog?.automation?.sourceUrl && <><span>·</span><a href={catalog.automation.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Link2 className="size-3" /> Página original</a></>}
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="btn-primary shrink-0 gap-1.5 px-3.5 py-2 text-xs font-semibold"
-                onClick={async () => {
-                  try { await mutate(); setQuickCampaignsOpen(true) }
-                  catch (error) { toast.error('Não foi possível atualizar os vídeos', { hint: error instanceof Error ? error.message : undefined }) }
-                }}
-                disabled={creativeBusy || creativePending > 0 || !catalog || !readinessData?.readiness?.readyForCampaign || catalogCapabilities?.catalogSingleVideoCampaign !== true}
-                title="Criar campanhas de conversão"
-              >
-                <Rocket className="size-3.5" aria-hidden="true" /> Criar campanha
-              </button>
+              {readinessData?.readiness?.readyForCampaign && (
+                <button
+                  type="button"
+                  className="btn-primary min-h-10 shrink-0 gap-1.5 px-3.5 text-sm font-semibold"
+                  onClick={async () => {
+                    try { await mutate(); setQuickCampaignsOpen(true) }
+                    catch (error) { toast.error('Não foi possível atualizar os vídeos', { hint: error instanceof Error ? error.message : undefined }) }
+                  }}
+                  disabled={localUploading || localPending > 0 || !catalog || catalogCapabilities?.catalogSingleVideoCampaign !== true}
+                  title="Criar campanhas de conversão"
+                >
+                  <Rocket className="size-3.5" aria-hidden="true" /> Criar campanha
+                </button>
+              )}
             </div>
 
             <div className={`catalog-healthline ${publishFailed || invalidCount > 0 || reviewIssueCount > 0 ? 'catalog-healthline--warning' : ''}`}>
               {syncing || bgPublishing ? (
                 <><Loader2 className="size-3.5 animate-spin text-primary" /><span><strong>Sincronizando alterações…</strong> você pode continuar trabalhando.</span></>
               ) : publishFailed || catalog?.automation?.syncIssue ? (
-                <><AlertCircle className="size-3.5 text-warning" /><span className="min-w-0 flex-1">{publishFailureHint || catalog?.automation?.syncIssue?.message || 'A sincronização precisa ser retomada.'}</span><button type="button" className="text-[10px] font-semibold text-primary" onClick={() => void handleSyncTiktok()}>Tentar novamente</button></>
+                <><AlertCircle className="size-3.5 text-warning" /><span className="min-w-0 flex-1">{publishFailureHint || catalog?.automation?.syncIssue?.message || 'A sincronização precisa ser retomada.'}</span><button type="button" className="text-xs font-semibold text-primary" onClick={() => void handleSyncTiktok()}>Tentar novamente</button></>
               ) : invalidCount > 0 ? (
-                <><AlertCircle className="size-3.5 text-warning" /><span><strong>{invalidCount} produto{invalidCount === 1 ? '' : 's'} precisa{invalidCount === 1 ? '' : 'm'} de correção.</strong></span><button type="button" className="text-[10px] font-semibold text-primary" onClick={handleMagicFix} disabled={fixing}>{fixing ? 'Corrigindo…' : 'Corrigir com IA'}</button></>
+                <><AlertCircle className="size-3.5 text-warning" /><span><strong>{invalidCount} produto{invalidCount === 1 ? '' : 's'} precisa{invalidCount === 1 ? '' : 'm'} de correção.</strong></span><button type="button" className="text-xs font-semibold text-primary" onClick={handleMagicFix} disabled={fixing}>{fixing ? 'Corrigindo…' : 'Corrigir automaticamente'}</button></>
               ) : reviewIssueCount > 0 ? (
                 <><AlertCircle className="size-3.5 text-warning" /><span><strong>{reviewIssueCount} item{reviewIssueCount === 1 ? '' : 's'} em análise ou com erro no TikTok.</strong></span></>
               ) : (
@@ -621,6 +652,12 @@ export function CatalogDetail({
               )}
             </div>
           </section>
+
+          <CatalogReadinessCard
+            readiness={readinessData?.readiness}
+            loading={readinessLoading}
+            onAction={handleReadinessAction}
+          />
 
           <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} onProgress={refreshProgress} />
 
@@ -647,12 +684,12 @@ export function CatalogDetail({
           <section className="catalog-detail-section">
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">Produtos</h3>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{products.length}</span>
+                <div>
+                  <div className="flex items-center gap-2"><h3 className="text-sm font-semibold text-foreground">Produtos</h3><span className="text-xs tabular-nums text-muted-foreground">{products.length}</span></div>
+                  <p className="mt-1 text-xs text-muted-foreground">Quando a conexão estiver pronta, alterações válidas são sincronizadas automaticamente com o TikTok.</p>
                 </div>
                 <details className="catalog-actions-menu relative">
-                  <summary className="btn-ghost !min-h-0 !size-7 cursor-pointer list-none justify-center p-0" aria-label="Mais opções de produtos" title="Mais opções">
+                  <summary className="btn-ghost !size-10 cursor-pointer list-none justify-center p-0" aria-label="Mais opções de produtos" title="Mais opções">
                     <MoreHorizontal className="size-4" aria-hidden="true" />
                   </summary>
                   <div className="catalog-actions-popover">
@@ -670,7 +707,7 @@ export function CatalogDetail({
 
               <div className="flex gap-2">
                 <input
-                  className="input-base min-w-0 flex-1 text-xs"
+                  className="input-base min-h-10 min-w-0 flex-1 text-sm"
                   value={urlValue}
                   onChange={(event) => setUrlValue(event.target.value)}
                   placeholder="Cole o link de um produto para adicionar automaticamente…"
@@ -679,7 +716,7 @@ export function CatalogDetail({
                     if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
                   }}
                 />
-                <button type="button" className="btn-secondary shrink-0 px-3 text-xs font-semibold" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
+                <button type="button" className="btn-secondary min-h-10 shrink-0 px-3 text-sm font-semibold" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
                   {urlImporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
                   Adicionar
                 </button>
@@ -689,7 +726,7 @@ export function CatalogDetail({
             {!bcConfigured && (
               <div className="catalog-healthline catalog-healthline--warning mt-3">
                 <AlertCircle className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-                <span>Organização TikTok não conectada. Os produtos continuam salvos localmente.</span>
+                <span>Business Center não configurado. Os produtos continuam salvos localmente.</span>
               </div>
             )}
 
@@ -697,16 +734,16 @@ export function CatalogDetail({
               <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
                 <PackageOpen className="size-7 text-muted-foreground/40" aria-hidden="true" />
                 <p className="text-xs font-semibold text-foreground">Nenhum produto cadastrado</p>
-                <p className="max-w-sm text-[11px] text-muted-foreground">Cole um link acima ou use o menu para adicionar manualmente.</p>
+                <p className="max-w-sm text-xs text-muted-foreground">Cole um link acima ou use o menu para adicionar manualmente.</p>
               </div>
             ) : (
               <div className="catalog-product-table mt-3 overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr>
-                      <th className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Produto</th>
-                      <th className="w-28 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Preço</th>
-                      <th className="hidden w-28 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:table-cell">Estoque</th>
+                      <th className="px-2 py-2 text-xs font-semibold text-muted-foreground">Produto</th>
+                      <th className="w-28 px-2 py-2 text-xs font-semibold text-muted-foreground">Preço</th>
+                      <th className="hidden w-28 px-2 py-2 text-xs font-semibold text-muted-foreground md:table-cell">Estoque</th>
                       <th className="w-10 px-2 py-2"><span className="sr-only">Ações</span></th>
                     </tr>
                   </thead>
@@ -744,9 +781,9 @@ export function CatalogDetail({
                               <div className="min-w-0">
                                 <div className="flex min-w-0 items-center gap-2">
                                   <p className="truncate font-medium text-foreground" title={title}>{title}</p>
-                                  {!p.valid && <span className="shrink-0 text-[10px] font-medium text-warning" title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}>{p.errors.length} erro{p.errors.length === 1 ? '' : 's'}</span>}
+                                  {!p.valid && <span className="shrink-0 text-xs font-medium text-warning" title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}>{p.errors.length} erro{p.errors.length === 1 ? '' : 's'}</span>}
                                 </div>
-                                <p className="truncate font-mono text-[10px] text-muted-foreground">{p.skuId}</p>
+                                <p className="truncate text-xs text-muted-foreground">{p.skuId}</p>
                               </div>
                             </div>
                           </td>
@@ -754,7 +791,7 @@ export function CatalogDetail({
                           <td className="hidden px-2 py-2.5 text-muted-foreground whitespace-nowrap md:table-cell">{p.data.availability === 'in stock' ? 'Em estoque' : p.data.availability || 'Em estoque'}</td>
                           <td className="px-2 py-2.5 text-right" onClick={(event) => event.stopPropagation()}>
                             <details className="catalog-row-menu relative inline-block">
-                              <summary className="btn-ghost !min-h-0 !size-7 cursor-pointer list-none justify-center p-0 text-muted-foreground" aria-label={`Ações de ${title}`}><MoreHorizontal className="size-3.5" /></summary>
+                              <summary className="btn-ghost !size-10 cursor-pointer list-none justify-center p-0 text-muted-foreground" aria-label={`Ações de ${title}`}><MoreHorizontal className="size-3.5" /></summary>
                               <div className="catalog-row-popover">
                                 <button type="button" onClick={() => handleDuplicate(p)}><CopyPlus className="size-3.5" /> Duplicar</button>
                                 <button type="button" className="text-error" onClick={() => setDeleteTarget({ kind: 'product', id: p.id, name: p.data.title || p.skuId })}><Trash2 className="size-3.5" /> Remover</button>
@@ -787,18 +824,11 @@ export function CatalogDetail({
             <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground">
               <span className="flex items-center gap-2">
                 <SlidersHorizontal className="size-4" aria-hidden="true" />
-                Diagnóstico técnico, feeds e detalhes de conexão
+                Diagnóstico e detalhes técnicos
               </span>
               <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
             </summary>
             <div className="mt-4 flex flex-col gap-4 border-t border-border/50 pt-4">
-              <CatalogReadinessCard
-                readiness={readinessData?.readiness}
-                loading={readinessLoading}
-                onAction={readinessData?.readiness?.nextAction === 'create_campaign'
-                  ? undefined
-                  : handleReadinessAction}
-              />
               {catalog && (
                 <CatalogConnectionCard
                   catalog={catalog}
@@ -824,9 +854,9 @@ export function CatalogDetail({
                   </h4>
                   <ol className="flex flex-col gap-2">
                     {publications.slice(0, 10).map((publication) => (
-                      <li key={publication.id} className="flex items-start justify-between gap-3 rounded-lg bg-secondary/40 p-3">
+                      <li key={publication.id} className="flex items-start justify-between gap-3 border-t border-border/45 py-3 first:border-0">
                         <div className="min-w-0">
-                          <p className="text-[11px] font-medium text-foreground">
+                          <p className="text-xs font-medium text-foreground">
                             {publication.kind === 'tiktok' ? 'TikTok' : 'Feed'} · {
                               publication.status === 'simulated'
                                 ? 'simulação'
@@ -837,7 +867,7 @@ export function CatalogDetail({
                                     : 'atualizado'
                             }
                           </p>
-                          <p className={`text-[10px] ${publication.status === 'error' ? 'text-error' : publication.kind === 'tiktok' && publication.published === 0 ? 'text-warning' : 'text-muted-foreground'}`}>
+                          <p className={`text-xs ${publication.status === 'error' ? 'text-error' : publication.kind === 'tiktok' && publication.published === 0 ? 'text-warning' : 'text-muted-foreground'}`}>
                             {publication.status === 'error'
                               ? publication.error || 'O TikTok recusou o envio.'
                               : publication.published > 0
@@ -845,7 +875,7 @@ export function CatalogDetail({
                                 : 'Nenhum produto foi enviado'}
                           </p>
                         </div>
-                        <time className="shrink-0 text-[10px] text-muted-foreground" dateTime={publication.createdAt}>
+                        <time className="shrink-0 text-xs text-muted-foreground" dateTime={publication.createdAt}>
                           {new Date(publication.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}
                         </time>
                       </li>
@@ -869,6 +899,7 @@ export function CatalogDetail({
           onSaved={async () => {
             setEditing(null)
             await refreshAndAutoSync()
+            toast.success('Produto salvo', { hint: bcConfigured ? 'Sincronização iniciada automaticamente quando o produto estiver válido.' : 'Salvo localmente. A sincronização começará quando a conexão estiver pronta.' })
           }}
         />
       )}
@@ -881,6 +912,7 @@ export function CatalogDetail({
           open={quickCampaignsOpen}
           onClose={() => { setQuickCampaignsOpen(false); void mutate() }}
           onAssetsChanged={() => { void mutate() }}
+          onLocalWorkStateChange={setQuickCampaignWork}
           onCreated={() => {
             void mutate()
           }}
@@ -888,12 +920,37 @@ export function CatalogDetail({
       )}
 
       <ConfirmDialog
+        open={confirmBack}
+        appearance="quiet"
+        title={localUploading ? 'Voltar e cancelar o envio?' : 'Voltar e descartar os envios pendentes?'}
+        description={localUploading
+          ? 'Há vídeos sendo enviados. Voltar para a lista cancela os uploads ainda não concluídos. Vídeos já enviados permanecem vinculados.'
+          : 'Há vídeos que ainda não foram concluídos ou que aguardam nova tentativa. Voltar descartará esse estado local. Vídeos já enviados permanecem vinculados.'}
+        confirmLabel={localUploading ? 'Voltar e cancelar' : 'Voltar'}
+        tone="danger"
+        onConfirm={() => { setConfirmBack(false); onBack() }}
+        onClose={() => setConfirmBack(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmClone}
+        appearance="quiet"
+        title="Clonar este catálogo?"
+        description="Será criada uma cópia independente com os mesmos produtos. Se a conexão com o TikTok estiver pronta, a sincronização do novo catálogo poderá começar automaticamente."
+        confirmLabel="Clonar catálogo"
+        busy={cloning}
+        onConfirm={handleClone}
+        onClose={() => { if (!cloning) setConfirmClone(false) }}
+      />
+
+      <ConfirmDialog
         open={Boolean(deleteTarget)}
         title={deleteTarget?.kind === 'catalog' ? 'Excluir catálogo local?' : 'Remover produto do catálogo?'}
         description={deleteTarget?.kind === 'catalog'
-          ? <>Todos os produtos e o histórico local serão removidos. O catálogo remoto no TikTok não será apagado. Essa ação não pode ser desfeita.</>
-          : <>O produto <strong className="text-foreground">{deleteTarget?.name}</strong> será removido deste catálogo. O catálogo remoto só muda na próxima sincronização.</>}
+          ? <>Todos os produtos e o histórico local serão removidos. O catálogo remoto no TikTok não será apagado.{localPending > 0 && !localUploading ? ' Os envios locais pendentes e as tentativas disponíveis também serão descartados.' : ''} Essa ação não pode ser desfeita.</>
+          : <>O produto <strong className="text-foreground">{deleteTarget?.name}</strong> será removido do catálogo local. Se a conexão com o TikTok estiver pronta, a sincronização da alteração será iniciada automaticamente.</>}
         confirmLabel={deleteTarget?.kind === 'catalog' ? 'Excluir catálogo' : 'Remover produto'}
+        appearance="quiet"
         confirmText={deleteTarget?.kind === 'catalog' ? deleteTarget.name : undefined}
         busy={deleting}
         onConfirm={confirmDelete}
@@ -939,7 +996,7 @@ export function TiktokStatusPanel({
   }
 
   return (
-    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${catalogSynced ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
+    <section className="border-y border-border/60 py-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -959,7 +1016,7 @@ export function TiktokStatusPanel({
                     : 'Status dos produtos requer atenção'}
           </p>
           {autoChecking && (
-            <p className="flex items-center gap-1 text-[10px] text-muted-foreground" role="status">
+            <p className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
               <Loader2 className="size-3 animate-spin" aria-hidden="true" />
               Verificando a análise automaticamente
             </p>
@@ -971,24 +1028,13 @@ export function TiktokStatusPanel({
         </button>
       </div>
 
-      {/* Auditoria dos produtos */}
       {audit && total > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">
-            {approved} aprovado{approved === 1 ? '' : 's'}
-          </span>
-          {pending > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
-              {pending} em análise
-            </span>
-          )}
-          {rejected > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2.5 py-1 text-[11px] font-semibold text-error">
-              {rejected} reprovado{rejected === 1 ? '' : 's'}
-            </span>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          <span className="text-success">{approved} aprovado{approved === 1 ? '' : 's'}</span>
+          {pending > 0 && <> · <span className="text-warning">{pending} em análise</span></>}
+          {rejected > 0 && <> · <span className="text-error">{rejected} reprovado{rejected === 1 ? '' : 's'}</span></>}
+        </p>
       )}
-    </div>
+    </section>
   )
 }

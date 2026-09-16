@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2, ShieldAlert, Scale, ShieldOff, Check, ExternalLink } from 'lucide-react'
-import { apiSend, useDomains } from '@/lib/api'
+import { X, Loader2, ExternalLink, ChevronDown } from 'lucide-react'
+import { apiSend, useCloakConfig, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
 import { GeoMultiSelect } from './geo-multi-select'
 import { Switch } from '@/components/ui/switch'
@@ -13,42 +13,33 @@ import {
   labelForCountry,
   labelForLanguage,
 } from '@/lib/geo-options'
-import type { LucideIcon } from 'lucide-react'
 
-// Sensibilidade explicada em linguagem de negócio — o usuário entende o efeito
-// (proteção x risco de perder acesso real) sem precisar saber de "threshold".
 const SENSITIVITIES: {
   value: Exclude<CloakSensitivity, 'custom'>
   label: string
-  tag: string
+  hint: string
   desc: string
-  icon: LucideIcon
 }[] = [
   {
     value: 'strict',
-    label: 'Rígido',
-    tag: 'Mais proteção',
-    desc: 'Desvia ao menor sinal suspeito. Máxima defesa contra automação, mas pode mandar alguns usuários reais para a página segura.',
-    icon: ShieldAlert,
+    label: 'Rígida',
+    hint: 'Mais proteção · limite 30',
+    desc: 'Mais sensível a sinais suspeitos. Protege mais, mas aumenta a chance de enviar usuários legítimos ao destino seguro.',
   },
   {
     value: 'balanced',
-    label: 'Equilibrado',
-    tag: 'Recomendado',
-    desc: 'Melhor equilíbrio entre filtrar tráfego automatizado e manter os acessos legítimos passando para a oferta.',
-    icon: Scale,
+    label: 'Equilibrada',
+    hint: 'Recomendada · limite 40',
+    desc: 'Equilíbrio recomendado entre proteção contra automação e preservação dos acessos legítimos.',
   },
   {
     value: 'loose',
-    label: 'Frouxo',
-    tag: 'Menos proteção',
-    desc: 'Só desvia automações mais óbvias. Reduz falsos positivos, porém deixa passar mais tráfego suspeito.',
-    icon: ShieldOff,
+    label: 'Leve',
+    hint: 'Menos falsos positivos · limite 55',
+    desc: 'Mais tolerante. Reduz falsos positivos, mas permite que mais tráfego suspeito chegue ao destino principal.',
   },
 ]
 
-// Item 141: threshold efetivo por sensibilidade (espelha SENSITIVITY_THRESHOLDS
-// do bot-filter.js) — mostra ao usuário o número que a escolha de fato aplica.
 const EFFECTIVE_THRESHOLD: Record<string, number> = { strict: 30, balanced: 40, loose: 55 }
 
 interface Props {
@@ -74,16 +65,25 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
   const createRequestRef = useRef<{ signature: string; key: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // O modal é renderizado via portal no <body>. Sem isso ele fica preso dentro
-  // do GlassCard pai, que tem backdrop-filter (blur) — e backdrop-filter cria um
-  // containing block para position:fixed, impedindo o overlay de cobrir a tela.
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+  const [segmentationOpen, setSegmentationOpen] = useState(() => Boolean(entry?.mobileOnly || (entry?.paises && entry.paises.length > 0) || (entry?.idiomas && entry.idiomas.length > 0)))
 
-  // Só domínios ativos e permitidos para Cloaker podem ser selecionados.
   const { data: domainsData } = useDomains()
+  const { data: globalConfig } = useCloakConfig()
   const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && d.uso !== 'checkout')
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
+  const globalSafePage = globalConfig?.defaultWhitePage?.trim() ?? ''
+  const globalShadowMode = globalConfig?.shadowMode === true
+  const effectiveShadowMode = shadowMode || globalShadowMode
+  const selectedSensitivity = SENSITIVITIES.find((item) => item.value === sensitivity)
+  const customThreshold = entry?.threshold ?? 40
+  const effectiveThreshold = sensitivity === 'custom' ? customThreshold : EFFECTIVE_THRESHOLD[sensitivity] ?? 40
+  const segmentBits = [
+    mobileOnly ? 'mobile' : null,
+    paises.length > 0 ? `${paises.length} ${paises.length === 1 ? 'país' : 'países'}` : null,
+    idiomas.length > 0 ? `${idiomas.length} ${idiomas.length === 1 ? 'idioma' : 'idiomas'}` : null,
+  ].filter(Boolean) as string[]
 
   async function handleSave() {
     if (savingRef.current) return
@@ -128,95 +128,101 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-all hover:border-brand-cyan/40 focus:border-[color:var(--brand-cyan)] focus:shadow-[0_0_15px_rgba(37,244,238,0.3)] focus:outline-none'
-  const labelCls = 'mb-1 block text-xs font-medium text-foreground'
-  const hintCls = 'mb-1.5 text-[11px] leading-relaxed text-muted-foreground'
+    'h-11 w-full rounded-lg border border-border bg-secondary/35 px-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-[color:var(--brand-cyan)] focus:outline-none focus:ring-2 focus:ring-brand-cyan/10'
+  const labelCls = 'mb-1.5 block text-sm font-medium text-foreground'
+  const hintCls = 'text-xs leading-relaxed text-muted-foreground'
 
   if (!mounted) return null
 
   return createPortal(
-    /* A8.4: slide-over lateral no lugar do modal central — overlay leve (sem
-       blur) mantém o log de decisões visível atrás durante a edição */
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-xl transition-all"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={entry ? 'Editar link de cloaking' : 'Novo link de cloaking'}
-        className="drawer-in h-full w-full max-w-lg overflow-y-auto border-l border-border bg-card shadow-2xl"
+        aria-label={entry ? 'Editar link protegido' : 'Novo link protegido'}
+        className="drawer-in h-full w-full max-w-xl overflow-y-auto border-l border-border bg-card shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Cabeçalho fixo */}
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-6 py-4 backdrop-blur">
-          <h2 className="text-base font-semibold text-foreground">
-            {entry ? 'Editar link de cloaking' : 'Novo link de cloaking'}
-          </h2>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-card px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{entry ? 'Editar link protegido' : 'Novo link protegido'}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Defina os destinos e o comportamento específico deste link.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20"
             aria-label="Fechar"
           >
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="flex flex-col gap-6 px-6 py-5">
-          {/* ── Seção: básico ── */}
-          <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-8 px-6 py-6">
+          <section aria-labelledby="cloak-entry-destinations" className="space-y-5">
+            <div>
+              <h3 id="cloak-entry-destinations" className="text-sm font-semibold text-foreground">Identificação e destinos</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Defina como identificar o link e para onde cada tipo de acesso será enviado.</p>
+            </div>
+
             <div>
               <label className={labelCls} htmlFor="ck-nome">Nome do link</label>
               <input id="ck-nome" className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Campanha BR - Oferta X" />
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-offer">Destino principal (https)</label>
+              <label className={labelCls} htmlFor="ck-offer">Destino principal</label>
+              <p className={`${hintCls} mb-2`}>Para onde os acessos liberados serão enviados.</p>
               <input id="ck-offer" className={inputCls} value={offerUrl} onChange={(e) => setOfferUrl(e.target.value)} placeholder="https://minha-oferta.com" />
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">Destino usado quando o acesso passa pela proteção.</p>
-                {/* Item 174: abrir a offer em nova aba direto do editor */}
-                {/^https:\/\//.test(offerUrl.trim()) && (
-                  <a
-                    href={offerUrl.trim()}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
-                  >
-                    <ExternalLink className="size-3" /> Ver
-                  </a>
-                )}
-              </div>
+              {/^https:\/\//.test(offerUrl.trim()) && (
+                <a
+                  href={offerUrl.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[color:var(--brand-cyan)] hover:underline"
+                >
+                  <ExternalLink className="size-3" /> Ver
+                </a>
+              )}
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-white">Destino seguro (opcional, https)</label>
+              <label className={labelCls} htmlFor="ck-white">Destino seguro</label>
+              <p className={`${hintCls} mb-2`}>
+                Deixe vazio para usar o destino seguro padrão configurado em Regras. Se não houver um padrão, o ROI-NADOS usa a página neutra.
+              </p>
               <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">Usado para automação ou tráfego suspeito. Vazio = página neutra embutida.</p>
-                {/* Item 138: abrir a white page em nova aba direto do editor */}
-                {/^https:\/\//.test(whitePageUrl.trim()) && (
-                  <a
-                    href={whitePageUrl.trim()}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
-                  >
-                    <ExternalLink className="size-3" /> Ver
-                  </a>
-                )}
-              </div>
-              {/* Destino seguro preenchido mas inválido: impedir fluxo quebrado. */}
-              {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
-                <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
-                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-                  <span>
-                    O destino seguro precisa começar com <code>https://</code>. Corrija ou deixe vazio para usar a página neutra embutida.
-                  </span>
+
+              {/^https:\/\//.test(whitePageUrl.trim()) && (
+                <a
+                  href={whitePageUrl.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[color:var(--brand-cyan)] hover:underline"
+                >
+                  <ExternalLink className="size-3" /> Ver
+                </a>
+              )}
+
+              {whitePageUrl.trim() === '' && globalConfig && (
+                <p className="mt-2 break-all text-xs leading-relaxed text-muted-foreground">
+                  {globalSafePage
+                    ? <>Usará o destino seguro padrão: <span className="text-foreground">{globalSafePage}</span></>
+                    : 'Usará a página neutra do ROI-NADOS.'}
                 </p>
               )}
-              {/* Item 174: comparar offer × white lado a lado (abre as duas em abas) */}
+              {whitePageUrl.trim() === '' && !globalConfig && (
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Se permanecer vazio, o link herdará o destino seguro padrão de Regras.</p>
+              )}
+
+              {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
+                <p className="mt-2 text-xs leading-relaxed text-warning">
+                  Use uma URL https:// válida ou deixe o campo vazio para herdar o destino seguro padrão.
+                </p>
+              )}
+
               {/^https:\/\//.test(offerUrl.trim()) && /^https:\/\//.test(whitePageUrl.trim()) && (
                 <button
                   type="button"
@@ -224,7 +230,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
                     window.open(offerUrl.trim(), '_blank', 'noopener,noreferrer')
                     window.open(whitePageUrl.trim(), '_blank', 'noopener,noreferrer')
                   }}
-                  className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ExternalLink className="size-3" /> Abrir os dois destinos
                 </button>
@@ -232,146 +238,213 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-dom">Domínio personalizado (opcional)</label>
+              <label className={labelCls} htmlFor="ck-dom">Domínio</label>
               {verifiedDomains.length === 0 && !dominio ? (
-                <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-xs text-muted-foreground">
-                  Nenhum domínio verificado ainda. Cadastre e verifique um domínio em{' '}
-                  <span className="font-medium text-foreground">Domínios</span> para poder selecioná-lo aqui.
-                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Nenhum domínio verificado ainda. O link usará o domínio principal do app. Você pode cadastrar um domínio próprio em <span className="font-medium text-foreground">Domínios</span>.
+                </p>
               ) : (
                 <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
                   <option value="">Padrão (domínio principal do app)</option>
                   {verifiedDomains.map((d) => (
                     <option key={d.host} value={d.host}>{d.host}</option>
                   ))}
-                  {dominio && !currentInList && (
-                    <option value={dominio}>{dominio} (não verificado)</option>
-                  )}
+                  {dominio && !currentInList && <option value={dominio}>{dominio} (não verificado)</option>}
                 </select>
               )}
-              {/* Item 140: aviso quando o domínio selecionado não está verificado —
-                  o /c/:slug responde 404 nesse host até o DNS apontar pra cá */}
               {dominio && !currentInList && (
-                <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
-                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-                  <span>
-                    <strong>{dominio}</strong> ainda não está verificado — o link <code>/c/{'{slug}'}</code> só vai
-                    responder neste domínio depois que o DNS apontar pra cá. Verifique em <strong>Domínios</strong> ou
-                    use o domínio principal do app.
-                  </span>
+                <p className="mt-2 text-xs leading-relaxed text-warning">
+                  Este domínio não está pronto. Para usar /c/{entry?.slug ?? '{slug}'} nele, conclua DNS/HTTPS em Domínios ou escolha o domínio principal.
                 </p>
               )}
             </div>
           </section>
 
-          {/* ── Seção: sensibilidade ── */}
-          <section>
-            <h3 className="mb-1 text-sm font-semibold text-foreground">Sensibilidade da detecção</h3>
-            <p className={hintCls}>
-              Define o quão agressivo o filtro é ao decidir quem vê a página branca.{' '}
-              {/* Item 141: threshold efetivo herdado da sensibilidade escolhida */}
-              <span className="text-foreground">
-                Score ≥ <strong>{EFFECTIVE_THRESHOLD[sensitivity] ?? 40}</strong> é tratado como bot.
-              </span>
+          <section aria-labelledby="cloak-entry-protection" className="border-t border-border/60 pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 id="cloak-entry-protection" className="text-sm font-semibold text-foreground">Proteção deste link</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {enabled
+                    ? 'A proteção avalia os acessos e pode enviá-los ao destino seguro.'
+                    : 'Todos os acessos seguem diretamente para o destino principal.'}
+                </p>
+              </div>
+              <Switch checked={enabled} onChange={setEnabled} label="Proteção deste link" />
+            </div>
+
+            <fieldset className="mt-5">
+              <legend className="text-sm font-medium text-foreground">Quando este link detectar um acesso suspeito</legend>
+              {!enabled && <p className="mt-1 text-xs text-muted-foreground">Esta escolha será usada quando a proteção estiver ativa.</p>}
+              <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
+                <label className="flex cursor-pointer items-start gap-3 py-3.5">
+                  <input
+                    type="radio"
+                    name="cloak-entry-behavior"
+                    checked={shadowMode !== true}
+                    onChange={() => setShadowMode(false)}
+                    className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">Enviar para o destino seguro</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">A proteção redireciona o acesso suspeito.</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 py-3.5">
+                  <input
+                    type="radio"
+                    name="cloak-entry-behavior"
+                    checked={shadowMode === true}
+                    onChange={() => setShadowMode(true)}
+                    className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">Somente observar</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">Classifica o acesso, mas mantém o destino principal.</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            {globalShadowMode && !shadowMode && (
+              <p className="mt-3 text-xs leading-relaxed text-warning">
+                O modo observação global está ativo. Enquanto ele permanecer ligado, este link também apenas observará, mesmo com “Enviar para o destino seguro” selecionado aqui.
+              </p>
+            )}
+
+            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">Comportamento efetivo · </span>
+              {!enabled
+                ? 'proteção desativada · todos → principal'
+                : effectiveShadowMode
+                  ? 'somente observação · todos permanecem no principal'
+                  : 'proteção ativa · suspeitos → destino seguro'}
             </p>
-            <div className="flex flex-col gap-2">
-              {SENSITIVITIES.map((s) => {
-                const active = sensitivity === s.value
-                const Icon = s.icon
-                return (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setSensitivity(s.value)}
-                    aria-pressed={active}
-                    className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${
-                      active
-                        ? 'border-[color:var(--brand-cyan)] bg-[var(--accent-light)] shadow-[var(--glow-cyan-soft)]'
-                        : 'border-border bg-secondary/40 hover:bg-secondary'
-                    }`}
-                  >
-                    <span
-                      className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ${
-                        active ? 'text-[color:var(--brand-cyan)]' : 'text-muted-foreground'
-                      }`}
-                      style={active ? { background: 'color-mix(in oklab, var(--brand-cyan) 16%, transparent)' } : undefined}
-                      aria-hidden="true"
-                    >
-                      <Icon className="size-4" />
+          </section>
+
+          <fieldset className="border-t border-border/60 pt-6">
+            <legend className="text-sm font-semibold text-foreground">Sensibilidade</legend>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Define o nível de evidência necessário para considerar um acesso suspeito.
+            </p>
+
+            <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
+              {sensitivity === 'custom' && (
+                <label className="flex items-start gap-3 py-3.5">
+                  <input type="radio" name="cloak-entry-sensitivity" checked readOnly className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]" />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">Personalizada · limite {customThreshold}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      Configuração personalizada existente. Escolha um dos perfis abaixo para substituí-la.
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">{s.label}</span>
-                        <span
-                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                            s.value === 'balanced'
-                              ? 'bg-[var(--accent-light)] text-[color:var(--brand-cyan)]'
-                              : 'bg-secondary text-muted-foreground'
-                          }`}
-                        >
-                          {s.tag}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{s.desc}</span>
-                    </span>
-                    {active && <Check className="mt-0.5 size-4 shrink-0 text-[color:var(--brand-cyan)]" aria-hidden="true" />}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-
-          {/* ── Seção: segmentação ── */}
-          <section className="flex flex-col gap-4">
-            <div>
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Segmentação opcional</h3>
-              <p className={hintCls}>Deixe vazio para não restringir por localização ou idioma.</p>
+                  </span>
+                </label>
+              )}
+              {SENSITIVITIES.map((item) => (
+                <label key={item.value} className="flex cursor-pointer items-start gap-3 py-3.5">
+                  <input
+                    type="radio"
+                    name="cloak-entry-sensitivity"
+                    checked={sensitivity === item.value}
+                    onChange={() => setSensitivity(item.value)}
+                    className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">{item.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{item.hint}</span>
+                  </span>
+                </label>
+              ))}
             </div>
 
-            <div>
-              <label className={labelCls} htmlFor="ck-paises">Países permitidos</label>
-              <GeoMultiSelect
-                id="ck-paises"
-                value={paises}
-                onChange={setPaises}
-                options={COUNTRY_OPTIONS}
-                normalize={(s) => s.trim().toUpperCase()}
-                labelFor={labelForCountry}
-                emptyLabel="Todos os países"
-                placeholder="Buscar país (ex.: Brasil)"
-                manualPattern={/^[A-Za-z]{2}$/}
-                flags
-              />
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              {sensitivity === 'custom'
+                ? `Configuração personalizada preservada · limite ${effectiveThreshold}.`
+                : selectedSensitivity?.desc}
+            </p>
+          </fieldset>
+
+          <details
+            className="group border-y border-border/60 py-4"
+            open={segmentationOpen}
+            onToggle={(e) => setSegmentationOpen(e.currentTarget.open)}
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">
+                  Segmentação opcional{segmentBits.length > 0 ? ` · ${segmentBits.join(' · ')}` : ''}
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  Sem restrições, qualquer país, idioma ou dispositivo pode acessar.
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+
+            <div className="mt-5 space-y-5">
+              <fieldset>
+                <legend className="text-sm font-medium text-foreground">Dispositivo</legend>
+                <div className="mt-2 divide-y divide-border/60 border-y border-border/60">
+                  <label className="flex cursor-pointer items-center gap-3 py-3">
+                    <input
+                      type="radio"
+                      name="cloak-entry-device"
+                      checked={!mobileOnly}
+                      onChange={() => setMobileOnly(false)}
+                      className="size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                    />
+                    <span className="text-sm text-foreground">Qualquer dispositivo</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-3 py-3">
+                    <input
+                      type="radio"
+                      name="cloak-entry-device"
+                      checked={mobileOnly}
+                      onChange={() => setMobileOnly(true)}
+                      className="size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                    />
+                    <span className="text-sm text-foreground">Somente mobile</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div>
+                <label className={labelCls} htmlFor="ck-paises">Países permitidos</label>
+                <GeoMultiSelect
+                  id="ck-paises"
+                  value={paises}
+                  onChange={setPaises}
+                  options={COUNTRY_OPTIONS}
+                  normalize={(s) => s.trim().toUpperCase()}
+                  labelFor={labelForCountry}
+                  emptyLabel="Sem restrição de país"
+                  placeholder="Buscar país (ex.: Brasil)"
+                  manualPattern={/^[A-Za-z]{2}$/}
+                  flags
+                />
+              </div>
+
+              <div>
+                <label className={labelCls} htmlFor="ck-idiomas">Idiomas permitidos</label>
+                <GeoMultiSelect
+                  id="ck-idiomas"
+                  value={idiomas}
+                  onChange={setIdiomas}
+                  options={LANGUAGE_OPTIONS}
+                  normalize={(s) => s.trim().toLowerCase()}
+                  labelFor={labelForLanguage}
+                  emptyLabel="Sem restrição de idioma"
+                  placeholder="Buscar idioma (ex.: Português)"
+                  manualPattern={/^[A-Za-z]{2}$/}
+                />
+              </div>
             </div>
+          </details>
 
-            <div>
-              <label className={labelCls} htmlFor="ck-idiomas">Idiomas permitidos</label>
-              <GeoMultiSelect
-                id="ck-idiomas"
-                value={idiomas}
-                onChange={setIdiomas}
-                options={LANGUAGE_OPTIONS}
-                normalize={(s) => s.trim().toLowerCase()}
-                labelFor={labelForLanguage}
-                emptyLabel="Todos os idiomas"
-                placeholder="Buscar idioma (ex.: Português)"
-                manualPattern={/^[A-Za-z]{2}$/}
-              />
-            </div>
-          </section>
-
-          {/* ── Seção: regras ── */}
-          <section className="flex flex-col gap-2 border-t border-border pt-5">
-            <ToggleRow label="Link ativo" hint="Desligado, o link não redireciona ninguém" checked={enabled} onChange={setEnabled} />
-            <ToggleRow label="Modo observação" hint="Classifica sem alterar o destino" checked={shadowMode} onChange={setShadowMode} />
-            <ToggleRow label="Somente mobile" hint="Restrição opcional por tipo de dispositivo" checked={mobileOnly} onChange={setMobileOnly} />
-          </section>
-
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-sm leading-relaxed text-destructive">{error}</p>}
         </div>
 
-        {/* Rodapé fixo */}
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card/95 px-6 py-4 backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card px-6 py-4">
           <button
             type="button"
             onClick={onClose}
@@ -383,7 +456,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="btn-shine flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30 disabled:opacity-50"
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
             {entry ? 'Salvar' : 'Criar link'}
@@ -392,27 +465,5 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
       </div>
     </div>,
     document.body,
-  )
-}
-
-function ToggleRow({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string
-  hint?: string
-  checked: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-3">
-      <span>
-        <span className="block text-sm text-foreground">{label}</span>
-        {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
-      </span>
-      <Switch checked={checked} onChange={onChange} label={label} />
-    </label>
   )
 }

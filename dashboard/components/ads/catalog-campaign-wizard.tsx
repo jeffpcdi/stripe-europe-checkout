@@ -124,47 +124,47 @@ function RunCard({
 
   return (
     <>
-      <div className={`rounded-lg border p-3 ${run.status === 'completed' ? 'border-success/30 bg-success/5' : failed ? 'border-error/30 bg-error/5' : 'border-border bg-card'}`}>
+      <div className="border-t border-border/60 py-3 first:border-t-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-foreground" title={campaignName}>{campaignName}</p>
             {campaignWasRenamed && (
-              <p className="mt-0.5 text-[10px] text-primary">Nome ajustado automaticamente para não duplicar</p>
+              <p className="mt-0.5 text-xs text-primary">Nome ajustado automaticamente para não duplicar</p>
             )}
-            <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               {active ? <Loader2 className="size-3.5 animate-spin text-primary" /> : run.status === 'completed' ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
               {STAGES[run.stage] || run.stage}
             </p>
-            <p className="mt-1 text-[10px] text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''} · {bidLabel} · {deliveryLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''} · {bidLabel} · {deliveryLabel}</p>
           </div>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{runStatusLabel}</span>
+          <span className="text-xs font-medium text-muted-foreground">{runStatusLabel}</span>
         </div>
         {verificationLabels.length > 0 && (
-          <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-success/20 bg-success/5 p-2 text-[10px] leading-relaxed text-success">
+          <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-success/20 bg-success/5 py-2 text-xs leading-relaxed text-success">
             <Check className="mt-0.5 size-3 shrink-0" /> {activeOnTikTok
               ? 'Ativa. Campanha, conjunto, anúncio, produtos, vídeo e destino foram confirmados no TikTok.'
               : 'Pronta e pausada. Produtos, vídeo e destino foram confirmados no TikTok.'}
           </p>
         )}
         {run.status === 'waiting_pixel_purchase' && (
-          <p className="mt-2 rounded-lg border border-warning/25 bg-warning/5 p-2 text-[10px] leading-relaxed text-warning">
+          <p className="mt-2 rounded-lg border border-warning/25 bg-warning/5 py-2 text-xs leading-relaxed text-warning">
             Pedido salvo. A dashboard consulta o Pixel em segundo plano e iniciará a criação automaticamente quando o TikTok reconhecer a atividade e a Compra reais.
           </p>
         )}
         {run.error && !active && (
-          <div className="mt-2 rounded-lg bg-background/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
+          <div className="mt-2 rounded-lg bg-background/70 py-2 text-xs leading-relaxed text-muted-foreground">
             <p className="font-semibold text-error">{run.error.userMessage}</p>
             {run.error.suggestedAction && <p className="mt-1">{run.error.suggestedAction}</p>}
           </div>
         )}
         {failed && (canResume || Boolean(run.createdIds.campaignId)) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {canResume && <button type="button" className="btn-primary !py-1.5 text-xs" onClick={() => action('resume')} disabled={actionBusy}><RotateCcw className="size-3.5" /> Retomar</button>}
-            {run.createdIds.campaignId && <button type="button" className="btn-ghost !py-1.5 text-xs text-error" onClick={() => setConfirmCleanup(true)} disabled={actionBusy}><Trash2 className="size-3.5" /> Excluir parcial</button>}
+            {canResume && <button type="button" className="btn-primary min-h-10 text-xs" onClick={() => action('resume')} disabled={actionBusy}><RotateCcw className="size-3.5" /> Retomar</button>}
+            {run.createdIds.campaignId && <button type="button" className="btn-ghost min-h-10 text-xs text-error" onClick={() => setConfirmCleanup(true)} disabled={actionBusy}><Trash2 className="size-3.5" /> Excluir parcial</button>}
           </div>
         )}
         {(run.error || run.createdIds.videoId || run.createdIds.coverImageId || run.createdIds.campaignId || verificationLabels.length > 0 || warnings.length > 0) && (
-          <details className="mt-2 rounded-lg border border-border/70 px-2.5 py-2 text-[10px] text-muted-foreground">
+          <details className="mt-2 rounded-lg border border-border/70 px-2.5 py-2 text-xs text-muted-foreground">
             <summary className="cursor-pointer font-medium">Detalhes técnicos</summary>
             {run.error && (
               <p className="mt-2 break-words">
@@ -186,6 +186,7 @@ function RunCard({
       <ConfirmDialog
         open={confirmCleanup}
         title="Excluir estrutura parcial?"
+        appearance="quiet"
         description="A campanha e os recursos que já foram criados por esta tentativa serão removidos do TikTok. Use Retomar se quiser continuar de onde parou."
         confirmLabel="Excluir parcial"
         busy={actionBusy}
@@ -238,12 +239,12 @@ export function CatalogCampaignWizard({
   }
 
   return (
-    <section id="catalog-campaign-wizard" className="scroll-mt-4 rounded-xl border border-border bg-background p-4 mt-3 shadow-xs">
+    <section id="catalog-campaign-wizard" className="mt-3 scroll-mt-4 border-y border-border/60 py-4">
       {!hideLaunchButton && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-0.5">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Rocket className="size-4 text-primary" /> Lançamento de campanhas
+              Lançamento de campanhas
             </h3>
           </div>
           {capabilities === null ? (
@@ -264,8 +265,7 @@ export function CatalogCampaignWizard({
 
       {hideLaunchButton && runs.length > 0 && (
         <div className="flex items-center gap-2 pb-2">
-          <Rocket className="size-4 text-primary" />
-          <h3 className="text-xs font-bold text-foreground">Campanhas geradas</h3>
+          <h3 className="text-sm font-semibold text-foreground">Campanhas geradas</h3>
         </div>
       )}
 
@@ -274,8 +274,8 @@ export function CatalogCampaignWizard({
           <p className="font-semibold text-warning">Criação temporariamente indisponível no TikTok</p>
           {blockers.length > 0 && (
             <details className="mt-1.5 border-t border-warning/20 pt-1.5">
-              <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Detalhes</summary>
-              <p className="mt-1 break-all text-[11px]">{blockers.join(' · ')}</p>
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Detalhes</summary>
+              <p className="mt-1 break-all text-xs">{blockers.join(' · ')}</p>
             </details>
           )}
         </div>

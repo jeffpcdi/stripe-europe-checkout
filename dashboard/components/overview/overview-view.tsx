@@ -29,12 +29,7 @@ import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
 import { ErrorState } from '@/components/error-state'
-import {
-  TrendingUp,
-  ShieldCheck,
-  ArrowUpRight,
-  Globe2,
-} from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 
 // ── Formatação de Moeda e Data ───────────────────────────────────────────
 function fmtAdsMoney(v: number, currency: string): string {
@@ -205,16 +200,25 @@ export function OverviewView() {
         <div className="observatory-header"><Skeleton className="h-10 w-36" /><Skeleton className="h-12 w-full max-w-72" /></div>
         <div className="observatory-metrics">
           <div className="observatory-metric-rail observatory-metric-rail--left">
-            {['revenue', 'profit'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" /></div>)}
+            {['revenue', 'profit'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-4 w-20 mb-3" /><Skeleton className={name === 'revenue' ? 'h-12 w-full max-w-52' : 'h-10 w-full max-w-44'} /></div>)}
           </div>
           <div className="observatory-globe flex items-center justify-center">
             <Skeleton className="aspect-square w-full max-w-96 rounded-full" />
           </div>
           <div className="observatory-metric-rail observatory-metric-rail--right">
-            {['spend', 'conversion', 'return'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-5 w-24 mb-4" /><Skeleton className="h-10 w-full max-w-48 mb-3" /><Skeleton className="h-4 w-24" /></div>)}
+            {['spend', 'conversion', 'return'].map(name => <div key={name} className={`observatory-metric observatory-metric--${name}`}><Skeleton className="h-4 w-20 mb-3" /><Skeleton className="h-10 w-full max-w-44" /></div>)}
           </div>
         </div>
-        <div className="observatory-activity">{[0, 1, 2].map(index => <section key={index}><Skeleton className="h-6 w-24 mb-4" /><Skeleton className="h-12 w-full" /></section>)}</div>
+        <div className="observatory-activity">
+          <section aria-label="Carregando top países">
+            <Skeleton className="h-4 w-20 mb-4" />
+            <div className="grid gap-3">{[0, 1, 2].map(index => <Skeleton key={index} className="h-8 w-full" />)}</div>
+          </section>
+          <section aria-label="Carregando compras recentes">
+            <Skeleton className="h-4 w-24 mb-4" />
+            <div className="grid gap-3">{[0, 1, 2].map(index => <Skeleton key={index} className="h-8 w-full" />)}</div>
+          </section>
+        </div>
       </div>
     )
   }
@@ -293,165 +297,96 @@ export function OverviewView() {
         className="overview-insight-grid"
       >
         {/* Campanhas */}
-        <GlassCard variant="thick" className="overview-insight-card flex flex-col gap-4 p-5">
-          <div className="overview-insight-heading">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                data-tooltip="Campanhas com mais compras convertidas no período selecionado."
-                className="text-sm font-semibold text-foreground inline-flex items-center gap-1.5 cursor-help"
-              >
-                <TrendingUp className="size-3.5 text-brand-cyan" />
-                Campanhas
-              </span>
+        <GlassCard variant="thick" className="overview-insight-card overview-campaign-card flex flex-col gap-4 p-5">
+          <div className="overview-insight-heading overview-campaign-heading">
+            <div className="overview-campaign-heading-main">
+              <span className="overview-campaign-title">Campanhas</span>
               {adsConnected && tikTokCampaigns.length > 0 && cur.topCampaigns.length > 0 && (
-                <div className="flex items-center rounded-lg border border-border/70 bg-secondary/50 p-0.5 text-xs font-medium shadow-inner">
+                <div className="overview-campaign-tabs" role="tablist" aria-label="Fonte das campanhas">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={campaignTab === 'tiktok'}
                     onClick={() => setCampaignTab('tiktok')}
-                    data-tooltip="Gasto e status do TikTok Ads combinados com vendas reais atribuídas pelo ROINADOS."
-                    className={`rounded-md px-2 py-0.5 transition-all cursor-pointer ${
-                      campaignTab === 'tiktok'
-                        ? 'bg-brand-cyan/20 text-brand-cyan font-bold shadow-[0_0_8px_rgba(37,244,238,0.2)]'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`overview-campaign-tab ${campaignTab === 'tiktok' ? 'is-active' : ''}`}
                   >
                     TikTok Ads
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={campaignTab === 'utm'}
                     onClick={() => setCampaignTab('utm')}
-                    data-tooltip="Métricas rastreadas pelo parâmetro de link utm_campaign."
-                    className={`rounded-md px-2 py-0.5 transition-all cursor-pointer ${
-                      campaignTab === 'utm'
-                        ? 'bg-brand-cyan/20 text-brand-cyan font-bold shadow-[0_0_8px_rgba(37,244,238,0.2)]'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className={`overview-campaign-tab ${campaignTab === 'utm' ? 'is-active' : ''}`}
                   >
                     UTMs
                   </button>
                 </div>
               )}
             </div>
-            <Link
-              href="/ads/tiktok"
-              data-tooltip="Abrir gerenciador e listagem de anúncios."
-              className="group text-xs font-semibold text-brand-cyan transition-colors hover:underline flex items-center gap-1"
-            >
-              Ver tudo <ArrowUpRight className="size-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+            <Link href="/ads/tiktok" className="overview-campaign-view-all">
+              Ver tudo <ArrowUpRight className="size-3" aria-hidden="true" />
             </Link>
           </div>
 
           {campaignTab === 'tiktok' && adsConnected && tikTokCampaigns.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {tikTokCampaigns.slice(0, 4).map((c, i) => (
-                <div
-                  key={c.id || c.name}
-                  className="overview-campaign-row"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="overview-rank"
-                    >
-                      {i + 1}
-                    </span>
-                    <div className="flex min-w-0 flex-col">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="truncate text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
-                          {c.name}
-                        </span>
-                        <span
-                          data-tooltip={
-                            c.status === 'active' || c.status === 'ENABLE'
-                              ? 'Campanha ativa veiculando anúncios.'
-                              : 'Campanha pausada no TikTok.'
-                          }
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium cursor-help ${
-                            c.status === 'active' || c.status === 'ENABLE'
-                              ? 'border border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan font-semibold'
-                              : 'bg-secondary text-muted-foreground'
-                          }`}
-                        >
-                          {c.status === 'active' || c.status === 'ENABLE' ? 'Ativa' : 'Pausada'}
+            <div className="overview-campaign-table" role="table" aria-label="Campanhas do TikTok Ads">
+              <div className="overview-campaign-table-head overview-campaign-grid overview-campaign-grid--tiktok" role="row">
+                <span role="columnheader">Campanha</span>
+                <span role="columnheader">Gasto</span>
+                <span role="columnheader">Vendas</span>
+                <span role="columnheader">CPA</span>
+                <span role="columnheader">ROAS</span>
+              </div>
+              <div className="overview-campaign-table-body" role="rowgroup">
+                {tikTokCampaigns.slice(0, 4).map((c) => {
+                  const isActive = c.status === 'active' || c.status === 'ENABLE'
+                  return (
+                    <div key={c.id || c.name} className="overview-campaign-row overview-campaign-grid overview-campaign-grid--tiktok" role="row">
+                      <div className="overview-campaign-name-cell" role="cell">
+                        <span className="overview-campaign-name" title={c.name}>{c.name}</span>
+                        <span className={`overview-campaign-status ${isActive ? 'is-active' : 'is-paused'}`}>
+                          <span className="overview-campaign-status-dot" aria-hidden="true" />
+                          {isActive ? 'Ativa' : 'Pausada'}
                         </span>
                       </div>
-                      <span
-                        data-tooltip="Valor total consumido por esta campanha no período."
-                        className="text-xs text-muted-foreground cursor-help font-mono"
-                      >
-                        {fmtAdsMoney(c.spend, roas?.currency || 'BRL')}
+                      <span className="overview-campaign-value" role="cell">{fmtAdsMoney(c.spend, roas?.currency || 'BRL')}</span>
+                      <span className="overview-campaign-value" role="cell">{c.sales == null ? '—' : c.sales}</span>
+                      <span className="overview-campaign-value" role="cell">{c.cpa !== null ? fmtAdsMoney(c.cpa, roas?.currency || 'BRL') : '—'}</span>
+                      <span className="overview-campaign-value overview-campaign-roas" role="cell">
+                        {c.roas !== null && c.roas > 0 ? `${c.roas.toFixed(2).replace('.', ',')}x` : '—'}
                       </span>
                     </div>
-                  </div>
-                  <div className="overview-campaign-metrics">
-                    <span data-tooltip="Vendas reais atribuídas pelo rastreamento do ROINADOS a esta campanha.">
-                      <small>Vendas</small>
-                      <strong className="text-success">{c.sales == null ? '—' : c.sales}</strong>
-                    </span>
-                    <span data-tooltip="Custo real por venda com base nas vendas atribuídas pelo ROINADOS.">
-                      <small>CPA</small>
-                      <strong>{c.cpa !== null ? fmtAdsMoney(c.cpa, roas?.currency || 'BRL') : '—'}</strong>
-                    </span>
-                    <span data-tooltip="Retorno sobre gasto de anúncios (ROAS) desta campanha.">
-                      <small>ROAS</small>
-                      <strong className={c.roas !== null && c.roas > 0 ? 'text-brand-cyan' : undefined}>
-                        {c.roas !== null && c.roas > 0 ? `${c.roas.toFixed(2).replace('.', ',')}x` : '—'}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-              ))}
+                  )
+                })}
+              </div>
             </div>
           ) : cur.topCampaigns.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {cur.topCampaigns.slice(0, 4).map((c, i) => (
-                <div
-                  key={c.name}
-                  className="overview-campaign-row"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="overview-rank"
-                    >
-                      {i + 1}
-                    </span>
-                    <span className="truncate text-xs font-semibold text-foreground group-hover:text-brand-cyan transition-colors">
-                      {c.name}
-                    </span>
+            <div className="overview-campaign-table" role="table" aria-label="Campanhas por UTM">
+              <div className="overview-campaign-table-head overview-campaign-grid overview-campaign-grid--utm" role="row">
+                <span role="columnheader">Campanha</span>
+                <span role="columnheader">Compras</span>
+                <span role="columnheader">Conversão</span>
+              </div>
+              <div className="overview-campaign-table-body" role="rowgroup">
+                {cur.topCampaigns.slice(0, 4).map((c) => (
+                  <div key={c.name} className="overview-campaign-row overview-campaign-grid overview-campaign-grid--utm" role="row">
+                    <span className="overview-campaign-name" title={c.name} role="cell">{c.name}</span>
+                    <span className="overview-campaign-value" role="cell">{c.purchased}</span>
+                    <span className="overview-campaign-value" role="cell">{c.conv.toFixed(1).replace('.', ',')}%</span>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2 text-right">
-                    <span
-                      data-tooltip="Compras confirmadas desta UTM."
-                      className="font-mono text-xs font-bold text-success cursor-help"
-                    >
-                      {c.purchased}
-                    </span>
-                    <span
-                      data-tooltip="Taxa de conversão de visitantes desta campanha."
-                      className="font-mono text-xs text-muted-foreground cursor-help"
-                    >
-                      {c.conv.toFixed(1).replace('.', ',')}%
-                    </span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">
-              Nenhuma campanha com dados no período selecionado.
-            </div>
+            <div className="overview-campaign-empty">Nenhuma campanha com dados no período selecionado.</div>
           )}
         </GlassCard>
 
         {/* Distribuição Global Interativa */}
         <GlassCard variant="thick" className="overview-insight-card flex flex-col gap-4 p-5">
           <div className="overview-insight-heading">
-            <span
-              data-tooltip="Países com maior volume de acessos. Clique em qualquer país para centralizar o globo 3D."
-              className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
-            >
-              <Globe2 className="size-3.5 text-brand-cyan" />
-              Países
-            </span>
+            <span className="text-sm font-semibold text-foreground">Países</span>
           </div>
 
           {cur.countries.length === 0 ? (
@@ -465,6 +400,10 @@ export function OverviewView() {
                 const pct = Math.min(100, Math.max(0, (c.count / total) * 100))
                 const isSelected = focusCountry === c.code
 
+                const label = countryName(c.code) || c.name || c.code
+                const visitLabel = `${c.count} ${c.count === 1 ? 'visita' : 'visitas'}`
+                const purchaseLabel = `${c.purchased} ${c.purchased === 1 ? 'compra' : 'compras'}`
+
                 return (
                   <button
                     key={c.code}
@@ -472,42 +411,27 @@ export function OverviewView() {
                     onClick={() =>
                       setFocusCountry((prevVal) => (prevVal === c.code ? null : c.code))
                     }
-                    data-tooltip={`Focar no globo: ${c.name || c.code} (${c.count} visitas, ${c.purchased} compras)`}
+                    data-tooltip={isSelected ? `Remover foco de ${label}` : `Focar ${label} no globo`}
+                    aria-label={`${label}: ${visitLabel}, ${purchaseLabel}. ${isSelected ? 'Remover foco do globo.' : 'Focar no globo.'}`}
                     aria-pressed={isSelected}
-                    className={`overview-country-row flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-brand-cyan/80 bg-brand-cyan/20 shadow-[0_0_16px_rgba(37,244,238,0.25)] ring-1 ring-brand-cyan/50 translate-x-0.5'
-                        : 'border-border/50 bg-secondary/20 hover:border-brand-cyan/40 hover:bg-secondary/40 hover:translate-x-0.5'
-                    }`}
+                    className="overview-country-row"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="text-base leading-none transition-transform hover:scale-110">
+                    <span className="overview-country-main">
+                      <span className="overview-country-flag" aria-hidden="true">
                         {countryFlag(c.code)}
                       </span>
-                      <span className="truncate text-xs font-semibold text-foreground">
-                        {countryName(c.code) || c.name || c.code}
-                      </span>
-                      {c.purchased > 0 && (
-                        <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 font-mono text-[11px] font-bold text-success shadow-[0_0_8px_rgba(34,197,94,0.15)]">
-                          {c.purchased}
-                        </span>
-                      )}
-                    </div>
+                      <span className="overview-country-name">{label}</span>
+                    </span>
 
-                    <div className="flex shrink-0 items-center gap-3">
-                      <div className="hidden w-16 overflow-hidden rounded-full bg-secondary sm:block h-1.5">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${pct}%`,
-                            background: 'var(--accent)',
-                          }}
-                        />
-                      </div>
-                      <span className="font-mono text-xs font-bold tabular-nums text-foreground">
-                        {c.count}
-                      </span>
-                    </div>
+                    <span className="overview-country-stats">
+                      <span>{visitLabel}</span>
+                      <span className="overview-country-separator" aria-hidden="true">·</span>
+                      <span>{purchaseLabel}</span>
+                    </span>
+
+                    <span className="overview-country-share" aria-hidden="true">
+                      <span style={{ width: `${pct}%` }} />
+                    </span>
                   </button>
                 )
               })}
@@ -518,13 +442,7 @@ export function OverviewView() {
         {/* Dados */}
         <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
           <div className="overview-insight-heading">
-            <span
-              data-tooltip="Completude dos dados enviados ao TikTok. Consulte os pixels para ver erros de envio."
-              className="text-sm font-semibold text-foreground flex items-center gap-1.5 cursor-help"
-            >
-              <ShieldCheck className="size-3.5 text-brand-cyan" />
-              Dados
-            </span>
+            <span className="text-sm font-semibold text-foreground">Dados</span>
           </div>
 
           <div className="my-auto space-y-3 py-2">

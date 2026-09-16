@@ -106,7 +106,7 @@ const routesSource = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js')
 
 assert.match(metricsSource, /period === '30d' \? 29 : 364/, 'Tudo deve usar 365 dias no agregado interno');
 assert.match(overviewSource, /periodToAdsRange\(period, accountTimeZone\)/, 'Overview deve gerar mídia no fuso canônico da conta');
-assert.match(adsSource, /reportingTimeZone = accountSettings\?\.timezone/, 'TikTok Ads deve usar o fuso canônico da conta');
+assert.match(adsSource, /adsDateRange\(rangeDays, advertiserTimeZone\)/, 'TikTok Ads deve usar o dia civil do advertiser');
 assert.match(routesSource, /summarizeAttributedLeads/, 'ROAS deve derivar receita de jornadas TikTok atribuídas');
 assert.match(routesSource, /summarizeRevenueEvents/, 'Lucro deve derivar moeda/receita dos eventos brutos da janela');
 assert.match(routesSource, /spendTimeZone/, 'API deve expor o fuso original do gasto para auditoria');

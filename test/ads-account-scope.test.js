@@ -64,7 +64,7 @@ assert.match(view, /tree\/refresh\?adAccountId=/);
 assert.match(view, /PixelBindingCard active=\{Boolean\(concreteAdvertiser\)\} advertiserId=\{concreteAdvertiser\}/);
 assert.match(drawer, /useAdsCampaignAnalytics\(id, advertiserId, cur\)/);
 assert.match(campaignTree, /budget: \{ amount, type \}, adAccountId/);
-assert.match(campaignTree, /'DELETE', \{ adAccountId:/);
+assert.match(campaignTree, /'DELETE'\s*,\s*\{[\s\S]*?adAccountId\s*:/);
 
 // O backend não confia no hint: valida antes de ler ou sincronizar.
 assert.match(refresh, /requireAdvertiser[\s\S]*refreshNow\(req\.account\.id, advertiserId\)/);

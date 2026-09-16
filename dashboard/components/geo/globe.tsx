@@ -68,11 +68,11 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   const material = useMemo(() => {
     const earth = new THREE.MeshStandardMaterial({
       // Base com saturação e contraste vivos, sem esbranquiçar os oceanos e relevos.
-      color: '#ffffff',
-      roughness: 0.60,
-      metalness: 0.04,
-      envMapIntensity: 0.32,
-      bumpScale: 0.36,
+      color: '#dce9f1',
+      roughness: 0.72,
+      metalness: 0.015,
+      envMapIntensity: 0.18,
+      bumpScale: 0.27,
       emissive: '#000000',
       emissiveIntensity: 0,
       dithering: true,
@@ -85,10 +85,10 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
         `#include <emissivemap_fragment>
 #if NUM_DIR_LIGHTS > 0
   float roiSunFacing = dot(normal, directionalLights[0].direction);
-  float roiDaylight = smoothstep(-0.34, 0.30, roiSunFacing);
+  float roiDaylight = smoothstep(-0.40, 0.36, roiSunFacing);
   float roiNightMask = 1.0 - smoothstep(-0.16, 0.20, roiSunFacing);
-  vec3 roiNightGrade = vec3(0.22, 0.34, 0.52);
-  vec3 roiDayGrade = vec3(1.14, 1.16, 1.20);
+  vec3 roiNightGrade = vec3(0.30, 0.40, 0.54);
+  vec3 roiDayGrade = vec3(0.94, 0.98, 1.03);
   diffuseColor.rgb *= mix(roiNightGrade, roiDayGrade, roiDaylight);
   totalEmissiveRadiance *= roiNightMask;
 #endif`,
@@ -103,14 +103,14 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
   float roiSunFacing = dot(normal, directionalLights[0].direction);
   float roiRimMask = smoothstep(-0.26, 0.12, roiSunFacing);
   float roiTwilight = smoothstep(-0.30, 0.04, roiSunFacing) - smoothstep(0.05, 0.28, roiSunFacing);
-  vec3 roiAtmosphere = vec3(0.14, 0.65, 0.98) * roiFresnel * roiRimMask * 0.30;
-  vec3 roiTwilightLift = vec3(0.06, 0.16, 0.24) * roiTwilight * roiFresnel * 0.45;
+  vec3 roiAtmosphere = vec3(0.20, 0.58, 0.76) * roiFresnel * roiRimMask * 0.16;
+  vec3 roiTwilightLift = vec3(0.06, 0.13, 0.19) * roiTwilight * roiFresnel * 0.26;
   gl_FragColor.rgb += roiAtmosphere + roiTwilightLift;
 }
 #endif`,
       )
     }
-    earth.customProgramCacheKey = () => 'roi-nados-earth-daylight-v1'
+    earth.customProgramCacheKey = () => 'roi-nados-earth-integrated-v12'
     return earth
   }, [attempt])
 
@@ -132,7 +132,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
         nightMap.needsUpdate = true
         material.emissiveMap = nightMap
         material.emissive.set('#efb76f')
-        material.emissiveIntensity = 0.48
+        material.emissiveIntensity = 0.28
         material.needsUpdate = true
       },
       undefined,
@@ -460,19 +460,20 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
             : 0.096 + rel * 0.035
       const beaconColor = '#25f4ee'
 
-      const tooltip = `<div class="presence-tooltip">
-        <div class="presence-tooltip-header">
-          <span class="presence-tooltip-flag">${flag}</span>
-          <strong>${escapeHtml(name)}</strong>
-          <span class="presence-tooltip-code">${country.code}</span>
-        </div>
-        <div class="presence-tooltip-stat">
-          <span class="presence-tooltip-dot" style="background:${beaconColor};box-shadow:0 0 8px rgba(37, 244, 238, 0.28)"></span>
-          <span class="presence-tooltip-count" style="color:${beaconColor}">${country.count}</span>
-          <span class="presence-tooltip-label">${country.count === 1 ? 'visitante online agora' : 'visitantes online agora'}</span>
-        </div>
-        ${isPulse ? '<div class="presence-tooltip-lead-alert">⚡ NOVO LEAD DETECTADO</div>' : ''}
-      </div>`
+      const tooltip = embedded
+        ? `<div class="presence-tooltip presence-tooltip--compact"><strong>${escapeHtml(name)}</strong><span>·</span><span class="presence-tooltip-count" style="color:${beaconColor}">${country.count}</span><span>online</span></div>`
+        : `<div class="presence-tooltip">
+          <div class="presence-tooltip-header">
+            <span class="presence-tooltip-flag">${flag}</span>
+            <strong>${escapeHtml(name)}</strong>
+            <span class="presence-tooltip-code">${country.code}</span>
+          </div>
+          <div class="presence-tooltip-stat">
+            <span class="presence-tooltip-dot" style="background:${beaconColor};box-shadow:0 0 8px rgba(37, 244, 238, 0.28)"></span>
+            <span class="presence-tooltip-count" style="color:${beaconColor}">${country.count}</span>
+            <span class="presence-tooltip-label">${country.count === 1 ? 'visitante online agora' : 'visitantes online agora'}</span>
+          </div>
+        </div>`
 
       pts.push({
         lat: coords[0],
@@ -501,9 +502,10 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
           lng: coords[1],
           code: country.code,
           ringColor: (t: number) => `rgba(37, 244, 238, ${Math.max(0, (1 - t) * 0.26)})`,
-          ringMaxRadius: isFocused ? 4.2 : 3.3,
-          ringPropagationSpeed: 0.84,
-          ringRepeatPeriod: 2300,
+          ringMaxRadius: isFocused ? 3.0 : 2.45,
+          ringPropagationSpeed: 1.55,
+          // O estado de pulso dura ~1,7 s no hero; período alto garante um único ciclo perceptível.
+          ringRepeatPeriod: 10_000,
         })
       }
     }
@@ -647,14 +649,14 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     }
 
     // Iluminação calibrada com profundidade, mantendo os continentes e oceanos nítidos e vivos.
-    const fill = new THREE.AmbientLight('#7ca6d4', 0.88)
-    const key = new THREE.DirectionalLight('#fff9f0', 2.45)
+    const fill = new THREE.AmbientLight('#7397b9', 0.62)
+    const key = new THREE.DirectionalLight('#eef6f8', 1.62)
     key.position.set(-162, 102, 214)
-    const coolFill = new THREE.DirectionalLight('#38bdf8', 0.95)
+    const coolFill = new THREE.DirectionalLight('#4aa8c7', 0.58)
     coolFill.position.set(94, 38, 132)
-    const cyanRim = new THREE.DirectionalLight('#00e5ff', 0.85)
+    const cyanRim = new THREE.DirectionalLight('#48bfd4', 0.38)
     cyanRim.position.set(170, -42, -154)
-    const violetRim = new THREE.DirectionalLight('#7c3aed', 0.20)
+    const violetRim = new THREE.DirectionalLight('#6f6faa', 0.10)
     violetRim.position.set(-146, -26, -142)
     globe.lights([fill, key, coolFill, cyanRim, violetRim])
     if (!cameraInitialized.current) {
@@ -818,8 +820,8 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#4dd8f0" atmosphereAltitude={0.04}
-          htmlElementsData={htmlMarkers}
+          showAtmosphere atmosphereColor="#68b9c8" atmosphereAltitude={0.028}
+          htmlElementsData={embedded && !isImmersive ? [] : htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"
           htmlAltitude="altitude"

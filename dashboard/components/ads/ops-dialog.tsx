@@ -1,438 +1,116 @@
 'use client'
 
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, Clock, Loader2, RotateCcw, X, XCircle } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DialogPortal } from '@/components/ui/dialog-portal'
-
-// Painel de Operações do TikTok Ads — duas seções:
-// 1. Tarefas (bulk/duplicação) persistidos no Neon: histórico com
-//    progresso, tentativas e erro por job (sobrevive a reinícios do servidor).
-// 2. Política de segurança (guardrails): dry-run, bloqueio de ações, teto de gasto
-//    diário e % máxima de mudança de orçamento — vale para TODA ação de
-//    escrita (manual, automação e IA).
-
-import { useEffect, useRef, useState } from 'react'
-import {
-  ShieldCheck,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  RotateCcw,
-  ListChecks,
-  OctagonAlert,
-  X,
-} from 'lucide-react'
-import { useAdsOpsJobs, useAdsSafetyPolicy, apiSend } from '@/lib/api'
+import { apiSend, useAdsOpsJobs, useAdsSafetyPolicy } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsOpsJob, AdsSafetyPolicy } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 
 const STATUS_META: Record<AdsOpsJob['status'], { label: string; tone: string }> = {
-  queued: { label: 'na fila', tone: 'text-muted-foreground' },
-  running: { label: 'executando', tone: 'text-primary' },
-  retrying: { label: 'aguardando retry', tone: 'text-warning' },
-  completed: { label: 'concluído', tone: 'text-success' },
-  partial: { label: 'parcial', tone: 'text-warning' },
-  failed: { label: 'falhou', tone: 'text-error' },
-  cancelled: { label: 'cancelado', tone: 'text-muted-foreground' },
+  queued: { label: 'Na fila', tone: 'text-muted-foreground' },
+  running: { label: 'Executando', tone: 'text-primary' },
+  retrying: { label: 'Aguardando nova tentativa', tone: 'text-warning' },
+  completed: { label: 'Concluído', tone: 'text-success' },
+  partial: { label: 'Parcial', tone: 'text-warning' },
+  failed: { label: 'Falhou', tone: 'text-error' },
+  cancelled: { label: 'Cancelado', tone: 'text-muted-foreground' },
 }
+const KIND_LABELS: Record<string, string> = { bulk_create: 'Criação em massa', duplicate: 'Duplicação' }
 
-const KIND_LABELS: Record<string, string> = {
-  bulk_create: 'Criação em massa',
-  duplicate: 'Duplicação',
-}
-
-function fmtWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
+function fmtWhen(iso: string) { try { return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso } }
+function normalizePolicyForCompare(value: AdsSafetyPolicy | null | undefined) {
+  if (!value) return null
+  return {
+    ...value,
+    blockedAdvertiserIds: [...new Set((value.blockedAdvertiserIds ?? []).map(String))].sort(),
   }
 }
-
-function JobStatusIcon({ status }: { status: AdsOpsJob['status'] }) {
-  if (status === 'completed') return <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden="true" />
-  if (status === 'failed') return <XCircle className="mt-0.5 size-3.5 shrink-0 text-error" aria-hidden="true" />
-  if (status === 'partial') return <OctagonAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
-  if (status === 'running') return <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
-  if (status === 'retrying') return <RotateCcw className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
-  return <Clock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+function samePolicy(a: AdsSafetyPolicy | null | undefined, b: AdsSafetyPolicy | null | undefined) {
+  return JSON.stringify(normalizePolicyForCompare(a)) === JSON.stringify(normalizePolicyForCompare(b))
 }
 
-export function OpsDialog({
-  open,
-  onClose,
-  advertiserId,
-  currency,
-  initialTab = 'jobs',
-  onPolicyChanged,
-}: {
-  open: boolean
-  onClose: () => void
-  advertiserId: string
-  currency: string
-  initialTab?: 'jobs' | 'safety'
-  // revalida o badge dry-run na view principal
-  onPolicyChanged?: () => void
-}) {
+export function OpsDialog({ open, onClose, advertiserId, currency, initialTab = 'jobs', onPolicyChanged }: { open: boolean; onClose: () => void; advertiserId: string; currency: string; initialTab?: 'jobs' | 'safety'; onPolicyChanged?: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const { data: jobsData, mutate: mutateJobs, error: jobsError, isLoading: jobsLoading } = useAdsOpsJobs(open, advertiserId)
   const { data: policyData, mutate: mutatePolicy, error: policyError } = useAdsSafetyPolicy(open)
-
-  const dirty = useRef(false)
   const [tab, setTab] = useState<'jobs' | 'safety'>('jobs')
   const [draft, setDraft] = useState<AdsSafetyPolicy | null>(null)
   const [saving, setSaving] = useState(false)
-  useModalA11y(open, ref, saving ? () => {} : onClose)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const isDirty = useMemo(() => Boolean(draft && policyData?.policy && !samePolicy(draft, policyData.policy)), [draft, policyData?.policy])
+  const currentAdvertiserBlocked = Boolean(draft?.blockedAdvertiserIds.map(String).includes(String(advertiserId)))
+  const valid = Boolean(draft && (!draft.enabled || draft.killSwitch || draft.maxActionsPerHour > 0))
+  useModalA11y(open, ref, saving ? () => {} : () => requestClose())
 
-  // Sincroniza o rascunho quando a política salva chega
-  useEffect(() => {
-    if (!dirty.current && policyData?.policy) setDraft(policyData.policy)
-  }, [policyData])
-
-  useEffect(() => {
-    if (open) { setTab(initialTab); dirty.current = false; setDraft(policyData?.policy ?? null) }
-  }, [open, initialTab])
-
+  useEffect(() => { if (policyData?.policy && !isDirty) setDraft(policyData.policy) }, [policyData?.policy])
+  useEffect(() => { if (open) { setTab(initialTab); setDraft(policyData?.policy ?? null); setConfirmDiscard(false) } }, [open, initialTab])
   if (!open) return null
 
   const jobs = jobsData?.jobs ?? []
   const durable = jobsData?.enabled !== false
-  const currentAdvertiserBlocked = !!draft?.blockedAdvertiserIds
-    .map(String)
-    .includes(String(advertiserId))
 
-  async function handleSavePolicy() {
-    if (!draft || saving || policyError) return
-    if (draft.enabled && !draft.killSwitch && !(draft.maxActionsPerHour > 0)) {
-      toast.error('O anti-loop precisa estar ativo', {
-        hint: 'Defina entre 1 e 1.000 ações por hora antes de salvar.',
-      })
-      return
-    }
-    setSaving(true)
-    try {
-      const r = await apiSend<{ policy: AdsSafetyPolicy }>('/api/ads/ops/safety-policy', 'PUT', draft)
-      mutatePolicy({ enabled: true, policy: r.policy }, { revalidate: false })
-      dirty.current = false
-      setDraft(r.policy)
-      onPolicyChanged?.()
-      toast.success('Política de segurança salva', {
-        hint: r.policy.killSwitch
-          ? 'Novas ações bloqueadas. Campanhas já ativas continuam veiculando.'
-          : r.policy.dryRun
-            ? 'Modo teste ativo: nada é publicado no TikTok.'
-            : 'Ações liberadas dentro dos limites definidos.',
-      })
-    } catch (e) {
-      toast.error('Falha ao salvar a política', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function patch(p: Partial<AdsSafetyPolicy>) {
-    dirty.current = true
-    setDraft((prev) => (prev ? { ...prev, ...p } : prev))
-  }
-
+  function requestClose() { if (isDirty) setConfirmDiscard(true); else onClose() }
+  function patch(value: Partial<AdsSafetyPolicy>) { setDraft((prev) => prev ? { ...prev, ...value } : prev) }
   function setCurrentAdvertiserBlocked(blocked: boolean) {
     if (!draft || !advertiserId) return
     const current = draft.blockedAdvertiserIds.map(String)
-    const next = blocked
-      ? [...new Set([...current, String(advertiserId)])]
-      : current.filter((id) => id !== String(advertiserId))
-    patch({ blockedAdvertiserIds: next })
+    patch({ blockedAdvertiserIds: blocked ? [...new Set([...current, String(advertiserId)])] : current.filter((id) => id !== String(advertiserId)) })
   }
 
-  return (
-    <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-        disabled={saving}
-        aria-label="Fechar"
-        tabIndex={-1}
-      />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="ads-ops-title" tabIndex={-1} className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl outline-none">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
-              <ListChecks className="size-4 text-primary" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="ads-ops-title" className="text-sm font-semibold text-foreground">
-                Operações
-              </h2>
-              <p className="text-[11px] text-muted-foreground">
-                Histórico de tarefas e limites da conta
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="group" aria-label="Seções">
-            <button
-              type="button"
-              aria-pressed={tab === 'jobs'}
-              onClick={() => setTab('jobs')}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${tab === 'jobs' ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground'}`}
-            >
-              Tarefas{jobs.length > 0 && ` (${jobs.length})`}
-            </button>
-            <button
-              type="button"
-              aria-pressed={tab === 'safety'}
-              onClick={() => setTab('safety')}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${tab === 'safety' ? 'bg-[var(--active)] text-foreground' : 'text-muted-foreground'}`}
-            >
-              Segurança
-            </button>
-          </div>
-          <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={saving} aria-label="Fechar">
-            <X className="size-4" aria-hidden="true" />
-          </button>
+  async function handleSavePolicy() {
+    if (!draft || saving || policyError || !isDirty || !valid) return
+    setSaving(true)
+    try {
+      const r = await apiSend<{ policy: AdsSafetyPolicy }>('/api/ads/ops/safety-policy', 'PUT', draft)
+      mutatePolicy({ enabled: true, policy: r.policy }, { revalidate: false }); setDraft(r.policy); onPolicyChanged?.()
+      toast.success('Política de segurança salva', { hint: r.policy.killSwitch ? 'Novas ações bloqueadas. Campanhas já ativas continuam veiculando.' : r.policy.dryRun ? 'Modo teste ativo: ações são simuladas.' : 'Ações liberadas dentro dos limites definidos.' })
+    } catch (e) { toast.error('Falha ao salvar a política', { hint: e instanceof Error ? e.message : undefined }) } finally { setSaving(false) }
+  }
+
+  const effectiveState = !draft ? null : draft.killSwitch
+    ? { title: 'Novas ações bloqueadas', detail: 'O kill switch prevalece sobre o modo teste. Campanhas já ativas continuam veiculando.', tone: 'text-error' }
+    : !draft.enabled ? { title: 'Política desativada', detail: 'Operações protegidas ficam bloqueadas enquanto a política estiver desativada.', tone: 'text-warning' }
+    : draft.dryRun ? { title: 'Modo teste', detail: 'Ações são simuladas e nenhuma alteração é publicada no TikTok.', tone: 'text-warning' }
+    : currentAdvertiserBlocked ? { title: 'Esta conta está bloqueada', detail: 'Novos ajustes protegidos nesta conta estão bloqueados.', tone: 'text-warning' }
+    : { title: 'Ações liberadas', detail: 'Novas ações podem ocorrer dentro dos limites configurados abaixo.', tone: 'text-success' }
+
+  return <>
+    <DialogPortal><div className="ads-dialog fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-background/80 p-3 backdrop-blur-sm sm:p-4">
+      <button type="button" className="absolute inset-0 cursor-default" onClick={requestClose} disabled={saving} aria-label="Fechar" tabIndex={-1} />
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="ads-ops-title" tabIndex={-1} className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl outline-none">
+        <div className="flex items-start justify-between gap-4 border-b border-border/60 px-4 py-4 sm:px-5"><div><h2 id="ads-ops-title" className="text-base font-semibold text-foreground">Operações</h2><p className="mt-1 text-xs text-muted-foreground">Acompanhe tarefas duráveis e configure os limites que protegem novas ações.</p></div><button type="button" className="flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/60 hover:text-foreground" onClick={requestClose} disabled={saving} aria-label="Fechar"><X className="size-4" /></button></div>
+        <div className="flex gap-5 border-b border-border/60 px-4 pt-3 sm:px-5" role="tablist" aria-label="Seções"><button type="button" role="tab" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')} className={`border-b-2 pb-2 text-sm font-medium ${tab === 'jobs' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>Tarefas{jobs.length ? ` (${jobs.length})` : ''}</button><button type="button" role="tab" aria-selected={tab === 'safety'} onClick={() => setTab('safety')} className={`border-b-2 pb-2 text-sm font-medium ${tab === 'safety' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>Segurança</button></div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {tab === 'jobs' ? <div className="space-y-4">
+            {!durable && <div className="border-y border-warning/30 py-3"><p className="text-sm font-medium text-warning">Persistência durável indisponível</p><p className="mt-1 text-xs text-muted-foreground">Sem o banco configurado, tarefas em memória podem ser perdidas ao reiniciar o servidor.</p></div>}
+            {jobsError ? <div><p className="text-sm text-warning">Não foi possível carregar as tarefas.</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutateJobs()}>Tentar novamente</button></div> : jobsLoading ? <p className="py-6 text-xs text-muted-foreground">Carregando tarefas…</p> : jobs.length === 0 ? <div className="py-7 text-center"><p className="text-sm font-medium text-foreground">Nenhuma tarefa por aqui</p><p className="mt-1 text-xs text-muted-foreground">Criações em massa e duplicações aparecem aqui com progresso, tentativas e erros.</p></div> : <ul className="divide-y divide-border/50 border-y border-border/60">{jobs.map((j) => { const meta = STATUS_META[j.status] ?? STATUS_META.queued; const total = Number(j.progress?.total) || 0; const completed = Number(j.progress?.completed) || 0; const failed = Number(j.progress?.failed) || 0; return <li key={j.id} className="flex items-start gap-3 py-3"><div className="mt-0.5">{j.status === 'completed' ? <CheckCircle2 className="size-4 text-success" /> : j.status === 'failed' ? <XCircle className="size-4 text-error" /> : j.status === 'running' ? <Loader2 className="size-4 animate-spin text-primary" /> : <Clock className="size-4 text-muted-foreground" />}</div><div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">{KIND_LABELS[j.kind] ?? j.kind}</p><p className="mt-1 text-xs text-muted-foreground">{total > 0 ? `${completed}/${total} concluídas${failed ? ` · ${failed} falha${failed === 1 ? '' : 's'}` : ''} · ` : ''}{j.attempts > 1 ? `${j.attempts} tentativas · ` : ''}{fmtWhen(j.created_at)}</p>{j.error && <p className="mt-1 text-xs text-error">{j.error}</p>}</div><span className={`shrink-0 text-xs ${meta.tone}`}>{meta.label}</span></li>})}</ul>}
+            <div className="flex justify-end"><button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => mutateJobs()}><RotateCcw className="size-3.5" />Atualizar</button></div>
+          </div> : policyError ? <div><p className="text-sm text-warning">Não foi possível carregar os limites de segurança.</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutatePolicy()}>Tentar novamente</button></div> : !draft ? <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div> : <div className="space-y-6">
+            {effectiveState && <section className="border-b border-border/60 pb-4"><p className="text-xs font-medium text-muted-foreground">Estado atual</p><p className={`mt-1 text-sm font-semibold ${effectiveState.tone}`}>{effectiveState.title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{effectiveState.detail}</p></section>}
+
+            <section><h3 className="text-sm font-semibold text-foreground">Proteção</h3><div className="mt-2 divide-y divide-border/50 border-y border-border/60">{[
+              { label: 'Política ativa', detail: 'Necessária para operações protegidas e automações.', checked: draft.enabled, onChange: (v:boolean) => patch({ enabled: v }), tone: 'primary' },
+              { label: 'Bloquear esta conta', detail: 'Impede novos ajustes protegidos nesta conta.', checked: currentAdvertiserBlocked, onChange: setCurrentAdvertiserBlocked, tone: 'warning' },
+              { label: 'Bloquear novas ações', detail: 'Interrompe novas ações protegidas. Campanhas já ativas continuam veiculando.', checked: draft.killSwitch, onChange: (v:boolean) => patch({ killSwitch: v }), tone: 'error' },
+              { label: 'Modo teste', detail: 'Simula ações sem publicar alterações no TikTok.', checked: draft.dryRun, onChange: (v:boolean) => patch({ dryRun: v }), tone: 'warning' },
+            ].map((item) => <label key={item.label} className="flex cursor-pointer items-start gap-3 py-3"><input type="checkbox" className="mt-0.5 size-4" checked={item.checked} onChange={(e) => item.onChange(e.target.checked)} /><span><span className="text-sm font-medium text-foreground">{item.label}</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{item.detail}</span></span></label>)}</div></section>
+
+            <section><h3 className="text-sm font-semibold text-foreground">Limites</h3><div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5"><span className="text-xs font-medium text-foreground">Teto diário para automações ({currency})</span><input type="number" min={0} step="0.01" className="input-base min-h-10 rounded-lg border border-border bg-background px-3 text-sm" value={draft.dailySpendCap ?? ''} onChange={(e) => patch({ dailySpendCap: e.target.value === '' ? null : Number(e.target.value) })} placeholder="Sem teto" /><span className="text-xs leading-relaxed text-muted-foreground">Impede aumentos automáticos que fariam o orçamento diário agregado ultrapassar este valor.</span></label>
+              <label className="flex flex-col gap-1.5"><span className="text-xs font-medium text-foreground">Mudança máxima de orçamento (%)</span><input type="number" min={1} max={100} className="input-base min-h-10 rounded-lg border border-border bg-background px-3 text-sm" value={draft.maxBudgetChangePct} onChange={(e) => patch({ maxBudgetChangePct: Number(e.target.value) || 20 })} /><span className="text-xs leading-relaxed text-muted-foreground">Limite máximo permitido para um único ajuste de orçamento.</span></label>
+              <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="text-xs font-medium text-foreground">Máximo de ações por hora</span><input type="number" min={1} max={1000} step={1} className="input-base min-h-10 rounded-lg border border-border bg-background px-3 text-sm sm:max-w-xs" value={draft.maxActionsPerHour ?? 10} onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 10 : Math.max(1, Math.floor(Number(e.target.value) || 10)) })} /><span className="text-xs leading-relaxed text-muted-foreground">Anti-loop. Interrompe ações automáticas repetidas ao atingir este limite.</span></label>
+            </div></section>
+            {isDirty && <p className="text-xs font-medium text-warning">Alterações não salvas</p>}
+          </div>}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {tab === 'jobs' ? (
-            <div className="flex flex-col gap-2">
-              {!durable && (
-                <p className="rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-pretty text-[11px] leading-relaxed text-warning">
-                  Persistência durável indisponível (banco não configurado). As tarefas abaixo ficam apenas em
-                  memória e são perdidos ao reiniciar o servidor.
-                </p>
-              )}
-              {jobsError ? <p role="alert" className="text-sm text-warning">Não foi possível carregar as tarefas. Tente atualizar.</p> : jobsLoading ? <p className="py-6 text-sm text-muted-foreground">Carregando tarefas…</p> : jobs.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-xs leading-relaxed text-muted-foreground">
-                  Nenhuma tarefa por aqui. Criações em massa e duplicações aparecem aqui com progresso e erros —
-                  mesmo depois de reiniciar o servidor.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1.5" aria-label="Tarefas">
-                  {jobs.map((j) => {
-                    const meta = STATUS_META[j.status] ?? STATUS_META.queued
-                    const total = Number(j.progress?.total) || 0
-                    const completed = Number(j.progress?.completed) || 0
-                    const failed = Number(j.progress?.failed) || 0
-                    return (
-                      <li
-                        key={j.id}
-                        className="flex items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs"
-                      >
-                        <JobStatusIcon status={j.status} />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-foreground">
-                            {KIND_LABELS[j.kind] ?? j.kind}
-                            {j.advertiser_id && (
-                              <span className="ml-1.5 font-normal text-muted-foreground">
-                                conta {j.advertiser_id}
-                              </span>
-                            )}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {total > 0 && `${completed}/${total} ok${failed > 0 ? ` · ${failed} falha(s)` : ''} · `}
-                            {j.attempts > 1 && `${j.attempts} tentativas · `}
-                            {fmtWhen(j.created_at)}
-                          </p>
-                          {j.error && <p className="mt-0.5 text-pretty text-[11px] text-error">{j.error}</p>}
-                        </div>
-                        <span className={`shrink-0 text-[11px] font-medium ${meta.tone}`}>{meta.label}</span>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-              <button type="button" className="btn-ghost self-end text-xs" onClick={() => mutateJobs()}>
-                <RotateCcw className="size-3.5" aria-hidden="true" />
-                Atualizar
-              </button>
-            </div>
-          ) : policyError ? (
-            <div role="alert" className="space-y-3 text-sm text-warning"><p>Não foi possível carregar os limites de segurança.</p><button type="button" className="btn-secondary" onClick={() => mutatePolicy()}>Tentar novamente</button></div>
-          ) : !draft ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden="true" />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/30 p-3">
-                  <input
-                    type="checkbox"
-                    checked={draft.enabled}
-                    onChange={(e) => patch({ enabled: e.target.checked })}
-                    className="mt-0.5 size-4 accent-[color:var(--primary)]"
-                    aria-label="Ativar política de segurança"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-semibold text-foreground">Proteção ativa</span>
-                    <span className="text-[11px] leading-relaxed text-muted-foreground">
-                      Necessária para aplicar automações.
-                    </span>
-                  </span>
-                </label>
-                {advertiserId && (
-                  <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/30 p-3">
-                    <input
-                      type="checkbox"
-                      checked={currentAdvertiserBlocked}
-                      onChange={(e) => setCurrentAdvertiserBlocked(e.target.checked)}
-                      className="mt-0.5 size-4 accent-[color:var(--warning)]"
-                      aria-label="Bloquear ações nesta conta"
-                    />
-                    <span className="flex flex-col gap-0.5">
-                      <span className="text-xs font-semibold text-foreground">Bloquear esta conta</span>
-                      <span className="text-[11px] leading-relaxed text-muted-foreground">
-                        Bloqueia novos ajustes nesta conta.
-                      </span>
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              {/* Bloquear ações — destaque máximo */}
-              <label
-                className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${draft.killSwitch ? 'border-error/40 bg-error/10' : 'border-border bg-secondary/30'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={draft.killSwitch}
-                  onChange={(e) => patch({ killSwitch: e.target.checked })}
-                  className="mt-0.5 size-4 accent-[color:var(--error)]"
-                  aria-label="Bloquear novas ações"
-                />
-                <span className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                    <OctagonAlert className="size-3.5 text-error" aria-hidden="true" />
-                    Bloquear novas ações
-                  </span>
-                  <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    Impede novos ajustes pelo painel e pelas automações. Campanhas já ativas continuam veiculando.
-                  </span>
-                </span>
-              </label>
-
-              {/* Modo teste */}
-              <label
-                className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${draft.dryRun ? 'border-warning/40 bg-warning/10' : 'border-border bg-secondary/30'}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={draft.dryRun}
-                  onChange={(e) => patch({ dryRun: e.target.checked })}
-                  className="mt-0.5 size-4 accent-[color:var(--warning)]"
-                  aria-label="Modo teste"
-                />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-xs font-semibold text-foreground">Modo teste — nada é publicado no TikTok</span>
-                  <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    Simula os ajustes sem alterar campanhas no TikTok.
-                  </span>
-                </span>
-              </label>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Teto de gasto diário ({currency})</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={draft.dailySpendCap ?? ''}
-                    onChange={(e) => patch({ dailySpendCap: e.target.value === '' ? null : Number(e.target.value) })}
-                    placeholder="Sem limite"
-                    aria-label="Teto de gasto diário"
-                  />
-                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                    {[500, 1000, 2000, 5000].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => patch({ dailySpendCap: val })}
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
-                          draft.dailySpendCap === val
-                            ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                            : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                        }`}
-                      >
-                        {val}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-[10px] text-muted-foreground">Vazio = sem teto</span>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Mudança máx. de orçamento (%)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={draft.maxBudgetChangePct}
-                    onChange={(e) => patch({ maxBudgetChangePct: Number(e.target.value) || 20 })}
-                    aria-label="Mudança máxima de orçamento em porcentagem"
-                  />
-                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                    {[10, 20, 30, 50].map((pct) => (
-                      <button
-                        key={pct}
-                        type="button"
-                        onClick={() => patch({ maxBudgetChangePct: pct })}
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
-                          draft.maxBudgetChangePct === pct
-                            ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                            : 'border-border/70 bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                        }`}
-                      >
-                        {pct}%
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-[10px] text-muted-foreground">Limite por ajuste automático</span>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Máx. de ações/hora</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    step={1}
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={draft.maxActionsPerHour ?? 10}
-                    onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 10 : Math.max(1, Math.floor(Number(e.target.value) || 10)) })}
-                    aria-label="Máximo de ações automáticas por hora"
-                  />
-                  <span className="text-[11px] text-muted-foreground">Evita ações repetidas · padrão: 10</span>
-                </label>
-              </div>
-
-              <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden="true" />
-                Cada alteração desta política fica registrada na trilha de auditoria com antes/depois.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-border/50 px-5 py-3">
-          <button type="button" className="btn-ghost text-xs" onClick={onClose}>
-            Fechar
-          </button>
-          {tab === 'safety' && (
-            <button type="button" className="btn-primary text-xs" onClick={handleSavePolicy} disabled={saving || !draft}>
-              {saving && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-              Salvar política
-            </button>
-          )}
-        </div>
+        <div className="flex flex-col gap-2 border-t border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"><p className="text-xs text-muted-foreground">{tab === 'safety' ? 'As mudanças abaixo só entram em vigor depois de salvar.' : 'Tarefas duráveis continuam no servidor mesmo com esta janela fechada.'}</p><div className="flex justify-end gap-2"><button type="button" className="btn-ghost min-h-10 text-xs" onClick={requestClose}>Fechar</button>{tab === 'safety' && <button type="button" className="btn-primary min-h-10 text-xs" onClick={handleSavePolicy} disabled={saving || !draft || !isDirty || !valid}>{saving && <Loader2 className="size-3.5 animate-spin" />}Salvar política</button>}</div></div>
       </div>
     </div></DialogPortal>
-  )
+    <ConfirmDialog open={confirmDiscard} title="Descartar alterações?" description="As mudanças feitas na política ainda não foram salvas." confirmLabel="Descartar" appearance="quiet" tone="danger" onConfirm={() => { setConfirmDiscard(false); onClose() }} onClose={() => setConfirmDiscard(false)} />
+  </>
 }

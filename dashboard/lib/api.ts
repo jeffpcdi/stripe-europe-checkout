@@ -936,7 +936,7 @@ export async function adsPreflightCatalogCampaign(
   catalogId: string,
   adAccountId: string,
   body: Record<string, unknown>,
-): Promise<{ ok: boolean; readiness: import('./types').AdsCatalogReadiness; spec: Record<string, unknown>; capabilities: Record<string, boolean | string> }> {
+): Promise<{ ok: boolean; readiness: import('./types').AdsCatalogReadiness; spec: Record<string, unknown>; capabilities: Record<string, boolean | string>; waitingForPixel?: boolean; pixelStatus?: Record<string, unknown> | null }> {
   return apiSend(
     adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-preflight`, adAccountId),
     'POST',

@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, RefreshCw, Trash2, Copy, Loader2, ArrowUpRight, Globe, Stethoscope, Check } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Copy, Loader2, ArrowUpRight, Stethoscope, Check, ChevronDown } from 'lucide-react'
 import { ApiError, useDomains, apiSend, fetcher } from '@/lib/api'
 import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult, DomainDiagnostics } from '@/lib/types'
-import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -35,15 +34,50 @@ function DnsInstructions({ dns }: { dns: DomainDnsRecords | null | undefined }) 
   const records = [
     dns?.cname ? { type: 'CNAME', name: dns.cname.name || dns.cname.host || '', value: dns.cname.target } : null,
     dns?.txt ? { type: 'TXT', name: dns.txt.host, value: dns.txt.value } : null,
-    dns?.ownership, dns?.certificate,
+    dns?.ownership,
+    dns?.certificate,
   ].filter((record): record is { type: string; name: string; value: string } => !!record)
-  if (!records.length) return <p className="text-xs text-muted-foreground">Registros ainda indisponíveis.</p>
-  return <div className="space-y-2">
-    {records.map((record, index) => <div key={index} className="rounded-lg border border-border bg-background p-3 text-xs">
-      <p className="font-medium">{record.type} · {record.name || '@'}</p>
-      <div className="mt-1 flex items-start gap-2"><code className="min-w-0 flex-1 break-all text-muted-foreground">{record.value}</code><button type="button" aria-label={`Copiar valor ${record.type} ${record.name}`} className="btn-ghost shrink-0 p-1" onClick={async () => { try { await navigator.clipboard.writeText(record.value); toast.success('Valor copiado') } catch { toast.error('Não foi possível copiar. Selecione o valor e copie manualmente.') } }}><Copy className="size-3.5" /></button></div>
-    </div>)}
-  </div>
+
+  if (!records.length) return <p className="text-[13px] text-muted-foreground">Registros ainda indisponíveis.</p>
+
+  return (
+    <div>
+      <p className="mb-3 text-[13px] leading-5 text-muted-foreground">Adicione estes registros no provedor DNS do seu domínio.</p>
+      <div className="divide-y divide-border/50 border-y border-border/50">
+        {records.map((record, index) => {
+          const displayName = record.name || '@'
+          return (
+            <div key={`${record.type}-${record.name}-${index}`} className="py-3.5 first:pt-3 last:pb-3">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+                <span className="font-medium text-foreground">{record.type}</span>
+                <span className="text-border">·</span>
+                <code className="min-w-0 break-all text-muted-foreground">{displayName}</code>
+              </div>
+              <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+                <code className="min-w-0 flex-1 break-all text-xs leading-5 text-foreground/85">{record.value}</code>
+                <button
+                  type="button"
+                  aria-label={`Copiar valor ${record.type} ${displayName}`}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan/40"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(record.value)
+                      toast.success('Valor copiado')
+                    } catch {
+                      toast.error('Não foi possível copiar. Selecione o valor e copie manualmente.')
+                    }
+                  }}
+                >
+                  <Copy className="size-3.5" aria-hidden="true" />
+                  Copiar
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function DomainsView() {
@@ -141,50 +175,51 @@ export function DomainsView() {
   const pendingCount = domains.filter((domain) => !isReady(domain) && domain.status !== 'error').length
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {domains.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-0.5 text-[11px] text-muted-foreground">
-          <span><strong className="font-semibold text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" /><strong className="font-semibold text-foreground">{readyCount}</strong> ativos</span>
-          {pendingCount > 0 && <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-warning" /><strong className="font-semibold text-foreground">{pendingCount}</strong> configurando</span>}
-          {errorCount > 0 && <span className="inline-flex items-center gap-1.5 text-destructive"><span className="size-1.5 rounded-full bg-destructive" /><strong>{errorCount}</strong> com atenção</span>}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-[13px]">
+          <span><strong className="font-semibold tabular-nums text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" /><strong className="font-semibold tabular-nums text-foreground">{readyCount}</strong> ativos</span>
+          {pendingCount > 0 && <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-warning" /><strong className="font-semibold tabular-nums text-foreground">{pendingCount}</strong> configurando</span>}
+          {errorCount > 0 && <span className="inline-flex items-center gap-1.5 text-destructive"><span className="size-1.5 rounded-full bg-destructive" /><strong className="tabular-nums">{errorCount}</strong> com atenção</span>}
         </div>
       )}
 
-      <GlassCard variant="thick" className="p-4 sm:p-5" title="A verificação é automática">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Adicionar domínio</h2>
+      <section className="space-y-3" data-tour="domains-add">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-[15px] font-semibold text-foreground">Adicionar domínio</h2>
+            <p className="text-xs text-muted-foreground">A conexão será verificada automaticamente.</p>
           </div>
           <form className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); void add() }}>
             <label className="min-w-0 flex-1">
               <span className="sr-only">Endereço do domínio</span>
-              <input className="input w-full rounded-xl border border-border/80 bg-secondary/40 px-3 py-2.5 text-xs text-foreground focus:border-brand-cyan/50" value={host} onChange={event => setHost(event.target.value)} onBlur={() => host && setHost(normalizeHostInput(host))} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+              <input className="input h-10 w-full rounded-lg border border-border/80 bg-secondary/30 px-3 text-sm text-foreground outline-none transition-colors hover:border-border focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/20" value={host} onChange={event => setHost(event.target.value)} onBlur={() => host && setHost(normalizeHostInput(host))} placeholder="link.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
             </label>
-            <button type="submit" className="btn-primary shrink-0" disabled={adding || !host.trim()}>
+            <button type="submit" className="btn-primary h-10 shrink-0 px-4 text-sm" disabled={adding || !host.trim()}>
               {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
               {adding ? 'Cadastrando…' : 'Adicionar'}
             </button>
           </form>
         </div>
-        {error && <p role="alert" className="mt-3 text-xs text-error">{error}</p>}
-        {data?.providerDegraded ? <p className="mt-3 rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">Provisionamento automático indisponível. A conexão pode exigir ajuste manual.</p> : null}
-      </GlassCard>
+        {error && <p role="alert" className="text-[13px] text-error">{error}</p>}
+        {data?.providerDegraded ? <p className="flex items-start gap-2 text-[13px] leading-5 text-warning"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />Provisionamento automático indisponível. A conexão pode exigir ajuste manual.</p> : null}
+      </section>
 
       {loadError && <ErrorState title="Não foi possível atualizar os domínios" onRetry={() => mutate()} />}
       {isLoading && !data ? (
-        <Skeleton className="h-32 rounded-2xl" />
+        <div className="grid gap-4 xl:grid-cols-2" aria-hidden="true">
+          <Skeleton className="h-56 rounded-2xl" />
+          <Skeleton className="hidden h-56 rounded-2xl xl:block" />
+        </div>
       ) : domains.length === 0 ? (
-        <GlassCard className="flex flex-col items-center justify-center gap-3 border-dashed p-10 text-center">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan"><Globe className="size-6" /></div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Nenhum domínio conectado</h3>
-            <p className="mt-1 max-w-md text-xs text-muted-foreground">Adicione um subdomínio próprio para usar URLs com a identidade da sua operação.</p>
-          </div>
-        </GlassCard>
+        <section className="flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center">
+          <h3 className="text-[15px] font-semibold text-foreground">Nenhum domínio conectado</h3>
+          <p className="mt-1.5 max-w-md text-[13px] leading-5 text-muted-foreground">Adicione um subdomínio próprio para usar URLs com a identidade da sua operação.</p>
+        </section>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {domains.map((domain, index) => {
+        <div className="grid gap-4 xl:grid-cols-2" data-tour="domains-list">
+          {domains.map((domain) => {
             const check = checks[domain.host]
             const diagnostic = diagnostics[domain.host]
             const ready = isReady(domain)
@@ -196,27 +231,33 @@ export function DomainsView() {
                 : domain.status === 'error'
                   ? 'Atenção'
                   : 'Aguardando DNS'
+            const usageLabel = domain.uso === 'checkout' ? 'Links' : domain.uso === 'cloaker' ? 'Cloaker' : 'Links + Cloaker'
+            const statusDotClass = ready ? 'bg-success' : domain.status === 'error' ? 'bg-destructive' : 'bg-warning'
+            const statusTextClass = ready ? 'text-success' : domain.status === 'error' ? 'text-destructive' : 'text-warning'
+            const steps = [
+              { label: 'DNS', done: ready || domain.status === 'pending_ssl' },
+              { label: 'HTTPS', done: ready },
+              { label: 'Ativo', done: ready },
+            ]
             return (
-              <GlassCard key={domain.host} className="flex flex-col gap-4 rounded-[24px] border border-border/70 p-4 sm:p-5 transition-all hover:border-brand-cyan/25" style={{ animationDelay: `${index * 50}ms` }}>
+              <section key={domain.host} className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-secondary/[0.08] p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`size-2.5 shrink-0 rounded-full ${ready ? 'bg-success' : domain.status === 'error' ? 'bg-destructive' : 'bg-warning'}`} />
-                      <h3 className="break-all text-sm font-semibold text-foreground">{domain.host}</h3>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${ready ? 'border-success/20 bg-success/10 text-success' : domain.status === 'error' ? 'border-destructive/25 bg-destructive/10 text-destructive' : 'border-warning/25 bg-warning/10 text-warning'}`}>{statusLabel}</span>
-                      <span className="rounded-full border border-border/60 bg-secondary/20 px-2 py-0.5 text-[10px] text-muted-foreground">{domain.uso === 'checkout' ? 'Links' : domain.uso === 'cloaker' ? 'Cloaker' : 'Links + Cloaker'}</span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="break-all text-[15px] font-semibold leading-5 text-foreground">{domain.host}</h3>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-[13px]">
+                      <span className={`inline-flex items-center gap-1.5 font-medium ${statusTextClass}`}><span className={`size-1.5 shrink-0 rounded-full ${statusDotClass}`} />{statusLabel}</span>
+                      <span className="text-border">·</span>
+                      <span className="text-muted-foreground">{usageLabel}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {!ready && (domain.status === 'error' || domain.lastError) ? (
-                      <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={!!diagnosing[domain.host]} onClick={() => void diagnose(domain.host)}>
+                      <button type="button" className="btn-secondary h-8 px-3 text-xs" disabled={!!diagnosing[domain.host]} onClick={() => void diagnose(domain.host)}>
                         {diagnosing[domain.host] ? <Loader2 className="size-3.5 animate-spin text-brand-cyan" /> : <Stethoscope className="size-3.5" />}
                         {diagnosing[domain.host] ? 'Analisando…' : 'Diagnosticar'}
                       </button>
                     ) : (
-                      <button type="button" className={ready ? 'btn-ghost p-2' : 'btn-secondary px-3 py-1.5 text-xs'} aria-label={ready ? `Verificar ${domain.host} novamente` : undefined} disabled={!!verifying[domain.host]} onClick={() => void verify(domain.host)}>
+                      <button type="button" className={ready ? 'btn-ghost p-2' : 'btn-secondary h-8 px-3 text-xs'} aria-label={ready ? `Verificar ${domain.host} novamente` : undefined} disabled={!!verifying[domain.host]} onClick={() => void verify(domain.host)}>
                         <RefreshCw className={`size-3.5 ${verifying[domain.host] ? 'animate-spin text-brand-cyan' : ''}`} />
                         {!ready && <span>{verifying[domain.host] ? 'Verificando…' : 'Verificar agora'}</span>}
                       </button>
@@ -225,43 +266,46 @@ export function DomainsView() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-secondary/10 px-3 py-2.5 text-[10px]">
-                  {[
-                    { label: 'DNS', done: ready || domain.status === 'pending_ssl' },
-                    { label: 'HTTPS', done: ready },
-                    { label: 'Ativo', done: ready },
-                  ].map((step, stepIndex) => (
+                <div className="flex items-center gap-2 py-1 text-xs sm:text-[13px]" aria-label={`Provisionamento de ${domain.host}: ${statusLabel}`}>
+                  {steps.map((step, stepIndex) => (
                     <div key={step.label} className="flex min-w-0 flex-1 items-center gap-2">
-                      <span className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${step.done ? 'border-success/40 bg-success/15 text-success' : domain.status === 'error' ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground'}`}>{step.done ? <Check className="size-2.5" /> : stepIndex + 1}</span>
-                      <span className={step.done ? 'text-foreground' : 'text-muted-foreground'}>{step.label}</span>
-                      {stepIndex < 2 && <span className={`ml-auto h-px min-w-3 flex-1 ${step.done ? 'bg-success/35' : 'bg-border'}`} />}
+                      <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border text-xs ${step.done ? 'border-success/40 bg-success/10 text-success' : domain.status === 'error' ? 'border-destructive/45 text-destructive' : 'border-border text-muted-foreground'}`}>{step.done ? <Check className="size-3" /> : stepIndex + 1}</span>
+                      <span className={step.done ? 'text-foreground' : domain.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}>{step.label}</span>
+                      {stepIndex < steps.length - 1 && <span className={`ml-auto h-px min-w-3 flex-1 ${step.done ? 'bg-success/35' : domain.status === 'error' ? 'bg-destructive/25' : 'bg-border/80'}`} />}
                     </div>
                   ))}
                 </div>
 
-                {diagnostic && !diagnostic.healthy ? <div className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning"><span className="font-medium">Próxima ação:</span> {diagnostic.likelyCause || 'Tente verificar novamente em instantes.'}</div> : !ready && (domain.lastError || domain.providerNote) ? <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">{domain.lastError || domain.providerNote}</p> : null}
+                {diagnostic && !diagnostic.healthy ? (
+                  <p className="flex items-start gap-2 text-[13px] leading-5 text-warning"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" /><span><strong className="font-medium">Próxima ação</strong> · {diagnostic.likelyCause || 'Tente verificar novamente em instantes.'}</span></p>
+                ) : !ready && (domain.lastError || domain.providerNote) ? (
+                  <p className="flex items-start gap-2 text-[13px] leading-5 text-warning"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" /><span>{domain.lastError || domain.providerNote}</span></p>
+                ) : null}
 
-                <details className="rounded-xl border border-border/60 bg-secondary/10 p-3" open={expandedHost === domain.host} onToggle={(event) => setExpandedHost(event.currentTarget.open ? domain.host : null)}>
-                  <summary className="cursor-pointer text-xs font-medium text-foreground">DNS e detalhes</summary>
+                <details className="group border-t border-border/50 pt-3" open={expandedHost === domain.host} onToggle={(event) => setExpandedHost(event.currentTarget.open ? domain.host : null)}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md py-1 text-[13px] font-medium text-foreground outline-none transition-colors hover:text-foreground/90 focus-visible:ring-1 focus-visible:ring-brand-cyan/35 [&::-webkit-details-marker]:hidden">
+                    <span>DNS e detalhes</span>
+                    <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden="true" />
+                  </summary>
                   <div className="mt-3"><DnsInstructions dns={dns} /></div>
                 </details>
 
-                <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
-                  <span className="text-[10px] text-muted-foreground">{domain.lastCheckedAt ? `Atualizado ${new Date(domain.lastCheckedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Verificação automática ativa'}</span>
+                <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/50 pt-3">
+                  <span className="text-xs text-muted-foreground">{domain.lastCheckedAt ? `Atualizado ${new Date(domain.lastCheckedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Verificação automática ativa'}</span>
                   {ready ? (
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       {domain.uso !== 'cloaker' ? <a href={`/links?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar em Links <ArrowUpRight className="size-3" /></a> : null}
                       {domain.uso !== 'checkout' ? <a href={`/cloak?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar no Cloaker <ArrowUpRight className="size-3" /></a> : null}
                     </div>
                   ) : null}
                 </div>
-              </GlassCard>
+              </section>
             )
           })}
         </div>
       )}
 
-      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Domínios em uso precisam ser trocados antes. Quando gerenciado automaticamente, o recurso remoto também é removido." confirmLabel="Remover domínio" confirmText={domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
+      <ConfirmDialog open={!!deleting} title={`Remover ${deleting || 'domínio'}?`} description="Domínios em uso precisam ser trocados antes. Quando gerenciado automaticamente, o recurso remoto também é removido." confirmLabel="Remover domínio" confirmText={domains.find(domain => domain.host === deleting)?.verificado ? deleting || undefined : undefined} tone="danger" appearance="quiet" busy={deleteBusy} onConfirm={remove} onClose={() => setDeleting(null)} />
     </div>
   )
 }

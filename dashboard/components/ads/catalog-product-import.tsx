@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, ArrowRight, Link2, Loader2, PackageCheck, X } from 'lucide-react'
+import { AlertCircle, ArrowRight, Link2, Loader2, X } from 'lucide-react'
 import { ApiError, adsCatalogApiUrl, apiSend } from '@/lib/api'
 import type { AdsCatalog, AdsCatalogCreative } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -59,7 +59,7 @@ export function CatalogProductImport({ advertiserId, countries, onCreated, onClo
 
   return <div className="surface-card m-3 flex flex-col gap-5 rounded-2xl p-4 sm:m-4 sm:p-5 motion-safe:animate-in motion-safe:fade-in">
     <div className="flex items-start justify-between gap-3">
-      <div><h2 className="flex items-center gap-2 text-base font-semibold"><PackageCheck size={20} className="text-primary" /> Catálogo pelo link</h2><p className="mt-1 text-sm text-muted-foreground">Um produto. Quatro itens preparados. Vídeos prontos para reutilizar.</p></div>
+      <div><h2 className="text-base font-semibold text-foreground">Criar catálogo pelo link</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Informe um produto. O ROI-NADOS prepara os quatro registros necessários para Catalog Ads usando os mesmos dados comerciais, sem inventar preço, variante ou atributo.</p></div>
       <button type="button" className="btn-ghost min-h-11 min-w-11" disabled={working} onClick={onClose} aria-label="Fechar criação"><X size={18} /></button>
     </div>
     <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
@@ -74,7 +74,7 @@ export function CatalogProductImport({ advertiserId, countries, onCreated, onClo
       onRemove={async creative => { setCreatives(current => current.filter(item => item.id !== creative.id)); changed() }} />
     {failure && <p role="alert" className="flex gap-2 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm"><AlertCircle size={17} className="shrink-0 text-warning" />{failure}</p>}
     <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs text-muted-foreground">{pending ? 'Conclua ou remova os vídeos pendentes.' : `${creatives.length} vídeo${creatives.length === 1 ? '' : 's'} · 4 itens com o mesmo link. A aprovação depende do TikTok.`}</p>
+      <p className="text-xs text-muted-foreground">{pending ? 'Conclua ou remova os vídeos pendentes.' : `${creatives.length} vídeo${creatives.length === 1 ? '' : 's'} · quatro registros técnicos com os mesmos dados comerciais. A aprovação depende do TikTok.`}</p>
       <button type="button" className="btn-primary min-h-12 gap-2 px-5 text-sm font-semibold" onClick={() => void create()} disabled={working || pending > 0 || !url.trim()}>{busy ? <Loader2 size={17} className="animate-spin" /> : <ArrowRight size={17} />}{busy ? 'Preparando catálogo…' : 'Criar e sincronizar'}</button>
     </div>
   </div>

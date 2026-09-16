@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSWRConfig } from 'swr'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, ChevronDown, Sparkles, UploadCloud, Users, TrendingUp, Target, AlertCircle, ArrowRight, ShieldCheck, BarChart3 } from 'lucide-react'
+import { Plus, Ban, ChevronDown, Sparkles, UploadCloud, Users } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -19,12 +19,10 @@ import {
   useAdsHealth,
   useAdsSyncStatus,
   useAdsRejections,
-  useAccountSettings,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsTreeCampaign } from '@/lib/types'
-import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { AdsConnectCard } from './connect-card'
@@ -40,19 +38,44 @@ import { SmartPlusCreateDialog } from './smart-plus-create-dialog'
 import { CatalogManager } from './catalog-manager'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PixelBindingCard } from './pixel-binding-card'
-import { adsDateRange } from '@/lib/ads-time'
+import { adsDateRange, safeAdsTimeZone } from '@/lib/ads-time'
 import { MagicOpsPanel } from './magic-ops-panel'
 import { NeedsYouInbox } from './needs-you-inbox'
 import { UniversalLauncherDialog } from './universal-launcher-dialog'
 import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 import { useOverviewPeriod } from '@/lib/overview-period'
 import { PERIODS } from '@/components/overview/period-picker'
+import { cn } from '@/lib/utils'
+
+type CatalogLocalWorkState = { uploading: boolean; pending: number }
+
+function catalogLocalWorkCopy(state: CatalogLocalWorkState, action: 'leave' | 'create') {
+  if (state.uploading) {
+    return action === 'create'
+      ? { title: 'Abrir criação e cancelar o envio atual?', description: 'Há vídeos sendo enviados nesta área do Catálogo. Abrir outro fluxo cancela os uploads locais ainda não concluídos. Vídeos já enviados permanecem disponíveis.', confirmLabel: 'Continuar' }
+      : { title: 'Sair e cancelar o envio?', description: 'Há vídeos sendo enviados nesta área do Catálogo. Trocar de área cancela os uploads locais ainda não concluídos. Vídeos já enviados permanecem disponíveis.', confirmLabel: 'Sair e cancelar' }
+  }
+  return action === 'create'
+    ? { title: 'Abrir criação e descartar os envios pendentes?', description: 'Há envios locais pendentes ou com falha. Abrir outro fluxo descartará os itens ainda não concluídos e as opções locais de tentar novamente. Vídeos já enviados permanecem disponíveis.', confirmLabel: 'Continuar' }
+    : { title: 'Sair e descartar os envios pendentes?', description: 'Há envios locais pendentes ou com falha. Sair descartará os itens ainda não concluídos e as opções locais de tentar novamente. Vídeos já enviados permanecem disponíveis.', confirmLabel: 'Sair' }
+}
 
 export function TikTokAdsView() {
-  const [catalogRequest, setCatalogRequest] = useState<{ action: 'create' | 'magic' | 'batch'; id: number } | null>(null)
-  function requestCatalog(action: 'create' | 'magic' | 'batch') {
+  type CatalogRequestAction = 'create' | 'magic' | 'batch'
+  const [catalogRequest, setCatalogRequest] = useState<{ action: CatalogRequestAction; id: number } | null>(null)
+  const [pendingCatalogAction, setPendingCatalogAction] = useState<CatalogRequestAction | null>(null)
+  const [confirmCatalogAction, setConfirmCatalogAction] = useState(false)
+  function commitCatalogRequest(action: CatalogRequestAction) {
     setCatalogRequest(previous => ({ action, id: (previous?.id || 0) + 1 }))
-    changeTab('catalog')
+    requestTabChange('catalog')
+  }
+  function requestCatalog(action: CatalogRequestAction) {
+    if (tab === 'catalog' && hasCatalogLocalWork) {
+      setPendingCatalogAction(action)
+      setConfirmCatalogAction(true)
+      return
+    }
+    commitCatalogRequest(action)
   }
 
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -79,20 +102,19 @@ export function TikTokAdsView() {
   useEffect(() => { setPage(1) }, [effectiveAdvertiser])
   // Período global da dashboard. TikTok respeita a mesma seleção do calendário.
   const { period } = useOverviewPeriod()
-  const { data: accountSettings } = useAccountSettings()
   const rangeDays = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 365
   const periodLabel = PERIODS.find(item => item.id === period)?.label || 'Hoje'
   const selectedAdvertiserInfo = accounts?.accounts.find((a) => String(a.id) === String(effectiveAdvertiser))
-  const advertiserTimeZone = selectedAdvertiserInfo?.timezone || status?.timeZone
-  const reportingTimeZone = accountSettings?.timezone || 'America/Sao_Paulo'
+  const advertiserContextTimeZone = selectedAdvertiserInfo?.timezone || ''
+  const advertiserTimeZone = safeAdsTimeZone(advertiserContextTimeZone || status?.timeZone)
   const [calendarTick, setCalendarTick] = useState(0)
   useEffect(() => {
     const timer = setInterval(() => setCalendarTick(tick => tick + 1), 60_000)
     return () => clearInterval(timer)
   }, [])
   const { fromDate, toDate } = useMemo(
-    () => adsDateRange(rangeDays, reportingTimeZone),
-    [rangeDays, reportingTimeZone, calendarTick],
+    () => adsDateRange(rangeDays, advertiserTimeZone),
+    [rangeDays, advertiserTimeZone, calendarTick],
   )
 
   // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
@@ -105,16 +127,24 @@ export function TikTokAdsView() {
   // Três áreas operacionais: criar/acompanhar, catálogo e automações. Smart+
   // e Spark são tipos de criação dentro de Campanhas, não destinos separados.
   type TabKey = 'campaigns' | 'automation' | 'catalog'
-  const SUBTABS: { value: TabKey; label: string; compactLabel: string; description: string; icon: typeof Megaphone }[] = [
-    { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', description: 'Resultado, decisões e operação', icon: Megaphone },
-    { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', description: 'Produtos, feed e DPA', icon: ShoppingBag },
-    { value: 'automation', label: 'Automações', compactLabel: 'Automações', description: 'Regras, alertas e aprovações', icon: Bot },
+  const SUBTABS: { value: TabKey; label: string }[] = [
+    { value: 'campaigns', label: 'Campanhas' },
+    { value: 'catalog', label: 'Catálogo' },
+    { value: 'automation', label: 'Automações' },
   ]
   const [toolsExpanded, setToolsExpanded] = useState(false)
+  const [toolsMounted, setToolsMounted] = useState(false)
   const [tab, setTab] = useState<TabKey>('campaigns')
+  const [catalogLocalWork, setCatalogLocalWork] = useState<CatalogLocalWorkState>({ uploading: false, pending: 0 })
+  const [pendingTab, setPendingTab] = useState<TabKey | null>(null)
+  const [confirmTabChange, setConfirmTabChange] = useState(false)
+  const hasCatalogLocalWork = catalogLocalWork.uploading || catalogLocalWork.pending > 0
+  const catalogLeaveCopy = catalogLocalWorkCopy(catalogLocalWork, 'leave')
+  const catalogCreateCopy = catalogLocalWorkCopy(catalogLocalWork, 'create')
 
   const treeActive = connected && Boolean(effectiveAdvertiser)
   const campaignsActive = treeActive && tab === 'campaigns'
+  const automationActive = treeActive && tab === 'automation'
   const { mutate: mutateCache } = useSWRConfig()
   const refreshLock = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -137,34 +167,134 @@ export function TikTokAdsView() {
   const { data: campaignDecisions, mutate: mutateDecisions } = useAdsCampaignDecisions(campaignsActive, effectiveAdvertiser, { fromDate, toDate })
 
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
-  useEffect(() => {
-    // Lê ?tab= no mount e a cada navegação (voltar/avançar). Mapa de
-    // compatibilidade dos aliases antigos (overview→today, ai→automation,
-    // smartplus→campanhas+segmento) para não quebrar favoritos e deep-links.
-    const readTab = () => {
-      const query = new URLSearchParams(window.location.search)
-      // `view` saiu em pushes antigos. Mantê-lo como fallback garante que uma
-      // notificação já entregue ainda abra a decisão certa.
-      const t = query.get('tab') || query.get('view')
-      if (t && validTabs.has(t as TabKey)) setTab(t as TabKey)
-      else if (t === 'overview' || t === 'today' || t === 'smartplus') setTab('campaigns')
-      else if (t === 'ai') setTab('automation')
-      else setTab('campaigns')
-    }
-    readTab()
-    window.addEventListener('popstate', readTab)
-    return () => window.removeEventListener('popstate', readTab)
-  }, [validTabs])
+  const tabRef = useRef<TabKey>(tab)
+  const catalogLocalWorkRef = useRef(catalogLocalWork)
+  const requestTabChangeRef = useRef<(value: TabKey, source?: 'ui' | 'tour') => void>(() => {})
+  const historyIndexRef = useRef(0)
+  const restoringHistoryRef = useRef(false)
+  const allowNextPopRef = useRef(false)
+  const pendingHistoryNavigationRef = useRef<{ target: TabKey; delta: number } | null>(null)
+  useEffect(() => { tabRef.current = tab }, [tab])
+  useEffect(() => { catalogLocalWorkRef.current = catalogLocalWork }, [catalogLocalWork])
 
-  // Troca de aba sincronizada com a URL (?tab=) — Campanhas é o padrão.
-  function changeTab(value: TabKey) {
-    setTab(value)
+  function resolveLocationTab(): TabKey {
+    const query = new URLSearchParams(window.location.search)
+    const requested = query.get('tab') || query.get('view')
+    if (requested && validTabs.has(requested as TabKey)) return requested as TabKey
+    if (requested === 'overview' || requested === 'today' || requested === 'smartplus') return 'campaigns'
+    if (requested === 'ai') return 'automation'
+    return 'campaigns'
+  }
+
+  function historyIndex(state: unknown): number | null {
+    if (!state || typeof state !== 'object') return null
+    const value = (state as Record<string, unknown>).roiAdsHistoryIndex
+    return typeof value === 'number' && Number.isInteger(value) ? value : null
+  }
+
+  function writeTabUrl(value: TabKey, mode: 'push' | 'replace') {
     const url = new URL(window.location.href)
     url.searchParams.delete('view')
     if (value === 'campaigns') url.searchParams.delete('tab')
     else url.searchParams.set('tab', value)
-    window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    const next = `${url.pathname}${url.search}${url.hash}`
+    const currentState = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
+    if (mode === 'replace') {
+      const existingIndex = historyIndex(currentState)
+      const index = existingIndex ?? historyIndexRef.current
+      historyIndexRef.current = index
+      window.history.replaceState({ ...currentState, roiAdsTab: value, roiAdsHistoryIndex: index }, '', next)
+      return
+    }
+    const index = historyIndexRef.current + 1
+    historyIndexRef.current = index
+    window.history.pushState({ ...currentState, roiAdsTab: value, roiAdsHistoryIndex: index }, '', next)
   }
+
+  function commitTabChange(value: TabKey, historyMode: 'push' | 'none' = 'push') {
+    setTab(value)
+    tabRef.current = value
+    if (historyMode === 'push') writeTabUrl(value, 'push')
+  }
+
+  function requestTabChange(value: TabKey, _source: 'ui' | 'tour' = 'ui') {
+    const current = tabRef.current
+    if (value === current) return
+    const work = catalogLocalWorkRef.current
+    if (current === 'catalog' && (work.uploading || work.pending > 0)) {
+      setPendingTab(value)
+      setConfirmTabChange(true)
+      return
+    }
+    commitTabChange(value, 'push')
+  }
+  requestTabChangeRef.current = requestTabChange
+  function changeTab(value: TabKey) { requestTabChange(value, 'ui') }
+
+  useEffect(() => {
+    const initial = resolveLocationTab()
+    setTab(initial)
+    tabRef.current = initial
+    const initialState = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
+    historyIndexRef.current = historyIndex(initialState) ?? 0
+    window.history.replaceState({ ...initialState, roiAdsTab: initial, roiAdsHistoryIndex: historyIndexRef.current }, '', window.location.href)
+
+    const handlePopState = (event: PopStateEvent) => {
+      const target = resolveLocationTab()
+      const targetIndex = historyIndex(event.state)
+
+      if (allowNextPopRef.current) {
+        allowNextPopRef.current = false
+        if (targetIndex !== null) historyIndexRef.current = targetIndex
+        setTab(target)
+        tabRef.current = target
+        return
+      }
+
+      if (restoringHistoryRef.current) {
+        restoringHistoryRef.current = false
+        if (targetIndex !== null) historyIndexRef.current = targetIndex
+        setConfirmTabChange(true)
+        return
+      }
+
+      const current = tabRef.current
+      if (target === current) {
+        if (targetIndex !== null) historyIndexRef.current = targetIndex
+        return
+      }
+
+      const work = catalogLocalWorkRef.current
+      if (current === 'catalog' && (work.uploading || work.pending > 0) && targetIndex !== null) {
+        const delta = targetIndex - historyIndexRef.current
+        if (delta !== 0) {
+          pendingHistoryNavigationRef.current = { target, delta }
+          setPendingTab(target)
+          restoringHistoryRef.current = true
+          window.history.go(-delta)
+          return
+        }
+      }
+
+      if (targetIndex !== null) historyIndexRef.current = targetIndex
+      setTab(target)
+      tabRef.current = target
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [validTabs])
+
+  // Tour cross-tab usa o mesmo guard da navegação manual e sempre lê o estado atual.
+  useEffect(() => {
+    const handleTourTab = (event: Event) => {
+      const value = String((event as CustomEvent<string>).detail || '') as TabKey
+      if (value === 'campaigns' || value === 'catalog' || value === 'automation') {
+        requestTabChangeRef.current(value, 'tour')
+      }
+    }
+    window.addEventListener('roinados:ads-tab', handleTourTab as EventListener)
+    return () => window.removeEventListener('roinados:ads-tab', handleTourTab as EventListener)
+  }, [])
 
   const [audiencesOpen, setAudiencesOpen] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
@@ -173,10 +303,22 @@ export function TikTokAdsView() {
   const [opsOpen, setOpsOpen] = useState(false)
   const [opsInitialTab, setOpsInitialTab] = useState<'jobs' | 'safety'>('jobs')
   const [healthOpen, setHealthOpen] = useState(false)
+  const [automationDirty, setAutomationDirty] = useState(false)
+  const [magicOpsDirty, setMagicOpsDirty] = useState(false)
+  const [alertsFocusRequest, setAlertsFocusRequest] = useState(0)
+  const [pendingAdvertiserId, setPendingAdvertiserId] = useState<string | null>(null)
+  const [confirmAccountSwitch, setConfirmAccountSwitch] = useState(false)
+  const [switchingAccount, setSwitchingAccount] = useState(false)
+  const hasAutomationDraft = automationDirty || magicOpsDirty
 
   function openOps(initialTab: 'jobs' | 'safety' = 'jobs') {
     setOpsInitialTab(initialTab)
     setOpsOpen(true)
+  }
+
+  function openPerformanceAlerts() {
+    setAlertsFocusRequest(value => value + 1)
+    if (tabRef.current !== 'automation') requestTabChangeRef.current('automation', 'ui')
   }
 
   // Política de segurança — alimenta o badge de simulação/bloqueio de ações
@@ -291,6 +433,36 @@ export function TikTokAdsView() {
     }, 0)
   }
 
+  async function commitAdvertiserChange(id: string) {
+    if (!id || switchingAccount || String(id) === String(concreteAdvertiser)) return
+    setSwitchingAccount(true)
+    try {
+      const res = await apiSend<{ ok: boolean; advertiserId: string }>('/api/ads/accounts/select', 'POST', { advertiserId: id })
+      setAutomationDirty(false)
+      setMagicOpsDirty(false)
+      setCatalogLocalWork({ uploading: false, pending: 0 })
+      setPendingAdvertiserId(null)
+      setConfirmAccountSwitch(false)
+      setAdvertiserId(res.advertiserId)
+      setPage(1)
+      await Promise.allSettled([mutateAccounts(), mutateStatus()])
+    } catch (error) {
+      toast.error('Falha ao selecionar a conta de anúncio', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setSwitchingAccount(false)
+    }
+  }
+
+  async function requestAdvertiserChange(id: string) {
+    if (String(id) === String(concreteAdvertiser)) return
+    if (hasAutomationDraft || hasCatalogLocalWork) {
+      setPendingAdvertiserId(id)
+      setConfirmAccountSwitch(true)
+      return
+    }
+    await commitAdvertiserChange(id)
+  }
+
   async function handleDisconnect() {
     if (disconnecting) return
     setDisconnecting(true)
@@ -324,8 +496,8 @@ export function TikTokAdsView() {
     return (
       <div className="flex flex-col gap-5">
         <ErrorState
-          title="Conecte o TikTok Ads"
-          description="Configure a chave do Pipeboard nas configurações do servidor para acessar suas campanhas."
+          title="Integração TikTok Ads não configurada"
+          description="A chave do Pipeboard ainda não está configurada no servidor. Configure a integração de servidor e verifique novamente."
           onRetry={() => mutateStatus()}
         />
       </div>
@@ -343,17 +515,12 @@ export function TikTokAdsView() {
   if (statusLoading && !status) {
     return (
       <div className="flex flex-col gap-5">
-        <Skeleton className="h-24 rounded-2xl" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 stagger-fade">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton
-              key={i}
-              className="h-24 rounded-2xl stagger-fade"
-              style={{ '--i': i, '--stagger-index': i } as React.CSSProperties}
-            />
-          ))}
+        <div className="space-y-2"><Skeleton className="h-5 w-32 rounded" /><Skeleton className="h-4 w-80 max-w-full rounded" /></div>
+        <Skeleton className="h-10 max-w-xl rounded-lg" />
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="space-y-2"><Skeleton className="h-6 w-24 rounded" /><Skeleton className="h-3 w-28 rounded" /></div>)}
         </div>
-        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-40 rounded-lg" />
       </div>
     )
   }
@@ -368,106 +535,30 @@ export function TikTokAdsView() {
   }
 
   if (accountsError && !accounts) return <ErrorState title="Não foi possível carregar as contas" onRetry={() => mutateAccounts()} />
-  if (accountsLoading && !accounts) return <Skeleton className="h-48 rounded-2xl" />
+  if (accountsLoading && !accounts) return (
+    <div className="flex flex-col gap-4">
+      <div className="space-y-1"><h1 className="text-lg font-semibold text-foreground">TikTok Ads</h1><p className="text-xs text-muted-foreground">Carregando contas de anúncio…</p></div>
+      <Skeleton className="h-10 max-w-xl rounded-lg" />
+    </div>
+  )
 
   const advertisers = accounts?.accounts ?? []
 
   return (
     <div className="tiktok-view min-w-0 flex flex-col gap-4">
-      <section className="rounded-[28px] border border-border/70 bg-[radial-gradient(circle_at_top_left,rgba(37,244,238,0.09),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012))] p-4 shadow-[0_28px_70px_-44px_rgba(0,0,0,0.95)] sm:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">TikTok Ads</h1>
-          </div>
-          {effectiveAdvertiser ? (
-            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-              <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-                {selectedAdvertiserInfo?.name || 'Conta selecionada'}
-              </span>
-              <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-                {periodLabel}
-              </span>
-            </div>
-          ) : null}
-        </div>
-
-        {effectiveAdvertiser && tab === 'campaigns' ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
-              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Campanhas ativas</span><Megaphone className="size-4 text-brand-cyan" /></div>
-              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.active}</p>
-                          </div>
-            <div className="rounded-2xl border border-border/60 bg-black/15 p-3.5">
-              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Gasto TikTok</span><BarChart3 className="size-4 text-muted-foreground" /></div>
-              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{formatAdsMoney(adsOperationalSummary.spend)}</p>
-                          </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
-              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80">Vendas reais</span><Target className="size-4 text-emerald-300" /></div>
-              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p>
-                          </div>
-            <div className="rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3.5">
-              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-brand-cyan/80">ROAS real</span><TrendingUp className="size-4 text-brand-cyan" /></div>
-              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p>
-                          </div>
-            <div className={`rounded-2xl border p-3.5 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'border-warning/25 bg-warning/8' : 'border-border/60 bg-black/15'}`}>
-              <div className="flex items-center justify-between gap-3"><span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Prioridades</span><ShieldCheck className={`size-4 ${adsOperationalSummary.pendingProposals || adsOperationalSummary.noSalesWithSpend || (rejections?.open ?? 0) ? 'text-warning' : 'text-success'}`} /></div>
-              <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{adsOperationalSummary.pendingProposals + adsOperationalSummary.noSalesWithSpend + (rejections?.open ?? 0)}</p>
-                          </div>
-          </div>
-        ) : null}
-      </section>
-
-      {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
-          acima do contexto da conta. */}
-      {hasAccountAlert && (
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Badge de guardrail ativo — o usuário entende por que nada publica */}
-          {killSwitchActive ? (
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
-              onClick={() => openOps('safety')}
-              title="Novas ações estão bloqueadas. Campanhas já ativas continuam veiculando."
-            >
-              <OctagonAlert className="size-3" aria-hidden="true" />
-              Ações bloqueadas
-            </button>
-          ) : dryRunActive ? (
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
-              onClick={() => openOps('safety')}
-              title="Modo teste: o robô roda mas nada é publicado no TikTok. Clique para gerenciar."
-            >
-              <FlaskConical className="size-3" aria-hidden="true" />
-              Modo teste
-            </button>
-          ) : null}
-          {/* Badge de conta banida — clica e abre o painel de saúde/tickets */}
-          {bannedAccounts.length > 0 && (
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
-              onClick={() => setHealthOpen(true)}
-              title={`${bannedAccounts.length} conta(s) banida(s)${openTickets.length ? ` · ${openTickets.length} ticket(s) de desbanimento` : ''}. Clique para ver.`}
-            >
-              <Ban className="size-3" aria-hidden="true" />
-              {bannedAccounts.length === 1 ? 'Conta banida' : `${bannedAccounts.length} contas banidas`}
-            </button>
-          )}
-        </div>
-      )}
+      <header className="space-y-1">
+        <h1 className="text-lg font-semibold text-foreground">TikTok Ads</h1>
+        <p className="text-xs leading-relaxed text-muted-foreground">Gerencie campanhas, resultados e ações da conta selecionada.</p>
+      </header>
 
       {/* Barra de contexto: conta de anúncio + deep-link + desconectar */}
       <AdsContextBar
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
         refreshing={refreshing}
-        onAdvertiserChanged={(id) => {
-          setAdvertiserId(id)
-          setPage(1)
-          void Promise.allSettled([mutateAccounts(), mutateStatus()])
-        }}
+        syncState={selectedSyncState}
+        onAdvertiserChangeRequested={requestAdvertiserChange}
+        switching={switchingAccount}
         onRefresh={async () => {
           if (refreshLock.current || !concreteAdvertiser) return
           refreshLock.current = true
@@ -502,50 +593,77 @@ export function TikTokAdsView() {
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
 
-      <PixelBindingCard active={Boolean(concreteAdvertiser)} advertiserId={concreteAdvertiser} />
+
+      {effectiveAdvertiser ? (
+        <div className="text-xs text-muted-foreground">Período · {periodLabel}</div>
+      ) : null}
+
+      {effectiveAdvertiser && tab === 'campaigns' ? (
+        <section className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-border/60 pb-4 lg:grid-cols-4" aria-label="Resumo das campanhas">
+          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : adsOperationalSummary.active.toLocaleString('pt-BR')}</p><p className="mt-1 text-xs text-muted-foreground">Campanhas ativas</p></div>
+          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : formatAdsMoney(adsOperationalSummary.spend)}</p><p className="mt-1 text-xs text-muted-foreground">Gasto TikTok</p></div>
+          <div><p className="text-xl font-semibold tabular-nums text-success">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p><p className="mt-1 text-xs text-muted-foreground">Vendas reais</p></div>
+          <div><p className={cn('text-xl font-semibold tabular-nums', adsOperationalSummary.roas !== null && adsOperationalSummary.roas >= 2 ? 'text-success' : 'text-foreground')}>{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p><p className="mt-1 text-xs text-muted-foreground">ROAS real</p></div>
+        </section>
+      ) : null}
+
+      {hasAccountAlert ? (
+        <section className="space-y-2 border-b border-border/60 pb-4" aria-label="Alertas da conta">
+          {killSwitchActive ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <p className="text-error"><span className="font-semibold">Ações bloqueadas</span> · novas alterações não serão publicadas no TikTok.</p>
+              <button type="button" className="font-medium text-error hover:underline" onClick={() => openOps('safety')}>Gerenciar</button>
+            </div>
+          ) : dryRunActive ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <p className="text-warning"><span className="font-semibold">Modo teste ativo</span> · as ações são simuladas, mas não publicadas.</p>
+              <button type="button" className="font-medium text-warning hover:underline" onClick={() => openOps('safety')}>Gerenciar</button>
+            </div>
+          ) : null}
+          {bannedAccounts.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <p className="text-error"><span className="font-semibold">{bannedAccounts.length === 1 ? 'Conta banida' : `${bannedAccounts.length} contas banidas`}</span>{openTickets.length ? ` · ${openTickets.length} ticket${openTickets.length === 1 ? '' : 's'} em andamento` : ''}</p>
+              <button type="button" className="font-medium text-error hover:underline" onClick={() => setHealthOpen(true)}>Ver detalhes</button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <div id="tiktok-pixel-binding"><PixelBindingCard active={Boolean(concreteAdvertiser)} advertiserId={concreteAdvertiser} /></div>
 
       {!effectiveAdvertiser ? (
-        <GlassCard className="flex flex-col items-center gap-2 p-6 text-center">
-          <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
-            <Megaphone className="size-5" aria-hidden="true" />
-          </span>
+        <div className="py-8 text-center">
           <p className="text-sm font-medium text-foreground">Escolha uma conta de anúncios</p>
-          <p className="max-w-md text-pretty text-xs text-muted-foreground">Escolha uma conta acima para ver e operar as campanhas.</p>
-        </GlassCard>
+          <p className="mx-auto mt-1 max-w-md text-pretty text-xs text-muted-foreground">Escolha uma conta acima para ver e operar as campanhas.</p>
+        </div>
       ) : (
         <Tabs.Root value={tab} onValueChange={value => changeTab(value as TabKey)} className="tiktok-workspace flex min-w-0 flex-col gap-4">
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div className="tiktok-tabs-row">
-            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="section-tabs section-tabs--ads">
-                {SUBTABS.map((item) => {
-                  const attentionCount = item.value === 'automation'
-                    ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
-                    : item.value === 'campaigns' && tree?.syncError ? 1 : 0
-
-                  return (
-                    <Tabs.Trigger
-                      key={item.value}
-                      value={item.value}
-                      className="section-tabs__item tiktok-section-tab touch-manipulation"
-                    >
-                      <item.icon className="size-4" aria-hidden="true" />
-                      <span className="min-w-0 truncate">{item.label}</span>
-                      {attentionCount > 0 && (
-                        <span className="section-tabs__badge" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
-                          {attentionCount}
-                        </span>
-                      )}
-                    </Tabs.Trigger>
-                  )
-                })}
+          <div className="flex flex-col gap-3 border-b border-border/60 lg:flex-row lg:items-end lg:justify-between">
+            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="flex min-w-0 gap-6 overflow-x-auto">
+              {SUBTABS.map((item) => {
+                const attentionCount = item.value === 'automation'
+                  ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
+                  : item.value === 'campaigns' && tree?.syncError ? 1 : 0
+                return (
+                  <Tabs.Trigger
+                    key={item.value}
+                    value={item.value}
+                    className="relative -mb-px inline-flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 border-transparent px-0 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground"
+                  >
+                    <span>{item.label}</span>
+                    {attentionCount > 0 ? <span className="text-xs tabular-nums text-warning" aria-label={`${attentionCount} item(ns) que exigem atenção`}>{attentionCount}</span> : null}
+                  </Tabs.Trigger>
+                )
+              })}
             </Tabs.List>
 
             {tab === 'campaigns' && (
-              <div className="tiktok-tabs-actions">
+              <div data-tour="ads-campaign-actions" className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <button
                   type="button"
-                  className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"
+                  className="btn-secondary inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold touch-manipulation cursor-pointer"
                   onClick={() => setAudiencesOpen(true)}
                   title="Gerenciar públicos de remarketing e semelhantes"
                 >
@@ -554,7 +672,7 @@ export function TikTokAdsView() {
                 </button>
                 <button
                   type="button"
-                  className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold h-9 rounded-lg shrink-0 touch-manipulation cursor-pointer"
+                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 touch-manipulation cursor-pointer"
                   onClick={() => openWriteFlow(() => setLauncherOpen(true))}
                   aria-label="Criar campanha"
                   title="Criar campanhas de venda com um ou vários vídeos"
@@ -566,10 +684,10 @@ export function TikTokAdsView() {
             )}
 
             {tab === 'catalog' && (
-              <div className="tiktok-tabs-actions">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <button
                   type="button"
-                  className="btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold h-9 rounded-lg touch-manipulation cursor-pointer"
+                  className="btn-primary inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold touch-manipulation cursor-pointer"
                   onClick={() => requestCatalog('magic')}
                 >
                   <Sparkles className="size-3.5" aria-hidden="true" />
@@ -579,18 +697,18 @@ export function TikTokAdsView() {
                   <DropdownMenu.Trigger asChild>
                     <button
                       type="button"
-                      className="btn-secondary inline-flex items-center justify-center size-9 p-0 rounded-lg touch-manipulation cursor-pointer"
+                      className="btn-secondary inline-flex size-10 items-center justify-center rounded-lg p-0 touch-manipulation cursor-pointer"
                       aria-label="Outras opções de criação"
                     >
                       <ChevronDown className="size-3.5" aria-hidden="true" />
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content align="end" sideOffset={6} className="glass glass-thick anim-pop-in z-50 min-w-44 rounded-xl border border-border bg-background p-1 shadow-xl">
-                      <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('batch')}>
+                    <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-48 rounded-xl border border-border bg-card p-1 shadow-lg">
+                      <DropdownMenu.Item className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('batch')}>
                         <UploadCloud className="size-3.5" aria-hidden="true" /> Importar planilha
                       </DropdownMenu.Item>
-                      <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('create')}>
+                      <DropdownMenu.Item className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-secondary" onSelect={() => requestCatalog('create')}>
                         <Plus className="size-3.5" aria-hidden="true" /> Criar manualmente
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
@@ -604,7 +722,7 @@ export function TikTokAdsView() {
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na
               verdade o Pipeboard bloqueou o acesso. Explica o porquê e o que fazer. */}
           {tree?.syncError && (
-            <GlassCard className="border-warning/40 bg-warning/10 p-4">
+            <section className="border-b border-warning/30 pb-4">
               <div className="flex items-start gap-3">
                 <Ban className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                 <div className="min-w-0 space-y-1">
@@ -622,7 +740,7 @@ export function TikTokAdsView() {
                       </p>
                       <button
                         type="button"
-                        className="btn-ghost mt-1 text-[11px]"
+                        className="btn-ghost mt-1 text-xs"
                         onClick={async () => {
                           try {
                             await apiSend(
@@ -649,55 +767,51 @@ export function TikTokAdsView() {
                   )}
                 </div>
               </div>
-            </GlassCard>
+            </section>
           )}
 
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
-            <Tabs.Content value="campaigns" className="space-y-4 outline-none">
-              {(adsOperationalSummary.pendingProposals > 0 || adsOperationalSummary.noSalesWithSpend > 0 || adsOperationalSummary.highRoas > 0 || (rejections?.open ?? 0) > 0) && (
-                <GlassCard className="p-4 sm:p-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="size-4 text-brand-cyan" aria-hidden="true" />
-                      <h2 className="text-sm font-semibold text-foreground">Prioridades</h2>
-                    </div>
-                    <div className="grid flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:max-w-4xl">
-                      {adsOperationalSummary.noSalesWithSpend > 0 ? (
-                        <button type="button" onClick={() => applyCampaignShortcut('sem venda')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
-                          <div className="flex items-center justify-between gap-2"><AlertCircle className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
-                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.noSalesWithSpend} sem venda</p>
-                                                  </button>
-                      ) : null}
-                      {adsOperationalSummary.pendingProposals > 0 ? (
-                        <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-warning/20 bg-warning/8 p-3 text-left transition hover:border-warning/40 hover:bg-warning/12">
-                          <div className="flex items-center justify-between gap-2"><Bot className="size-4 text-warning" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
-                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.pendingProposals} decisão{adsOperationalSummary.pendingProposals === 1 ? '' : 'ões'} pendente{adsOperationalSummary.pendingProposals === 1 ? '' : 's'}</p>
-                                                  </button>
-                      ) : null}
-                      {(rejections?.open ?? 0) > 0 ? (
-                        <button type="button" onClick={() => changeTab('automation')} className="group rounded-2xl border border-error/20 bg-error/8 p-3 text-left transition hover:border-error/40 hover:bg-error/12">
-                          <div className="flex items-center justify-between gap-2"><Ban className="size-4 text-error" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
-                          <p className="mt-2 text-sm font-semibold text-foreground">{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'}</p>
-                                                  </button>
-                      ) : null}
-                      {adsOperationalSummary.highRoas > 0 ? (
-                        <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="group rounded-2xl border border-brand-cyan/20 bg-brand-cyan/8 p-3 text-left transition hover:border-brand-cyan/40 hover:bg-brand-cyan/12">
-                          <div className="flex items-center justify-between gap-2"><TrendingUp className="size-4 text-brand-cyan" /><ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
-                          <p className="mt-2 text-sm font-semibold text-foreground">{adsOperationalSummary.highRoas} vencedora{adsOperationalSummary.highRoas === 1 ? '' : 's'}</p>
-                                                  </button>
-                      ) : null}
-                    </div>
+            <Tabs.Content value="campaigns" data-tour="ads-campaigns" className="space-y-4 outline-none">
+              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0) ? (
+                <section className="border-b border-border/60 pb-4">
+                  <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
+                  <div className="mt-2 divide-y divide-border/50">
+                    {adsOperationalSummary.noSalesWithSpend > 0 ? (
+                      <button type="button" onClick={() => applyCampaignShortcut('sem venda')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-warning hover:text-foreground">
+                        <span>{adsOperationalSummary.noSalesWithSpend} campanha{adsOperationalSummary.noSalesWithSpend === 1 ? '' : 's'} {adsOperationalSummary.noSalesWithSpend === 1 ? 'gastou' : 'gastaram'} sem vender</span>
+                        <span className="shrink-0 font-medium">Ver campanhas</span>
+                      </button>
+                    ) : null}
+                    {(rejections?.open ?? 0) > 0 ? (
+                      <button type="button" onClick={() => changeTab('automation')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-error hover:text-foreground">
+                        <span>{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'} em aberto</span>
+                        <span className="shrink-0 font-medium">Revisar</span>
+                      </button>
+                    ) : null}
                   </div>
-                </GlassCard>
-              )}
+                </section>
+              ) : null}
+
+              {adsOperationalSummary.highRoas > 0 ? (
+                <section className="border-b border-border/60 pb-4">
+                  <h2 className="text-sm font-semibold text-foreground">Oportunidades</h2>
+                  <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="mt-2 flex w-full items-center justify-between gap-3 py-2 text-left text-xs text-success hover:text-foreground">
+                    <span>{adsOperationalSummary.highRoas} campanha{adsOperationalSummary.highRoas === 1 ? '' : 's'} com ROAS acima de 2×</span>
+                    <span className="shrink-0 font-medium">Ver campanhas</span>
+                  </button>
+                </section>
+              ) : null}
               <NeedsYouInbox
                 key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
                 active={treeActive}
                 adAccountId={concreteAdvertiser}
+                currency={currency}
                 onOpenOps={() => openOps()}
                 onOpenHealth={() => setHealthOpen(true)}
-                onGoAutomations={() => changeTab('automation')}
+                onOpenAlerts={openPerformanceAlerts}
+                appearance="embedded"
+                showHealthAlarm={false}
               />
               <CampaignTree
               key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
@@ -730,37 +844,39 @@ export function TikTokAdsView() {
           {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
               Antes era página própria no menu; agora vive onde é usado. ── */}
           {tab === 'catalog' && (
-            <Tabs.Content value="catalog" className="min-w-0 outline-none" aria-label="Catálogos">
+            <Tabs.Content value="catalog" data-tour="ads-catalog" className="min-w-0 outline-none" aria-label="Catálogos">
               <CatalogManager key={`CatalogManager:${concreteAdvertiser}`}
                 request={catalogRequest}
                 onRequestHandled={() => setCatalogRequest(null)}
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
                 advertiserCurrency={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.currency || currency}
+                onLocalWorkStateChange={setCatalogLocalWork}
               />
             </Tabs.Content>
           )}
 
-          {/* Aprovações, estado e regras; ferramentas extras sob demanda. */}
-          {tab === 'automation' && (
-            <Tabs.Content value="automation" className="flex flex-col gap-4 outline-none">
-              <NeedsYouInbox key={`NeedsYouInbox:${concreteAdvertiser}`} active={treeActive} adAccountId={concreteAdvertiser} onOpenOps={() => openOps()} onOpenHealth={() => setHealthOpen(true)} onGoAutomations={() => openOps('safety')} />
-              <AutomationPanel key={`AutomationPanel:${concreteAdvertiser}`}
-                active={treeActive}
-                currency={currency}
-                adAccountId={concreteAdvertiser}
-                onOpenLimits={() => openOps('safety')}
-              />
-              <details className="rounded-xl border border-border p-4" onToggle={event => setToolsExpanded(event.currentTarget.open)}>
-                <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
-                {toolsExpanded && <div className="mt-4"><MagicOpsPanel key={`MagicOpsPanel:${concreteAdvertiser}`} active={treeActive} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} /></div>}
-              </details>
-            </Tabs.Content>
-          )}
+          {/* Aprovações, estado e regras; forceMount preserva drafts locais ao trocar de subaba,
+              enquanto `active` desliga polling quando Automações não está visível. */}
+          <Tabs.Content forceMount value="automation" data-tour="ads-automation" className="flex flex-col gap-4 outline-none data-[state=inactive]:hidden">
+            <NeedsYouInbox key={`NeedsYouInbox:${concreteAdvertiser}`} active={automationActive} adAccountId={concreteAdvertiser} currency={currency} onOpenOps={() => openOps()} onOpenHealth={() => setHealthOpen(true)} onOpenAlerts={openPerformanceAlerts} appearance="automation" />
+            <AutomationPanel key={`AutomationPanel:${concreteAdvertiser}`}
+              active={automationActive}
+              currency={currency}
+              adAccountId={concreteAdvertiser}
+              onOpenLimits={() => openOps('safety')}
+              onDirtyChange={setAutomationDirty}
+              focusAlertsRequest={alertsFocusRequest}
+            />
+            <details className="rounded-xl border border-border p-4" onToggle={event => { const open = event.currentTarget.open; setToolsExpanded(open); if (open) setToolsMounted(true) }}>
+              <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
+              {toolsMounted ? <div className="mt-4"><MagicOpsPanel key={`MagicOpsPanel:${concreteAdvertiser}`} active={automationActive && toolsExpanded} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} advertiserTimeZone={advertiserContextTimeZone} onDirtyChange={setMagicOpsDirty} externalDirty={automationDirty} /></div> : null}
+            </details>
+          </Tabs.Content>
         </Tabs.Root>
       )}
 
-      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} />
+      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} onConfigurePixel={() => { setAudiencesOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }} />
       {/* Fluxos de escrita */}
       <UniversalLauncherDialog key={`UniversalLauncherDialog:${concreteAdvertiser}`}
         open={launcherOpen}
@@ -770,6 +886,7 @@ export function TikTokAdsView() {
         onSuccess={() => { void refreshCampaignSurfaces() }}
         onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}
         onSpark={() => { setLauncherOpen(false); setSparkOpen(true) }}
+        onConfigurePixel={() => { setLauncherOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }}
       />
       <SparkAdDialog key={`SparkAdDialog:${concreteAdvertiser}`}
         open={sparkOpen}
@@ -790,6 +907,7 @@ export function TikTokAdsView() {
           setSmartPlusOpen(false)
           void refreshCampaignSurfaces()
         }}
+        onConfigurePixel={() => { setSmartPlusOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }}
       />
       <OpsDialog key={`OpsDialog:${concreteAdvertiser}`}
         open={opsOpen}
@@ -824,15 +942,67 @@ export function TikTokAdsView() {
         }}
       />
       <ConfirmDialog
+        open={confirmTabChange}
+        title={catalogLeaveCopy.title}
+        description={catalogLeaveCopy.description}
+        confirmLabel={catalogLeaveCopy.confirmLabel}
+        appearance="quiet"
+        tone="danger"
+        onConfirm={() => {
+          const historyNavigation = pendingHistoryNavigationRef.current
+          const next = pendingTab
+          setConfirmTabChange(false)
+          setPendingTab(null)
+          if (historyNavigation) {
+            pendingHistoryNavigationRef.current = null
+            allowNextPopRef.current = true
+            window.history.go(historyNavigation.delta)
+            return
+          }
+          if (next) commitTabChange(next)
+        }}
+        onClose={() => { pendingHistoryNavigationRef.current = null; setConfirmTabChange(false); setPendingTab(null) }}
+      />
+      <ConfirmDialog
+        open={confirmCatalogAction}
+        title={catalogCreateCopy.title}
+        description={catalogCreateCopy.description}
+        confirmLabel={catalogCreateCopy.confirmLabel}
+        appearance="quiet"
+        tone="danger"
+        onConfirm={() => { const action = pendingCatalogAction; setConfirmCatalogAction(false); setPendingCatalogAction(null); if (action) commitCatalogRequest(action) }}
+        onClose={() => { setConfirmCatalogAction(false); setPendingCatalogAction(null) }}
+      />
+      <ConfirmDialog
+        open={confirmAccountSwitch}
+        title="Trocar de conta e descartar alterações?"
+        description={hasCatalogLocalWork
+          ? (hasAutomationDraft
+              ? (catalogLocalWork.uploading
+                  ? 'Há configurações não salvas e vídeos sendo enviados nesta conta. Trocar de conta descartará os rascunhos locais e cancelará uploads ainda não concluídos.'
+                  : 'Há configurações não salvas e envios locais pendentes ou com falha nesta conta. Trocar de conta descartará os rascunhos e as opções locais de tentar novamente.')
+              : (catalogLocalWork.uploading
+                  ? 'Há vídeos sendo enviados nesta conta. Trocar de conta cancelará os uploads ainda não concluídos. Vídeos já enviados permanecem vinculados.'
+                  : 'Há envios locais pendentes ou com falha nesta conta. Trocar de conta descartará os itens ainda não concluídos e as opções locais de tentar novamente.'))
+          : 'Há configurações não salvas nesta conta de anúncios. Trocar de conta descartará esses rascunhos locais.'}
+        confirmLabel="Trocar de conta"
+        appearance="quiet"
+        tone="danger"
+        busy={switchingAccount}
+        onConfirm={() => { const id = pendingAdvertiserId; if (id) void commitAdvertiserChange(id) }}
+        onClose={() => { setConfirmAccountSwitch(false); setPendingAdvertiserId(null) }}
+      />
+      <ConfirmDialog
         open={confirmDisconnect}
         title="Desconectar a conta TikTok Ads?"
         description={
           <>
             O painel esquece a conexão e as campanhas deixam de aparecer aqui. Os anúncios continuam
-            rodando normalmente no TikTok — nada é pausado ou excluído.
+            rodando normalmente no TikTok — nada é pausado ou excluído.{hasAutomationDraft ? ' Alterações locais não salvas em Automações também serão descartadas.' : ''}{hasCatalogLocalWork ? (catalogLocalWork.uploading ? ' Uploads locais de criativos do Catálogo ainda não concluídos também serão cancelados.' : ' Envios locais pendentes ou com falha no Catálogo e suas opções de tentar novamente também serão descartados.') : ''}
           </>
         }
         confirmLabel="Desconectar"
+        appearance="quiet"
         busy={disconnecting}
         onConfirm={handleDisconnect}
         onClose={() => setConfirmDisconnect(false)}

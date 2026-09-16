@@ -1860,6 +1860,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  function effectiveProfitabilityConfig(accountId) {
+    const accountConfig = config.get(accountId);
+    const settings = accountConfig.settings || {};
+    const profit = Object.assign({}, accountConfig.profitability || {});
+    const configured = String(profit.fixedCostCurrency || '').toUpperCase();
+    const fallback = String(settings.defaultCurrency || 'BRL').toUpperCase();
+    profit.fixedCostCurrency = /^[A-Z]{3}$/.test(configured) ? configured : (/^[A-Z]{3}$/.test(fallback) ? fallback : 'BRL');
+    return profit;
+  }
+
   // Lucro líquido: TODAS as vendas reais da moeda dominante, menos estornos,
   // tarifas, impostos, custo de produto e gasto TikTok comparável. A moeda é
   // derivada dos eventos brutos da própria janela, não da preferência da conta.
@@ -1876,18 +1886,43 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const accountSettings = (config.get(req.account.id).settings || {});
       const reportingTimeZone = safeAdsTimeZone(accountSettings.timezone || DEFAULT_ADS_TIME_ZONE);
+      const validateTimeZone = (value) => {
+        const candidate = String(value || '').trim();
+        if (!candidate) return null;
+        try {
+          new Intl.DateTimeFormat('pt-BR', { timeZone: candidate }).format(new Date());
+          return candidate;
+        } catch (_) {
+          return null;
+        }
+      };
       let advertiserInfo = null;
       let syncState = null;
-      let advertiserTimeZone = reportingTimeZone;
+      let advertiserLookupTimeZone = null;
       if (advertiserId) {
         [advertiserInfo, syncState] = await Promise.all([
           pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
           adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
         ]);
-        advertiserTimeZone = safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone);
+        advertiserLookupTimeZone = validateTimeZone(advertiserInfo && advertiserInfo.timezone);
       }
-
-      const today = adsDay(new Date(), reportingTimeZone);
+      const advertiserContextTimeZone = validateTimeZone(q.calendarTimeZone);
+      const advertiserTimeZone = advertiserLookupTimeZone || advertiserContextTimeZone || reportingTimeZone;
+      let calendarSource = 'account';
+      let effectiveTimeZone = reportingTimeZone;
+      if (q.calendar === 'advertiser') {
+        if (advertiserLookupTimeZone) {
+          effectiveTimeZone = advertiserLookupTimeZone;
+          calendarSource = 'advertiser';
+        } else if (advertiserContextTimeZone) {
+          effectiveTimeZone = advertiserContextTimeZone;
+          calendarSource = 'advertiser_context';
+        } else {
+          effectiveTimeZone = reportingTimeZone;
+          calendarSource = 'account_fallback';
+        }
+      }
+      const today = adsDay(new Date(), effectiveTimeZone);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : today;
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : today;
       let spend = 0;
@@ -1908,7 +1943,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const snapshot = typeof stats.getStats === 'function' ? stats.getStats(req.account.id) || {} : {};
       const revenue = reportingIntegrity.summarizeRevenueEvents(snapshot.events || [], {
-        fromDate, toDate, timeZone: reportingTimeZone,
+        fromDate, toDate, timeZone: effectiveTimeZone,
         fallbackCurrency: String(accountSettings.defaultCurrency || 'BRL').toUpperCase(),
       });
       const accountCurrency = String(accountSettings.defaultCurrency || 'BRL').toUpperCase();
@@ -1927,16 +1962,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         currency,
         fromDate,
         toDate,
-        timeZone: reportingTimeZone,
-        config: config.get(req.account.id).profitability || {},
+        timeZone: effectiveTimeZone,
+        config: effectiveProfitabilityConfig(req.account.id),
         adSpendExact,
       });
       res.json(Object.assign(result, {
         advertiserId,
         revenueCurrency,
         spendCurrency,
-        timeZone: reportingTimeZone,
+        timeZone: effectiveTimeZone,
         spendTimeZone: advertiserTimeZone,
+        calendarSource,
         lastSyncedAt: syncState && syncState.last_synced_at || null,
         scope: 'advertiser_all_campaigns',
       }));
@@ -2005,7 +2041,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           fromDate: range.fromDate,
           toDate: range.toDate,
           timeZone: reportingTimeZone,
-          config: config.get(req.account.id).profitability || {},
+          config: effectiveProfitabilityConfig(req.account.id),
           adSpendExact: spendAvailable,
         }) : null;
 
@@ -2042,7 +2078,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.get('/api/ads/profitability/config', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ config: config.get(req.account.id).profitability || {} });
+    res.json({ config: effectiveProfitabilityConfig(req.account.id) });
   });
 
   app.put('/api/ads/profitability/config', dashboardAuth, async (req, res) => {

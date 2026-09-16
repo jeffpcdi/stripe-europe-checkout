@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Building2, ExternalLink, MoreHorizontal, RefreshCw, Unplug } from 'lucide-react'
-import { apiSend, fetcher } from '@/lib/api'
+import { ExternalLink, MoreHorizontal, RefreshCw, Unplug } from 'lucide-react'
+import { fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsAdvertiser } from '@/lib/types'
+import type { AdsAdvertiser, AdsSyncAdvertiserState } from '@/lib/types'
+import { timeAgo } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 const STATUS_SUFFIX: Record<string, string> = {
   approved: '',
@@ -15,32 +17,53 @@ const STATUS_SUFFIX: Record<string, string> = {
   unknown: '',
 }
 
+function syncPresentation(syncState: AdsSyncAdvertiserState | undefined, refreshing: boolean) {
+  if (refreshing || syncState?.status === 'syncing') {
+    return { label: 'Sincronizando…', tone: 'text-muted-foreground', title: 'Atualizando os dados desta conta.' }
+  }
+  if (!syncState) return { label: 'Status da sincronização indisponível', tone: 'text-muted-foreground', title: undefined }
+  if (syncState.status === 'ok') {
+    return {
+      label: syncState.lastSyncedAt ? `Atualizado ${timeAgo(syncState.lastSyncedAt)}` : 'Sincronização concluída',
+      tone: 'text-success',
+      title: syncState.lastSyncedAt ? `Última sincronização: ${syncState.lastSyncedAt}` : undefined,
+    }
+  }
+  if (syncState.status === 'never') return { label: 'Aguardando primeira sincronização', tone: 'text-warning', title: syncState.lastError || undefined }
+  if (syncState.status === 'error') return { label: 'Falha na última sincronização', tone: 'text-error', title: syncState.lastError || undefined }
+  if (syncState.status === 'blocked') return { label: 'Sincronização bloqueada', tone: 'text-error', title: syncState.lastError || undefined }
+  if (syncState.status === 'unauthorized') return { label: 'Sincronização sem autorização', tone: 'text-error', title: syncState.lastError || undefined }
+  return { label: `Sincronização · ${syncState.status}`, tone: 'text-muted-foreground', title: syncState.lastError || undefined }
+}
+
 /** Conta do TikTok. O período vem exclusivamente do calendário global. */
 export function AdsContextBar({
   advertisers,
   selectedAdvertiser,
   refreshing,
-  onAdvertiserChanged,
+  syncState,
+  onAdvertiserChangeRequested,
+  switching = false,
   onRefresh,
   onDisconnect,
 }: {
   advertisers: AdsAdvertiser[]
   selectedAdvertiser: string
   refreshing: boolean
-  onAdvertiserChanged: (id: string) => void
+  syncState?: AdsSyncAdvertiserState
+  onAdvertiserChangeRequested: (id: string) => void | Promise<void>
+  switching?: boolean
   onRefresh: () => void
   onDisconnect: (() => void) | null
 }) {
   const [switchingAdvertiser, setSwitchingAdvertiser] = useState(false)
+  const sync = syncPresentation(syncState, refreshing)
 
   async function handleSelectAdvertiser(id: string) {
-    if (!id || switchingAdvertiser) return
+    if (!id || switchingAdvertiser || switching || id === selectedAdvertiser) return
     setSwitchingAdvertiser(true)
     try {
-      const res = await apiSend<{ ok: boolean; advertiserId: string }>('/api/ads/accounts/select', 'POST', { advertiserId: id })
-      onAdvertiserChanged(res.advertiserId)
-    } catch (e) {
-      toast.error('Falha ao selecionar a conta de anúncio', { hint: e instanceof Error ? e.message : undefined })
+      await onAdvertiserChangeRequested(id)
     } finally {
       setSwitchingAdvertiser(false)
     }
@@ -56,13 +79,14 @@ export function AdsContextBar({
   }
 
   return (
-    <div role="toolbar" aria-label="Conta do TikTok Ads" data-tour="ads-context" className="ads-account-context flex items-center gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-xs backdrop-blur-md">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <Building2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <div role="toolbar" aria-label="Conta do TikTok Ads" data-tour="ads-context" className="ads-account-context flex flex-col gap-2 border-b border-border/60 pb-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <label htmlFor="ads-account-select" className="mb-1.5 block text-xs font-medium text-muted-foreground">Conta de anúncios</label>
         <select
-          className="w-full min-w-0 max-w-xl truncate rounded-lg border border-border/60 bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-border focus:border-primary/50 focus:outline-none"
+          id="ads-account-select"
+          className="h-10 w-full min-w-0 max-w-xl truncate rounded-lg border border-border/70 bg-background px-3 text-sm font-medium text-foreground transition-colors hover:border-border focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
           value={selectedAdvertiser}
-          disabled={switchingAdvertiser || advertisers.length === 0}
+          disabled={switchingAdvertiser || switching || advertisers.length === 0}
           onChange={(e) => handleSelectAdvertiser(e.target.value)}
           aria-label="Selecionar conta de anúncio"
         >
@@ -75,27 +99,46 @@ export function AdsContextBar({
         </select>
       </div>
 
-      <button type="button" className="ads-context-icon" onClick={onRefresh} disabled={refreshing || !selectedAdvertiser} aria-label="Atualizar dados do TikTok" title="Atualizar dados do TikTok">
-        <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-      </button>
+      <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+        {selectedAdvertiser ? (
+          <span className={cn('min-w-0 truncate text-xs font-medium', sync.tone)} title={sync.title}>
+            {sync.label}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="inline-flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          onClick={onRefresh}
+          disabled={refreshing || !selectedAdvertiser}
+          aria-label="Atualizar dados do TikTok"
+          title="Atualizar dados do TikTok"
+        >
+          <RefreshCw className={`size-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+        </button>
 
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button type="button" className="ads-context-icon" aria-label="Mais ações da conta" title="Mais ações da conta">
-            <MoreHorizontal className="size-3.5" aria-hidden="true" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content align="end" sideOffset={6} className="glass glass-thick anim-pop-in z-50 min-w-52 rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl">
-            <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none data-[highlighted]:bg-secondary" onSelect={openCreateAccount}>
-              <ExternalLink className="size-3.5" aria-hidden="true" />Criar conta no TikTok
-            </DropdownMenu.Item>
-            {onDisconnect ? <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-error outline-none data-[highlighted]:bg-error/10" onSelect={onDisconnect}>
-              <Unplug className="size-3.5" aria-hidden="true" />Desconectar
-            </DropdownMenu.Item> : null}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Mais ações da conta"
+              title="Mais ações da conta"
+            >
+              <MoreHorizontal className="size-4" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-52 rounded-lg border border-border bg-background p-1.5 shadow-lg">
+              <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 text-sm text-foreground outline-none data-[highlighted]:bg-secondary" onSelect={openCreateAccount}>
+                <ExternalLink className="size-4" aria-hidden="true" />Criar conta no TikTok
+              </DropdownMenu.Item>
+              {onDisconnect ? <DropdownMenu.Item className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 text-sm text-error outline-none data-[highlighted]:bg-error/10" onSelect={onDisconnect}>
+                <Unplug className="size-4" aria-hidden="true" />Desconectar
+              </DropdownMenu.Item> : null}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
     </div>
   )
 }

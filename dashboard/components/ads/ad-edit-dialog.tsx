@@ -1,11 +1,6 @@
 'use client'
 
 import { Modal } from '@/components/ui/modal'
-
-// Editar um anúncio EXISTENTE sem recriar — texto, botão (CTA) e link de
-// destino. Fecha o motivo nº 1 de abrir o TikTok Ads Manager. Patch parcial:
-// só os campos preenchidos são enviados (PUT /api/ads/:adId { creative }).
-
 import { useState } from 'react'
 import { Loader2, Check } from 'lucide-react'
 import { apiSend } from '@/lib/api'
@@ -13,6 +8,8 @@ import { toast } from '@/lib/toast'
 import type { AdsTreeAd } from '@/lib/types'
 import { TIKTOK_CTA_OPTIONS } from './tiktok-contracts'
 
+// Edita um anúncio existente sem recriar. O patch continua parcial: somente
+// campos realmente alterados são enviados ao endpoint já existente.
 export function AdEditDialog({
   ad,
   adAccountId,
@@ -31,25 +28,32 @@ export function AdEditDialog({
   const [saving, setSaving] = useState(false)
 
   if (!ad) return null
+
   const adId = ad.platformAdId || ad._id || ''
   const productLink = Boolean(ad.catalogId) && (
     String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
     || String(ad.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
   )
-
-  const linkInvalid = !productLink && linkUrl.trim() !== '' && !/^https?:\/\/\S+/.test(linkUrl.trim())
+  const initialName = ad.name ?? ''
+  const initialText = ad.creative?.body ?? ''
+  const initialLink = ad.creative?.linkUrl ?? ''
+  const trimmedLink = linkUrl.trim()
+  const linkInvalid = !productLink && trimmedLink !== '' && !/^https?:\/\/\S+/.test(trimmedLink)
+  const hasChanges = Boolean(
+    (name.trim() && name.trim() !== initialName)
+    || text !== initialText
+    || (!productLink && trimmedLink && trimmedLink !== initialLink)
+    || cta,
+  )
 
   async function handleSave() {
-    if (linkInvalid) return
+    if (linkInvalid || !hasChanges) return
     const creative: Record<string, string> = {}
-    if (name.trim() && name.trim() !== ad!.name) creative.name = name.trim()
-    if (text !== (ad!.creative?.body ?? '')) creative.text = text
-    if (!productLink && linkUrl.trim() && linkUrl.trim() !== (ad!.creative?.linkUrl ?? '')) creative.linkUrl = linkUrl.trim()
+    if (name.trim() && name.trim() !== initialName) creative.name = name.trim()
+    if (text !== initialText) creative.text = text
+    if (!productLink && trimmedLink && trimmedLink !== initialLink) creative.linkUrl = trimmedLink
     if (cta) creative.callToAction = cta
-    if (Object.keys(creative).length === 0) {
-      toast.info('Nada mudou — edite algum campo antes de salvar.')
-      return
-    }
+
     setSaving(true)
     try {
       const res = await apiSend<{ dryRun?: boolean }>(`/api/ads/${encodeURIComponent(adId)}`, 'PUT', {
@@ -57,54 +61,77 @@ export function AdEditDialog({
         adAccountId,
       })
       if (res.dryRun) toast.info('Modo teste: nada foi enviado ao TikTok')
-      else toast.success('Anúncio atualizado', { hint: 'A revisão do TikTok pode reavaliar o anúncio.' })
+      else toast.success('Anúncio atualizado', { hint: 'A alteração foi enviada e pode iniciar uma nova revisão no TikTok.' })
       onSaved()
       onClose()
-    } catch (e) {
-      toast.error('Falha ao atualizar o anúncio', { hint: e instanceof Error ? e.message : undefined })
+    } catch (error) {
+      toast.error('Falha ao atualizar o anúncio', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setSaving(false)
     }
   }
 
-  const field = 'input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground'
+  const field = 'h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-brand-cyan/70 focus:ring-2 focus:ring-brand-cyan/10'
 
-  return (<Modal isOpen={Boolean(ad)} onClose={onClose} busy={saving} title="Editar anúncio" footer={<div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-            <p className="text-[11px] text-muted-foreground">
-              {productLink ? 'Destino: Link de cada produto no catálogo.' : linkInvalid ? 'Link deve começar com http(s)://' : 'Só os campos alterados são enviados.'}
-            </p>
-            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSave} disabled={saving || linkInvalid}>
-              {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
-              Salvar
-            </button>
-          </div>}><fieldset disabled={saving} className="launch-form">          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-foreground">Nome do anúncio</span>
-            <input className={field} value={name} onChange={(e) => setName(e.target.value)} maxLength={512} />
+  return (
+    <Modal
+      isOpen={Boolean(ad)}
+      onClose={onClose}
+      busy={saving}
+      title="Editar anúncio"
+      description="Somente os campos alterados serão enviados ao TikTok. Alterações podem iniciar uma nova revisão do anúncio."
+      footer={(
+        <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {productLink
+              ? 'O destino deste anúncio é definido nos produtos do catálogo.'
+              : hasChanges
+                ? 'Revise os campos alterados antes de salvar.'
+                : 'Altere pelo menos um campo para habilitar o salvamento.'}
+          </p>
+          <button type="button" className="btn-primary min-h-10 shrink-0 text-xs" onClick={handleSave} disabled={saving || linkInvalid || !hasChanges}>
+            {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
+            Salvar
+          </button>
+        </div>
+      )}
+    >
+      <fieldset disabled={saving} className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5 text-xs">
+          <span className="font-medium text-foreground">Nome do anúncio</span>
+          <input className={field} value={name} onChange={(event) => setName(event.target.value)} maxLength={512} />
+        </label>
+
+        <label className="flex flex-col gap-1.5 text-xs">
+          <span className="font-medium text-foreground">Texto do anúncio</span>
+          <textarea className={`${field} min-h-24 resize-y py-3`} value={text} onChange={(event) => setText(event.target.value)} maxLength={100} placeholder="Chamada curta que aparece no anúncio" />
+          <span className="text-xs text-muted-foreground">{text.length}/100</span>
+        </label>
+
+        <div className={productLink ? '' : 'grid gap-4 md:grid-cols-2'}>
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="font-medium text-foreground">Botão (CTA)</span>
+            <select className={field} value={cta} onChange={(event) => setCta(event.target.value)}>
+              <option value="">Manter atual</option>
+              {TIKTOK_CTA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-foreground">Texto do anúncio</span>
-            <textarea className={`${field} min-h-16 resize-y`} value={text} onChange={(e) => setText(e.target.value)} maxLength={100} placeholder="Chamada curta que aparece no anúncio" />
-            <span className="text-[10px] text-muted-foreground">{text.length}/100</span>
-          </label>
-
-          <div className={`grid gap-3 ${productLink ? '' : 'grid-cols-2'}`}>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Botão (CTA)</span>
-              <select className={field} value={cta} onChange={(e) => setCta(e.target.value)}>
-                <option value="">Manter atual</option>
-                {TIKTOK_CTA_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
+          {!productLink ? (
+            <label className="flex flex-col gap-1.5 text-xs">
+              <span className="font-medium text-foreground">Link de destino</span>
+              <input className={`${field} ${linkInvalid ? 'border-error/60 focus:border-error/70 focus:ring-error/10' : ''}`} value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://…" />
+              {linkInvalid ? <span className="text-xs text-error">O link precisa começar com http:// ou https://.</span> : <span className="text-xs text-muted-foreground">O destino só é enviado se este campo for alterado.</span>}
             </label>
-            {!productLink && (
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-foreground">Link de destino</span>
-                <input className={`${field} ${linkInvalid ? 'border-error/60' : ''}`} value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://…" />
-              </label>
-            )}
-          </div>
+          ) : null}
+        </div>
 
-</fieldset></Modal>)
+        {productLink ? (
+          <div className="border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+            <strong className="font-medium text-foreground">Destino controlado pelo catálogo.</strong> O link deste anúncio vem dos produtos selecionados e não pode ser substituído aqui.
+          </div>
+        ) : null}
+      </fieldset>
+    </Modal>
+  )
 }

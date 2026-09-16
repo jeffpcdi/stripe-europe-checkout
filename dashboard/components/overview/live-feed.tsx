@@ -1,16 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowUpRight, History, MapPin, CheckCircle2, ShoppingCart, CreditCard, Eye } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 import type { Lead } from '@/lib/types'
 import { countryFlag, timeAgo, fmtCurrency } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 
-const STAGES: Record<string, { label: string; icon: typeof Eye; badgeClass: string }> = {
-  visit: { label: 'Visita', icon: Eye, badgeClass: 'text-muted-foreground bg-secondary/50 border-border/50' },
-  checkout: { label: 'Checkout', icon: ShoppingCart, badgeClass: 'text-brand-cyan bg-brand-cyan/10 border-brand-cyan/25' },
-  payment: { label: 'Pagamento', icon: CreditCard, badgeClass: 'text-warning bg-warning/10 border-warning/25' },
-  purchased: { label: 'Venda', icon: CheckCircle2, badgeClass: 'text-success bg-success/15 border-success/30 font-semibold shadow-[0_0_10px_rgba(34,197,94,0.2)]' },
+const STAGES: Record<string, { label: string; tone: 'neutral' | 'cyan' | 'warning' | 'success' }> = {
+  visit: { label: 'Visita', tone: 'neutral' },
+  checkout: { label: 'Checkout', tone: 'cyan' },
+  payment: { label: 'Pagamento', tone: 'warning' },
+  purchased: { label: 'Compra', tone: 'success' },
 }
 
 export function LiveFeed({ leads }: { leads: Lead[] }) {
@@ -20,47 +20,42 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
     .slice(0, 4)
 
   return (
-    <section className="recent-visits surface-card" aria-label="Atividade ao vivo">
-      <header className="overview-section-heading">
-        <h2><span className="overview-section-icon"><History size={16} aria-hidden="true" /></span>Atividade</h2>
+    <section className="recent-visits surface-card" aria-label="Atividade recente">
+      <header className="overview-section-heading overview-section-heading--plain">
+        <h2>Atividade</h2>
         <Link href="/activity" className="overview-section-link">Ver tudo <ArrowUpRight size={13} aria-hidden="true" /></Link>
       </header>
+
       {!rows.length ? (
         <div className="recent-visits-empty">
-          <MapPin size={22} strokeWidth={1.3} aria-hidden="true" />
-          <p>Sem atividade recente.</p>
+          <p>Nenhuma atividade recente</p>
         </div>
       ) : (
         <ul className="recent-visits-list">
           {rows.map((lead) => {
             const stageInfo = STAGES[lead.stage] || STAGES.visit
-            const StageIcon = stageInfo.icon
             const isPurchased = lead.stage === 'purchased'
+            const place = lead.city || (lead.country ? countryName(lead.country) : lead.countryName) || 'Local não informado'
 
             return (
               <li key={lead.id} className="recent-visit-row" data-purchased={isPurchased}>
                 <span className="recent-visit-place" aria-hidden="true">
-                  {lead.country ? countryFlag(lead.country) : <MapPin size={16} />}
+                  {lead.country ? countryFlag(lead.country) : '•'}
                 </span>
-                <div className="recent-visit-detail">
-                  <div className="recent-visit-description">
-                    <strong className="truncate text-xs font-semibold text-foreground max-w-full">
-                      {lead.city || (lead.country ? countryName(lead.country) : lead.countryName) || 'Local não informado'}
-                    </strong>
-                    <span className={`recent-visit-stage inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${stageInfo.badgeClass}`}>
-                      <StageIcon size={10} aria-hidden="true" />
-                      {stageInfo.label}
-                    </span>
-                  </div>
-                </div>
-                <div className="recent-visit-time flex shrink-0 flex-col items-end gap-0.5">
+                <strong className="recent-visit-location" title={place}>{place}</strong>
+                <span className="recent-visit-stage" data-tone={stageInfo.tone}>
+                  {stageInfo.label}
                   {isPurchased && Number(lead.amount) > 0 && (
-                    <strong data-sensitive className="font-semibold text-success">{fmtCurrency(lead.amount as number, lead.currency)}</strong>
+                    <span data-sensitive className="recent-visit-amount"> · {fmtCurrency(lead.amount as number, lead.currency)}</span>
                   )}
-                  <time dateTime={lead.at} className="text-[11px] text-muted-foreground font-mono" title={new Date(lead.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}>
-                    {timeAgo(lead.at)}
-                  </time>
-                </div>
+                </span>
+                <time
+                  dateTime={lead.at}
+                  className="recent-visit-time"
+                  title={new Date(lead.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                >
+                  {timeAgo(lead.at)}
+                </time>
               </li>
             )
           })}

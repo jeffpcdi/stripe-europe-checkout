@@ -88,6 +88,12 @@ export function stripCurrency(price: string): string {
   const m = String(price || '').trim().match(/^(\d+(?:\.\d{1,2})?)\s+[A-Za-z]{3}$/)
   return m ? m[1] : String(price || '')
 }
+
+function buildInitialProductForm(product: AdsCatalogProduct | null): Record<string, string> {
+  if (product?.data) return { ...product.data, price: stripCurrency(product.data.price || ''), sale_price: stripCurrency(product.data.sale_price || '') }
+  return { sku_id: generateSku(), condition: 'new', availability: 'in stock' }
+}
+
 export function ProductEditor({
   catalogId,
   advertiserId,
@@ -108,16 +114,22 @@ export function ProductEditor({
   const ref = useRef<HTMLDivElement>(null)
   // Menos preenchimento manual: produto novo já nasce com SKU gerado,
   // condição "new" e disponibilidade "in stock" (tudo editável).
-  const [form, setForm] = useState<Record<string, string>>((): Record<string, string> => {
-    if (product?.data) return { ...product.data, price: stripCurrency(product.data.price || ''), sale_price: stripCurrency(product.data.sale_price || '') }
-    return { sku_id: generateSku(), condition: 'new', availability: 'in stock' }
-  })
+  const initialFormRef = useRef<Record<string, string>>(buildInitialProductForm(product))
+  const [form, setForm] = useState<Record<string, string>>(() => ({ ...initialFormRef.current }))
   const [busy, setBusy] = useState(false)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const busyRef = useRef(false)
   const [showOptional, setShowOptional] = useState(false)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
-  useModalA11y(true, ref, onClose)
+  const isNewDraft = !product || product.id === 'preview' || product.id === 'duplicate'
+  const isDirty = useMemo(() => isNewDraft || JSON.stringify(form) !== JSON.stringify(initialFormRef.current), [form, isNewDraft])
+  function requestClose() {
+    if (busy) return
+    if (isDirty) setConfirmDiscard(true)
+    else onClose()
+  }
+  useModalA11y(true, ref, requestClose)
 
   const fields = spec?.fields ?? []
   const required = useMemo(() => new Set(spec?.required ?? []), [spec])
@@ -143,7 +155,6 @@ export function ProductEditor({
         'POST',
         { data, productId: persistedProductId, createOnly: !persistedProductId },
       )
-      toast.success('Produto salvo como rascunho', { hint: 'Use Sincronizar quando quiser enviar as alterações ao TikTok.' })
       onSaved()
     } catch (e) {
       toast.error('Falha ao salvar produto', { hint: e instanceof Error ? e.message : undefined })
@@ -165,10 +176,11 @@ export function ProductEditor({
   if (!mounted) return null
 
   return createPortal(
+    <>
     <div
       className="ads-dialog fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Editar produto" tabIndex={-1} className="w-full outline-none sm:max-w-lg">
@@ -179,7 +191,7 @@ export function ProductEditor({
             <h3 className="text-sm font-semibold text-foreground">
               {product?.id === 'preview' ? 'Revisar dados importados' : product?.id === 'duplicate' ? 'Revisar produto duplicado' : product ? 'Editar produto' : 'Novo produto'}
             </h3>
-            <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} aria-label="Fechar">
+            <button type="button" className="btn-ghost !size-10 justify-center p-0" onClick={requestClose} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />
             </button>
           </div>
@@ -187,18 +199,21 @@ export function ProductEditor({
           <div className="flex flex-col gap-3 overflow-y-auto pr-1">
             {requiredFields.map(renderField)}
 
-            <div className="grid gap-2 rounded-lg border border-border bg-background p-3 sm:grid-cols-2" aria-label="Verificação preventiva">
+            <div className="border-y border-border/60 py-3" aria-label="Verificação preventiva">
+              <p className="mb-2 text-xs font-semibold text-foreground">Verificação antes de salvar</p>
+              <div className="divide-y divide-border/40">
               {[
                 { label: 'Campos obrigatórios', ok: missingRequired.length === 0 },
                 { label: 'Página HTTPS', ok: /^https:\/\//i.test(form.link || '') },
                 { label: 'Imagem HTTPS', ok: /^https:\/\//i.test(form.image_link || '') },
                 { label: `Preço em ${currency}`, ok: Boolean(formatPriceForFeed(form.price || '', currency).match(/^\d+(?:\.\d{1,2})?\s+[A-Z]{3}$/)) },
               ].map((item) => (
-                <span key={item.label} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span key={item.label} className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
                   {item.ok ? <Check className="size-3 text-success" aria-hidden="true" /> : <AlertCircle className="size-3 text-warning" aria-hidden="true" />}
                   {item.label}
                 </span>
               ))}
+              </div>
             </div>
 
             {optionalFields.length > 0 && (
@@ -216,19 +231,29 @@ export function ProductEditor({
           </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="text-[11px] text-muted-foreground min-w-0">
+            <div className="min-w-0 text-xs text-muted-foreground">
               {missingRequired.length > 0 ? (
                 <span className="text-warning">Campos obrigatórios: {missingRequired.map((k) => FIELD_LABELS[k] || k).join(', ')}</span>
-              ) : null}
+              ) : isDirty ? <span>Alterações não salvas</span> : <span>Nenhuma alteração pendente</span>}
             </div>
-            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSave} disabled={busy || missingRequired.length > 0}>
+            <button type="button" className="btn-primary min-h-10 shrink-0 text-sm" onClick={handleSave} disabled={busy || missingRequired.length > 0 || !isDirty}>
               {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
               Salvar produto
             </button>
           </div>
         </div>
       </div>
-    </div>,
+    </div>
+    <ConfirmDialog
+      open={confirmDiscard}
+      appearance="quiet"
+      title="Descartar alterações?"
+      description="As mudanças feitas neste produto ainda não foram salvas."
+      confirmLabel="Descartar"
+      onConfirm={() => { setConfirmDiscard(false); onClose() }}
+      onClose={() => setConfirmDiscard(false)}
+    />
+    </>,
     document.body,
   )
 }
@@ -298,7 +323,7 @@ export function PriceField({
           placeholder="Ex.: 9.99"
           inputMode="decimal"
         />
-        <span className="pointer-events-none absolute right-3 text-[11px] font-semibold text-muted-foreground">
+        <span className="pointer-events-none absolute right-3 text-xs font-semibold text-muted-foreground">
           {currency.toUpperCase()}
         </span>
       </span>
@@ -392,7 +417,6 @@ export function ImageField({
       <span className="flex items-baseline gap-1.5">
         <span className="font-medium text-foreground">{label}</span>
         {field.required && <span className="text-error">*</span>}
-        <span className="text-[10px] text-muted-foreground">{field.key}</span>
       </span>
       <div className="flex items-center gap-2">
         {/* Preview compacto (o TikTok exige ≥ 500×500 na origem) */}

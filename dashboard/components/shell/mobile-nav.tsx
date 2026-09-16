@@ -26,7 +26,7 @@ export function MobileNav() {
           <Dialog.Title className="sr-only">Menu de navegação</Dialog.Title>
           <div className="mb-5 flex items-center justify-between border-b border-white/[0.06] pb-4">
             <Link href="/" onClick={() => setOpen(false)} className="group flex items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4" aria-label="ROI-NADOS">
-              <Image src="/dashboard/roi-nados-wordmark.jpeg" alt="ROI-NADOS" width={720} height={180} className="h-8 w-auto object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
+              <Image src="/dashboard/roi-nados-wordmark-ui.png" alt="ROI-NADOS" width={860} height={257} className="h-8 w-auto object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
             </Link>
             <Dialog.Close asChild>
               <button type="button" className="flex size-8 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[var(--hover)] hover:text-foreground" aria-label="Fechar menu">

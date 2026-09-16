@@ -3,7 +3,7 @@
 // Árvore de campanhas do TikTok Ads — campanha → ad group → ad, com métricas
 // por nível, filtros de status, ordenação, paginação e ações rápidas
 // (pausar/ativar, duplicar, excluir anúncio). Segue o padrão visual das
-// tabelas do dashboard (linhas com stagger, status dots, ações no hover).
+// tabelas do dashboard; a expansão funciona como estrutura rápida e touch-friendly.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -16,9 +16,7 @@ import {
   Copy,
   Trash2,
   Loader2,
-  Megaphone,
   Layers,
-  Clapperboard,
   ExternalLink,
   AlertTriangle,
   BadgeCheck,
@@ -42,7 +40,6 @@ import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus, AdsCampaignDecisionsResponse, AdsCampaignDecisionEntry } from '@/lib/types'
-import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -50,7 +47,6 @@ import { AdEditDialog } from './ad-edit-dialog'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import { fmtCompact, cleanCampaignName, timeAgo } from '@/lib/format'
 import { Modal } from '@/components/ui/modal'
-import { CampaignMetricGrid } from './campaign-metric-grid'
 import { campaignMetrics, campaignBudget, campaignStatusOutcome, type CampaignStatusResult } from '@/lib/campaign-metrics'
 import { actionFeedback } from '@/lib/action-feedback'
 import { cn } from '@/lib/utils'
@@ -192,6 +188,21 @@ export function StatusPill({ status }: { status?: AdsNodeStatus }) {
   )
 }
 
+
+function StatusInline({ status }: { status?: AdsNodeStatus }) {
+  const meta = STATUS_META[status ?? ''] ?? {
+    label: status || '—',
+    cls: 'text-muted-foreground',
+    dot: 'bg-muted-foreground',
+  }
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', meta.cls)}>
+      <span className={cn('size-1.5 rounded-full', meta.dot)} aria-hidden="true" />
+      {meta.label}
+    </span>
+  )
+}
+
 export function CampaignActivationToggle({
   status,
   busy,
@@ -209,7 +220,8 @@ export function CampaignActivationToggle({
   const isPaused = status === 'paused'
 
   if (!isActive && !isPaused) {
-    return <StatusPill status={status} />
+    const meta = STATUS_META[status ?? ''] ?? { label: status || '—', cls: 'text-muted-foreground', dot: 'bg-muted-foreground' }
+    return <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', meta.cls)}><span className={cn('size-1.5 rounded-full', meta.dot)} aria-hidden="true" />{meta.label}</span>
   }
 
   return (
@@ -226,7 +238,7 @@ export function CampaignActivationToggle({
       aria-label={`${isActive ? 'Pausar' : 'Ativar'} campanha ${name || ''}`}
       className={`group relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
         isActive
-          ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.35)]'
+          ? 'bg-emerald-500'
           : 'bg-muted-foreground/30 hover:bg-muted-foreground/45'
       }`}
     >
@@ -279,7 +291,7 @@ export function CampaignQuickActionsDropdown({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex size-11 items-center justify-center rounded-md border border-border/50 bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-border transition-colors cursor-pointer"
+          className="flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
           aria-label={`Ações rápidas da campanha ${c.campaignName || id}`}
           title="Ações rápidas e status"
         >
@@ -290,27 +302,8 @@ export function CampaignQuickActionsDropdown({
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-xl border border-white/10 bg-background/95 p-1.5 shadow-2xl backdrop-blur-xl text-xs"
+          className="z-50 min-w-52 rounded-lg border border-border bg-background p-1.5 text-xs shadow-lg"
         >
-          {/* Status info header */}
-          <div className="px-2 py-1.5 border-b border-border/40 mb-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Status</span>
-              <StatusPill status={c.status} />
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-              <span>{c.campaignKind === 'smart_plus' ? 'Smart+' : 'Campanha padrão'}</span>
-              {c.reviewStatus === 'approved' && (
-                <span className="inline-flex items-center gap-0.5 text-emerald-400 font-medium">
-                  <BadgeCheck className="size-3 text-emerald-400" /> Aprovada
-                </span>
-              )}
-              {c.childStatus && c.childStatus !== c.status && (
-                <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || c.childStatus}</span>
-              )}
-            </div>
-          </div>
-
           {/* Toggle status action */}
           {(isActive || isPaused) && onToggleStatus && (
             <DropdownMenu.Item
@@ -351,7 +344,7 @@ export function CampaignQuickActionsDropdown({
               onSelect={() => onOpenDetail(c)}
             >
               <BarChart3 className="size-3.5 text-muted-foreground" />
-              <span>Métricas e gráficos</span>
+              <span>Abrir detalhes</span>
             </DropdownMenu.Item>
           )}
 
@@ -379,7 +372,7 @@ export function CampaignQuickActionsDropdown({
             }}
           >
             <Copy className="size-3.5" />
-            <span className="font-mono">Copiar ID ({id})</span>
+            <span>Copiar ID</span>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -453,7 +446,7 @@ function BudgetControl({
                 if (event.key === 'Enter') void save()
                 if (event.key === 'Escape' && !busy) setEditing(false)
               }}
-              className="w-20 min-h-8 rounded border border-border bg-background px-1 py-0.5 text-[10px] font-mono tabular-nums text-foreground"
+              className="h-9 w-24 rounded-lg border border-border bg-background px-2 text-xs tabular-nums text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               aria-label={`Novo orçamento de ${label}`}
             />
             <button
@@ -478,7 +471,7 @@ function BudgetControl({
         ) : (
           <button
             type="button"
-            className="group inline-flex items-center gap-1 text-[11px] font-mono font-medium text-foreground hover:text-primary transition-colors cursor-pointer"
+            className="group inline-flex items-center gap-1 text-xs font-medium tabular-nums text-foreground transition-colors hover:text-primary cursor-pointer"
             onClick={() => {
               setValue(String(currentAmount))
               setEditing(true)
@@ -486,8 +479,8 @@ function BudgetControl({
             title="Clique para editar orçamento"
           >
             <span>{fmtMoney(currentAmount, currency)}</span>
-            <span className="text-[10px] text-muted-foreground">/{type === 'lifetime' ? 'tot' : 'd'}</span>
-            <Pencil className="size-2.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">/{type === 'lifetime' ? 'total' : 'dia'}</span>
+            <Pencil className="size-3 text-muted-foreground/70 transition-colors group-hover:text-primary" />
           </button>
         )}
       </div>
@@ -504,7 +497,7 @@ function BudgetControl({
               autoFocus type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={value}
               disabled={busy} onChange={(event) => setValue(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') void save(); if (event.key === 'Escape' && !busy) setEditing(false) }}
-              className="input-neon w-24 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums"
+              className="h-9 w-28 rounded-lg border border-border bg-background px-2 text-xs tabular-nums text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               aria-label={`Novo orçamento de ${label}`}
             />
             <button type="button" className="btn-secondary text-xs" onClick={() => void save()} disabled={busy} aria-label="Salvar">
@@ -513,7 +506,7 @@ function BudgetControl({
             <button type="button" className="btn-ghost !p-1" onClick={() => setEditing(false)} disabled={busy} aria-label="Cancelar"><X className="size-3" /></button>
           </span>
         ) : (
-          <button type="button" className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums text-foreground" onClick={() => { setValue(String(currentAmount)); setEditing(true) }}>
+          <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-foreground" onClick={() => { setValue(String(currentAmount)); setEditing(true) }}>
             {fmtMoney(currentAmount, currency)}/{type === 'lifetime' ? 'total' : 'dia'} <Pencil className="size-3 text-muted-foreground" />
           </button>
         )}
@@ -527,7 +520,7 @@ const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
-  { value: 'approved', label: 'Validadas' },
+  { value: 'approved', label: 'Aprovadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
 ]
@@ -536,7 +529,7 @@ const ALL_STATUS_OPTIONS = [
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
-  { value: 'approved', label: 'Validadas' },
+  { value: 'approved', label: 'Aprovadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
 ]
@@ -637,7 +630,14 @@ export function CampaignTree({
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
   const [quickFilter, setQuickFilter] = useState<'all' | 'with_sales' | 'high_roas' | 'no_sales'>('all')
   const [showFilters, setShowFilters] = useState(false)
-  const [hoveredVideo, setHoveredVideo] = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)')
+    const sync = () => setIsMobile(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
   useEffect(() => {
     const apply = (value: string) => {
       if (!value) return
@@ -865,35 +865,6 @@ export function CampaignTree({
   const visibleSelectionScope = visible.map(c => c.platformCampaignId).sort().join('|')
   useEffect(() => { setSelected(new Set()) }, [visibleSelectionScope])
 
-  // Resumo do que está visível: contagem por status + gasto total — dá o
-  // panorama sem precisar rolar 100 linhas.
-  const summary = useMemo(() => {
-    let active = 0
-    let paused = 0
-    let review = 0
-    let problem = 0
-    let spend = 0
-    let sales = 0
-    let revenue = 0
-    let revenueComparable = true
-    for (const c of visible) {
-      if (c.status === 'active') active++
-      else if (c.status === 'paused') paused++
-      else if (c.status === 'pending_review') review++
-      else if (c.status === 'rejected' || c.status === 'error') problem++
-      spend += Number(c.metrics?.spend) || 0
-      const decision = decisions?.byCampaign[c.platformCampaignId]
-      sales += Number(decision?.sales) || 0
-      const cents = Number(decision?.revenueCents) || 0
-      if (cents > 0) {
-        if (decision?.currency && decision.currency === (c.currency || currency)) revenue += cents / 100
-        else revenueComparable = false
-      }
-    }
-    const roas = decisions && spend > 0 && revenueComparable ? revenue / spend : null
-    return { active, paused, review, problem, spend, sales, roas, revenueComparable }
-  }, [visible, decisions, currency])
-
   const allVisibleSelected = visible.length > 0 && visible.every((c) => selected.has(c.platformCampaignId))
 
   function toggleSelectAll() {
@@ -974,228 +945,174 @@ export function CampaignTree({
   }
 
   // Cabeçalho de grupo: a lista usa uma única visualização compacta no desktop.
-  function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, index?: number) {
+  function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>, _index?: number, mobile = false) {
     return (
-      <div
-        className="flex h-8 min-w-[1160px] items-center gap-2 border-y border-border bg-secondary/50 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-        style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
-      >
-        <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
-        <span>{GROUP_LABELS[row.groupIdx] ?? 'Outras'}</span>
-        <span className="rounded-full border border-border/40 bg-secondary/80 px-2 py-0.5 text-[10px] font-bold tabular-nums text-foreground">
-          {row.count}
-        </span>
+      <div className={cn('flex h-9 items-center gap-2 border-y border-border/60 px-3 text-xs font-medium text-muted-foreground', !mobile && 'min-w-[1160px] bg-secondary/20')}>
+        <span className="size-1.5 rounded-full bg-muted-foreground/70" aria-hidden="true" />
+        <span>{GROUP_LABELS[row.groupIdx] ?? 'Outras'} · {row.count}</span>
       </div>
     )
   }
 
-  // Bloco expandido: métricas completas + grupos/anúncios (compartilhado entre Tabela e Cards)
+  // Bloco expandido: estrutura rápida. Performance detalhada fica na Central da campanha.
   function renderExpandedContent(c: AdsTreeCampaign) {
     const id = c.platformCampaignId
-    const attr = decisions?.byCampaign[id]
-    const spend = Number(c.metrics?.spend) || 0
-    const sales = Number(attr?.sales) || 0
-    const realRevenue = (Number(attr?.revenueCents) || 0) / 100
-    const roas = attr?.currency === (c.currency || currency) && sales > 0 && spend > 0 ? realRevenue / spend : null
+    const groupCount = c.adSetCount ?? c.adSets?.length ?? 0
+    const adCount = c.adCount ?? (c.adSets ?? []).reduce((sum, group) => sum + (group.ads?.length ?? 0), 0)
 
     return (
-      <div id={`campaign-details-${id}`} className="anim-content-in border-t border-border/50 bg-secondary/15 px-4 py-4 sm:px-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {onOpenDetail && (
-              <button
-                type="button"
-                className="btn-ghost !px-2.5 !py-1 text-xs"
-                onClick={() => onOpenDetail(c)}
-                aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
-              >
-                <BarChart3 className="size-3.5 mr-1" aria-hidden="true" />
-                Métricas detalhadas e gráficos
-              </button>
-            )}
-            {onDuplicate && (
-              <button
-                type="button"
-                className="btn-ghost !px-2.5 !py-1 text-xs"
-                onClick={() => onDuplicate(c)}
-                aria-label={`Duplicar campanha ${c.campaignName || id}`}
-              >
-                <Copy className="size-3.5 mr-1" aria-hidden="true" />
-                Duplicar
-              </button>
-            )}
+      <div id={`campaign-details-${id}`} className="border-t border-border/50 bg-secondary/10 px-4 py-4 sm:px-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Estrutura rápida</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{groupCount} {groupCount === 1 ? 'grupo' : 'grupos'} · {adCount} {adCount === 1 ? 'anúncio' : 'anúncios'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
-              {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
-            </span>
-            {attr && attr.sales > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-success/15 border border-success/30 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-success">
-                {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {attr.currency ? fmtMoney(attr.revenueCents / 100, attr.currency) : 'Receita sem moeda única'}
-                {roas !== null && ` · ROAS ${roas.toFixed(2)}×`}
-              </span>
-            )}
+            {onOpenDetail ? (
+              <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-brand-cyan transition-colors hover:bg-brand-cyan/8" onClick={() => onOpenDetail(c)}>
+                Abrir Central da campanha
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
+            {onDuplicate ? (
+              <button type="button" className="btn-ghost min-h-10 px-3 text-xs" onClick={() => onDuplicate(c)}>
+                <Copy className="size-3.5" aria-hidden="true" /> Duplicar
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {c.budgetOwner === 'campaign' && c.budget?.amount != null && (
-          <div className="mb-4 max-w-sm">
-            <BudgetControl
-              entityId={id}
-              amount={Number(c.budget.amount)}
-              type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
-              adAccountId={c.platformAdAccountId || ''}
-              currency={c.currency || currency}
-              label="Orçamento da campanha (CBO)"
-              onSaved={onMutate}
-            />
-          </div>
-        )}
-
-        {/* Grade detalhada de métricas */}
-        <div className="mb-4 rounded-xl border border-border/60 bg-card/60 overflow-hidden shadow-xs">
-          <CampaignMetricGrid
-            campaign={c}
-            currency={currency}
-            attribution={decisions?.byCampaign[id] || decisions?.byCampaign[c.platformCampaignId]}
-            attributionLoaded={Boolean(decisions)}
-          />
-        </div>
-
-        {/* Grupos e Anúncios */}
-        {(c.adSets ?? []).length === 0 ? (
-          <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
-        ) : (
-          (c.adSets ?? []).map((s, si) => (
-            <div key={s.platformAdSetId ?? si} className="py-3">
-              <div className="flex flex-wrap items-center gap-2 border-b border-border/30 pb-2">
-                <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
-                </span>
-                <StatusPill status={s.status} />
-                {c.budgetOwner !== 'campaign' && s.platformAdSetId && s.budget?.amount != null && (
-                  <BudgetControl
-                    entityId={s.platformAdSetId}
-                    amount={Number(s.budget.amount)}
-                    type={s.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
-                    adAccountId={c.platformAdAccountId || ''}
-                    currency={c.currency || currency}
-                    label="Orçamento do conjunto"
-                    onSaved={onMutate}
-                  />
-                )}
-              </div>
-              <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-fade">
-                {(s.ads ?? []).map((ad, ai) => {
-                  const adKey = ad.platformAdId || ad._id || String(ai)
-                  return (
-                    <li
-                      key={adKey}
-                      onMouseEnter={() => setHoveredVideo(String(adKey))}
-                      onMouseLeave={() => setHoveredVideo(null)}
-                      className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background stagger-fade"
-                      style={{ '--i': Math.min(ai, 15), '--stagger-index': Math.min(ai, 15) } as React.CSSProperties}
-                    >
-                      {(ad.creative?.imageUrl || /^https:\/\//i.test(ad.creative?.videoUrl || '')) && (
-                        <div className="relative aspect-video overflow-hidden rounded-lg border border-border/50 bg-black">
-                          {hoveredVideo === String(adKey) && /^https:\/\//i.test(ad.creative?.videoUrl || '') ? (
-                            <video
-                              src={ad.creative?.videoUrl}
-                              poster={ad.creative?.imageUrl}
-                              autoPlay muted loop playsInline preload="metadata"
-                              className="h-full w-full object-cover"
-                              aria-label={`Prévia do anúncio ${ad.name || adKey}`}
-                            />
-                          ) : ad.creative?.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={ad.creative.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">Passe o mouse para reproduzir</div>
-                          )}
-                          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/80">sem som</span>
-                        </div>
-                      )}
-                      <div className="flex items-start gap-2">
-                        <Clapperboard className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
-                        <div className="flex flex-col min-w-0">
-                          <span className="truncate text-[13px] font-semibold text-foreground" title={ad.name || adKey}>{ad.name || adKey}</span>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                            <StatusPill status={ad.status} />
-                            {ad.adType === 'boost' && (
-                              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                Spark
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {ad.rejectionReason && (
-                        <div className="rounded-md bg-error/10 p-1.5">
-                          <span className="line-clamp-2 text-[10px] text-error" title={ad.rejectionReason}>
-                            {ad.rejectionReason}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-2">
-                        <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                          {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
-                        </span>
-                        
-                        {isProductLinkAd(ad) ? (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary" title="O destino vem do campo Link dos produtos deste catálogo">
-                            Link Catálogo
-                          </span>
-                        ) : null}
-                      </div>
-
-                      {/* Hover Actions Bar */}
-                      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/50 bg-background/80 p-0.5 opacity-100 backdrop-blur-sm transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 shadow-sm">
-                        {ad.creative?.linkUrl && !isProductLinkAd(ad) && (
-                          <a
-                            href={ad.creative.linkUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                            aria-label="Abrir página de destino do anúncio"
-                            title="Página de destino"
-                          >
-                            <ExternalLink className="size-3.5" aria-hidden="true" />
-                          </a>
-                        )}
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                          onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
-                          aria-label={`Editar anúncio ${ad.name || adKey}`}
-                          title={isProductLinkAd(ad) ? 'Editar texto e botão' : 'Editar texto, botão e link'}
-                        >
-                          <Pencil className="size-3.5" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-error/15 hover:text-error"
-                          onClick={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}
-                          aria-label={`Excluir anúncio ${ad.name || adKey}`}
-                          title="Excluir anúncio"
-                        >
-                          <Trash2 className="size-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
-                    </li>
-                  )
-                })}
-                {(s.ads ?? []).length === 0 && (
-                  <li className="col-span-full rounded-xl border border-dashed border-border/60 p-4 text-center text-[11px] text-muted-foreground">
-                    Sem anúncios neste grupo.
-                  </li>
-                )}
-              </ul>
+        <div className="mb-4 border-y border-border/45 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-foreground">{c.budgetOwner === 'campaign' ? 'Orçamento da campanha · CBO' : 'Orçamento nos conjuntos · ABO'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{c.budgetOwner === 'campaign' ? 'O valor é controlado no nível da campanha.' : 'Cada conjunto controla o próprio orçamento.'}</p>
             </div>
-          ))
+            {c.budgetOwner === 'campaign' && c.budget?.amount != null ? (
+              <BudgetControl
+                entityId={id}
+                amount={Number(c.budget.amount)}
+                type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                adAccountId={c.platformAdAccountId || ''}
+                currency={c.currency || currency}
+                label="Orçamento da campanha"
+                onSaved={onMutate}
+                compact
+              />
+            ) : null}
+          </div>
+        </div>
+
+        {(c.adSets ?? []).length === 0 ? (
+          <p className="py-5 text-sm text-muted-foreground">Nenhum conjunto de anúncios carregado para esta campanha.</p>
+        ) : (
+          <div className="divide-y divide-border/45">
+            {(c.adSets ?? []).map((group, groupIndex) => {
+              const ads = group.ads ?? []
+              return (
+                <section key={group.platformAdSetId ?? groupIndex} className="py-4 first:pt-0 last:pb-0">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{group.adSetName || group.name || `Grupo ${groupIndex + 1}`}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <StatusInline status={group.status} />
+                        <span aria-hidden="true">·</span>
+                        <span>{ads.length} {ads.length === 1 ? 'anúncio' : 'anúncios'}</span>
+                        {c.budgetOwner === 'campaign' ? <><span aria-hidden="true">·</span><span>Orçamento controlado pela campanha</span></> : null}
+                      </div>
+                    </div>
+                    {c.budgetOwner !== 'campaign' && group.platformAdSetId && group.budget?.amount != null ? (
+                      <BudgetControl
+                        entityId={group.platformAdSetId}
+                        amount={Number(group.budget.amount)}
+                        type={group.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                        adAccountId={c.platformAdAccountId || ''}
+                        currency={c.currency || currency}
+                        label="Orçamento do conjunto"
+                        onSaved={onMutate}
+                        compact
+                      />
+                    ) : null}
+                  </div>
+
+                  {ads.length === 0 ? (
+                    <p className="mt-3 text-xs text-muted-foreground">Sem anúncios neste grupo.</p>
+                  ) : (
+                    <ul className="mt-3 grid gap-3 lg:grid-cols-2">
+                      {ads.map((ad, adIndex) => {
+                        const adKey = ad.platformAdId || ad._id || String(adIndex)
+                        const videoUrl = /^https:\/\//i.test(ad.creative?.videoUrl || '') ? ad.creative?.videoUrl : ''
+                        return (
+                          <li key={adKey} className="rounded-xl border border-border/55 bg-background/35 p-3">
+                            <div className="flex gap-3">
+                              {(ad.creative?.imageUrl || videoUrl) ? (
+                                <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-black">
+                                  {videoUrl ? (
+                                    <video src={videoUrl} poster={ad.creative?.imageUrl} controls muted playsInline preload="metadata" className="h-full w-full object-cover" aria-label={`Prévia do anúncio ${ad.name || adKey}`} />
+                                  ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={ad.creative?.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                  )}
+                                </div>
+                              ) : null}
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-foreground" title={ad.name || adKey}>{ad.name || `Anúncio ${adIndex + 1}`}</p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                      <StatusInline status={ad.status} />
+                                      {ad.adType === 'boost' ? <><span aria-hidden="true">·</span><span>Spark</span></> : null}
+                                    </div>
+                                  </div>
+                                  <DropdownMenu.Root>
+                                    <DropdownMenu.Trigger asChild>
+                                      <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground" aria-label={`Ações do anúncio ${ad.name || adKey}`}>
+                                        <MoreHorizontal className="size-4" aria-hidden="true" />
+                                      </button>
+                                    </DropdownMenu.Trigger>
+                                    <DropdownMenu.Portal>
+                                      <DropdownMenu.Content align="end" sideOffset={6} className="z-[80] min-w-44 rounded-xl border border-border bg-background p-1.5 shadow-xl">
+                                        <DropdownMenu.Item className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-xs text-foreground outline-none hover:bg-secondary/60 focus:bg-secondary/60" onSelect={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}>
+                                          <Pencil className="size-3.5" aria-hidden="true" /> Editar anúncio
+                                        </DropdownMenu.Item>
+                                        {ad.creative?.linkUrl && !isProductLinkAd(ad) ? (
+                                          <DropdownMenu.Item asChild>
+                                            <a href={ad.creative.linkUrl} target="_blank" rel="noopener noreferrer" className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-xs text-foreground outline-none hover:bg-secondary/60 focus:bg-secondary/60">
+                                              <ExternalLink className="size-3.5" aria-hidden="true" /> Abrir destino
+                                            </a>
+                                          </DropdownMenu.Item>
+                                        ) : null}
+                                        <DropdownMenu.Separator className="my-1 h-px bg-border/60" />
+                                        <DropdownMenu.Item className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-xs text-error outline-none hover:bg-error/10 focus:bg-error/10" onSelect={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}>
+                                          <Trash2 className="size-3.5" aria-hidden="true" /> Remover anúncio
+                                        </DropdownMenu.Item>
+                                      </DropdownMenu.Content>
+                                    </DropdownMenu.Portal>
+                                  </DropdownMenu.Root>
+                                </div>
+
+                                {ad.creative?.body ? <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{ad.creative.body}</p> : null}
+                                <p className="mt-2 text-xs tabular-nums text-muted-foreground">{fmtMoney(ad.metrics?.spend, c.currency || currency)} · {fmtCompact(ad.metrics?.impressions)} impr.</p>
+                                {isProductLinkAd(ad) ? <p className="mt-2 text-xs text-muted-foreground">Destino definido pelos produtos do catálogo.</p> : null}
+                              </div>
+                            </div>
+
+                            {ad.rejectionReason ? (
+                              <div className="mt-3 border-t border-error/20 pt-3">
+                                <p className="text-xs font-semibold text-error">Reprovado pelo TikTok</p>
+                                <p className="mt-1 text-xs leading-relaxed text-error/90">{ad.rejectionReason}</p>
+                              </div>
+                            ) : null}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </section>
+              )
+            })}
+          </div>
         )}
       </div>
     )
@@ -1270,11 +1187,11 @@ export function CampaignTree({
             )}
             aria-hidden="true"
           />
-          <span className={cn('truncate text-[11px] font-semibold', automationToneClass(automation.tone))}>
+          <span className={cn('truncate text-xs font-medium', automationToneClass(automation.tone))}>
             {automation.label}
           </span>
         </span>
-        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{automation.detail}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{automation.detail}</span>
       </>
     )
 
@@ -1284,7 +1201,6 @@ export function CampaignTree({
         className={`campaign-table-row border-b border-border/50 transition-colors ${
           selected.has(id) ? 'bg-primary/5' : isOpen ? 'bg-secondary/15' : 'hover:bg-muted/20'
         } ${isError ? 'border-l-2 border-l-error' : ''}`}
-        style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
       >
         <div className="grid grid-cols-[38px_68px_minmax(230px,2fr)_150px_95px_70px_95px_80px_160px_110px_60px] items-center px-3 py-2.5 text-xs min-w-[1160px]">
           <div className="flex items-center justify-center">
@@ -1323,11 +1239,7 @@ export function CampaignTree({
               >
                 {cleanCampaignName(c.campaignName || id)}
               </button>
-              {c.campaignKind === 'smart_plus' && (
-                <span className="shrink-0 rounded border border-border/50 bg-secondary px-1.5 py-0.2 text-[10px] font-medium text-muted-foreground">
-                  Smart+
-                </span>
-              )}
+              {c.campaignKind === 'smart_plus' && <span className="shrink-0 text-xs text-muted-foreground">· Smart+</span>}
               {c.reviewStatus === 'approved' && (
                 <span title="Aprovada pelo TikTok" className="inline-flex">
                   <BadgeCheck className="size-3.5 shrink-0 text-success" />
@@ -1339,12 +1251,9 @@ export function CampaignTree({
                 </span>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-              {isOpen && <span className="font-mono">ID: {id}</span>}
-              {c.childStatus && c.childStatus !== c.status && (
-                <span className="text-warning">Anúncios: {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span>
-              )}
-            </div>
+            {c.childStatus && c.childStatus !== c.status ? (
+              <div className="mt-0.5 text-xs text-warning">Anúncios · {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</div>
+            ) : null}
           </div>
 
           <div className="pr-2 text-right">
@@ -1360,9 +1269,9 @@ export function CampaignTree({
                 compact
               />
             ) : (
-              <span className="text-[11px] text-muted-foreground" title="Orçamento definido no nível dos conjuntos (ABO)">
-                {budget.amount === null ? 'Conjuntos' : money(budget.amount)}
-                <span className="block text-[10px]">{budget.detail}</span>
+              <span className="text-xs text-muted-foreground" title="Orçamento definido no nível dos conjuntos (ABO)">
+                Nos conjuntos
+                <span className="block text-xs">{budget.detail}</span>
               </span>
             )}
           </div>
@@ -1395,16 +1304,12 @@ export function CampaignTree({
             <button
               type="button"
               onClick={() => toggle(id)}
-              className={`inline-flex w-full items-center justify-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-all ${
-                isOpen
-                  ? 'border-primary/30 bg-primary/20 font-semibold text-primary'
-                  : 'border-border/40 bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground'
-              }`}
+              className={`inline-flex w-full items-center justify-center gap-1 px-1 py-1 text-xs font-medium transition-colors ${isOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               title={isOpen ? 'Recolher estrutura' : 'Ver conjuntos e anúncios'}
               aria-expanded={isOpen}
             >
               <Layers className="size-3 shrink-0" />
-              <span className="truncate">{adSetCount} grp · {adCount} ad</span>
+              <span className="truncate">{adSetCount} {adSetCount === 1 ? 'grupo' : 'grupos'} · {adCount} {adCount === 1 ? 'anúncio' : 'anúncios'}</span>
               <ChevronRight className={`size-3 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
             </button>
           </div>
@@ -1429,7 +1334,7 @@ export function CampaignTree({
         </div>
 
         {detailedError && (
-          <div className="flex min-w-[1160px] items-center gap-2 border-t border-error/20 bg-error/10 px-4 py-1.5 text-xs text-error">
+          <div className="flex min-w-[1160px] items-center gap-2 border-t border-error/20 px-4 py-2 text-xs text-error">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>{detailedError}</span>
           </div>
@@ -1440,178 +1345,91 @@ export function CampaignTree({
     )
   }
 
-  // Linha em formato Card (modo clássico em blocos)
-  function renderCampaignCardRow(c: AdsTreeCampaign, index?: number) {
+  // Leitura operacional para telas pequenas: sem tabela horizontal.
+  function renderCampaignCardRow(c: AdsTreeCampaign) {
     const id = c.platformCampaignId
     const isOpen = expanded.has(id)
     const busy = busyId === id
+    const metrics = campaignMetrics(c.metrics)
+    const budget = campaignBudget(c)
+    const campaignCurrency = c.currency || currency
+    const decision = decisions?.byCampaign[id]
+    const decisionsLoaded = Boolean(decisions)
+    const realSales = decisionsLoaded ? Number(decision?.sales) || 0 : null
+    const realRevenue = decisionsLoaded ? (Number(decision?.revenueCents) || 0) / 100 : null
+    const realCpa = realSales !== null && realSales > 0 && metrics.spend !== null ? metrics.spend / realSales : null
+    const revenueComparable = realRevenue === 0 || (decision?.currency && decision.currency === campaignCurrency)
+    const realRoas = decisionsLoaded && metrics.spend !== null && metrics.spend > 0 && realRevenue !== null && revenueComparable ? realRevenue / metrics.spend : null
+    const automation = campaignAutomationView(decisions, decision)
+    const adSetCount = c.adSetCount ?? c.adSets?.length ?? 0
+    const adCount = c.adCount ?? 0
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
-
-    let baseError =
-      c.reviewStatus === 'rejected'
-        ? 'Revisão rejeitada pelo TikTok'
-        : c.status === 'error'
-          ? 'Erro na campanha'
-          : c.status === 'rejected'
-            ? 'Campanha rejeitada'
-            : null
-
     const rejectionReasons = new Set<string>()
-    if (c.adSets) {
-      for (const s of c.adSets) {
-        if (s.ads) {
-          for (const ad of s.ads) {
-            if (ad.rejectionReason) rejectionReasons.add(ad.rejectionReason)
-          }
-        }
-      }
-    }
-
-    let detailedError = baseError
-    if (rejectionReasons.size > 0) {
-      detailedError = Array.from(rejectionReasons).join(' • ')
-    } else if (isError && !detailedError) {
-      detailedError = 'Problema na conta ou orçamento (Verifique o TikTok Ads)'
-    }
+    for (const adSet of c.adSets ?? []) for (const ad of adSet.ads ?? []) if (ad.rejectionReason) rejectionReasons.add(ad.rejectionReason)
+    const detailedError = rejectionReasons.size > 0
+      ? Array.from(rejectionReasons).join(' • ')
+      : c.reviewStatus === 'rejected' ? 'Revisão rejeitada pelo TikTok'
+        : c.status === 'error' ? 'Erro na campanha'
+          : c.status === 'rejected' ? 'Campanha rejeitada'
+            : isError ? 'Problema na conta ou orçamento (Verifique o TikTok Ads)' : null
 
     return (
-      <div className="campaign-row-wrap" key={id}>
-        <article
-          className="campaign-operation-card stagger-fade"
-          style={index !== undefined ? ({ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties) : undefined}
-          data-error={isError}
-          data-selected={selected.has(id)}
-          aria-label={c.campaignName || id}
-        >
-          <div className="campaign-operation-heading">
-            <input
-              type="checkbox"
-              checked={selected.has(id)}
-              onChange={() => toggleSelect(id)}
-              disabled={Boolean(busyId) || bulkBusy}
-              aria-label={`Selecionar campanha ${c.campaignName || id}`}
-            />
-            <div className="campaign-operation-identity">
-              <h3 title={c.campaignName || id}>{cleanCampaignName(c.campaignName || id)}</h3>
-              <div className="campaign-operation-meta">
-                <span className="font-mono text-[11px] text-muted-foreground">ID: {id}</span>
-                <span>·</span>
-                <span>{c.campaignKind === 'smart_plus' ? 'Smart+' : 'Campanha padrão'}</span>
-                {c.reviewStatus === 'approved' && (
-                  <span className="campaign-approved" title="Anúncios aprovados pelo TikTok">
-                    <BadgeCheck size={13} aria-hidden="true" />
-                    Aprovada
-                  </span>
-                )}
+      <article className={cn('border-b border-border/60 px-1 py-4', selected.has(id) && 'bg-primary/[0.03]')} aria-label={c.campaignName || id}>
+        <div className="flex items-start gap-3">
+          <input type="checkbox" checked={selected.has(id)} onChange={() => toggleSelect(id)} disabled={Boolean(busyId) || bulkBusy} aria-label={`Selecionar campanha ${c.campaignName || id}`} className="mt-1 size-4 rounded accent-primary" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold text-foreground">{cleanCampaignName(c.campaignName || id)}</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className={cn('inline-flex items-center gap-1.5', STATUS_META[c.status ?? '']?.cls || 'text-muted-foreground')}><span className={cn('size-1.5 rounded-full', STATUS_META[c.status ?? '']?.dot || 'bg-muted-foreground')} />{STATUS_META[c.status ?? '']?.label || c.status || '—'}</span>
+                  {c.campaignKind === 'smart_plus' ? <span>· Smart+</span> : null}
+                  {c.reviewStatus === 'approved' ? <span className="text-success">· Aprovada</span> : null}
+                  {c.childStatus && c.childStatus !== c.status ? <span className="text-warning">· Anúncios {STATUS_META[c.childStatus]?.label || 'ver detalhes'}</span> : null}
+                </div>
               </div>
+              <CampaignQuickActionsDropdown campaign={c} currency={currency} busy={busy} disabled={Boolean(busyId) || bulkBusy} isOpen={isOpen} onToggleExpand={() => toggle(id)} onDuplicate={onDuplicate} onOpenDetail={onOpenDetail} onToggleStatus={() => c.status === 'active' ? void setCampaignStatus(c, 'paused') : setActivation({ kind: 'single', campaign: c })} />
             </div>
-            <div className="campaign-operation-actions">
-              <CampaignActivationToggle
-                status={c.status}
-                busy={busy}
-                disabled={Boolean(busyId) || bulkBusy}
-                onToggle={() =>
-                  c.status === 'active'
-                    ? void setCampaignStatus(c, 'paused')
-                    : setActivation({ kind: 'single', campaign: c })
-                }
-                name={c.campaignName || id}
-              />
-              <CampaignQuickActionsDropdown
-                campaign={c}
-                currency={currency}
-                busy={busy}
-                disabled={Boolean(busyId) || bulkBusy}
-                isOpen={isOpen}
-                onToggleExpand={() => toggle(id)}
-                onDuplicate={onDuplicate}
-                onOpenDetail={onOpenDetail}
-                onToggleStatus={() =>
-                  c.status === 'active'
-                    ? void setCampaignStatus(c, 'paused')
-                    : setActivation({ kind: 'single', campaign: c })
-                }
-              />
+
+            {detailedError ? <p className="mt-2 flex items-start gap-1.5 text-xs text-error"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{detailedError}</p> : null}
+
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs tabular-nums">
+              <p><span className="text-muted-foreground">Gasto · </span><span className="font-medium text-foreground">{metrics.spend === null ? '—' : fmtMoney(metrics.spend, campaignCurrency)}</span></p>
+              <p><span className="text-muted-foreground">Vendas · </span><span className="font-medium text-foreground">{realSales === null ? '—' : realSales.toLocaleString('pt-BR')}</span></p>
+              <p><span className="text-muted-foreground">CPA · </span><span className="font-medium text-foreground">{realCpa === null ? '—' : fmtMoney(realCpa, campaignCurrency)}</span></p>
+              <p><span className="text-muted-foreground">ROAS · </span><span className={cn('font-semibold', realRoas !== null && realRoas >= 2 ? 'text-success' : realRoas !== null && realRoas < 1 ? 'text-warning' : 'text-foreground')}>{realRoas === null ? '—' : `${realRoas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`}</span></p>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 border-t border-border/50 pt-3 text-xs">
+              <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Orçamento</span>{c.budgetOwner === 'campaign' && c.budget?.amount != null ? <BudgetControl entityId={id} amount={Number(c.budget.amount)} type={c.budget.type === 'lifetime' ? 'lifetime' : 'daily'} adAccountId={c.platformAdAccountId || ''} currency={campaignCurrency} label="Orçamento" onSaved={onMutate} compact /> : <span className="font-medium text-foreground">Nos conjuntos</span>}</div>
+              <button type="button" onClick={automation.actionable && onOpenAutomations ? onOpenAutomations : undefined} disabled={!automation.actionable || !onOpenAutomations} className="flex items-center justify-between gap-3 text-left disabled:cursor-default"><span className="text-muted-foreground">Automação</span><span className={cn('font-medium', automationToneClass(automation.tone))}>{automation.label}</span></button>
+              <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Estrutura</span><button type="button" onClick={() => toggle(id)} aria-expanded={isOpen} className="inline-flex items-center gap-1 font-medium text-foreground hover:text-primary">{adSetCount} {adSetCount === 1 ? 'grupo' : 'grupos'} · {adCount} {adCount === 1 ? 'anúncio' : 'anúncios'}<ChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} /></button></div>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <CampaignActivationToggle status={c.status} busy={busy} disabled={Boolean(busyId) || bulkBusy} onToggle={() => c.status === 'active' ? void setCampaignStatus(c, 'paused') : setActivation({ kind: 'single', campaign: c })} name={c.campaignName || id} />
+              <span className="text-xs text-muted-foreground">{c.status === 'active' ? 'Pausar campanha' : c.status === 'paused' ? 'Ativar campanha' : STATUS_META[c.status ?? '']?.label || ''}</span>
             </div>
           </div>
-          {detailedError && (
-            <p className="campaign-operation-error">
-              <AlertTriangle size={14} aria-hidden="true" />
-              {detailedError}
-            </p>
-          )}
-          <CampaignMetricGrid campaign={c} currency={currency} attribution={decisions?.byCampaign[id] || decisions?.byCampaign[c.platformCampaignId]}
-            attributionLoaded={Boolean(decisions)} />
-          <button
-            type="button"
-            className="campaign-expand-action"
-            onClick={() => toggle(id)}
-            aria-expanded={isOpen}
-            aria-controls={`campaign-details-${id}`}
-          >
-            <Layers size={14} aria-hidden="true" />
-            {c.adSetCount ?? c.adSets?.length ?? 0} {(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? 'conjunto' : 'conjuntos'} · {c.adCount ?? 0}{' '}
-            {c.adCount === 1 ? 'anúncio' : 'anúncios'}
-            <span>{isOpen ? 'Recolher' : 'Ver conjuntos e anúncios'}</span>
-            <ChevronRight size={15} className={isOpen ? 'rotate-90' : ''} aria-hidden="true" />
-          </button>
-
-          {isOpen && renderExpandedContent(c)}
-        </article>
-      </div>
+        </div>
+        {isOpen && <div className="mt-3">{renderExpandedContent(c)}</div>}
+      </article>
     )
   }
 
   function TableHeader() {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[38px_68px_minmax(230px,2fr)_150px_95px_70px_95px_80px_160px_110px_60px] items-center border-b border-border bg-card/95 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shadow-xs backdrop-blur min-w-[1160px]">
-        <div className="flex items-center justify-center">
-          <input
-            type="checkbox"
-            checked={allVisibleSelected}
-            onChange={toggleSelectAll}
-            aria-label="Selecionar todas as campanhas visíveis"
-            className="size-3.5 cursor-pointer rounded accent-primary"
-          />
-        </div>
+      <div className="sticky top-0 z-10 grid min-w-[1160px] grid-cols-[38px_68px_minmax(230px,2fr)_150px_95px_70px_95px_80px_160px_110px_60px] items-center border-b border-border bg-background px-3 py-2.5 text-xs font-medium text-muted-foreground">
+        <div className="flex items-center justify-center"><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} aria-label="Selecionar todas as campanhas visíveis" className="size-3.5 cursor-pointer rounded accent-primary" /></div>
         <div>Status</div>
-        <div
-          className="flex cursor-pointer items-center gap-1 pr-3 transition-colors hover:text-foreground"
-          onClick={() => onSort(sort === 'newest' ? 'oldest' : 'newest')}
-          title="Clique para alternar ordenação por data"
-        >
-          <span>Campanha</span>
-          <ArrowUpDown className="size-3" />
-        </div>
+        <button type="button" className="flex items-center gap-1 pr-3 text-left transition-colors hover:text-foreground" onClick={() => onSort(sort === 'newest' ? 'oldest' : 'newest')} title="Clique para alternar ordenação por data"><span>Campanha</span><ArrowUpDown className="size-3" /></button>
         <div className="pr-2 text-right">Orçamento</div>
-        <div
-          className="flex cursor-pointer items-center justify-end gap-1 pr-2 transition-colors hover:text-foreground"
-          onClick={() => onSort(sort === 'spend_desc' ? 'spend_asc' : 'spend_desc')}
-          title="Clique para ordenar por gasto (maior / menor)"
-        >
-          <span>Gasto</span>
-          {sort === 'spend_desc' ? (
-            <ArrowDown className="size-3 text-primary" />
-          ) : sort === 'spend_asc' ? (
-            <ArrowUp className="size-3 text-primary" />
-          ) : (
-            <ArrowUpDown className="size-3" />
-          )}
-        </div>
+        <button type="button" className="flex items-center justify-end gap-1 pr-2 transition-colors hover:text-foreground" onClick={() => onSort(sort === 'spend_desc' ? 'spend_asc' : 'spend_desc')} title="Clique para ordenar por gasto (maior / menor)"><span>Gasto</span>{sort === 'spend_desc' ? <ArrowDown className="size-3 text-primary" /> : sort === 'spend_asc' ? <ArrowUp className="size-3 text-primary" /> : <ArrowUpDown className="size-3" />}</button>
         <div className="pr-2 text-right" title="Vendas rastreadas pelo ROINADOS">Vendas</div>
         <div className="pr-2 text-right" title="Gasto TikTok ÷ vendas reais">CPA real</div>
         <div className="pr-2 text-right" title="Receita real ÷ gasto TikTok">ROAS real</div>
         <div className="pr-2 text-left">Automação</div>
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={toggleAllExpanded}
-            className="text-[10px] lowercase text-muted-foreground transition-colors hover:text-foreground hover:underline"
-            title={allExpanded ? 'Recolher todas as campanhas' : 'Expandir todas as campanhas'}
-          >
-            {allExpanded ? 'recolher tudo' : 'estrutura'}
-          </button>
-        </div>
+        <div className="text-center"><button type="button" onClick={toggleAllExpanded} className="text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline" title={allExpanded ? 'Recolher todas as campanhas' : 'Expandir todas as campanhas'}>{allExpanded ? 'Recolher tudo' : 'Estrutura'}</button></div>
         <div className="text-right">Ações</div>
       </div>
     )
@@ -1622,74 +1440,32 @@ export function CampaignTree({
     return renderCampaignTableRow(row.c, index)
   }
 
+  const selectedCampaigns = campaigns.filter((campaign) => selected.has(campaign.platformCampaignId))
+  const ineligibleBudgetCount = selectedCampaigns.filter((campaign) => campaign.budgetOwner !== 'campaign' || !Number.isFinite(campaign.budget?.amount) || !['daily', 'lifetime'].includes(campaign.budget?.type || '')).length
+  const bulkBudgetEligible = selectedCampaigns.length > 0 && ineligibleBudgetCount === 0
+
   return (
-    <GlassCard className="campaign-workspace min-w-0 overflow-hidden p-0">
-      <div className="campaign-toolbar p-3 sm:p-4 space-y-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <section className="min-w-0">
+      <div className="space-y-3 border-b border-border/60 pb-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold text-foreground sm:text-base">Lista operacional</h2>
-              <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
-                {visible.length}
-              </span>
-              {summary.problem > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => onStatusFilter('rejected')}
-                  className="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-[10px] font-semibold text-error"
-                >
-                  <AlertCircle className="size-3" aria-hidden="true" />
-                  {summary.problem} {summary.problem === 1 ? 'precisa' : 'precisam'} de atenção
-                </button>
-              ) : (
-                <span className="text-[10px] text-muted-foreground">Tudo sob controle</span>
-              )}
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h2 className="text-base font-semibold text-foreground">Campanhas</h2>
+              <span className="text-xs tabular-nums text-muted-foreground">{visible.length} {visible.length === 1 ? 'campanha nesta visão' : 'campanhas nesta visão'}</span>
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:max-w-2xl">
-            <div className="relative min-w-[220px] flex-1 lg:max-w-sm">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar campanha..."
-                aria-label="Buscar campanha"
-                className="h-9 w-full rounded-lg border border-border/60 bg-background/80 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/20"
-              />
-              {query ? (
-                <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground">
-                  <X className="size-3" />
-                </button>
-              ) : null}
+          <div className="flex min-w-0 flex-1 flex-col gap-2 lg:max-w-2xl lg:items-end">
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2">
+              <div className="relative min-w-[220px] flex-1 lg:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar campanha ou filtrar por resultado…" aria-label="Buscar campanha ou filtrar por resultado" className="h-10 w-full rounded-lg border border-border/70 bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                {query ? <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button> : null}
+              </div>
+              <button type="button" onClick={() => setQuickFilter((curr) => curr === 'no_sales' ? 'all' : 'no_sales')} aria-pressed={quickFilter === 'no_sales'} disabled={!decisions} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', quickFilter === 'no_sales' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')} title="Campanhas com gasto e sem vendas"><AlertCircle className="size-3.5" aria-hidden="true" />Gastou sem vender</button>
+              <button type="button" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')}><SlidersHorizontal className="size-3.5" aria-hidden="true" />Filtros</button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setQuickFilter((curr) => (curr === 'no_sales' ? 'all' : 'no_sales'))}
-              aria-pressed={quickFilter === 'no_sales'}
-              disabled={!decisions}
-              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${
-                quickFilter === 'no_sales'
-                  ? 'border-warning/40 bg-warning/10 text-warning'
-                  : 'border-border/60 bg-background/80 text-muted-foreground hover:text-foreground'
-              }`}
-              title="Campanhas com gasto e sem vendas"
-            >
-              <AlertCircle className="size-3.5" aria-hidden="true" />
-              Atenção
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowFilters((value) => !value)}
-              aria-expanded={showFilters}
-              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background/80 text-muted-foreground hover:text-foreground'}`}
-            >
-              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-              Filtros
-            </button>
+            {!query ? <p className="w-full text-xs text-muted-foreground lg:text-right">Ex.: sem venda · ROAS acima de 2 · gasto acima de 100</p> : null}
           </div>
         </div>
 
@@ -1699,94 +1475,29 @@ export function CampaignTree({
               {STATUS_FILTERS.map((filter) => {
                 const count = filter.value === '' ? statusCounts.all : (statusCounts[filter.value] ?? 0)
                 const isSelected = statusFilter === filter.value
-                return (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    onClick={() => onStatusFilter(filter.value)}
-                    aria-pressed={isSelected}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${isSelected ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {filter.label}
-                    <span className="text-[10px] tabular-nums opacity-75">{count}</span>
-                  </button>
-                )
+                return <button key={filter.value} type="button" onClick={() => onStatusFilter(filter.value)} aria-pressed={isSelected} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors', isSelected ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground hover:text-foreground')}>{filter.label}<span className="tabular-nums opacity-70">{count}</span></button>
               })}
             </div>
-
-            <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} aria-pressed={onlyWithSpend} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
-              <DollarSign className="size-3.5" aria-hidden="true" /> Com gasto
-            </button>
-            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => (curr === 'with_sales' ? 'all' : 'with_sales'))} aria-pressed={quickFilter === 'with_sales'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'with_sales' ? 'border-success/30 bg-success/10 text-success' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
-              <TrendingUp className="size-3.5" aria-hidden="true" /> Com vendas
-            </button>
-            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => (curr === 'high_roas' ? 'all' : 'high_roas'))} aria-pressed={quickFilter === 'high_roas'} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${quickFilter === 'high_roas' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/50 bg-secondary/20 text-muted-foreground'}`}>
-              <Zap className="size-3.5" aria-hidden="true" /> ROAS &gt; 2×
-            </button>
-
+            <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} aria-pressed={onlyWithSpend} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium', onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground')}><DollarSign className="size-3.5" />Com gasto</button>
+            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => curr === 'with_sales' ? 'all' : 'with_sales')} aria-pressed={quickFilter === 'with_sales'} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium', quickFilter === 'with_sales' ? 'border-success/30 bg-success/10 text-success' : 'border-border/60 bg-background text-muted-foreground')}><TrendingUp className="size-3.5" />Com vendas</button>
+            <button type="button" disabled={!decisions} onClick={() => setQuickFilter((curr) => curr === 'high_roas' ? 'all' : 'high_roas')} aria-pressed={quickFilter === 'high_roas'} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium', quickFilter === 'high_roas' ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground')}><Zap className="size-3.5" />ROAS &gt; 2×</button>
             <div className="ml-auto flex items-center gap-1.5">
-              <div className="relative flex items-center">
-                <ArrowUpDown className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <select className="h-8 rounded-lg border border-border/60 bg-background/80 pl-7 pr-3 text-xs font-medium text-foreground focus:border-primary/50 focus:outline-none" value={sort} onChange={(e) => onSort(e.target.value)} aria-label="Ordenar campanhas">
-                  {SORTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
-              </div>
-              {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) ? (
-                <button type="button" onClick={() => { setOnlyWithSpend(false); setQuickFilter('all'); onSort('newest'); onStatusFilter('active'); setQuery('') }} className="flex h-8 items-center gap-1 rounded-lg border border-border/50 bg-secondary/20 px-2 text-xs text-muted-foreground hover:text-foreground">
-                  <RotateCcw className="size-3" /> Limpar
-                </button>
-              ) : null}
+              <div className="relative flex items-center"><ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><select className="h-9 rounded-lg border border-border/60 bg-background pl-7 pr-3 text-xs font-medium text-foreground focus:border-primary/50 focus:outline-none" value={sort} onChange={(e) => onSort(e.target.value)} aria-label="Ordenar campanhas">{SORTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+              {(quickFilter !== 'all' || onlyWithSpend || sort !== 'newest' || statusFilter !== 'active' || query) ? <button type="button" onClick={() => { setOnlyWithSpend(false); setQuickFilter('all'); onSort('newest'); onStatusFilter('active'); setQuery('') }} className="flex h-9 items-center gap-1 rounded-lg border border-border/60 bg-background px-2.5 text-xs text-muted-foreground hover:text-foreground"><RotateCcw className="size-3" />Limpar</button> : null}
             </div>
           </div>
         ) : null}
       </div>
 
-      {/* Resumo do que está visível + Selecionar todas */}
-      {visible.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-secondary/30 px-3 sm:px-4 py-2 text-[11px] tabular-nums text-muted-foreground">
-          <label className="flex items-center gap-1.5 cursor-pointer font-medium text-foreground mr-1">
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={toggleSelectAll}
-              aria-label="Selecionar todas as campanhas visíveis"
-              className="size-3.5 rounded accent-[color:var(--primary)]"
-            />
-            <span className="text-[11px]">Selecionar tudo</span>
-          </label>
-          <span className="text-border">|</span>
-          {summary.active > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--success)]" aria-hidden="true" />
-              {summary.active} ativa{summary.active === 1 ? '' : 's'}
-            </span>
-          )}
-          {summary.review > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
-              {summary.review} em revisão
-            </span>
-          )}
-          {summary.problem > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-[color:var(--error)]" aria-hidden="true" />
-              {summary.problem} com problema{summary.problem === 1 ? '' : 's'}
-            </span>
-          )}
-          {summary.paused > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />
-              {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
-            </span>
-          )}
-          <span className="ml-auto text-[10px] font-medium text-muted-foreground">
-            {visible.length} {visible.length === 1 ? 'campanha nesta visão' : 'campanhas nesta visão'}
-          </span>
-        </div>
-      )}
+      {isMobile && visible.length > 0 ? (
+        <label className="flex items-center gap-2 border-b border-border/60 py-2.5 text-xs font-medium text-foreground">
+          <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} aria-label="Selecionar todas as campanhas visíveis" className="size-4 rounded accent-primary" />
+          Selecionar tudo · {visible.length} campanha{visible.length === 1 ? '' : 's'}
+        </label>
+      ) : null}
 
       {tree?.backfillPending && (
-        <p className="flex items-center gap-2 border-b border-border bg-warning/5 px-4 py-2 text-[11px] text-warning">
+        <p className="flex items-center gap-2 border-b border-border/60 py-2.5 text-xs text-warning">
           <Loader2 className="size-3 animate-spin" aria-hidden="true" />
           Importando histórico do TikTok — as métricas podem levar alguns minutos para completar.
         </p>
@@ -1794,14 +1505,8 @@ export function CampaignTree({
 
       {/* Corpo: loading / erro / vazio / linhas */}
       {loading ? (
-        <div className="flex flex-col gap-2 p-4 stagger-fade">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton
-              key={i}
-              className="h-16 rounded-xl stagger-fade"
-              style={{ '--i': i, '--stagger-index': i } as React.CSSProperties}
-            />
-          ))}
+        <div className="flex flex-col divide-y divide-border/50">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="space-y-2 py-4"><Skeleton className="h-4 w-56 max-w-full rounded" /><Skeleton className="h-3 w-80 max-w-full rounded" /></div>)}
         </div>
       ) : error ? (
         <div className="p-6">
@@ -1809,125 +1514,60 @@ export function CampaignTree({
         </div>
       ) : campaigns.length > 0 && visible.length === 0 ? (
         /* Há campanhas, mas a busca/filtro local não achou nada */
-        <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-          <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
-            <Search className="size-6 text-muted-foreground" aria-hidden="true" />
-          </span>
-          <p className="text-sm font-medium text-foreground">Nada encontrado</p>
-          <p className="max-w-sm text-pretty text-xs text-muted-foreground">
-            {onlyWithSpend
-              ? 'Nenhuma campanha corresponde à busca com o filtro "Só com gasto" ligado.'
-              : 'Nenhuma campanha corresponde à busca.'}
-          </p>
-          <button
-            type="button"
-            className="btn-ghost text-xs"
-            onClick={() => {
-              setQuery('')
-              onStatusFilter('')
-              setOnlyWithSpend(false)
-              setQuickFilter('all')
-            }}
-          >
-            Limpar busca e filtros
-          </button>
+        <div className="py-12 text-center">
+          <p className="text-sm font-medium text-foreground">Nenhuma campanha corresponde à busca.</p>
+          <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => { setQuery(''); onStatusFilter('active'); setOnlyWithSpend(false); setQuickFilter('all') }}>Limpar busca e filtros</button>
         </div>
       ) : campaigns.length === 0 ? (
         tree?.backfillPending ? (
           /* Conta recém-conectada: o sync ainda está importando do TikTok —
              NÃO é "sem campanhas", é sincronização em andamento. */
-          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-            <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />
-            </span>
-            <p className="text-sm font-medium text-foreground">Sincronizando campanhas do TikTok…</p>
-            <p className="max-w-sm text-pretty text-xs text-muted-foreground">
-              A primeira importação pode levar de 1 a 3 minutos. Suas campanhas vão aparecer aqui
-              automaticamente — não precisa reconectar.
-            </p>
+          <div className="py-12 text-center">
+            <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" aria-hidden="true" />
+            <p className="mt-3 text-sm font-medium text-foreground">Sincronizando campanhas do TikTok…</p>
+            <p className="mx-auto mt-1 max-w-sm text-pretty text-xs text-muted-foreground">A primeira importação pode levar de 1 a 3 minutos. Suas campanhas vão aparecer aqui automaticamente — não precisa reconectar.</p>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-            <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
-              <Megaphone className="size-6 text-muted-foreground" aria-hidden="true" />
-            </span>
-            <p className="text-sm font-medium text-foreground">
-              {statusFilter ? 'Nenhuma campanha com esse status' : 'Nenhuma campanha neste período'}
-            </p>
-            <p className="max-w-sm text-pretty text-xs text-muted-foreground">
-              {statusFilter
-                ? 'Escolha Todas para ver as demais campanhas da conta.'
-                : 'Esta conta de anúncio não tem campanhas neste período. Aumente o Período acima ou crie a primeira campanha no botão "Nova campanha".'}
-            </p>
+          <div className="py-12 text-center">
+            <p className="text-sm font-medium text-foreground">{statusFilter ? 'Nenhuma campanha com esse status' : 'Nenhuma campanha neste período'}</p>
+            <p className="mx-auto mt-1 max-w-sm text-pretty text-xs text-muted-foreground">{statusFilter ? 'Escolha Todas para ver as demais campanhas da conta.' : 'Esta conta de anúncio não tem campanhas neste período. Aumente o Período acima ou use “Criar campanha”.'}</p>
           </div>
         )
       ) : (
-        <div
-          ref={scrollRef}
-          style={{ overflow: 'auto' }}
-          className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} campaign-table-container overflow-auto`}
-        >
-          <TableHeader />
-          {virtualize ? (
-            <div
-              style={{
-                height: rowVirtualizer.getTotalSize(),
-                position: 'relative',
-                minWidth: '1160px',
-              }}
-            >
-              {rowVirtualizer.getVirtualItems().map((vi) => {
-                const row = flatRows[vi.index]
-                return (
-                  <div
-                    key={vi.key}
-                    data-index={vi.index}
-                    ref={rowVirtualizer.measureElement}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${vi.start}px)`,
-                    }}
-                  >
-                    {renderFlatRow(row, vi.index)}
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div
-              className="stagger-fade"
-              style={{ minWidth: '1160px' }}
-            >
-              {flatRows.map((row, index) => (
-                <div
-                  key={row.key}
-                  className="stagger-fade"
-                  style={{ '--i': Math.min(index, 20), '--stagger-index': Math.min(index, 20) } as React.CSSProperties}
-                >
-                  {renderFlatRow(row, index)}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        isMobile ? (
+          <div className="min-w-0">
+            {flatRows.map((row) => row.kind === 'group' ? <div key={row.key}>{renderGroupHeader(row, undefined, true)}</div> : <div key={row.key}>{renderCampaignCardRow(row.c)}</div>)}
+          </div>
+        ) : (
+          <div ref={scrollRef} style={{ overflow: 'auto' }} className={`${virtualize ? 'h-[72vh]' : 'max-h-[72vh]'} campaign-table-container overflow-auto`}>
+            <TableHeader />
+            {virtualize ? (
+              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', minWidth: '1160px' }}>
+                {rowVirtualizer.getVirtualItems().map((vi) => {
+                  const row = flatRows[vi.index]
+                  return <div key={vi.key} data-index={vi.index} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}>{renderFlatRow(row, vi.index)}</div>
+                })}
+              </div>
+            ) : (
+              <div style={{ minWidth: '1160px' }}>{flatRows.map((row, index) => <div key={row.key}>{renderFlatRow(row, index)}</div>)}</div>
+            )}
+          </div>
+        )
       )}
 
       {/* Paginação */}
       {pagination && pagination.pages > 1 && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between border-t border-border/60 py-3 text-xs text-muted-foreground">
           <span>
             Página {pagination.page} de {pagination.pages} · {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
           </span>
           <div className="flex items-center gap-1">
-            <button type="button" className="btn-ghost px-2 py-1 text-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+            <button type="button" className="btn-ghost min-h-10 px-3 text-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>
               Anterior
             </button>
             <button
               type="button"
-              className="btn-ghost px-2 py-1 text-xs"
+              className="btn-ghost min-h-10 px-3 text-xs"
               disabled={page >= pagination.pages}
               onClick={() => onPage(page + 1)}
             >
@@ -1943,6 +1583,7 @@ export function CampaignTree({
         title={activation?.kind === 'bulk' ? `Ativar ${selected.size} campanhas?` : 'Ativar esta campanha?'}
         description={activation?.kind === 'single' ? <><strong>{activation.campaign.campaignName || activation.campaign.platformCampaignId}</strong><br />Conta: {activation.campaign.platformAdAccountName || activation.campaign.platformAdAccountId}<br />Orçamento: {campaignBudget(activation.campaign).amount !== null ? fmtMoney(campaignBudget(activation.campaign).amount!, activation.campaign.currency || currency) : 'Definido nos conjuntos'} · {campaignBudget(activation.campaign).detail}<br />Ao ativar, a campanha poderá começar a gastar.</> : 'As campanhas selecionadas poderão começar a gastar. Confira os orçamentos antes de ativar.'}
         confirmLabel="Ativar"
+        appearance="quiet"
         busy={activation?.kind === 'bulk' ? bulkBusy : Boolean(activation?.kind === 'single' && busyId === activation.campaign.platformCampaignId)}
         onConfirm={async () => {
           const ok = activation?.kind === 'bulk'
@@ -1965,6 +1606,7 @@ export function CampaignTree({
           </>
         }
         confirmLabel="Excluir anúncio"
+        appearance="quiet"
         busy={deleting}
         onConfirm={handleDeleteAd}
         onClose={() => setDeleteAd(null)}
@@ -1978,83 +1620,42 @@ export function CampaignTree({
         onSaved={() => onMutate?.()}
       />
 
-      {/* Barra Flutuante de Ações em Lote */}
+      {/* Barra de ações em lote */}
       {selected.size > 0 && (
-        <div className="campaign-bulk-actions fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 sm:gap-3 rounded-2xl border border-white/20 bg-[#09090b]/95 px-4 py-2.5 sm:px-5 sm:py-3 shadow-[0_10px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl anim-pop-in">
-          <div className="flex items-center gap-2 border-r border-border/50 pr-3">
-            <span className="flex size-5 items-center justify-center rounded-full bg-primary/20 text-[11px] font-bold text-primary">
-              {selected.size}
-            </span>
-            <span className="text-xs font-semibold text-foreground hidden sm:inline">
-              selecionada{selected.size === 1 ? '' : 's'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <button
-              type="button"
-              className="btn-secondary !py-1.5 !px-3 text-xs gap-1.5"
-              onClick={() => bulkStatus('paused')}
-              disabled={bulkBusy}
-            >
-              <Pause className="size-3.5" />
-              Pausar
-            </button>
-            <button
-              type="button"
-              className="btn-primary !py-1.5 !px-3 text-xs gap-1.5 font-semibold"
-              onClick={() => setActivation({ kind: 'bulk' })}
-              disabled={bulkBusy}
-            >
-              <Play className="size-3.5" />
-              Ativar
-            </button>
-            <button
-              type="button"
-              className="btn-secondary !py-1.5 !px-3 text-xs gap-1.5"
-              onClick={() => setBulkBudgetOpen(true)}
-              disabled={bulkBusy}
-            >
-              <DollarSign className="size-3.5 text-success" />
-              Orçamento
-            </button>
-            <button
-              type="button"
-              className="btn-ghost !p-1.5 text-muted-foreground hover:text-foreground ml-1"
-              onClick={() => setSelected(new Set())}
-              disabled={bulkBusy}
-              title="Limpar seleção"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+        <div className="campaign-bulk-actions fixed bottom-5 left-1/2 z-40 flex max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 shadow-lg sm:gap-3 sm:px-4">
+          <span className="text-xs font-semibold text-foreground">{selected.size} selecionada{selected.size === 1 ? '' : 's'}</span>
+          <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => bulkStatus('paused')} disabled={bulkBusy}><Pause className="size-3.5" />Pausar</button>
+          <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50" onClick={() => setActivation({ kind: 'bulk' })} disabled={bulkBusy}><Play className="size-3.5" />Ativar</button>
+          <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => { if (bulkBudgetEligible) setBulkBudgetOpen(true) }} disabled={bulkBusy || !bulkBudgetEligible} title={!bulkBudgetEligible ? `${ineligibleBudgetCount} campanha${ineligibleBudgetCount === 1 ? '' : 's'} usam orçamento nos conjuntos ou não têm orçamento compatível.` : 'Ajustar orçamentos'}><DollarSign className="size-3.5" />Orçamento</button>
+          <button type="button" className="btn-ghost h-9 px-2 text-xs text-muted-foreground" onClick={() => setSelected(new Set())} disabled={bulkBusy}>Limpar</button>
+          {!bulkBudgetEligible && ineligibleBudgetCount > 0 ? <p className="basis-full text-center text-xs text-warning">Orçamento em massa indisponível · {ineligibleBudgetCount} {ineligibleBudgetCount === 1 ? 'campanha usa' : 'campanhas usam'} orçamento nos conjuntos ou formato incompatível.</p> : null}
         </div>
       )}
 
       {/* Modal de Ajuste de Orçamento em Lote */}
       {bulkBudgetOpen && <Modal isOpen={bulkBudgetOpen} onClose={() => { if (!bulkBudgetBusy) setBulkBudgetOpen(false) }} title="Ajustar orçamentos" description={`${selected.size} ${selected.size === 1 ? 'campanha selecionada' : 'campanhas selecionadas'}. O período de cada orçamento será mantido.`}>
-            <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-secondary/30 p-1 mb-4 border border-border/40">
+            <div className="mb-4 grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-secondary/20 p-1">
               <button
                 type="button"
-                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                className={`h-9 text-xs font-medium rounded-md transition-colors ${
                   bulkBudgetMode === 'percent_up' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
                 }`}
                 onClick={() => { setBulkBudgetMode('percent_up'); setBulkBudgetValue('20') }}
               >
-                Aumentar
+                Aumentar (%)
               </button>
               <button
                 type="button"
-                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                className={`h-9 text-xs font-medium rounded-md transition-colors ${
                   bulkBudgetMode === 'percent_down' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
                 }`}
                 onClick={() => { setBulkBudgetMode('percent_down'); setBulkBudgetValue('20') }}
               >
-                Reduzir
+                Reduzir (%)
               </button>
               <button
                 type="button"
-                className={`py-1 text-xs font-semibold rounded-lg transition-colors ${
+                className={`h-9 text-xs font-medium rounded-md transition-colors ${
                   bulkBudgetMode === 'fixed' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
                 }`}
                 onClick={() => { setBulkBudgetMode('fixed'); setBulkBudgetValue('100') }}
@@ -2074,7 +1675,7 @@ export function CampaignTree({
                 id="campaign-bulk-budget"
                 value={bulkBudgetValue}
                 onChange={(e) => setBulkBudgetValue(e.target.value)}
-                className="input-neon w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono font-semibold text-foreground"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold tabular-nums text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
 
@@ -2104,6 +1705,6 @@ export function CampaignTree({
               </button>
             </div>
       </Modal>}
-    </GlassCard>
+    </section>
   )
 }

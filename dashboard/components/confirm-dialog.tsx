@@ -22,6 +22,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   confirmText,
   tone = 'danger',
+  appearance = 'default',
   busy = false,
   onConfirm,
   onClose,
@@ -34,6 +35,7 @@ export function ConfirmDialog({
   /** Se definido, o usuário precisa digitar exatamente este texto para confirmar. */
   confirmText?: string
   tone?: 'danger' | 'default'
+  appearance?: 'default' | 'quiet'
   busy?: boolean
   onConfirm: () => void | Promise<void>
   onClose: () => void
@@ -75,6 +77,51 @@ export function ConfirmDialog({
       submittingRef.current = false
       setSubmitting(false)
     }
+  }
+
+  if (appearance === 'quiet') {
+    return (
+      <DialogPortal><div
+        className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
+        onClick={(e) => {
+          if (e.target === e.currentTarget && !effectiveBusy) onClose()
+        }}
+      >
+        <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1} className="dialog-surface w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border/70 bg-background p-6 shadow-xl outline-none">
+          <div className="flex items-start gap-3">
+            {tone === 'danger' && <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />}
+            <div className="min-w-0 flex-1">
+              <h2 id={`${id}-title`} className="text-base font-semibold text-foreground text-balance">{title}</h2>
+              <div id={`${id}-description`} className="mt-1.5 text-sm leading-relaxed text-muted-foreground text-pretty">{description}</div>
+            </div>
+          </div>
+
+          {needsMatch && (
+            <label className="mt-4 block">
+              <span className="text-xs text-muted-foreground">
+                Para confirmar, digite <strong className="text-foreground">{confirmText}</strong>
+              </span>
+              <input
+                type="text"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                autoComplete="off"
+                className="mt-2 h-10 w-full rounded-lg border border-border bg-secondary/30 px-3 text-sm text-foreground outline-none transition-colors focus:border-brand-cyan/70 focus:ring-2 focus:ring-brand-cyan/15"
+                aria-label={`Digite ${confirmText} para confirmar`}
+              />
+            </label>
+          )}
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" onClick={onClose} disabled={effectiveBusy} className="min-h-10 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50">{cancelLabel}</button>
+            <button type="button" onClick={handleConfirm} disabled={!canConfirm} className={`flex min-h-10 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${tone === 'danger' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-brand-cyan text-black hover:bg-brand-cyan/90'}`}>
+              {effectiveBusy && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+              {effectiveBusy ? 'Aguarde...' : confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div></DialogPortal>
+    )
   }
 
   return (

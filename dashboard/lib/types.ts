@@ -1230,6 +1230,9 @@ export interface AdsProfitabilityResponse {
     adSpendExact: boolean
   }
   quality: 'exact' | 'mixed'
+  fixedCostCurrency?: string
+  fixedCostsApplied?: boolean
+  fixedCostCurrencyMismatch?: boolean
   note: string
 }
 
@@ -1666,6 +1669,17 @@ export interface AdsBulkItem {
   status: 'queued' | 'running' | 'done' | 'failed'
   error?: string
   resultId?: string // platformCampaignId criado
+  attempts?: number
+  retryAt?: string
+}
+
+export interface AdsBulkQueueState {
+  queue?: number
+  processing?: number
+  paused: boolean
+  pausedUntil?: string | null
+  retryAfterMs?: number
+  reason?: string
 }
 
 export interface AdsBulkJob {
@@ -1677,6 +1691,7 @@ export interface AdsBulkJob {
   failed: number
   createdAt: string
   items: AdsBulkItem[]
+  queue?: AdsBulkQueueState
 }
 
 export interface AdsBulkStartResponse {

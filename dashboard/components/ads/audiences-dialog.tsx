@@ -1,49 +1,62 @@
 'use client'
 
+import { useMemo, useRef, useState } from 'react'
+import { Loader2, RefreshCw, Trash2, X } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DialogPortal } from '@/components/ui/dialog-portal'
-
-import { useRef, useState } from 'react'
-import {
-  Users,
-  UserCheck,
-  UserPlus,
-  Plus,
-  Trash2,
-  RefreshCw,
-  Loader2,
-  X,
-  Sparkles,
-  ShieldCheck,
-  CheckCircle2,
-} from 'lucide-react'
-import { useAdsCustomAudiences, apiSend } from '@/lib/api'
+import { apiSend, useAdsCustomAudiences, useAdsTikTokPixels } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCustomAudience } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { defaultMarket, MarketSelector, type AdMarket } from './market-selector'
 
 interface AudiencesDialogProps {
   open: boolean
   onClose: () => void
   advertiserId: string
+  onConfigurePixel?: () => void
 }
 
-export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialogProps) {
+const PRESETS = [
+  { key: 'purchasers', name: 'Compradores', detail: 'Pessoas que compraram nos últimos 30 dias.', meta: 'Compra · 30 dias · atualização automática', event: 'Purchase', retentionDays: 30 },
+  { key: 'checkout', name: 'Iniciou checkout', detail: 'Pessoas que chegaram ao checkout nos últimos 7 dias.', meta: 'Checkout · 7 dias · atualização automática', event: 'InitiateCheckout', retentionDays: 7 },
+  { key: 'viewers', name: 'Visitou página', detail: 'Pessoas que visitaram a página nos últimos 14 dias.', meta: 'Visita · 14 dias · atualização automática', event: 'ViewContent', retentionDays: 14 },
+] as const
+
+function audienceTypeLabel(type: string) {
+  const upper = String(type || '').toUpperCase()
+  if (upper.includes('LOOKALIKE')) return 'Público semelhante'
+  if (upper.includes('PIXEL') || upper.includes('WEBSITE')) return 'Pixel'
+  return String(type || 'Público').replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase())
+}
+
+function audienceStatus(audience: AdsCustomAudience) {
+  if (audience.isValid) return { label: 'Pronto', tone: 'text-success', dot: 'bg-success' }
+  return { label: 'Calculando', tone: 'text-warning', dot: 'bg-warning' }
+}
+
+function formatSize(size: number) {
+  return Number(size) > 0 ? `${Number(size).toLocaleString('pt-BR')} pessoas estimadas` : 'Tamanho ainda indisponível'
+}
+
+export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel }: AudiencesDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { data, isLoading, mutate, error } = useAdsCustomAudiences(open, advertiserId)
+  const { data: pixelState, isLoading: pixelLoading } = useAdsTikTokPixels(open && Boolean(advertiserId), advertiserId)
   const audiences = data?.audiences || []
-  const availableSources = audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE'))
+  const availableSources = useMemo(() => audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE')), [audiences])
   const readyAudiences = audiences.filter(audience => audience.isValid).length
   const lookalikeAudiences = audiences.filter(audience => audience.type.toUpperCase().includes('LOOKALIKE')).length
-  const totalEstimatedPeople = audiences.reduce((sum, audience) => sum + Math.max(0, Number(audience.size) || 0), 0)
+  const pixelReady = Boolean(pixelState?.ready && pixelState.binding)
 
   const [creatingPreset, setCreatingPreset] = useState<string | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<AdsCustomAudience | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [showLookalikeForm, setShowLookalikeForm] = useState(false)
   const [sourceAudienceId, setSourceAudienceId] = useState('')
   const [lookalikeName, setLookalikeName] = useState('')
   const [lookalikeType, setLookalikeType] = useState<'BALANCE' | 'SIMILARITY' | 'REACH'>('BALANCE')
+  const [market, setMarket] = useState<AdMarket>(defaultMarket('BR'))
   const [creatingLookalike, setCreatingLookalike] = useState(false)
 
   const busy = creatingPreset !== null || deletingId !== null || creatingLookalike
@@ -51,43 +64,24 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
 
   if (!open) return null
 
-  async function handleCreatePreset(type: 'purchasers' | 'checkout' | 'viewers') {
-    setCreatingPreset(type)
+  async function handleCreatePreset(preset: typeof PRESETS[number]) {
+    if (!pixelReady) {
+      toast.info('Configure o Pixel da conta antes de criar públicos de remarketing.')
+      return
+    }
+    setCreatingPreset(preset.key)
     try {
-      let name = ''
-      let event = ''
-      let retentionDays = 30
-
-      if (type === 'purchasers') {
-        name = 'Compradores (30 dias)'
-        event = 'Purchase'
-        retentionDays = 30
-      } else if (type === 'checkout') {
-        name = 'Iniciou Checkout (7 dias)'
-        event = 'InitiateCheckout'
-        retentionDays = 7
-      } else if (type === 'viewers') {
-        name = 'Visitantes da página (14 dias)'
-        event = 'ViewContent'
-        retentionDays = 14
-      }
-
       const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'POST', {
         adAccountId: advertiserId,
-        name,
-        event,
-        retentionDays,
+        name: preset.key === 'purchasers' ? 'Compradores (30 dias)' : preset.key === 'checkout' ? 'Iniciou Checkout (7 dias)' : 'Visitantes da página (14 dias)',
+        event: preset.event,
+        retentionDays: preset.retentionDays,
       })
-
-      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
-      toast.success(`Público "${name}" criado com sucesso!`, {
-        hint: 'O TikTok está sincronizando e processando os dados.',
-      })
+      if (result.dryRun) { toast.info('Simulação concluída. Nenhum público foi criado no TikTok.'); return }
+      toast.success('Público criado', { hint: 'O TikTok está processando os dados e manterá o público atualizado.' })
       await mutate()
     } catch (err) {
-      toast.error('Não foi possível criar o público', {
-        hint: err instanceof Error ? err.message : undefined,
-      })
+      toast.error('Não foi possível criar o público', { hint: err instanceof Error ? err.message : undefined })
     } finally {
       setCreatingPreset(null)
     }
@@ -96,29 +90,28 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   async function handleCreateLookalike(e: React.FormEvent) {
     e.preventDefault()
     if (!sourceAudienceId) {
-      toast.error('Selecione um público semente e informe um nome')
+      toast.error('Selecione o público de origem.')
       return
     }
-
     setCreatingLookalike(true)
     try {
+      const sourceName = availableSources.find((audience) => audience.id === sourceAudienceId)?.name || 'Público'
       const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences/lookalike', 'POST', {
         adAccountId: advertiserId,
-        name: lookalikeName.trim() || ('Semelhante — ' + (availableSources.find((audience) => audience.id === sourceAudienceId)?.name || 'Público')).slice(0, 100),
+        name: lookalikeName.trim() || `Semelhante — ${sourceName}`.slice(0, 100),
         sourceAudienceId,
         lookalikeType,
+        countries: market.countries,
       })
-
-      if (result.dryRun) { toast.info('Simulação concluída. Os públicos não foram alterados.'); return }
-      toast.success('Público semelhante criado')
+      if (result.dryRun) { toast.info('Simulação concluída. Nenhum público foi criado no TikTok.'); return }
+      toast.success('Público semelhante criado', { hint: 'O TikTok começará a calcular o tamanho do público.' })
       setShowLookalikeForm(false)
       setLookalikeName('')
       setSourceAudienceId('')
+      setMarket(defaultMarket('BR'))
       await mutate()
     } catch (err) {
-      toast.error('Erro ao gerar Lookalike', {
-        hint: err instanceof Error ? err.message : undefined,
-      })
+      toast.error('Não foi possível criar o público semelhante', { hint: err instanceof Error ? err.message : undefined })
     } finally {
       setCreatingLookalike(false)
     }
@@ -127,370 +120,88 @@ export function AudiencesDialog({ open, onClose, advertiserId }: AudiencesDialog
   async function handleDelete(id: string) {
     if (busy || deletingId) return
     setDeletingId(id)
-    let removed = false
     try {
-      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'DELETE', {
-        adAccountId: advertiserId,
-        audienceId: id,
-      })
-      if (result.dryRun) {
-        setConfirmDelete(null)
-        toast.info('Simulação concluída. Os públicos não foram alterados.')
-        return
-      }
-      removed = true
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences', 'DELETE', { adAccountId: advertiserId, audienceId: id })
+      if (result.dryRun) toast.info('Simulação concluída. Nenhum público foi removido do TikTok.')
+      else toast.success('Público removido')
       setConfirmDelete(null)
-      toast.success('Público removido')
+      if (!result.dryRun) await mutate()
     } catch (err) {
-      toast.error('Erro ao remover público', {
-        hint: err instanceof Error ? err.message : undefined,
-      })
+      toast.error('Erro ao remover público', { hint: err instanceof Error ? err.message : undefined })
     } finally {
       setDeletingId(null)
     }
-    if (removed) {
-      try {
-        await mutate()
-      } catch (error) {
-        toast.info('Público removido, mas a lista não atualizou completamente', {
-          hint: error instanceof Error ? error.message : 'Atualize a lista para confirmar o estado.',
-        })
-      }
-    }
   }
 
-  return (
-    <DialogPortal><div
-      className="ads-dialog fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150"
-    >
-      <div
-        ref={ref}
-        role="dialog" aria-modal="true" aria-labelledby="audiences-dialog-title"
-        tabIndex={-1}
-        className="relative flex flex-col w-full max-w-4xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[85vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden focus:outline-none"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border bg-muted/20">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-primary/10 text-primary">
-              <Users className="size-5" aria-hidden="true" />
-            </div>
-            <div>
-              <h2 id="audiences-dialog-title" className="text-sm sm:text-base font-semibold tracking-tight text-foreground">
-                Públicos
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Alcance quem já visitou e encontre pessoas semelhantes.
-              </p>
-            </div>
+  const source = availableSources.find((audience) => audience.id === sourceAudienceId)
+  const similarityLabel = lookalikeType === 'SIMILARITY' ? 'Mais parecido' : lookalikeType === 'REACH' ? 'Mais amplo' : 'Equilibrado'
+
+  return <>
+    <DialogPortal><div className="ads-dialog fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-2.5 backdrop-blur-sm sm:p-4">
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="audiences-dialog-title" tabIndex={-1} className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl outline-none sm:max-h-[88vh]">
+        <div className="flex items-start justify-between gap-4 border-b border-border/60 px-4 py-4 sm:px-6">
+          <div>
+            <h2 id="audiences-dialog-title" className="text-base font-semibold text-foreground">Públicos</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Crie públicos de remarketing pelo Pixel da conta e públicos semelhantes para expansão.</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose} disabled={busy}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            aria-label="Fechar"
-          >
-            <X className="size-4" />
-          </button>
+          <button type="button" onClick={onClose} disabled={busy} className="flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/60 hover:text-foreground" aria-label="Fechar"><X className="size-4" /></button>
         </div>
 
-        {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Públicos</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{audiences.length}</p>
-              <p className="text-[11px] text-muted-foreground">{readyAudiences} prontos para uso</p>
-            </div>
-            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Semelhantes</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{lookalikeAudiences}</p>
-              <p className="text-[11px] text-muted-foreground">Lookalikes gerados no TikTok</p>
-            </div>
-            <div className="rounded-2xl border border-border/60 bg-secondary/15 p-3.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Alcance estimado</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">{totalEstimatedPeople > 0 ? totalEstimatedPeople.toLocaleString('pt-BR') : '—'}</p>
-              <p className="text-[11px] text-muted-foreground">Soma informada pelo TikTok</p>
-            </div>
+        <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span>{audiences.length} público{audiences.length === 1 ? '' : 's'}</span><span>·</span><span>{readyAudiences} pronto{readyAudiences === 1 ? '' : 's'}</span><span>·</span><span>{lookalikeAudiences} semelhante{lookalikeAudiences === 1 ? '' : 's'}</span>
           </div>
 
-          {/* Quick 1-Click Creation Presets */}
-          <div className="space-y-2.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Sparkles className="size-3.5 text-primary" />
-              Criar público com 1 clique
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                disabled={busy || !!error || isLoading}
-                onClick={() => handleCreatePreset('purchasers')}
-                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Compradores</span>
-                  {creatingPreset === 'purchasers' ? (
-                    <Loader2 className="size-3.5 animate-spin text-primary" />
-                  ) : (
-                    <UserCheck className="size-3.5 text-success" />
-                  )}
-                </div>
-                <span className="text-[11px] text-muted-foreground leading-relaxed">Pessoas que compraram nos últimos 30 dias.</span>
-                <span className="mt-2 w-fit rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Purchase · 30 dias</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={busy || !!error || isLoading}
-                onClick={() => handleCreatePreset('checkout')}
-                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Abriu o checkout</span>
-                  {creatingPreset === 'checkout' ? (
-                    <Loader2 className="size-3.5 animate-spin text-primary" />
-                  ) : (
-                    <UserPlus className="size-3.5 text-warning" />
-                  )}
-                </div>
-                <span className="text-[11px] text-muted-foreground leading-relaxed">Pessoas que abriram o checkout nos últimos 7 dias.</span>
-                <span className="mt-2 w-fit rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">InitiateCheckout · 7 dias</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={busy || !!error || isLoading}
-                onClick={() => handleCreatePreset('viewers')}
-                className="flex flex-col text-left p-4 rounded-2xl border border-border bg-background/70 hover:border-primary/50 hover:bg-primary/5 transition-all group"
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-xs font-semibold text-foreground group-hover:text-primary">Visitou a página</span>
-                  {creatingPreset === 'viewers' ? (
-                    <Loader2 className="size-3.5 animate-spin text-primary" />
-                  ) : (
-                    <Users className="size-3.5 text-info" />
-                  )}
-                </div>
-                <span className="text-[11px] text-muted-foreground leading-relaxed">Recupere quem acessou sua página nos últimos 14 dias.</span>
-                <span className="mt-2 w-fit rounded-full bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info">ViewContent · 14 dias</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Lookalike Builder Form */}
-          {showLookalikeForm ? (
-            <form onSubmit={handleCreateLookalike} className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                  <Sparkles className="size-3.5 text-primary" />
-                  Novo Público Semelhante (Lookalike)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowLookalikeForm(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Cancelar
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">Público de origem</label>
-                  <select aria-label="Público de origem"
-                    className="w-full text-xs rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-                    value={sourceAudienceId}
-                    onChange={(e) => setSourceAudienceId(e.target.value)}
-                    required
-                  >
-                    <option value="">Selecione o público de origem...</option>
-                    {availableSources.map((aud) => (
-                      <option key={aud.id} value={aud.id}>
-                        {aud.name} ({aud.size.toLocaleString('pt-BR')} pessoas)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">Nome do público (opcional)</label>
-                  <input
-                    type="text"
-                    aria-label="Nome do público"
-                    placeholder="Ex.: Pessoas parecidas com compradores"
-                    value={lookalikeName}
-                    onChange={(e) => setLookalikeName(e.target.value)}
-                    className="w-full text-xs rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">Como equilibrar semelhança e alcance</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    aria-pressed={lookalikeType === 'SIMILARITY'} onClick={() => setLookalikeType('SIMILARITY')}
-                    className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
-                      lookalikeType === 'SIMILARITY'
-                        ? 'border-primary bg-primary/10 text-primary font-medium'
-                        : 'border-border bg-background text-muted-foreground'
-                    }`}
-                  >
-                    <strong className="block">Mais parecido</strong>
-                    <span className="text-[10px] opacity-75">Menor alcance</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={lookalikeType === 'BALANCE'} onClick={() => setLookalikeType('BALANCE')}
-                    className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
-                      lookalikeType === 'BALANCE'
-                        ? 'border-primary bg-primary/10 text-primary font-medium'
-                        : 'border-border bg-background text-muted-foreground'
-                    }`}
-                  >
-                    <strong className="block">Equilibrado</strong>
-                    <span className="text-[10px] opacity-75">Recomendado</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={lookalikeType === 'REACH'} onClick={() => setLookalikeType('REACH')}
-                    className={`py-1.5 px-2 text-center text-xs rounded-lg border transition-all ${
-                      lookalikeType === 'REACH'
-                        ? 'border-primary bg-primary/10 text-primary font-medium'
-                        : 'border-border bg-background text-muted-foreground'
-                    }`}
-                  >
-                    <strong className="block">Mais amplo</strong>
-                    <span className="text-[10px] opacity-75">Maior alcance</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  disabled={busy || !!error}
-                  className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5"
-                >
-                  {creatingLookalike && <Loader2 className="size-3.5 animate-spin" />}
-                  Gerar Lookalike no TikTok
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="flex flex-wrap gap-3 justify-between items-center">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Públicos no TikTok Ads ({audiences.length})
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowLookalikeForm(true)}
-                  disabled={availableSources.length === 0 || !!error}
-                  className="btn-ghost text-xs text-primary flex items-center gap-1 py-1 px-2.5"
-                >
-                  <Sparkles className="size-3.5" />
-                  Criar Lookalike
-                </button>
-                <button
-                  type="button"
-                  onClick={() => mutate()}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground"
-                  aria-label="Atualizar lista"
-                >
-                  <RefreshCw className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* List of Audiences */}
-          <div className="space-y-2">
-            {isLoading ? (
-              <div className="py-8 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Loader2 className="size-5 animate-spin text-primary" />
-                <span className="text-xs">Consultando públicos no TikTok Ads...</span>
-              </div>
-            ) : error ? (<p role="alert" className="text-sm text-warning">Não foi possível carregar os públicos. Use Atualizar lista para tentar novamente.</p>) : audiences.length === 0 ? (
-              <div className="py-8 text-center border border-dashed border-border rounded-xl p-6 space-y-1">
-                <Users className="size-8 text-muted-foreground/50 mx-auto mb-2" />
-                <p className="text-xs font-medium text-foreground">Nenhum público personalizado encontrado</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Use os botões de 1 clique acima para criar seus públicos de compradores ou abandono de checkout.
-                </p>
-              </div>
+          <section className="border-b border-border/60 pb-5">
+            <h3 className="text-sm font-semibold text-foreground">Pixel da conta</h3>
+            {pixelLoading ? <p className="mt-2 text-xs text-muted-foreground">Verificando Pixel…</p> : pixelReady ? (
+              <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><span className="size-2 rounded-full bg-success" />Pronto · {pixelState?.binding?.pixelName || pixelState?.binding?.pixelCode || 'Pixel vinculado'}</p>
             ) : (
-              <div className="divide-y divide-border border border-border rounded-xl overflow-hidden bg-background">
-                {audiences.map((aud) => (
-                  <div
-                    key={aud.id}
-                    className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="min-w-0 flex items-center gap-3">
-                      <div className="p-1.5 rounded-lg bg-muted text-muted-foreground shrink-0">
-                        <Users className="size-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-foreground truncate">{aud.name}</p>
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                          <span className="px-1.5 py-0.5 rounded bg-secondary text-[10px] uppercase font-mono">
-                            {aud.type}
-                          </span>
-                          <span>•</span>
-                          <span>
-                            {aud.size > 0
-                              ? `${aud.size.toLocaleString('pt-BR')} pessoas estimadas`
-                              : 'Tamanho não informado'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                          aud.isValid
-                            ? 'bg-success/10 text-success'
-                            : 'bg-warning/10 text-warning'
-                        }`}
-                      >
-                        <CheckCircle2 className="size-3" />
-                        {aud.isValid ? 'Pronto' : 'Calculando'}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => setConfirmDelete(aud.id)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-error hover:bg-error/10 transition-colors"
-                        aria-label="Excluir público"
-                      >
-                        {deletingId === aud.id ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div><p className="text-sm font-medium text-warning">Pixel necessário para criar públicos de remarketing</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compradores, checkout e visitantes usam os eventos do Pixel vinculado à conta.</p></div>
+                {onConfigurePixel && <button type="button" className="btn-secondary min-h-10 shrink-0 text-xs" onClick={onConfigurePixel}>Configurar Pixel</button>}
               </div>
             )}
-          </div>
-        </div>
+          </section>
 
-        {/* Footer */}
-        <div className="flex flex-wrap gap-3 items-center justify-between px-6 py-3.5 border-t border-border bg-muted/20 text-[11px] text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="size-3.5 text-success" />
-            <span>O TikTok confirma o tamanho e a disponibilidade de cada público.</span>
-          </div>
-          <button type="button" onClick={onClose} disabled={busy} className="btn-secondary text-xs px-3 py-1.5">
-            Fechar
-          </button>
+          <section>
+            <h3 className="text-sm font-semibold text-foreground">Remarketing</h3>
+            <div className="mt-2 divide-y divide-border/50 border-y border-border/60">
+              {PRESETS.map((preset) => <div key={preset.key} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div><p className="text-sm font-medium text-foreground">{preset.name} · {preset.retentionDays} dias</p><p className="mt-1 text-xs text-muted-foreground">{preset.detail}</p><p className="mt-1 text-xs text-muted-foreground">{preset.meta}</p></div>
+                <button type="button" disabled={busy || !!error || isLoading || !pixelReady} onClick={() => handleCreatePreset(preset)} className="btn-secondary min-h-10 shrink-0 text-xs">
+                  {creatingPreset === preset.key && <Loader2 className="size-3.5 animate-spin" />}Criar público
+                </button>
+              </div>)}
+            </div>
+          </section>
+
+          <section className="border-b border-border/60 pb-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div><h3 className="text-sm font-semibold text-foreground">Público semelhante</h3><p className="mt-1 text-xs text-muted-foreground">Expanda a partir de um público pronto sem alterar o público de origem.</p></div>
+              <button type="button" className="btn-secondary min-h-10 text-xs" onClick={() => setShowLookalikeForm((value) => !value)}>{showLookalikeForm ? 'Recolher' : 'Criar público semelhante'}</button>
+            </div>
+            {showLookalikeForm && <form onSubmit={handleCreateLookalike} className="mt-4 space-y-4 rounded-xl border border-border/70 bg-secondary/10 p-4">
+              <label className="flex flex-col gap-1.5"><span className="text-xs font-medium text-foreground">Público de origem</span><select className="input-base min-h-10 rounded-lg border border-border bg-background px-3 text-sm" value={sourceAudienceId} onChange={(e) => setSourceAudienceId(e.target.value)}><option value="">Selecione um público</option>{availableSources.map((audience) => <option key={audience.id} value={audience.id}>{audience.name} · {formatSize(audience.size)}</option>)}</select></label>
+              <MarketSelector value={market} onChange={setMarket} disabled={creatingLookalike} languageAvailable={false} appearance="creation" />
+              <div><p className="text-xs font-medium text-foreground">Semelhança</p><div className="mt-2 grid gap-2 sm:grid-cols-3">{([
+                ['SIMILARITY', 'Mais parecido', 'Menor alcance, maior proximidade com a origem.'],
+                ['BALANCE', 'Equilibrado', 'Equilíbrio entre semelhança e alcance.'],
+                ['REACH', 'Mais amplo', 'Maior alcance, menor proximidade com a origem.'],
+              ] as const).map(([value, label, detail]) => <label key={value} className={`cursor-pointer rounded-lg border p-3 ${lookalikeType === value ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-background'}`}><input type="radio" className="sr-only" name="lookalikeType" value={value} checked={lookalikeType === value} onChange={() => setLookalikeType(value)} /><span className="text-sm font-medium text-foreground">{label}</span>{value === 'BALANCE' && <span className="ml-1 text-xs text-muted-foreground">· Recomendado</span>}<p className="mt-1 text-xs leading-relaxed text-muted-foreground">{detail}</p></label>)}</div></div>
+              <label className="flex flex-col gap-1.5"><span className="text-xs font-medium text-foreground">Nome opcional</span><input className="input-base min-h-10 rounded-lg border border-border bg-background px-3 text-sm" value={lookalikeName} maxLength={100} onChange={(e) => setLookalikeName(e.target.value)} placeholder={source ? `Semelhante — ${source.name}` : 'Gerado a partir do público de origem'} /></label>
+              {source && <div className="border-t border-border/60 pt-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Revisão</p><p className="mt-1">Origem: {source.name}</p><p>País: {market.countries[0] === 'BR' ? 'Brasil' : market.countries[0]}</p><p>Semelhança: {similarityLabel}</p><p>Nome: {lookalikeName.trim() || `Semelhante — ${source.name}`}</p></div>}
+              <div className="flex justify-end"><button type="submit" className="btn-primary min-h-10 text-xs" disabled={creatingLookalike || !sourceAudienceId}>{creatingLookalike && <Loader2 className="size-3.5 animate-spin" />}Criar público semelhante</button></div>
+            </form>}
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-foreground">Públicos da conta</h3><button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => mutate()} disabled={isLoading}><RefreshCw className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`} />Atualizar</button></div>
+            {isLoading && !data ? <p className="py-6 text-xs text-muted-foreground">Consultando públicos no TikTok Ads…</p> : error ? <div className="py-5"><p className="text-sm font-medium text-warning">Não foi possível carregar os públicos</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutate()}>Tentar novamente</button></div> : audiences.length === 0 ? <div className="py-7 text-center"><p className="text-sm font-medium text-foreground">Nenhum público criado</p><p className="mt-1 text-xs text-muted-foreground">Crie um público de remarketing acima ou gere um público semelhante quando houver uma origem pronta.</p></div> : <ul className="mt-2 divide-y divide-border/50 border-y border-border/60">{audiences.map((audience) => { const status = audienceStatus(audience); return <li key={audience.id} className="flex items-start gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{audience.name}</p><p className="mt-1 text-xs text-muted-foreground">{audienceTypeLabel(audience.type)} · {formatSize(audience.size)}</p></div><div className="flex shrink-0 items-center gap-2"><span className={`flex items-center gap-1.5 text-xs ${status.tone}`}><span className={`size-2 rounded-full ${status.dot}`} />{status.label}</span><button type="button" className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-error/10 hover:text-error" onClick={() => setConfirmDelete(audience)} disabled={busy}><Trash2 className="size-3.5" />Remover</button></div></li>})}</ul>}
+          </section>
         </div>
       </div>
-    </div><ConfirmDialog open={!!confirmDelete} title="Excluir público?" description="O público será removido do TikTok Ads. Confira se ele ainda é usado em alguma campanha." confirmLabel="Excluir público" busy={!!deletingId} onConfirm={async () => { if (confirmDelete) await handleDelete(confirmDelete) }} onClose={() => setConfirmDelete(null)} /></DialogPortal>
-  )
+    </div></DialogPortal>
+    <ConfirmDialog open={Boolean(confirmDelete)} title="Excluir este público?" description="Ele será removido do TikTok Ads. Se ainda estiver em uso, o TikTok poderá recusar a exclusão ou a campanha poderá exigir ajuste." confirmLabel="Excluir público" appearance="quiet" busy={Boolean(deletingId)} onConfirm={() => { if (confirmDelete) return handleDelete(confirmDelete.id) }} onClose={() => setConfirmDelete(null)} />
+  </>
 }

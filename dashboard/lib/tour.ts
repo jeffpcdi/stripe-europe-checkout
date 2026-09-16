@@ -9,6 +9,11 @@ export interface TourStep {
   target: string
   title: string
   body: string
+  /** preparação opcional do contexto antes de medir o alvo (ex.: trocar tab) */
+  activate?: {
+    event: string
+    value: string
+  }
 }
 
 export interface Tour {
@@ -16,6 +21,7 @@ export interface Tour {
   key: string
   label: string
   steps: TourStep[]
+  appearance?: 'default' | 'quiet'
 }
 
 /** Item 46: tour da Visão Geral */
@@ -189,17 +195,12 @@ const DOMAINS_TOUR: Tour = {
     {
       target: 'domains-add',
       title: 'Adicionar domínio',
-      body: 'Digite um subdomínio seu (ex.: link.seudominio.com). O roteamento e o SSL são automáticos.',
-    },
-    {
-      target: 'domains-use',
-      title: 'Uso do domínio',
-      body: 'Escolha se ele serve para checkout, cloaker ou ambos — o badge no card mostra o uso atual.',
+      body: 'Digite um subdomínio seu. Depois do cadastro, os registros DNS aparecem e a verificação acompanha o progresso automaticamente.',
     },
     {
       target: 'domains-list',
-      title: 'Verificação',
-      body: 'Depois de apontar o DNS, a verificação roda sozinha. O card mostra o estado e o passo a passo em caso de pendência.',
+      title: 'Acompanhar configuração',
+      body: 'Cada domínio mostra o progresso entre DNS, HTTPS e Ativo. Abra “DNS e detalhes” para copiar os registros necessários.',
     },
   ],
 }
@@ -208,49 +209,80 @@ const DOMAINS_TOUR: Tour = {
 const CLOAK_TOUR: Tour = {
   key: 'cloak',
   label: 'Cloaker',
+  appearance: 'quiet',
   steps: [
     {
-      target: 'cloak-test',
-      title: 'Teste ao vivo',
-      body: 'Simule um acesso e veja o veredito: quem vê a página branca (segura) e quem vê a oferta.',
+      target: 'cloak-stats',
+      title: 'Resultados',
+      body: 'Veja quantos acessos seguiram para o destino principal ou seguro, os principais motivos de desvio e quais links concentram essas decisões.',
+      activate: { event: 'roinados:cloak-tab', value: 'overview' },
     },
     {
       target: 'cloak-config',
-      title: 'Regras e threshold',
-      body: 'Ajuste o score mínimo e os sinais analisados. Quanto maior o threshold, mais rígido o filtro.',
+      title: 'Configurar proteção',
+      body: 'Ative a proteção, escolha o comportamento para acessos suspeitos, ajuste a sensibilidade e defina o destino seguro padrão. As opções técnicas ficam em Configurações avançadas.',
+      activate: { event: 'roinados:cloak-tab', value: 'rules' },
     },
     {
-      target: 'cloak-stats',
-      title: 'Estatísticas',
-      body: 'Acompanhe quantos acessos foram para a oferta vs. página branca e os últimos bloqueios.',
+      target: 'cloak-test',
+      title: 'Validar configuração',
+      body: 'O teste usa a última configuração salva. Use seu acesso atual ou um cenário sintético para confirmar o comportamento antes de publicar.',
+      activate: { event: 'roinados:cloak-tab', value: 'rules' },
+    },
+    {
+      target: 'cloak-links',
+      title: 'Links protegidos',
+      body: 'Crie URLs com destinos e regras próprias. Cada link mostra a proteção efetiva, sensibilidade, segmentação, testes e histórico.',
+      activate: { event: 'roinados:cloak-tab', value: 'traffic' },
     },
   ],
 }
 
-/** Tour da aba TikTok Ads (âncoras na aba inicial "Hoje") */
+/** Tour final do TikTok Ads — acompanha as três áreas reais da workspace. */
 const ADS_TOUR: Tour = {
   key: 'ads',
   label: 'TikTok Ads',
+  appearance: 'quiet',
   steps: [
     {
       target: 'ads-context',
-      title: 'Sua conta e a conexão',
-      body: 'Escolha a conta de anúncio e veja num relance se a conexão com o TikTok está saudável.',
+      title: 'Conta e sincronização',
+      body: 'Escolha a conta que está operando e confirme se os dados do TikTok estão atualizados antes de tomar decisões.',
     },
     {
       target: 'ads-tabs',
-      title: 'Quatro abas, um fluxo',
-      body: 'Hoje (seu dia), Campanhas (criar e operar, inclui Smart+), Automações (o robô) e Catálogo.',
+      title: 'Três áreas de trabalho',
+      body: 'Campanhas concentra operação e criação. Catálogo cuida de produtos e campanhas de catálogo. Automações reúne regras, aprovações e segurança.',
     },
     {
-      target: 'ads-inbox',
-      title: 'Precisa de você',
-      body: 'Aqui você decide num toque o que o robô propôs — pausar ou ajustar orçamento. Nada acontece sem o seu OK.',
+      target: 'ads-campaign-actions',
+      title: 'Operar e criar',
+      body: 'Gerencie públicos ou crie uma campanha. Conversão, Smart+ e Spark mantêm regras próprias e nascem pausadas para revisão.',
+      activate: { event: 'roinados:ads-tab', value: 'campaigns' },
     },
     {
-      target: 'ads-feed',
-      title: 'O que o robô fez',
-      body: 'Transparência total: cada ação e proposta do robô fica registrada, com o resultado.',
+      target: 'ads-campaigns',
+      title: 'Campanhas',
+      body: 'A lista prioriza orçamento, gasto, vendas reais, CPA e ROAS. Abra uma campanha para aprofundar estrutura, resultado e histórico.',
+      activate: { event: 'roinados:ads-tab', value: 'campaigns' },
+    },
+    {
+      target: 'ads-catalog',
+      title: 'Catálogo',
+      body: 'Produtos, feed e publicação no TikTok ficam concentrados aqui.',
+      activate: { event: 'roinados:ads-tab', value: 'catalog' },
+    },
+    {
+      target: 'ads-automation',
+      title: 'Automações',
+      body: 'Regras, aprovações e limites ficam aqui. A interface mostra quando uma decisão depende da sua aprovação.',
+      activate: { event: 'roinados:ads-tab', value: 'automation' },
+    },
+    {
+      target: 'ads-tabs',
+      title: 'Pronto para operar',
+      body: 'Use Campanhas como ponto principal do dia a dia e abra as outras áreas quando a tarefa exigir.',
+      activate: { event: 'roinados:ads-tab', value: 'campaigns' },
     },
   ],
 }

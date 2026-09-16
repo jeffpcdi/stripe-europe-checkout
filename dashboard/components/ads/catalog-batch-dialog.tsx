@@ -14,6 +14,8 @@ function randomKey() {
     : `catalog-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+const CATALOG_CURRENCIES = ['BRL', 'USD', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY'] as const
+
 const CATALOG_BATCH_TEMPLATE = [
   ['catalogo', 'sku', 'titulo', 'descricao', 'preco', 'marca', 'link', 'imagem', 'campanha', 'orcamento', 'tipo_orcamento', 'pais', 'periodo'],
   ['Loja Verão', 'SKU-001', 'Camiseta azul', 'Camiseta de algodão azul', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-azul', 'https://cdn.exemplo.com/camiseta-azul.jpg', 'Verão — todos', '50', 'daily', 'BR', ''],
@@ -39,12 +41,14 @@ export function CatalogBatchDialog({
   advertiserId,
   advertiserCurrency,
   onCreated,
+  onLocalWorkStateChange,
 }: {
   openRequest?: number
   hideTrigger?: boolean
   advertiserId: string
   advertiserCurrency: string
   onCreated: () => void
+  onLocalWorkStateChange?: (state: { uploading: boolean; pending: number }) => void
 }) {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState(1)
@@ -53,12 +57,14 @@ export function CatalogBatchDialog({
     if (openRequest > 0) setOpen(true)
   }, [openRequest])
   const [source, setSource] = useState('')
-  const [currency, setCurrency] = useState('BRL')
+  const [currency, setCurrency] = useState(() => CATALOG_CURRENCIES.includes(advertiserCurrency.toUpperCase() as typeof CATALOG_CURRENCIES[number]) ? advertiserCurrency.toUpperCase() : 'BRL')
   const [syncToTikTok, setSyncToTikTok] = useState(true)
   const [scheduleCampaigns, setScheduleCampaigns] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
   const [videoName, setVideoName] = useState('')
   const [uploadingVideo, setUploadingVideo] = useState(false)
+  useEffect(() => { onLocalWorkStateChange?.({ uploading: open && uploadingVideo, pending: open && uploadingVideo ? 1 : 0 }) }, [onLocalWorkStateChange, open, uploadingVideo])
+  useEffect(() => () => onLocalWorkStateChange?.({ uploading: false, pending: 0 }), [onLocalWorkStateChange])
   const [preview, setPreview] = useState<AdsCatalogBatchPreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'create' | null>(null)
   const idempotencyKeyRef = useRef<string | null>(null)
@@ -238,7 +244,7 @@ export function CatalogBatchDialog({
         <fieldset disabled={Boolean(busy) || uploadingVideo} className="batch-form">
         <div hidden={step !== 1}>
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor="catalog-batch-source">Cole as linhas da planilha ou importe um arquivo CSV/TSV</label>
                 <div className="flex flex-wrap gap-1.5">
@@ -253,55 +259,55 @@ export function CatalogBatchDialog({
                       event.target.value = ''
                     }}
                   />
-                  <button type="button" className="btn-ghost px-2 py-1 text-[10px]" onClick={() => fileInputRef.current?.click()}>
+                  <button type="button" className="btn-ghost min-h-10 px-3 text-xs" onClick={() => fileInputRef.current?.click()}>
                     <FileUp className="size-3" aria-hidden="true" /> Importar arquivo
                   </button>
-                  <button type="button" className="btn-ghost px-2 py-1 text-[10px]" onClick={downloadTemplate}>
+                  <button type="button" className="btn-ghost min-h-10 px-3 text-xs" onClick={downloadTemplate}>
                     <Download className="size-3" aria-hidden="true" /> Baixar modelo TSV
                   </button>
                 </div>
               </div>
               <textarea
                 id="catalog-batch-source"
-                className="input-base mt-1 min-h-44 w-full resize-y font-mono text-[11px]"
+                className="input-base mt-1 min-h-44 w-full resize-y font-mono text-xs"
                 value={source}
                 onChange={(event) => dirty(event.target.value)}
                 placeholder={'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\nLoja Verão\tSKU-001\tCamiseta\t79,90\tMinha Marca\thttps://loja.com/camiseta\thttps://cdn.com/camiseta.jpg\tVerão — todos\t50'}
               />
               {source.trim() && plan.message && (
-                <span className="mt-1 flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning" role="alert">
+                <span className="mt-1 flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs leading-relaxed text-warning" role="alert">
                   <AlertCircle className="mt-0.5 size-3 shrink-0" aria-hidden="true" /> {plan.message}
                 </span>
               )}
             </div>
             <div className="flex gap-3 sm:flex-col">
-              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">Moeda
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">Moeda
                 <select className="input-base" value={currency} onChange={(event) => { setCurrency(event.target.value); invalidatePlan() }}>
-                  <option>BRL</option><option>USD</option><option>EUR</option><option>MXN</option>
+                  {CATALOG_CURRENCIES.map(code => <option key={code}>{code}</option>)}
                 </select>
               </label>
-              <div className="rounded-lg bg-secondary/50 p-2 text-[10px] text-muted-foreground">
+              <div className="rounded-lg bg-secondary/50 p-2 text-xs text-muted-foreground">
                 <strong className="block text-foreground">{plan.catalogs.length} catálogo(s)</strong>
                 {plan.rows} linha(s) · {plan.catalogs.reduce((total, catalog) => total + catalog.products.length, 0)} produto(s)
               </div>
             </div>
           </div>
 
-          <div className="mt-3 grid gap-2 rounded-lg border border-border bg-secondary/20 p-3 text-[11px]">
+          <div className="mt-3 grid gap-2 rounded-lg border border-border bg-secondary/20 p-3 text-xs">
             <label className="flex items-start gap-2 text-muted-foreground">
-              <input className="mt-0.5 accent-primary" type="checkbox" checked={syncToTikTok} onChange={(event) => { setSyncToTikTok(event.target.checked); invalidatePlan() }} />
-              <span><strong className="text-foreground">Sincronizar automaticamente com o TikTok</strong><br />{preview?.automation.catalogCreationNote || 'Envia os produtos e acompanha o processamento. As campanhas continuam pausadas.'}</span>
+              <input className="mt-0.5 accent-primary" type="checkbox" checked={syncToTikTok} disabled={scheduleCampaigns} onChange={(event) => { setSyncToTikTok(event.target.checked); invalidatePlan() }} />
+              <span><strong className="text-foreground">Sincronizar automaticamente com o TikTok</strong><br />{scheduleCampaigns ? 'Necessário enquanto campanhas Product Link estiverem habilitadas.' : preview?.automation.catalogCreationNote || 'Envia os produtos e acompanha o processamento. As campanhas continuam pausadas.'}</span>
             </label>
             <label className="flex items-start gap-2 text-muted-foreground">
-              <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
-              <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
+              <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} disabled={!syncToTikTok} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
+              <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{!syncToTikTok ? 'As campanhas dependem do catálogo sincronizado com o TikTok.' : preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
             {scheduleCampaigns && (
               <label className="rounded-lg border border-border bg-background/70 p-3">
                 <span className="flex items-center gap-2 font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo das campanhas</span>
-                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">Um MP4/MOV com áudio para todas as campanhas do arquivo. Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo.</span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Um MP4/MOV com áudio para todas as campanhas do arquivo. Pixel da conta TikTok · otimização para Compra · capa gerada do vídeo.</span>
                 <span className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="btn-ghost cursor-pointer px-2 py-1 text-[10px]">
+                  <span className="btn-ghost min-h-10 cursor-pointer px-3 text-xs">
                     {uploadingVideo ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
                     {videoUrl ? 'Trocar vídeo' : 'Enviar vídeo'}
                     <input
@@ -316,17 +322,17 @@ export function CatalogBatchDialog({
                       }}
                     />
                   </span>
-                  {videoName && <span className="max-w-full truncate text-[10px] text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
+                  {videoName && <span className="max-w-full truncate text-xs text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
                 </span>
               </label>
             )}
             {campaignRequiresSync && (
-              <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
+              <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs leading-relaxed text-warning">
                 Para preparar campanhas, mantenha “Sincronizar automaticamente com o TikTok” ligado.
               </p>
             )}
             {scheduleCampaigns && campaignCount === 0 && (
-              <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
+              <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs leading-relaxed text-warning">
                 Nenhuma campanha foi encontrada. Preencha as colunas “campanha” e “orçamento” antes de criar o lote.
               </p>
             )}
@@ -334,7 +340,7 @@ export function CatalogBatchDialog({
 
         </div>
           {step === 2 && preview && (
-            <div className={`mt-3 rounded-lg border p-3 text-[11px] ${preview.ok ? 'border-success/30 bg-success/5' : 'border-error/30 bg-error/5'}`}>
+            <div className={`mt-3 rounded-lg border p-3 text-xs ${preview.ok ? 'border-success/30 bg-success/5' : 'border-error/30 bg-error/5'}`}>
               <p className="flex items-center gap-1.5 font-semibold text-foreground">
                 {preview.ok ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
                 {preview.preview.summary.normalizedCatalogs} catálogo(s) · {preview.preview.summary.normalizedProducts} produto(s) · {preview.preview.summary.normalizedCampaigns} campanha(s) no plano
@@ -357,13 +363,13 @@ export function CatalogBatchDialog({
               )}
               {preview.ok && (
                 <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Resumo por catálogo</p>
+                  <p className="text-xs font-semibold text-muted-foreground">Resumo por catálogo</p>
                   <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
                     {plan.catalogs.map((catalog) => (
                       <div key={catalog.key} className="rounded-md bg-secondary/40 p-2">
                         <div className="flex flex-wrap items-baseline justify-between gap-1">
                           <strong className="text-foreground">{catalog.name}</strong>
-                          <span className="text-[10px] text-muted-foreground">{catalog.products.length} produto(s) · {catalog.campaigns.length} campanha(s)</span>
+                          <span className="text-xs text-muted-foreground">{catalog.products.length} produto(s) · {catalog.campaigns.length} campanha(s)</span>
                         </div>
                         {catalog.campaigns.length > 0 ? (
                           <ul className="mt-1.5 space-y-1">
@@ -373,12 +379,12 @@ export function CatalogBatchDialog({
                                 <li key={`${summary.name}-${index}`} className="grid gap-0.5 border-t border-border/50 pt-1.5 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
                                   <span className="truncate font-medium text-foreground">{summary.name}</span>
                                   <span className="text-muted-foreground sm:text-right">{summary.budget}</span>
-                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel da conta TikTok</span>
+                                  <span className="truncate text-xs text-muted-foreground sm:col-span-2">Pixel da conta TikTok</span>
                                 </li>
                               )
                             })}
                           </ul>
-                        ) : <p className="mt-1 text-[10px] text-muted-foreground">Somente catálogo e produtos; nenhuma campanha foi solicitada.</p>}
+                        ) : <p className="mt-1 text-xs text-muted-foreground">Somente catálogo e produtos; nenhuma campanha foi solicitada.</p>}
                       </div>
                     ))}
                   </div>
@@ -387,7 +393,7 @@ export function CatalogBatchDialog({
             </div>
           )}
 
-          {campaignCount > 0 && <p className="mt-2 text-[10px] text-muted-foreground">As campanhas do lote usam todos os produtos do catálogo e sempre nascem pausadas.</p>}
+          {campaignCount > 0 && <p className="mt-2 text-xs text-muted-foreground">As campanhas do lote usam todos os produtos do catálogo e sempre nascem pausadas.</p>}
         </fieldset>
       </Modal>
     </div>

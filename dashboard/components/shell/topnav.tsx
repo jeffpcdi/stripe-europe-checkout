@@ -48,13 +48,22 @@ export function TopNav({ children }: { children: ReactNode }) {
       <div className="premium-navbar__identity">
         <Link href="/" className="premium-navbar__brand" aria-label="ROI-NADOS — Visão geral" onClick={() => setMenuOpen(false)}>
           <Image
-            src="/dashboard/roi-nados-wordmark.jpeg"
+            src="/dashboard/roi-nados-wordmark-ui.png"
             alt="ROI-NADOS"
-            width={720}
-            height={180}
-            sizes="188px"
+            width={860}
+            height={257}
+            sizes="180px"
             preload
             className="premium-navbar__wordmark"
+          />
+          <Image
+            src="/dashboard/roi-nados-appmark.png"
+            alt=""
+            width={321}
+            height={257}
+            sizes="44px"
+            aria-hidden="true"
+            className="premium-navbar__appmark"
           />
         </Link>
       </div>
