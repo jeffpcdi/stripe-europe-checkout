@@ -1,0 +1,47 @@
+name: V16.14 runtime fix
+
+on:
+  push:
+    branches:
+      - release/v16.14-convergence
+    paths:
+      - '.github/workflows/v16-14-runtime-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v16.14-convergence
+          fetch-depth: 0
+      - name: Align Node runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('package.json')
+          data = json.loads(p.read_text())
+          data.setdefault('engines', {})['node'] = '>=24'
+          p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+          c = Path('CHANGELOG.md')
+          text = c.read_text()
+          needle = '- `railway.json` troca o healthcheck legado `/login` pelo liveness dedicado `/healthz` e reduz a janela para 30s; builder/runtime/replicas/domínios permanecem fora do escopo.\n'
+          replacement = needle + '- Runtime de produção passa a exigir Node `>=24`, compatível simultaneamente com Next.js 16, `@neondatabase/serverless` e `geoip-lite`; isso corrige a seleção automática de Node 18 pelo Railpack.\n'
+          if replacement not in text:
+              text = text.replace(needle, replacement)
+          c.write_text(text)
+          PY
+          rm -f .github/workflows/v16-14-runtime-fix.yml
+          git config user.name 'roi-nados-release'
+          git config user.email 'release@roi-nados.local'
+          git add -A
+          git commit -m 'fix(v16.14): require Node 24 for current runtime dependencies'
+          git push origin HEAD:release/v16.14-convergence
