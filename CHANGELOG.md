@@ -3,6 +3,7 @@
 - Consolida no GitHub/Railway a fonte de verdade construída nas V16.10–V16.13, sem introduzir nova regra financeira, automação ou mudança visual.
 - O release parte exclusivamente de `roi-nados-v16.13.zip`; o `main` anterior (V16.9) não é usado como base para reconstruir código.
 - `railway.json` troca o healthcheck legado `/login` pelo liveness dedicado `/healthz` e reduz a janela para 30s; builder/runtime/replicas/domínios permanecem fora do escopo.
+- Runtime de produção passa a exigir Node `>=24`, compatível simultaneamente com Next.js 16, `@neondatabase/serverless` e `geoip-lite`; isso corrige a seleção automática de Node 18 pelo Railpack.
 - V16.12 entra em produção com analytics durável da Home e presença escopada por `accountId + visitorId`; migrations permanecem idempotentes e executadas pelo `db.init()`.
 - V16.13 entra em produção com elegibilidade do scheduler baseada em contas reais, isolamento de testes e telemetria do tick; resíduos órfãos permanecem auditáveis, sem cleanup destrutivo automático.
 - Gate local da release reexecuta as suites focadas de Home, tracking/conversão, Ads sync/automação/account scope/IA e leases Redis antes do push.
