@@ -5,6 +5,8 @@ import { uploadWithRetry } from './ads-upload'
 import useSWR from 'swr'
 import type {
   StatsResponse,
+  OverviewAnalyticsResponse,
+  Period,
   OverviewHealthResponse,
   HealthResponse,
   OpsResponse,
@@ -156,6 +158,17 @@ const LIST_POLL_MS = 30_000
 
 export function useStats() {
   return useSWR<StatsResponse>('/api/stats', fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function useOverviewAnalytics(period: Period, timeZone: string, active = true) {
+  const key = active
+    ? `/api/overview/analytics?period=${encodeURIComponent(period)}&tz=${encodeURIComponent(timeZone || 'America/Sao_Paulo')}`
+    : null
+  return useSWR<OverviewAnalyticsResponse>(key, fetcher, {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
@@ -718,8 +731,15 @@ export function useAdsWorkspace(active: boolean, advertiserId: string) {
   )
 }
 
-export function useAdsAudit(active: boolean) {
-  return useSWR<import('./types').AdsAuditResponse>(active ? '/api/ads/ops/audit?limit=40' : null, fetcher, {
+export function useAdsAudit(
+  active: boolean,
+  filters: { advertiserId?: string; campaignId?: string; limit?: number } = {},
+) {
+  const params = new URLSearchParams()
+  params.set('limit', String(Math.min(200, Math.max(1, Math.floor(Number(filters.limit) || 40)))))
+  if (filters.advertiserId) params.set('advertiserId', filters.advertiserId)
+  if (filters.campaignId) params.set('campaignId', filters.campaignId)
+  return useSWR<import('./types').AdsAuditResponse>(active ? `/api/ads/ops/audit?${params.toString()}` : null, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: true,
   })

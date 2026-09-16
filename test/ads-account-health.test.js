@@ -4,6 +4,7 @@
 // idempotência de tickets, resolução automática na reativação. Usa uma conta
 // sintética exclusiva e limpa os próprios registros no final.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-account-health-');
 
 const ops = require('../ads-ops-store');
 

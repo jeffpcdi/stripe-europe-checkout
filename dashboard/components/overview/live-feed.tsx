@@ -13,10 +13,18 @@ const STAGES: Record<string, { label: string; tone: 'neutral' | 'cyan' | 'warnin
   purchased: { label: 'Compra', tone: 'success' },
 }
 
-export function LiveFeed({ leads }: { leads: Lead[] }) {
-  const rows = [...leads]
-    .filter((lead) => Number.isFinite(Date.parse(lead.at)))
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+function activityAt(lead: Lead): string {
+  if (lead.stage === 'purchased') return lead.convertedAt || lead.purchasedAt || lead.paymentStartedAt || lead.checkoutAt || lead.at
+  if (lead.stage === 'payment') return lead.paymentStartedAt || lead.checkoutAt || lead.at
+  if (lead.stage === 'checkout') return lead.checkoutAt || lead.at
+  return lead.at
+}
+
+export function LiveFeed({ leads, timeZone = 'America/Sao_Paulo' }: { leads: Lead[]; timeZone?: string }) {
+  const rows = leads
+    .map((lead) => ({ lead, eventAt: activityAt(lead) }))
+    .filter(({ eventAt }) => Number.isFinite(Date.parse(eventAt)))
+    .sort((a, b) => Date.parse(b.eventAt) - Date.parse(a.eventAt))
     .slice(0, 4)
 
   return (
@@ -32,7 +40,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
         </div>
       ) : (
         <ul className="recent-visits-list">
-          {rows.map((lead) => {
+          {rows.map(({ lead, eventAt }) => {
             const stageInfo = STAGES[lead.stage] || STAGES.visit
             const isPurchased = lead.stage === 'purchased'
             const place = lead.city || (lead.country ? countryName(lead.country) : lead.countryName) || 'Local não informado'
@@ -45,16 +53,16 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                 <strong className="recent-visit-location" title={place}>{place}</strong>
                 <span className="recent-visit-stage" data-tone={stageInfo.tone}>
                   {stageInfo.label}
-                  {isPurchased && Number(lead.amount) > 0 && (
-                    <span data-sensitive className="recent-visit-amount"> · {fmtCurrency(lead.amount as number, lead.currency)}</span>
+                  {isPurchased && typeof lead.amount === 'number' && Number.isFinite(lead.amount) && lead.amount >= 0 && (
+                    <span data-sensitive className="recent-visit-amount"> · {fmtCurrency(lead.amount, lead.currency)}</span>
                   )}
                 </span>
                 <time
-                  dateTime={lead.at}
+                  dateTime={eventAt}
                   className="recent-visit-time"
-                  title={new Date(lead.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                  title={new Date(eventAt).toLocaleString('pt-BR', { timeZone })}
                 >
-                  {timeAgo(lead.at)}
+                  {timeAgo(eventAt)}
                 </time>
               </li>
             )

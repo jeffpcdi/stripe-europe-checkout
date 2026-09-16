@@ -367,7 +367,11 @@ export function CampaignDrawer({
   const { data, isLoading, error } = useAdsCampaignAnalytics(id, advertiserId, cur)
   const { data: prevData, error: prevError } = useAdsCampaignAnalytics(id, advertiserId, prev)
   const { data: decisions, mutate: mutateDecisions } = useAdsCampaignDecisions(Boolean(id), advertiserId, cur)
-  const { data: audit, error: auditError, isLoading: auditLoading } = useAdsAudit(Boolean(id))
+  const { data: audit, error: auditError, isLoading: auditLoading } = useAdsAudit(Boolean(id), {
+    advertiserId,
+    campaignId: id || undefined,
+    limit: 80,
+  })
 
   useModalA11y(Boolean(id), panelRef, onClose)
 
@@ -418,11 +422,8 @@ export function CampaignDrawer({
     : null
   const spendDelta = analyticsLoaded ? pctDelta(totals.spend, previousTotals.spend) : null
 
-  const timeline = (audit?.events || []).filter((event) => {
-    if (event.target_id === id) return true
-    const meta = event.metadata || {}
-    return String(meta.campaignId || meta.winnerId || meta.donorId || '') === id
-  }).slice(0, 30)
+  // A API já filtra por campanha antes do LIMIT. Mantemos só o teto visual aqui.
+  const timeline = (audit?.events || []).slice(0, 30)
 
   const automation = automationSummary(decision)
   const groups = campaign.adSets ?? []
@@ -767,7 +768,7 @@ export function CampaignDrawer({
                                           </div>
 
                                           {ad.creative?.body ? <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{ad.creative.body}</p> : null}
-                                          <p className="mt-2 text-xs tabular-nums text-muted-foreground">{fmtMoney(Number(ad.metrics?.spend) || 0, ccy)} · {fmtCompact(Number(ad.metrics?.impressions) || 0)} impr.</p>
+                                          <p className="mt-2 text-xs tabular-nums text-muted-foreground">{ad.metrics?.spend == null ? '—' : fmtMoney(Number(ad.metrics.spend), ccy)} · {ad.metrics?.impressions == null ? '—' : fmtCompact(Number(ad.metrics.impressions))} impr.</p>
                                           {productLink ? <p className="mt-2 text-xs text-muted-foreground">Destino definido pelos produtos do catálogo.</p> : ad.creative?.linkUrl ? <a href={ad.creative.linkUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-10 items-center gap-1.5 text-xs font-medium text-brand-cyan hover:underline">Abrir destino <ExternalLink className="size-3.5" aria-hidden="true" /></a> : null}
                                         </div>
                                       </div>

@@ -19,6 +19,7 @@ const cache = require('./ads-cache-store');
 const pipeboard = require('./pipeboard-mcp');
 const adsOps = require('./ads-ops-store');
 const automationWindow = require('./ads-automation-window');
+const db = require('./db');
 
 const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
 const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
@@ -281,6 +282,19 @@ const runtime = {
   lastTickStartedAt: null,
   lastTickCompletedAt: null,
   lastTickError: null,
+  lastTickDurationMs: null,
+  targetsDiscovered: 0,
+  targetsEligible: 0,
+  targetsSkippedOrphan: 0,
+  targetsRecent: 0,
+  targetsPersistent: 0,
+  targetsSynced: 0,
+  targetsSkippedFresh: 0,
+  targetsBlocked: 0,
+  targetsUnauthorized: 0,
+  targetsFailed: 0,
+  lastTargetIssues: [],
+  lastSlowTargets: [],
 };
 
 // Estado do PROCESSO atual. Não é persistido de propósito: depois de um
@@ -293,6 +307,19 @@ function getRuntimeStatus() {
     lastTickStartedAt: runtime.lastTickStartedAt,
     lastTickCompletedAt: runtime.lastTickCompletedAt,
     lastTickError: runtime.lastTickError,
+    lastTickDurationMs: runtime.lastTickDurationMs,
+    targetsDiscovered: runtime.targetsDiscovered,
+    targetsEligible: runtime.targetsEligible,
+    targetsSkippedOrphan: runtime.targetsSkippedOrphan,
+    targetsRecent: runtime.targetsRecent,
+    targetsPersistent: runtime.targetsPersistent,
+    targetsSynced: runtime.targetsSynced,
+    targetsSkippedFresh: runtime.targetsSkippedFresh,
+    targetsBlocked: runtime.targetsBlocked,
+    targetsUnauthorized: runtime.targetsUnauthorized,
+    targetsFailed: runtime.targetsFailed,
+    lastTargetIssues: runtime.lastTargetIssues.slice(),
+    lastSlowTargets: runtime.lastSlowTargets.slice(),
     intervalMs: SYNC_INTERVAL_MS,
   };
 }
@@ -302,61 +329,149 @@ async function tick() {
   running = true;
   const tickStart = Date.now();
   runtime.lastTickStartedAt = new Date(tickStart).toISOString();
+  runtime.targetsDiscovered = 0;
+  runtime.targetsEligible = 0;
+  runtime.targetsSkippedOrphan = 0;
+  runtime.targetsRecent = 0;
+  runtime.targetsPersistent = 0;
+  runtime.targetsSynced = 0;
+  runtime.targetsSkippedFresh = 0;
+  runtime.targetsBlocked = 0;
+  runtime.targetsUnauthorized = 0;
+  runtime.targetsFailed = 0;
+  runtime.lastTargetIssues = [];
+  runtime.lastSlowTargets = [];
   let tickError = null;
+  const targetDurations = [];
   try {
+    // A tabela `accounts` é a fonte autoritativa de tenancy. Estado órfão em
+    // config/ads_sync_state jamais pode criar uma conta operacional implícita.
+    const validAccountIds = new Set(await db.listAccountIds());
+
     // automation é carregado preguiçosamente AQUI (não no topo) para evitar
-    // qualquer risco de ciclo de require no boot — em runtime o cache de
-    // módulos do Node resolve na primeira chamada e reusa depois.
+    // qualquer risco de ciclo de require no boot.
     const automation = require('./ads-automation');
     const recent = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
-    const persistent = automation.listPersistentAutomationScopes();
+    const recentOrphans = typeof cache.countOrphanActiveAdvertisers === 'function'
+      ? await cache.countOrphanActiveAdvertisers(ACTIVE_WINDOW_MIN).catch(() => 0)
+      : 0;
+    const persistentInfo = typeof automation.inspectPersistentAutomationScopes === 'function'
+      ? automation.inspectPersistentAutomationScopes(validAccountIds)
+      : { scopes: automation.listPersistentAutomationScopes(validAccountIds), skippedOrphanAccounts: 0 };
+    const persistent = persistentInfo.scopes || [];
+
+    runtime.targetsRecent = recent.length;
+    runtime.targetsPersistent = persistent.length;
+    runtime.targetsSkippedOrphan = Number(recentOrphans || 0) + Number(persistentInfo.skippedOrphanScopes || 0);
+
     const targetsByScope = new Map();
-    for (const scope of recent.concat(persistent)) {
+    for (const scope of recent) {
       const key = scope.accountId + ':' + scope.advertiserId;
-      // A entrada "recent" pode carregar metadados usados pelo briefing; não
-      // deixa a versão mínima da inscrição persistente sobrescrevê-los.
-      if (!targetsByScope.has(key)) targetsByScope.set(key, scope);
+      targetsByScope.set(key, Object.assign({ source: 'recent' }, scope));
+    }
+    for (const scope of persistent) {
+      const key = scope.accountId + ':' + scope.advertiserId;
+      const previous = targetsByScope.get(key);
+      if (previous) previous.source = 'recent+persistent';
+      else targetsByScope.set(key, Object.assign({ source: 'persistent' }, scope));
     }
     const targets = [...targetsByScope.values()];
+    runtime.targetsEligible = targets.length;
+    runtime.targetsDiscovered = targets.length + runtime.targetsSkippedOrphan;
 
     for (const a of targets) {
-      const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
-      const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
-      const wasBlocked = st && st.status === 'blocked';
-      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000) || wasBlocked) {
-        // Conta bloqueada: syncAdvertiser já respeita BLOCKED_BACKOFF_MS (só
-        // re-proba após 30min). Se o re-probe der certo, é a auto-recuperação
-        // do estado 'blocked' obsoleto — loga e avisa no rulesLog.
-        const result = await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit
-        if (wasBlocked && result && result.ok) {
-          try { automation.noteRecovery(a.accountId, a.advertiserId); } catch (_) {}
+      const targetStart = Date.now();
+      let targetOutcome = 'fresh';
+      try {
+        // Defesa em profundidade: se accounts mudar entre a descoberta e a
+        // execução, o target ainda é barrado sem I/O externo.
+        if (!validAccountIds.has(a.accountId)) {
+          runtime.targetsSkippedOrphan += 1;
+          runtime.targetsEligible = Math.max(0, runtime.targetsEligible - 1);
+          runtime.targetsDiscovered = Math.max(runtime.targetsDiscovered, runtime.targetsEligible + runtime.targetsSkippedOrphan);
+          targetOutcome = 'orphan_account';
+          continue;
         }
+        const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
+        const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
+        const wasBlocked = st && st.status === 'blocked';
+        if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000) || wasBlocked) {
+          // Conta bloqueada: syncAdvertiser respeita o backoff. Cada target tem
+          // sua própria boundary: falha inesperada jamais aborta os seguintes.
+          const result = await syncAdvertiser(a.accountId, a.advertiserId);
+          if (result && result.ok) {
+            runtime.targetsSynced += 1;
+            targetOutcome = 'synced';
+            if (wasBlocked) {
+              try { automation.noteRecovery(a.accountId, a.advertiserId); } catch (_) {}
+            }
+          } else if (result && result.blocked) {
+            runtime.targetsBlocked += 1;
+            targetOutcome = 'blocked';
+          } else if (result && result.unauthorized) {
+            runtime.targetsUnauthorized += 1;
+            targetOutcome = 'unauthorized';
+          } else if (result && result.skipped) {
+            runtime.targetsSkippedFresh += 1;
+            targetOutcome = 'backoff';
+          } else {
+            runtime.targetsFailed += 1;
+            targetOutcome = 'failed';
+          }
+          if (result && !result.ok && !result.skipped) {
+            runtime.lastTargetIssues.push({
+              accountId: a.accountId,
+              advertiserId: a.advertiserId,
+              outcome: targetOutcome,
+              error: String(result.error || 'sync não concluído').slice(0, 180),
+            });
+          }
+        } else {
+          runtime.targetsSkippedFresh += 1;
+          targetOutcome = 'fresh';
+        }
+      } catch (error) {
+        runtime.targetsFailed += 1;
+        targetOutcome = 'exception';
+        runtime.lastTargetIssues.push({
+          accountId: a.accountId,
+          advertiserId: a.advertiserId,
+          outcome: targetOutcome,
+          error: String(error && error.message ? error.message : error).slice(0, 180),
+        });
+        console.error('[ads-sync] target ' + a.accountId + '/' + a.advertiserId + ' falhou isoladamente:', error && error.message ? error.message : error);
+      } finally {
+        targetDurations.push({
+          accountId: a.accountId,
+          advertiserId: a.advertiserId,
+          source: a.source || 'unknown',
+          outcome: targetOutcome,
+          durationMs: Date.now() - targetStart,
+        });
       }
     }
-    // Varreduras de automação 24/7: rodam DEPOIS do sync (espelho fresco),
-    // uma vez por advertiser, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
-    // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
+
+    runtime.lastTargetIssues = runtime.lastTargetIssues.slice(-8);
+    runtime.lastSlowTargets = targetDurations
+      .filter((row) => row.durationMs >= 1000)
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .slice(0, 5);
+
+    // Varreduras 24/7 só recebem targets cuja conta foi validada acima.
     for (const scope of targets) {
-      const accId = scope.accountId;
-      try { await automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
+      if (!validAccountIds.has(scope.accountId)) continue;
+      try { await automation.maybeSweep(scope.accountId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
     }
 
-    // O briefing não faz parte da automação operacional. Mantém o comportamento
-    // anterior: só roda para contas abertas recentemente, evitando geração de
-    // IA em background apenas porque uma regra ficou ligada.
+    // Briefing continua restrito aos scopes recentes, também validados por JOIN
+    // com accounts dentro de listActiveAdvertisers().
     const briefingScopes = [...new Map(recent.map((a) => [a.accountId + ':' + a.advertiserId, a])).values()];
     for (const scope of briefingScopes) {
-      const accId = scope.accountId;
-      // Briefing diário com IA: 1×/dia por conta + advertiser, idempotente via Neon,
-      // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
-      // mesmo motivo do automation acima (sem risco de ciclo no boot).
+      if (!validAccountIds.has(scope.accountId)) continue;
       try {
         const adsAi = require('./ads-ai');
-        adsAi.maybeDailyBriefing(accId, scope.advertiserId, scope.currency || 'BRL');
-        // O detector intradiário usa snapshots cumulativos do mesmo espelho.
-        // O próprio módulo aplica o intervalo durável de 4h e só chama a
-        // Anthropic quando encontra uma anomalia estatisticamente relevante.
-        adsAi.maybeIntradayAnomaly(accId, scope.advertiserId, scope.currency || 'BRL');
+        adsAi.maybeDailyBriefing(scope.accountId, scope.advertiserId, scope.currency || 'BRL');
+        adsAi.maybeIntradayAnomaly(scope.accountId, scope.advertiserId, scope.currency || 'BRL');
       } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {
@@ -364,6 +479,7 @@ async function tick() {
     console.error('[ads-sync] tick falhou:', err.message);
   } finally {
     const dur = Date.now() - tickStart;
+    runtime.lastTickDurationMs = dur;
     if (dur > 60 * 1000) console.warn('[ads-sync] tick demorou ' + Math.round(dur / 1000) + 's (esperado < 60s)');
     runtime.lastTickCompletedAt = new Date().toISOString();
     runtime.lastTickError = tickError;

@@ -38,7 +38,7 @@ let ready = false;
 
 // Item 249: status por migração — o /api/health reporta se a tabela
 // custom_domains e a coluna accounts.currency migraram com sucesso no boot.
-const migrations = { customDomains: false, accountCurrency: false, quarantine: false, notifications: false };
+const migrations = { customDomains: false, accountCurrency: false, quarantine: false, notifications: false, presenceTenant: false };
 
 // Chave namespaced por conta para tabelas keyed-by-name.
 function nsKey(accountId, name) {
@@ -278,9 +278,51 @@ async function init() {
     await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS account_id text`;
     await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS emq integer`;
     await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS emq_fields jsonb NOT NULL DEFAULT '[]'::jsonb`;
+    // V16.12: garante que dados legados continuem participando dos agregados
+    // duráveis mesmo se claimLegacyData() de uma instalação antiga não tiver
+    // alcançado tabelas criadas depois (ex.: events_archive). A convenção já
+    // existente do produto é atribuir legado ao primeiro admin/conta antiga.
+    await sql`UPDATE leads SET account_id = (SELECT id FROM accounts ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1)
+      WHERE account_id IS NULL AND EXISTS (SELECT 1 FROM accounts)`;
+    await sql`UPDATE events SET account_id = (SELECT id FROM accounts ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1)
+      WHERE account_id IS NULL AND EXISTS (SELECT 1 FROM accounts)`;
+    await sql`UPDATE events_archive SET account_id = (SELECT id FROM accounts ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1)
+      WHERE (account_id IS NULL OR account_id = '') AND EXISTS (SELECT 1 FROM accounts)`;
     await sql`CREATE INDEX IF NOT EXISTS leads_account_idx ON leads (account_id, created_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS events_account_idx ON events (account_id, at DESC)`;
+    // V16.12: sessões ao vivo precisam ser únicas POR CONTA. O schema legado
+    // usava visitor_id como PK global, o que permitia uma conta sobrescrever a
+    // sessão homônima de outra. Fazemos a migração de forma idempotente no boot:
+    //  1) atribui sessões legadas ao primeiro dono conhecido quando possível;
+    //  2) usa '' apenas como namespace legado quando ainda não existe conta;
+    //  3) troca a PK global por (account_id, visitor_id).
+    // Como a PK antiga já garantia visitor_id único, a troca não pode criar
+    // duplicatas durante a migração. Novos registros passam a coexistir por conta.
+    await sql`UPDATE sessions s
+      SET account_id = COALESCE(
+        s.account_id,
+        (SELECT a.id FROM accounts a ORDER BY (a.role = 'admin') DESC, a.created_at ASC LIMIT 1),
+        ''
+      )
+      WHERE s.account_id IS NULL`;
+    await sql`ALTER TABLE sessions ALTER COLUMN account_id SET DEFAULT ''`;
+    await sql`ALTER TABLE sessions ALTER COLUMN account_id SET NOT NULL`;
+    await sql`DO $$
+      DECLARE pk_name text; pk_def text;
+      BEGIN
+        SELECT c.conname, pg_get_constraintdef(c.oid) INTO pk_name, pk_def
+        FROM pg_constraint c
+        WHERE c.conrelid = 'sessions'::regclass AND c.contype = 'p'
+        LIMIT 1;
+        IF pk_def IS DISTINCT FROM 'PRIMARY KEY (account_id, visitor_id)' THEN
+          IF pk_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE sessions DROP CONSTRAINT %I', pk_name);
+          END IF;
+          ALTER TABLE sessions ADD CONSTRAINT sessions_pkey PRIMARY KEY (account_id, visitor_id);
+        END IF;
+      END $$`;
     await sql`CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions (account_id, last_seen DESC)`;
+    migrations.presenceTenant = true;
     await sql`CREATE INDEX IF NOT EXISTS pixels_account_idx ON pixels (account_id)`;
     await sql`CREATE INDEX IF NOT EXISTS links_account_idx ON links (account_id)`;
     await sql`CREATE INDEX IF NOT EXISTS pixel_events_account_idx ON pixel_events (account_id, at DESC)`;
@@ -444,6 +486,37 @@ async function countAccounts() {
   } catch (err) { console.error('[db] countAccounts:', err.message); return -1; }
 }
 
+// Fonte autoritativa de tenancy para workers de background. Config/estado
+// operacional órfão nunca deve criar uma conta SaaS implícita.
+async function listAccountIds() {
+  if (!enabled) return [];
+  try {
+    const rows = await sql`SELECT id FROM accounts ORDER BY created_at ASC`;
+    return rows.map((row) => String(row.id || '')).filter(Boolean);
+  } catch (err) {
+    console.error('[db] listAccountIds:', err.message);
+    throw err;
+  }
+}
+
+// Diagnóstico read-only: configs com bloco TikTok Ads, mas sem conta real.
+// Não remove nada; o script de auditoria V16.13 usa isto para explicar resíduos.
+async function listOrphanAdsConfigs(limit) {
+  if (!enabled) return [];
+  const n = Math.max(1, Math.min(1000, Number(limit) || 200));
+  try {
+    return await sql`SELECT c.key, c.data->'pipeboardAds' AS pipeboard_ads, c.updated_at
+      FROM config c
+      LEFT JOIN accounts a ON a.id = c.key
+      WHERE a.id IS NULL AND c.data ? 'pipeboardAds'
+      ORDER BY c.updated_at DESC
+      LIMIT ${n}`;
+  } catch (err) {
+    console.error('[db] listOrphanAdsConfigs:', err.message);
+    throw err;
+  }
+}
+
 // Conta padrão para tráfego público sem domínio mapeado: o primeiro admin
 // (ou a conta mais antiga). Usado por publicAccountId() no server.js.
 async function getFirstAccountId() {
@@ -461,7 +534,8 @@ async function claimLegacyData(accountId) {
   try {
     await sql`UPDATE leads SET account_id = ${accountId} WHERE account_id IS NULL`;
     await sql`UPDATE events SET account_id = ${accountId} WHERE account_id IS NULL`;
-    await sql`UPDATE sessions SET account_id = ${accountId} WHERE account_id IS NULL`;
+    await sql`UPDATE events_archive SET account_id = ${accountId} WHERE account_id IS NULL OR account_id = ''`;
+    await sql`UPDATE sessions SET account_id = ${accountId} WHERE account_id IS NULL OR account_id = ''`;
     await sql`UPDATE pixel_events SET account_id = ${accountId} WHERE account_id IS NULL`;
     // Item 247: domínios legados (sem dono) vão para o primeiro admin.
     await sql`UPDATE custom_domains SET account_id = ${accountId} WHERE account_id IS NULL`;
@@ -1115,6 +1189,251 @@ async function loadState(accountId, limitLeads, limitEvents) {
   }
 }
 
+
+// ── V16.12: agregados duráveis da Visão Geral ─────────────────────────────
+// A Home não pode depender do cache quente global (MAX_LEADS/MAX_EVENTS). Estas
+// consultas trabalham diretamente no Neon, sempre por conta + janela absoluta.
+// A resposta é compacta: agregados, rankings e série diária — nunca milhares de
+// leads enviados ao navegador só para somar números.
+function _overviewIso(value) {
+  const d = new Date(value || '');
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+async function readOverviewPeriod(accountId, from, to, timeZone) {
+  if (!enabled || !accountId) return null;
+  const fromIso = _overviewIso(from);
+  const toIso = _overviewIso(to);
+  if (!fromIso || !toIso || new Date(fromIso) > new Date(toIso)) return null;
+  const tz = String(timeZone || 'America/Sao_Paulo');
+  try {
+    const rows = await sql`
+      WITH event_src AS (
+        SELECT type, at, data FROM events
+        WHERE account_id = ${accountId} AND at >= ${fromIso}::timestamptz AND at < ${toIso}::timestamptz
+        UNION ALL
+        SELECT type, at, data FROM events_archive
+        WHERE account_id = ${accountId} AND at >= ${fromIso}::timestamptz AND at < ${toIso}::timestamptz
+      ), event_norm AS (
+        SELECT
+          COALESCE(type, 'info') AS type,
+          at,
+          COALESCE(NULLIF(upper(data->>'currency'), ''), 'BRL') AS currency,
+          COALESCE(NULLIF(data->>'gateway', ''), 'outro') AS gateway,
+          CASE
+            WHEN jsonb_typeof(data->'amount') = 'number' THEN GREATEST((data->>'amount')::numeric, 0)
+            WHEN jsonb_typeof(data->'amountCents') = 'number' THEN GREATEST((data->>'amountCents')::numeric, 0)
+            ELSE 0
+          END AS amount_cents
+        FROM event_src
+      ), event_totals AS (
+        SELECT
+          COUNT(*) FILTER (WHERE type = 'sale')::int AS sales,
+          COUNT(*) FILTER (WHERE type = 'failed')::int AS failed,
+          COUNT(*) FILTER (WHERE type = 'refund')::int AS refunds,
+          COUNT(*) FILTER (WHERE type = 'dispute')::int AS disputes,
+          MAX(at) AS last_event_at
+        FROM event_norm
+      ), event_currency AS (
+        SELECT currency,
+          COUNT(*) FILTER (WHERE type = 'sale')::int AS sales,
+          COALESCE(SUM(amount_cents) FILTER (WHERE type = 'sale'), 0)::bigint AS revenue_cents
+        FROM event_norm
+        GROUP BY currency
+      ), main_currency AS (
+        SELECT currency FROM event_currency ORDER BY revenue_cents DESC, sales DESC, currency ASC LIMIT 1
+      ), event_daily AS (
+        SELECT
+          to_char(timezone(${tz}, at), 'YYYY-MM-DD') AS day,
+          COALESCE(SUM(amount_cents) FILTER (
+            WHERE type = 'sale' AND currency = COALESCE((SELECT currency FROM main_currency), 'BRL')
+          ), 0)::bigint AS revenue,
+          COUNT(*) FILTER (
+            WHERE type = 'sale' AND currency = COALESCE((SELECT currency FROM main_currency), 'BRL')
+          )::int AS sales
+        FROM event_norm
+        GROUP BY 1
+        ORDER BY 1
+      ), lead_src AS (
+        SELECT data, stage, gateway, country, country_name, created_at
+        FROM leads
+        WHERE account_id = ${accountId}
+          AND orphan = false
+          AND created_at >= ${fromIso}::timestamptz
+          AND created_at < ${toIso}::timestamptz
+      ), lead_norm AS (
+        SELECT
+          data,
+          stage,
+          COALESCE(NULLIF(gateway, ''), NULLIF(data->>'gateway', '')) AS gateway,
+          COALESCE(NULLIF(country, ''), NULLIF(data->>'country', '')) AS country,
+          COALESCE(NULLIF(country_name, ''), NULLIF(data->>'countryName', '')) AS country_name,
+          created_at,
+          CASE WHEN COALESCE(data->>'checkoutAt', data->>'convertedAt', data->>'purchasedAt', data->>'at', '') <> ''
+            THEN COALESCE(data->>'checkoutAt', data->>'convertedAt', data->>'purchasedAt', data->>'at')::timestamptz ELSE NULL END AS checkout_at,
+          CASE WHEN COALESCE(data->>'paymentStartedAt', data->>'convertedAt', data->>'purchasedAt', data->>'at', '') <> ''
+            THEN COALESCE(data->>'paymentStartedAt', data->>'convertedAt', data->>'purchasedAt', data->>'at')::timestamptz ELSE NULL END AS payment_at,
+          CASE WHEN COALESCE(data->>'convertedAt', data->>'purchasedAt', data->>'at', '') <> ''
+            THEN COALESCE(data->>'convertedAt', data->>'purchasedAt', data->>'at')::timestamptz ELSE NULL END AS purchase_at,
+          NULLIF(data #>> '{utm,campaign}', '') AS campaign,
+          NULLIF(data->>'linkSlug', '') AS link_slug
+        FROM lead_src
+      ), lead_summary AS (
+        SELECT
+          COUNT(*)::int AS visits,
+          COUNT(*) FILTER (WHERE stage IN ('checkout','purchased') AND checkout_at >= ${fromIso}::timestamptz AND checkout_at < ${toIso}::timestamptz)::int AS reached_checkout,
+          COUNT(*) FILTER (WHERE (NULLIF(data->>'paymentStartedAt','') IS NOT NULL OR stage = 'purchased') AND payment_at >= ${fromIso}::timestamptz AND payment_at < ${toIso}::timestamptz)::int AS payment_started,
+          COUNT(*) FILTER (WHERE stage = 'purchased' AND purchase_at >= ${fromIso}::timestamptz AND purchase_at < ${toIso}::timestamptz)::int AS purchased,
+          MAX(GREATEST(created_at, COALESCE(checkout_at, created_at), COALESCE(payment_at, created_at), COALESCE(purchase_at, created_at))) AS last_lead_at
+        FROM lead_norm
+      ), countries AS (
+        SELECT country AS code, COALESCE(MAX(country_name), country) AS name,
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (WHERE stage = 'purchased' AND purchase_at >= ${fromIso}::timestamptz AND purchase_at < ${toIso}::timestamptz)::int AS purchased
+        FROM lead_norm
+        WHERE country IS NOT NULL
+        GROUP BY country
+        ORDER BY count DESC, purchased DESC
+      ), campaigns AS (
+        SELECT campaign AS name,
+          COUNT(*)::int AS leads,
+          COUNT(*) FILTER (WHERE stage = 'purchased' AND purchase_at >= ${fromIso}::timestamptz AND purchase_at < ${toIso}::timestamptz)::int AS purchased
+        FROM lead_norm
+        WHERE campaign IS NOT NULL AND campaign !~ '__[A-Z0-9]+(_[A-Z0-9]+)*__'
+        GROUP BY campaign
+        ORDER BY purchased DESC, leads DESC, name ASC
+        LIMIT 5
+      ), lead_daily AS (
+        SELECT to_char(timezone(${tz}, created_at), 'YYYY-MM-DD') AS day, COUNT(*)::int AS visits
+        FROM lead_norm GROUP BY 1 ORDER BY 1
+      )
+      SELECT
+        COALESCE((SELECT row_to_json(event_totals) FROM event_totals), '{}'::json) AS event_totals,
+        COALESCE((SELECT json_agg(event_currency ORDER BY revenue_cents DESC, sales DESC) FROM event_currency), '[]'::json) AS event_currency,
+        COALESCE((SELECT json_agg(event_daily ORDER BY day) FROM event_daily), '[]'::json) AS event_daily,
+        COALESCE((SELECT row_to_json(lead_summary) FROM lead_summary), '{}'::json) AS lead_summary,
+        COALESCE((SELECT json_agg(countries) FROM countries), '[]'::json) AS countries,
+        COALESCE((SELECT json_agg(campaigns) FROM campaigns), '[]'::json) AS campaigns,
+        COALESCE((SELECT json_agg(lead_daily ORDER BY day) FROM lead_daily), '[]'::json) AS lead_daily`;
+    if (!rows || !rows.length) return null;
+    const row = rows[0] || {};
+    const eventTotals = row.event_totals || {};
+    const currencies = Array.isArray(row.event_currency) ? row.event_currency : [];
+    const leadSummary = row.lead_summary || {};
+    const rev = {};
+    currencies.forEach((item) => {
+      if (!item || !item.currency) return;
+      rev[String(item.currency).toUpperCase()] = Number(item.revenue_cents) || 0;
+    });
+    const mainCur = currencies.length ? String(currencies[0].currency || 'BRL').toUpperCase() : 'BRL';
+    const revenueSales = currencies.length ? Number(currencies[0].sales) || 0 : 0;
+    const sales = Number(eventTotals.sales) || 0;
+    const failed = Number(eventTotals.failed) || 0;
+    const seriesMap = new Map();
+    (Array.isArray(row.event_daily) ? row.event_daily : []).forEach((item) => {
+      if (!item || !item.day) return;
+      seriesMap.set(String(item.day), { day: String(item.day), revenue: Number(item.revenue) || 0, sales: Number(item.sales) || 0, visits: 0 });
+    });
+    (Array.isArray(row.lead_daily) ? row.lead_daily : []).forEach((item) => {
+      if (!item || !item.day) return;
+      const day = String(item.day);
+      const cur = seriesMap.get(day) || { day, revenue: 0, sales: 0, visits: 0 };
+      cur.visits = Number(item.visits) || 0;
+      seriesMap.set(day, cur);
+    });
+    const visits = Number(leadSummary.visits) || 0;
+    const purchased = Number(leadSummary.purchased) || 0;
+    return {
+      rev,
+      mainCur,
+      sales,
+      revenueSales,
+      failed,
+      refunds: Number(eventTotals.refunds) || 0,
+      disputes: Number(eventTotals.disputes) || 0,
+      approval: sales + failed ? +((sales / (sales + failed)) * 100).toFixed(1) : 0,
+      visits,
+      reachedCheckout: Number(leadSummary.reached_checkout) || 0,
+      paymentStarted: Number(leadSummary.payment_started) || 0,
+      purchased,
+      overall: visits ? +((purchased / visits) * 100).toFixed(1) : 0,
+      countries: (Array.isArray(row.countries) ? row.countries : []).map((item) => ({
+        code: String(item.code || ''), name: String(item.name || item.code || ''),
+        count: Number(item.count) || 0, purchased: Number(item.purchased) || 0,
+      })),
+      series: Array.from(seriesMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
+      topCampaigns: (Array.isArray(row.campaigns) ? row.campaigns : []).map((item) => {
+        const leads = Number(item.leads) || 0;
+        const bought = Number(item.purchased) || 0;
+        return { name: String(item.name || ''), leads, purchased: bought, conv: leads ? +((bought / leads) * 100).toFixed(1) : 0 };
+      }),
+      updatedAt: [eventTotals.last_event_at, leadSummary.last_lead_at]
+        .map((v) => v ? new Date(v).toISOString() : null)
+        .filter(Boolean)
+        .sort()
+        .pop() || null,
+    };
+  } catch (err) {
+    console.error('[db] readOverviewPeriod:', err.message);
+    return null;
+  }
+}
+
+// Dados de cobertura/saúde calculados no banco, sem depender do snapshot quente.
+// Janela de 365d acompanha a semântica atual de "Tudo" da Home e evita que um
+// histórico infinito/LGPD antigo distorça a operação presente.
+async function readOverviewHealthFacts(accountId) {
+  if (!enabled || !accountId) return null;
+  try {
+    const rows = await sql`
+      WITH lead_src AS (
+        SELECT data, stage, orphan, country, created_at, updated_at
+        FROM leads
+        WHERE account_id = ${accountId} AND created_at >= now() - interval '365 days'
+      ), tracked AS (
+        SELECT * FROM lead_src WHERE orphan = false
+      ), event_src AS (
+        SELECT type, at FROM events WHERE account_id = ${accountId} AND at >= now() - interval '365 days'
+        UNION ALL
+        SELECT type, at FROM events_archive WHERE account_id = ${accountId} AND at >= now() - interval '365 days'
+      ), hosts AS (
+        SELECT
+          COALESCE(NULLIF(site.value->>'host',''), NULLIF(t.data->>'site','')) AS host,
+          COALESCE(NULLIF(t.data->>'pixelSlug',''), '') AS pixel_slug,
+          GREATEST(1, COALESCE(NULLIF(site.value->>'hits','')::int, 1)) AS hits,
+          COALESCE(NULLIF(site.value->>'lastAt','')::timestamptz, NULLIF(t.data->>'lastSeen','')::timestamptz, t.updated_at) AS last_at
+        FROM tracked t
+        LEFT JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(t.data->'sites') = 'array' THEN
+            CASE WHEN jsonb_array_length(t.data->'sites') > 0 THEN t.data->'sites'
+              ELSE jsonb_build_array(jsonb_build_object('host', t.data->>'site')) END
+          ELSE jsonb_build_array(jsonb_build_object('host', t.data->>'site')) END
+        ) site(value) ON true
+      ), host_agg AS (
+        SELECT host, SUM(hits)::int AS visits, MAX(last_at) AS last_at,
+          ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(pixel_slug,'')), NULL) AS pixels
+        FROM hosts WHERE host IS NOT NULL AND host <> '' GROUP BY host
+        ORDER BY last_at DESC NULLS LAST
+        LIMIT 50
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM tracked) AS leads_total,
+        (SELECT COUNT(*)::int FROM tracked WHERE stage = 'purchased') AS tracked_purchases,
+        (SELECT COUNT(*)::int FROM lead_src WHERE orphan = true AND stage = 'purchased') AS orphan_purchases,
+        (SELECT COUNT(*)::int FROM event_src WHERE type = 'sale') AS sale_events,
+        (SELECT COUNT(*)::int FROM tracked WHERE NULLIF(data->>'linkSlug','') IS NOT NULL
+          OR (NULLIF(data #>> '{utm,campaign}','') IS NOT NULL AND (data #>> '{utm,campaign}') !~ '__[A-Z0-9]+(_[A-Z0-9]+)*__')) AS attributed_visits,
+        (SELECT COUNT(*)::int FROM tracked WHERE COALESCE(NULLIF(country,''), NULLIF(data->>'country','')) IS NOT NULL) AS country_visits,
+        (SELECT MAX(COALESCE(NULLIF(data->>'lastSeen','')::timestamptz, created_at)) FROM tracked) AS last_traffic_at,
+        (SELECT MAX(at) FROM event_src WHERE type IN ('sale','failed','refund','dispute')) AS last_payment_at,
+        COALESCE((SELECT json_agg(host_agg) FROM host_agg), '[]'::json) AS hosts`;
+    return rows && rows.length ? rows[0] : null;
+  } catch (err) {
+    console.error('[db] readOverviewHealthFacts:', err.message);
+    return null;
+  }
+}
+
 async function reset(accountId) {
   if (!enabled) return true;
   try {
@@ -1136,12 +1455,13 @@ async function reset(accountId) {
 // ── Sessões ao vivo (heartbeat, por conta) ──���─────────────────────────────
 async function upsertSession(accountId, s) {
   if (!enabled || !s || !s.visitorId) return;
+  const acc = String(accountId || '');
   try {
     await sql`INSERT INTO sessions (visitor_id, account_id, page, referrer, country, country_name, city, ua, ip, variant, first_seen, last_seen, pageviews)
-      VALUES (${s.visitorId}, ${accountId || null}, ${s.page || null}, ${s.referrer || null}, ${s.country || null},
+      VALUES (${s.visitorId}, ${acc}, ${s.page || null}, ${s.referrer || null}, ${s.country || null},
               ${s.countryName || null}, ${s.city || null}, ${s.ua || null}, ${s.ip || null},
               ${s.variant || null}, now(), now(), 1)
-      ON CONFLICT (visitor_id) DO UPDATE SET
+      ON CONFLICT (account_id, visitor_id) DO UPDATE SET
         page = EXCLUDED.page, referrer = COALESCE(sessions.referrer, EXCLUDED.referrer),
         country = COALESCE(EXCLUDED.country, sessions.country),
         country_name = COALESCE(EXCLUDED.country_name, sessions.country_name),
@@ -1149,7 +1469,6 @@ async function upsertSession(accountId, s) {
         ua = COALESCE(sessions.ua, EXCLUDED.ua),
         ip = COALESCE(sessions.ip, EXCLUDED.ip),
         variant = COALESCE(EXCLUDED.variant, sessions.variant),
-        account_id = COALESCE(sessions.account_id, EXCLUDED.account_id),
         last_seen = now(),
         pageviews = sessions.pageviews + 1`;
   } catch (err) { console.error('[db] upsertSession:', err.message); }
@@ -1552,6 +1871,8 @@ module.exports = {
   getAccountByEmail,
   getAccountById,
   countAccounts,
+  listAccountIds,
+  listOrphanAdsConfigs,
   getFirstAccountId,
   claimLegacyData,
   ping,
@@ -1588,6 +1909,8 @@ module.exports = {
   deleteOtherAuthSessions,
   upsertVariant,
   loadState,
+  readOverviewPeriod,
+  readOverviewHealthFacts,
   reset,
   upsertSession,
   // quarentena de webhooks rejeitados

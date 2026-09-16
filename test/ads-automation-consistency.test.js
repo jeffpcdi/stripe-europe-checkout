@@ -6,6 +6,7 @@
 // - conflitos produzem uma única ação conservadora;
 // - backtest e ciclo real usam o mesmo planejador.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-automation-consistency-');
 const fs = require('fs');
 const path = require('path');
 

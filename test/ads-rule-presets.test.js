@@ -10,10 +10,7 @@
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
-
-// storage isolado (config usa DATA_DIR)
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ads-presets-'));
+require('./helpers/test-env').isolateUnitTest('ads-presets-');
 
 const automation = require('../ads-automation.js');
 const provider = require('../ads-provider.js');

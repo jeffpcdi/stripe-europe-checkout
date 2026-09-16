@@ -1,6 +1,7 @@
 // Estado operacional real do motor: configuração ativa não basta para dizer
 // que ele está rodando. Valida worker, sync, segurança e conclusão das promises.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-automation-status-');
 const fs = require('fs');
 const path = require('path');
 

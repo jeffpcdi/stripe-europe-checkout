@@ -138,6 +138,38 @@ export interface StatsResponse {
   leads: Lead[]
 }
 
+// ── /api/overview/analytics — agregados completos diretamente do Neon ──
+export interface OverviewPeriodMetrics {
+  rev: Record<string, number>
+  mainCur: string
+  sales: number
+  revenueSales: number
+  failed: number
+  refunds: number
+  disputes: number
+  approval: number
+  visits: number
+  reachedCheckout: number
+  paymentStarted: number
+  purchased: number
+  overall: number
+  countries: CountryStat[]
+  series: { day: string; revenue: number; sales: number; visits: number }[]
+  topCampaigns: { name: string; leads: number; purchased: number; conv: number }[]
+  updatedAt?: string | null
+}
+
+export interface OverviewAnalyticsResponse {
+  ok: boolean
+  complete: boolean
+  source: 'neon'
+  period: Period
+  timezone: string
+  range: { from: string; to: string; previousFrom: string; previousTo: string }
+  current: OverviewPeriodMetrics
+  previous: OverviewPeriodMetrics
+}
+
 // ── /api/overview/health — confiança e cobertura da Visão Geral ──
 export interface OverviewHealthAction {
   id: string
@@ -155,7 +187,7 @@ export interface OverviewHealthResponse {
     lastTrafficAt: string | null
     lastPaymentAt: string | null
     pollSeconds: number
-    timezone: 'America/Sao_Paulo'
+    timezone: string
   }
   setup: {
     links: { total: number; active: number }

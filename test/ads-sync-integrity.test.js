@@ -1,6 +1,7 @@
 'use strict';
 // Exercita o sync e a transação reais com stubs; nenhuma conexão externa.
 const assert = require('assert');
+require('./helpers/test-env').isolateUnitTest('ads-sync-integrity-');
 const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
@@ -31,6 +32,7 @@ function load(file, stubs, env = {}) {
   const sync = load('ads-sync.js', {
     './ads-provider': provider, './ads-cache-store': cache, './pipeboard-mcp': {},
     './ads-ops-store': { syncAdRejections: async () => { alerts++; } },
+    './db': { listAccountIds: async () => ['acc'] },
     './ads-automation-window': require('../ads-automation-window'),
   }, { ADS_SYNC_WINDOW_DAYS: '3' });
   for (const failure of ['AUCTION_CAMPAIGN', 'AUCTION_ADGROUP', 'AUCTION_AD', 'all']) {

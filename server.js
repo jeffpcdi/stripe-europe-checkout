@@ -62,6 +62,7 @@ const redis = require('./redis'); // contadores de decisão do cloaker (offer/wh
 const botRiskStore = require('./bot-risk-store');
 const { loginPage, registerPage } = require('./auth-view');
 const { buildOverviewHealth } = require('./overview-health');
+const { periodWindow, safeTimeZone } = require('./overview-window');
 
 // ── Resolução da conta para tráfego PÚBLICO (multi-tenant) ────────────────
 // Rotas públicas (/go, /t.js, /px.js, /l, /px.gif, /api/track) não têm sessão.
@@ -2291,15 +2292,64 @@ app.get('/api/leads/:id', dashboardAuth, (req, res) => {
   });
 });
 
-// Diagnóstico consolidado da Visão Geral. Não chama fornecedores externos:
-// cruza o snapshot escopado com a configuração já hidratada em memória. Assim
-// a home explica cobertura, frescor e próximos passos com uma única request e
-// sem expor credenciais, PII ou dados de outra conta.
-app.get('/api/overview/health', dashboardAuth, (req, res) => {
+// V16.12: agregados duráveis da Home. O frontend envia apenas a escolha do
+// período; o backend resolve a janela civil no fuso da conta e consulta Neon
+// diretamente. Assim o hot cache 8k/3k continua rápido para tracking, mas deixa
+// de limitar faturamento, funil, países e campanhas da Visão Geral.
+const OVERVIEW_ANALYTICS_CACHE = new Map(); // acc|period|tz -> { at, body }
+const OVERVIEW_ANALYTICS_TTL = 5000;
+app.get('/api/overview/analytics', dashboardAuth, async (req, res) => {
+  if (rateLimited('acc|' + req.account.id, 'overview-analytics', 60)) {
+    res.set('Retry-After', '30');
+    return apiError(res, 429, 'Muitas consultas à Visão Geral. Aguarde alguns segundos.', 'rate_limited');
+  }
   res.set('Cache-Control', 'private, no-cache');
   const acc = req.account.id;
+  const requestedTz = safeTimeZone(req.query.tz || 'America/Sao_Paulo');
+  const window = periodWindow(req.query.period, requestedTz, new Date());
+  const key = [acc, window.period, window.timeZone].join('|');
+  const cached = OVERVIEW_ANALYTICS_CACHE.get(key);
+  if (cached && Date.now() - cached.at < OVERVIEW_ANALYTICS_TTL) return res.json(cached.body);
+
+  const [current, previous] = await Promise.all([
+    db.readOverviewPeriod(acc, window.curFrom, window.curTo, window.timeZone),
+    db.readOverviewPeriod(acc, window.prevFrom, window.prevTo, window.timeZone),
+  ]);
+  if (!current || !previous) {
+    return apiError(res, 503, 'Agregação histórica temporariamente indisponível.', 'overview_analytics_unavailable');
+  }
+  const body = {
+    ok: true, complete: true, source: 'neon',
+    period: window.period, timezone: window.timeZone,
+    range: {
+      from: window.curFrom.toISOString(), to: window.curTo.toISOString(),
+      previousFrom: window.prevFrom.toISOString(), previousTo: window.prevTo.toISOString(),
+    },
+    current, previous,
+  };
+  OVERVIEW_ANALYTICS_CACHE.set(key, { at: Date.now(), body });
+  res.json(body);
+});
+
+// Diagnóstico consolidado da Visão Geral. Setup continua vindo dos stores já
+// hidratados; cobertura/frescor vêm de agregados completos do Neon. Se o banco
+// estiver indisponível, preservamos o snapshot quente como fallback e o caller
+// continua recebendo a mesma forma de resposta.
+const OVERVIEW_HEALTH_FACTS_CACHE = new Map(); // acc -> { at, facts }
+const OVERVIEW_HEALTH_FACTS_TTL = 15000;
+app.get('/api/overview/health', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'private, no-cache');
+  const acc = req.account.id;
+  const cachedFacts = OVERVIEW_HEALTH_FACTS_CACHE.get(acc);
+  let facts = cachedFacts && Date.now() - cachedFacts.at < OVERVIEW_HEALTH_FACTS_TTL ? cachedFacts.facts : null;
+  if (!facts) {
+    facts = await db.readOverviewHealthFacts(acc);
+    if (facts) OVERVIEW_HEALTH_FACTS_CACHE.set(acc, { at: Date.now(), facts });
+  }
+  const accountTz = safeTimeZone(((config.get(acc).settings || {}).timezone) || 'America/Sao_Paulo');
   const body = buildOverviewHealth({
     snapshot: stats.getStats(acc),
+    facts, timeZone: accountTz,
     links: linkStore.list(acc),
     pixels: pixelStore.list(acc),
     gateways: gatewayStore.list(acc)
@@ -2334,7 +2384,7 @@ app.post('/api/pulse/leave', (req, res) => {
     const b = req.body || {};
     const id = readCookie(req, 'v_id') ||
       (VID_RE.test(String(b.vid || '')) ? String(b.vid) : null);
-    if (id) presence.leave(id);
+    if (id) presence.leave(publicAccountId(req), id);
   } catch (_) {}
   res.json({ ok: true });
 });

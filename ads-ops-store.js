@@ -1,9 +1,16 @@
 const crypto = require('crypto');
-const { neon } = require('@neondatabase/serverless');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
-const sql = (!isPlaceholder && URL) ? neon(URL) : null;
+let neon = null;
+if (!isPlaceholder && URL) {
+  try { ({ neon } = require('@neondatabase/serverless')); }
+  catch (err) {
+    err.message = 'DATABASE_URL está configurada, mas @neondatabase/serverless não está instalado: ' + err.message;
+    throw err;
+  }
+}
+const sql = neon ? neon(URL) : null;
 const enabled = !!sql;
 const pixelBindingMemory = new Map();
 const rejectionMemory = new Map();
@@ -571,14 +578,52 @@ async function saveBulkProgress(accountId, jobId, itemIndex, created) {
     DO UPDATE SET created = ads_bulk_progress.created || ${patch}::jsonb, updated_at = now()`;
 }
 
-// Lista os eventos de auditoria mais recentes da conta (para a UI mostrar o
-// histórico e oferecer "reverter" nas ações reais do motor que têm before_state).
-async function listAuditEvents(accountId, limit) {
-  accountId = cleanAccountId(accountId);
+// Lista os eventos de auditoria mais recentes da conta. Filtros opcionais são
+// aplicados NO banco antes do LIMIT para que a Central de uma campanha não
+// dependa dos últimos eventos globais da conta para encontrar seu histórico.
+async function listAuditEvents(accountId, limit, opts = {}) {
+  const acc = cleanAccountId(accountId);
   if (!enabled) return [];
   await ensureSchema();
   const lim = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
-  return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at FROM ads_audit_events WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${lim}`;
+  const advertiserId = opts.advertiserId ? cleanAdvertiserId(opts.advertiserId) : '';
+  const campaignId = opts.campaignId ? String(opts.campaignId).trim().slice(0, 160) : '';
+
+  if (advertiserId && campaignId) {
+    return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at
+      FROM ads_audit_events
+      WHERE account_id = ${acc}
+        AND advertiser_id = ${advertiserId}
+        AND (
+          target_id = ${campaignId}
+          OR metadata ->> 'campaignId' = ${campaignId}
+          OR metadata ->> 'winnerId' = ${campaignId}
+          OR metadata ->> 'donorId' = ${campaignId}
+        )
+      ORDER BY created_at DESC LIMIT ${lim}`;
+  }
+  if (campaignId) {
+    return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at
+      FROM ads_audit_events
+      WHERE account_id = ${acc}
+        AND (
+          target_id = ${campaignId}
+          OR metadata ->> 'campaignId' = ${campaignId}
+          OR metadata ->> 'winnerId' = ${campaignId}
+          OR metadata ->> 'donorId' = ${campaignId}
+        )
+      ORDER BY created_at DESC LIMIT ${lim}`;
+  }
+  if (advertiserId) {
+    return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at
+      FROM ads_audit_events
+      WHERE account_id = ${acc} AND advertiser_id = ${advertiserId}
+      ORDER BY created_at DESC LIMIT ${lim}`;
+  }
+  return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at
+    FROM ads_audit_events
+    WHERE account_id = ${acc}
+    ORDER BY created_at DESC LIMIT ${lim}`;
 }
 
 // Conta ações REAIS do motor de regras na última janela (default 1h). É a base
