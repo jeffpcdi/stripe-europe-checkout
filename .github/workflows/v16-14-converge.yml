@@ -5,7 +5,7 @@ on:
     branches:
       - release/v16.14-convergence
     paths:
-      - '.release/v16.14.patch.gz.b64'
+      - '.release/parts/**'
       - '.github/workflows/v16-14-converge.yml'
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 -d .release/v16.14.patch.gz.b64 | gzip -d > /tmp/v16.14.patch
+          cat .release/parts/* | base64 -d | gzip -d > /tmp/v16.14.patch
           git apply --check /tmp/v16.14.patch
           git apply /tmp/v16.14.patch
           rm -rf .release
