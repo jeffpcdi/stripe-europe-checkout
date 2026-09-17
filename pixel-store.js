@@ -44,6 +44,52 @@ function cleanAscii(v) {
   return String(v == null ? '' : v).replace(/[^\x20-\x7E]/g, '').trim();
 }
 
+const PIXEL_EVENT_KEYS = ['ViewContent', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment', 'AddToCart'];
+
+function nextRevision(previous) {
+  const prevMs = Date.parse(String(previous || ''));
+  const now = Date.now();
+  return new Date(Number.isFinite(prevMs) && now <= prevMs ? prevMs + 1 : now).toISOString();
+}
+
+function mutationError(code, message, status, hint, currentUpdatedAt) {
+  const err = new Error(message);
+  err.code = code;
+  err.status = status;
+  err.hint = hint;
+  if (currentUpdatedAt) err.currentUpdatedAt = currentUpdatedAt;
+  return err;
+}
+
+// Patch top-level seguro para UPDATE atômico. Campos ausentes simplesmente não
+// entram no JSONB merge do Postgres; assim toggle/vínculo não reenviam nem
+// restauram credencial/eventos a partir de um cache potencialmente antigo.
+function normalizePatch(input) {
+  const raw = input || {};
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(raw, 'name')) patch.name = String(raw.name || '').trim();
+  if (Object.prototype.hasOwnProperty.call(raw, 'pixelCode')) patch.pixelCode = cleanAscii(raw.pixelCode);
+  if (Object.prototype.hasOwnProperty.call(raw, 'accessToken')) patch.accessToken = cleanAscii(raw.accessToken);
+  if (Object.prototype.hasOwnProperty.call(raw, 'testEventCode')) patch.testEventCode = cleanAscii(raw.testEventCode);
+  if (Object.prototype.hasOwnProperty.call(raw, 'active')) patch.active = raw.active !== false;
+  if (Object.prototype.hasOwnProperty.call(raw, 'gatewayIds')) {
+    patch.gatewayIds = Array.isArray(raw.gatewayIds)
+      ? [...new Set(raw.gatewayIds.map((g) => String(g || '').trim()).filter(Boolean))].slice(0, 50)
+      : [];
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'gatewayBindingMode')) {
+    patch.gatewayBindingMode = raw.gatewayBindingMode === 'explicit' ? 'explicit' : 'legacy';
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'events')) {
+    const ev = raw.events || {};
+    const complete = PIXEL_EVENT_KEYS.every((key) => typeof ev[key] === 'boolean');
+    if (!complete) throw mutationError('pixel_events_invalid', 'A configuração de eventos do Pixel está incompleta.', 400,
+      'Atualize a tela e salve novamente todos os eventos do Pixel.');
+    patch.events = Object.fromEntries(PIXEL_EVENT_KEYS.map((key) => [key, ev[key]]));
+  }
+  return patch;
+}
+
 // normaliza um objeto de pixel vindo de arquivo/dashboard/banco
 function normalize(slug, raw) {
   raw = raw || {};
@@ -201,51 +247,132 @@ function getByToken(token) {
   return cache.find((p) => p.token === token) || null;
 }
 
-// Cria/atualiza um pixel: DURABILIDADE PRIMEIRO (Neon e/ou Redis), depois
-// memória. Antes o `save` sempre reportava sucesso mesmo que o banco falhasse —
-// a config parecia salva, mas sumia no próximo restart e o pixel parava de
-// disparar. Agora exigimos confirmação de PELO MENOS uma camada durável e
-// registramos o estado em `saveHealth` para o painel avisar o usuário.
-async function save(accountId, input) {
-  const slug = input.slug ? slugify(input.slug) : slugify(input.name);
-  const existing = get(accountId, slug);
-  const cfg = normalize(slug, { ...(existing || {}), ...input, slug, acc: accountId });
-  cfg.updatedAt = new Date().toISOString();
+// Cria/atualiza um pixel: commit no Neon é a autoridade. CREATE e UPDATE
+// possuem contratos diferentes e UPDATE usa compare-and-swap durável. O cache
+// só muda DEPOIS que a persistência vencedora foi confirmada.
+async function save(accountId, input, options) {
+  const opts = options || {};
+  const createOnly = opts.createOnly === true;
+  const expectedUpdatedAt = opts.expectedUpdatedAt ? String(opts.expectedUpdatedAt) : '';
+  const requestedSlug = input && input.slug ? slugify(input.slug) : slugify(input && input.name);
+  const cached = get(accountId, requestedSlug);
+  const creating = createOnly || (!input.slug && !cached);
 
+  let committed;
+  let revision;
   let dbOk = false;
   let redisOk = false;
-  if (db.enabled) dbOk = await db.upsertPixel(accountId, slug, cfg);   // fonte primária
-  // O Neon é autoritativo no boot; não confirmar apenas pelo espelho Redis.
-  if (db.enabled && !dbOk) {
-    const err = new Error('Não foi possível salvar no banco. O pixel anterior foi preservado.');
-    err.code = 'pixel_save_not_durable'; err.status = 503; throw err;
+
+  if (creating) {
+    if (!db.enabled && cached) throw mutationError('pixel_create_conflict', 'Já existe um Pixel com este identificador.', 409,
+      'Atualize a lista ou escolha outro nome antes de criar novamente.', cached.updatedAt);
+    revision = nextRevision(null);
+    const cfg = normalize(requestedSlug, {
+      ...(input || {}),
+      slug: requestedSlug,
+      acc: accountId,
+      // Configurações criadas pelo produto atual têm intenção explícita de
+      // roteamento, inclusive quando a lista de checkouts está vazia.
+      gatewayBindingMode: input && input.gatewayBindingMode === 'legacy' ? 'legacy' : 'explicit',
+      updatedAt: revision,
+    });
+    cfg.updatedAt = revision;
+
+    if (!db.enabled && cfg.pixelCode) {
+      const duplicate = cache.find((p) => p.acc === accountId && p.pixelCode === cfg.pixelCode && p.slug !== requestedSlug);
+      if (duplicate) throw mutationError('duplicate_pixel_code', 'Este Pixel Code já está cadastrado nesta conta.', 409,
+        'Edite o Pixel existente ou use outro Pixel Code.');
+    }
+
+    if (db.enabled) {
+      const result = await db.createPixel(accountId, requestedSlug, cfg);
+      if (!result || !result.ok) {
+        if (result && result.conflict === 'slug') throw mutationError('pixel_create_conflict',
+          'Já existe um Pixel com este identificador.', 409,
+          'Atualize a lista ou escolha outro nome antes de criar novamente.');
+        if (result && result.conflict === 'pixel_code') throw mutationError('duplicate_pixel_code',
+          'Este Pixel Code já está cadastrado nesta conta.', 409,
+          'Edite o Pixel existente ou use outro Pixel Code.');
+        throw mutationError('pixel_save_not_durable', 'Não foi possível salvar no banco. Nenhuma alteração foi aplicada.', 503,
+          'Tente novamente quando o armazenamento estiver disponível.');
+      }
+      dbOk = true;
+      committed = normalize(requestedSlug, { ...(result.data || cfg), acc: accountId });
+    } else {
+      committed = cfg;
+    }
+  } else {
+    if (!input || !input.slug) throw mutationError('pixel_slug_required', 'O Pixel a editar não foi identificado.', 400);
+    if (!expectedUpdatedAt) throw mutationError('pixel_revision_required',
+      'A edição precisa informar a revisão do Pixel que foi aberta.', 409,
+      'Atualize a lista e tente novamente para evitar sobrescrever uma alteração mais recente.');
+    if (!db.enabled && cached && cached.updatedAt && String(cached.updatedAt) !== expectedUpdatedAt) {
+      throw mutationError('pixel_revision_conflict', 'Este Pixel foi alterado em outra aba ou por outro usuário.', 409,
+        'Atualize a lista, confira a versão atual e tente novamente.', cached.updatedAt);
+    }
+    const patch = normalizePatch(input);
+    revision = nextRevision(expectedUpdatedAt);
+
+    if (!db.enabled && patch.pixelCode) {
+      const duplicate = cache.find((p) => p.acc === accountId && p.pixelCode === patch.pixelCode && p.slug !== requestedSlug);
+      if (duplicate) throw mutationError('duplicate_pixel_code', 'Este Pixel Code já está cadastrado nesta conta.', 409,
+        'Edite o Pixel existente ou use outro Pixel Code.');
+    }
+
+    if (db.enabled) {
+      const result = await db.updatePixelVersioned(accountId, requestedSlug, patch, expectedUpdatedAt, revision);
+      if (!result || !result.ok) {
+        if (result && result.conflict === 'pixel_code') throw mutationError('duplicate_pixel_code',
+          'Este Pixel Code já está cadastrado nesta conta.', 409,
+          'Edite o Pixel existente ou use outro Pixel Code.');
+        if (result && result.conflict === 'revision') {
+          if (result.current) {
+            const latest = normalize(requestedSlug, { ...result.current, acc: accountId });
+            const idx = cache.findIndex((p) => p.slug === requestedSlug && p.acc === accountId);
+            if (idx >= 0) cache[idx] = latest; else cache.push(latest);
+            byRoute = null;
+          }
+          throw mutationError('pixel_revision_conflict', 'Este Pixel foi alterado em outra aba ou por outro usuário.', 409,
+            'Atualize a lista, confira a versão atual e tente novamente.', result.currentUpdatedAt);
+        }
+        throw mutationError('pixel_save_not_durable', 'Não foi possível salvar no banco. O Pixel anterior foi preservado.', 503,
+          'Tente novamente quando o armazenamento estiver disponível.');
+      }
+      dbOk = true;
+      committed = normalize(requestedSlug, { ...(result.data || {}), acc: accountId });
+    } else {
+      if (!cached) throw mutationError('pixel_not_found', 'Pixel não encontrado.', 404, 'Atualize a lista e tente novamente.');
+      committed = normalize(requestedSlug, { ...cached, ...patch, acc: accountId, updatedAt: revision });
+      committed.updatedAt = revision;
+    }
   }
-  if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, slug, cfg);
+
+  // O Neon é a fonte primária. Em dev sem Neon, o Redis pode ser a única
+  // camada durável. O espelho só recebe a versão já vencedora.
+  if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, requestedSlug, committed);
   if (!db.enabled && ((redis.enabled && !redisOk) || (!redis.enabled && process.env.NODE_ENV === 'production'))) {
-    const err = new Error('Armazenamento indisponível. O pixel não foi alterado.');
-    err.code = 'pixel_save_not_durable'; err.status = 503; throw err;
+    throw mutationError('pixel_save_not_durable', 'Armazenamento indisponível. O Pixel não foi alterado.', 503,
+      'Tente novamente quando o armazenamento estiver disponível.');
   }
 
   const durable = dbOk || redisOk;
   saveHealth.durable = durable;
-  saveHealth.at = cfg.updatedAt;
+  saveHealth.at = committed.updatedAt;
   if (durable) {
-    saveHealth.lastOk = cfg.updatedAt;
+    saveHealth.lastOk = committed.updatedAt;
     saveHealth.lastError = null;
   } else {
-    // Nenhuma camada durável confirmou. Ainda atualizamos a memória para não
-    // travar a sessão atual, mas avisamos claramente que a config é volátil.
     saveHealth.lastError = db.enabled || redis.enabled
       ? 'Falha ao gravar no armazenamento durável — config só em memória (some ao reiniciar).'
       : 'Sem banco nem Redis configurados — config só em memória (some ao reiniciar).';
-    console.error('[pixels] SAVE NÃO DURÁVEL:', saveHealth.lastError, '(' + slug + ')');
+    console.error('[pixels] SAVE NÃO DURÁVEL:', saveHealth.lastError, '(' + requestedSlug + ')');
   }
 
-  const idx = cache.findIndex((p) => p.slug === slug && p.acc === accountId);
-  if (idx >= 0) cache[idx] = cfg; else cache.push(cfg);
+  const idx = cache.findIndex((p) => p.slug === requestedSlug && p.acc === accountId);
+  if (idx >= 0) cache[idx] = committed; else cache.push(committed);
   byRoute = null;
-  writeFile(accountId, slug, cfg);                              // local, pode falhar
-  return { ...get(accountId, slug), _durable: durable, _saveError: saveHealth.lastError };
+  writeFile(accountId, requestedSlug, committed);
+  return { ...get(accountId, requestedSlug), _durable: durable, _saveError: saveHealth.lastError };
 }
 
 // Estado da última gravação — consumido pelo painel para exibir o aviso de
@@ -259,29 +386,55 @@ function health() {
   };
 }
 
-async function remove(accountId, slug) {
+async function remove(accountId, slug, options) {
   slug = slugify(slug);
-  const existing = get(accountId, slug);
-
-  // Confirma TODAS as camadas duráveis configuradas antes de alterar o cache.
-  // Ignorar um `false` aqui fazia a API responder sucesso, mas o registro que
-  // ficou no Neon/Redis reaparecia no próximo boot. O espelho Redis é apagado
-  // primeiro; se o Neon falhar em seguida, restauramos o snapshot a partir do
-  // cache para manter a operação repetível e sem estado parcialmente removido.
-  if (redis.enabled && !(await redis.deletePixelSnapshot(accountId, slug))) {
-    const err = new Error('Não foi possível confirmar a remoção no armazenamento durável: Redis.');
-    err.code = 'pixel_delete_not_durable';
-    err.status = 503;
-    err.hint = 'O pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.';
-    throw err;
+  const expectedUpdatedAt = options && options.expectedUpdatedAt ? String(options.expectedUpdatedAt) : '';
+  let existing = get(accountId, slug);
+  if (!existing && db.enabled && typeof db.loadPixel === 'function') {
+    const durable = await db.loadPixel(accountId, slug);
+    if (durable) existing = normalize(slug, { ...durable, acc: accountId });
   }
-  if (db.enabled && !(await db.deletePixel(accountId, slug))) {
-    if (redis.enabled && existing) await redis.savePixelSnapshot(accountId, slug, existing);
-    const err = new Error('Não foi possível confirmar a remoção no armazenamento durável: Neon.');
-    err.code = 'pixel_delete_not_durable';
-    err.status = 503;
-    err.hint = 'O pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.';
-    throw err;
+  if (!existing) throw mutationError('pixel_not_found', 'Pixel não encontrado.', 404,
+    'Atualize a lista: ele pode já ter sido removido em outra aba.');
+  if (!expectedUpdatedAt) throw mutationError('pixel_revision_required',
+    'A exclusão precisa informar a revisão do Pixel que foi confirmada pelo usuário.', 409,
+    'Atualize a lista e tente novamente.');
+  if (!db.enabled && existing.updatedAt && String(existing.updatedAt) !== expectedUpdatedAt) {
+    throw mutationError('pixel_revision_conflict', 'Este Pixel foi alterado depois que a exclusão foi aberta.', 409,
+      'Atualize a lista e confira a versão atual antes de excluir.', existing.updatedAt);
+  }
+
+  // Mantém a política atual: o espelho é removido primeiro e restaurado se o
+  // commit primário não puder ser confirmado. A mudança desta leva é o CAS no
+  // delete do Neon, para uma revisão antiga nunca remover uma configuração nova.
+  if (redis.enabled && !(await redis.deletePixelSnapshot(accountId, slug))) {
+    throw mutationError('pixel_delete_not_durable',
+      'Não foi possível confirmar a remoção no armazenamento durável: Redis.', 503,
+      'O Pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.');
+  }
+  if (db.enabled) {
+    const result = await db.deletePixelVersioned(accountId, slug, expectedUpdatedAt);
+    if (!result || !result.ok) {
+      if (redis.enabled) {
+        const restore = result && result.current
+          ? normalize(slug, { ...result.current, acc: accountId })
+          : existing;
+        await redis.savePixelSnapshot(accountId, slug, restore);
+      }
+      if (result && result.conflict === 'revision') {
+        if (result.current) {
+          const latest = normalize(slug, { ...result.current, acc: accountId });
+          const idx = cache.findIndex((p) => p.slug === slug && p.acc === accountId);
+          if (idx >= 0) cache[idx] = latest;
+          byRoute = null;
+        }
+        throw mutationError('pixel_revision_conflict', 'Este Pixel foi alterado depois que a exclusão foi aberta.', 409,
+          'Atualize a lista e confira a versão atual antes de excluir.', result.currentUpdatedAt);
+      }
+      throw mutationError('pixel_delete_not_durable',
+        'Não foi possível confirmar a remoção no armazenamento durável: Neon.', 503,
+        'O Pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.');
+    }
   }
 
   cache = cache.filter((p) => !(p.slug === slug && p.acc === accountId));

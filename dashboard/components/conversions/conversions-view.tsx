@@ -29,7 +29,7 @@ import {
   Link as LinkIcon,
   SlidersHorizontal,
 } from 'lucide-react'
-import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend } from '@/lib/api'
+import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend, ApiError } from '@/lib/api'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
@@ -224,13 +224,19 @@ export function ConversionsView() {
       await apiSend('/api/pixels', 'POST', {
         slug: px.slug,
         active: nextState,
+        _baseUpdatedAt: px.updatedAt,
       })
       toast.success(nextState ? `Pixel ${px.name} ativado` : `Pixel ${px.name} pausado`)
       await Promise.allSettled([mutatePixels(), refreshConversionDependents()])
     } catch (e) {
-      toast.error('Erro ao alterar status do pixel', {
-        hint: e instanceof Error ? e.message : undefined,
-      })
+      if (e instanceof ApiError && e.code === 'pixel_revision_conflict') {
+        toast.info('Este Pixel foi alterado em outra aba', { hint: e.hint || e.message })
+        await mutatePixels()
+      } else {
+        toast.error('Erro ao alterar status do pixel', {
+          hint: e instanceof Error ? e.message : undefined,
+        })
+      }
     } finally { setMutatingPixel(null) }
   }
 
@@ -265,7 +271,9 @@ export function ConversionsView() {
     const target = deletingPixel
     setDeletingPixelBusy(true)
     try {
-      const result = await apiSend<{ ok: boolean; warning?: string | null }>(`/api/pixels/${target.slug}`, 'DELETE')
+      const result = await apiSend<{ ok: boolean; warning?: string | null }>(`/api/pixels/${target.slug}`, 'DELETE', {
+        _baseUpdatedAt: target.updatedAt,
+      })
       setDeletingPixel(null)
       if (result.warning) toast.info(`Pixel "${target.name}" excluído`, { hint: result.warning })
       else toast.success(`Pixel "${target.name}" excluído`)
@@ -276,9 +284,14 @@ export function ConversionsView() {
     } catch (e) {
       // Mantém o diálogo aberto: o usuário pode corrigir o vínculo informado
       // pelo backend e tentar de novo sem perder o contexto.
-      toast.error('Erro ao excluir pixel', {
-        hint: e instanceof Error ? e.message : undefined,
-      })
+      if (e instanceof ApiError && e.code === 'pixel_revision_conflict') {
+        toast.info('Este Pixel mudou desde que a exclusão foi aberta', { hint: e.hint || e.message })
+        await mutatePixels()
+      } else {
+        toast.error('Erro ao excluir pixel', {
+          hint: e instanceof Error ? e.message : undefined,
+        })
+      }
     } finally {
       setDeletingPixelBusy(false)
     }
@@ -1033,6 +1046,8 @@ function PixelEditorWithGatewaySync({
   onSaved: () => void
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const savingRef = useRef(false)
+  const { mutate } = useSWRConfig()
   useModalA11y(true, dialogRef, onClose)
 
   const [saving, setSaving] = useState(false)
@@ -1040,12 +1055,14 @@ function PixelEditorWithGatewaySync({
   const [name, setName] = useState(pixel?.name ?? '')
   const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
   const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
+  const [clearAccessToken, setClearAccessToken] = useState(false)
   const [showToken, setShowToken] = useState(false)
   const [events, setEvents] = useState(pixel?.events || { ViewContent: true, AddToCart: true, InitiateCheckout: true, AddPaymentInfo: true, CompletePayment: true })
   const [testEventCode, setTestEventCode] = useState(pixel?.testEventCode || '')
   const [active, setActive] = useState(pixel?.active ?? true)
   const [gatewayIds, setGatewayIds] = useState<string[]>(pixel?.gatewayIds ?? [])
   async function handleSave() {
+    if (savingRef.current) return
     const cleanName = name.trim()
     const cleanCode = pixelCode.trim()
     if (!cleanName) {
@@ -1057,19 +1074,29 @@ function PixelEditorWithGatewaySync({
       return
     }
 
+    savingRef.current = true
     setSaving(true)
     setError(null)
 
     try {
-      const finalGatewayIds = gatewayIds
+      const initialGatewayIds = [...(pixel?.gatewayIds ?? [])].sort()
+      const finalGatewayIds = [...gatewayIds].sort()
+      const gatewayChanged = initialGatewayIds.length !== finalGatewayIds.length
+        || initialGatewayIds.some((id, index) => id !== finalGatewayIds[index])
+      const gatewayPatch = !pixel || gatewayChanged
+        ? { gatewayIds: finalGatewayIds }
+        : {}
 
-      const saved = await apiSend<{ ok: boolean; durable?: boolean; warning?: string | null }>('/api/pixels', 'POST', {
+      const saved = await apiSend<{ ok: boolean; durable?: boolean; warning?: string | null; pixel?: Pixel }>('/api/pixels', 'POST', {
         slug: pixel?.slug,
+        _createOnly: !pixel,
+        _baseUpdatedAt: pixel?.updatedAt,
         name: cleanName,
         pixelCode: cleanCode,
-        accessToken: accessToken.trim() || undefined,
+        accessToken: clearAccessToken ? undefined : (accessToken.trim() || undefined),
+        clearAccessToken: clearAccessToken || undefined,
         active,
-        gatewayIds: finalGatewayIds,
+        ...gatewayPatch,
         events,
         testEventCode,
       })
@@ -1083,7 +1110,15 @@ function PixelEditorWithGatewaySync({
       }
       onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar pixel')
+      if (e instanceof ApiError && (e.code === 'pixel_revision_conflict' || e.code === 'pixel_create_conflict')) {
+        setError(e.hint || e.message)
+        await mutate('/api/pixels')
+      } else if (e instanceof ApiError && e.code === 'duplicate_pixel_code') {
+        setError(e.hint || e.message)
+      } else {
+        setError(e instanceof Error ? e.message : 'Erro ao salvar pixel')
+      }
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -1163,9 +1198,12 @@ function PixelEditorWithGatewaySync({
                   type={showToken ? 'text' : 'password'}
                   className={`${inputCls} pr-10 font-mono`}
                   value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
+                  onChange={(e) => {
+                    setAccessToken(e.target.value)
+                    if (clearAccessToken) setClearAccessToken(false)
+                  }}
                   placeholder={pixel?.hasToken ? '•••••••••••••••••••• (token salvo)' : 'Cole o token de acesso'}
-                  disabled={saving}
+                  disabled={saving || clearAccessToken}
                 />
                 <button
                   type="button"
@@ -1180,6 +1218,30 @@ function PixelEditorWithGatewaySync({
               <span className="text-xs leading-relaxed text-muted-foreground">
                 Necessário para enviar eventos pelo servidor.
               </span>
+              {pixel?.hasToken && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 px-3 py-2.5">
+                  <span className="text-xs text-muted-foreground">
+                    {clearAccessToken ? 'O token será removido ao salvar.' : 'Há um token salvo para este Pixel.'}
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs font-medium text-destructive transition-opacity hover:opacity-80 disabled:opacity-50"
+                    disabled={saving}
+                    onClick={() => {
+                      if (clearAccessToken) {
+                        setClearAccessToken(false)
+                        setAccessToken(pixel.accessToken || '')
+                      } else {
+                        setClearAccessToken(true)
+                        setAccessToken('')
+                        setShowToken(false)
+                      }
+                    }}
+                  >
+                    {clearAccessToken ? 'Manter token' : 'Remover token'}
+                  </button>
+                </div>
+              )}
             </label>
           </section>
 

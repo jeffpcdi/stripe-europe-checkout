@@ -22,7 +22,6 @@ const server = read('server.js');
 const gatewayStore = read('gateway-store.js');
 const metrics = read('dashboard/lib/metrics.ts');
 const cloakEntries = read('dashboard/components/cloak/cloak-entries-panel.tsx');
-const pixels = read('dashboard/components/pixels/pixels-view.tsx');
 const conversions = read('dashboard/components/conversions/conversions-view.tsx');
 
 // Deduplicação de webhook precisa incluir gateway. Dois provedores podem usar
@@ -45,10 +44,11 @@ assert.match(cloakEntries, /const failed = new Set<string>\(\)/);
 assert.match(cloakEntries, /setSelected\(failed\)/);
 assert.match(cloakEntries, /Os que falharam continuam selecionados/);
 
-// Duplicar pixel não pode reutilizar o mesmo Pixel Code; o fluxo existente agora
-// abre um clone editável e cria novo registro sem slug.
-assert.match(pixels, /clone=\{Boolean\(cloning\)\}/);
-assert.match(pixels, /slug:\s*clone \? undefined : pixel\?\.slug/);
+// A tela ativa de Pixels precisa distinguir CREATE de UPDATE e carregar a
+// revisão durável; o antigo componente de Pixels não participa mais da rota.
+assert.match(conversions, /_createOnly:\s*!pixel/);
+assert.match(conversions, /_baseUpdatedAt:\s*pixel\?\.updatedAt/);
+assert.match(conversions, /clearAccessToken/);
 
 // Funil histórico deve considerar quando cada etapa ocorreu, não apenas o estado
 // final atual do lead (que causava compra futura vazando para período passado).

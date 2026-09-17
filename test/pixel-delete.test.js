@@ -30,7 +30,7 @@ function pixel(acc, slug, name) {
   let store = freshStore({
     enabled: true,
     loadPixels: async () => ({ ok: true, data: [pixel('acc-a', 'falha')] }),
-    deletePixel: async () => false,
+    deletePixelVersioned: async () => ({ ok: false, conflict: null }),
   }, {
     enabled: true,
     loadPixelSnapshot: async () => [],
@@ -39,7 +39,7 @@ function pixel(acc, slug, name) {
   });
   await store.init();
   await assert.rejects(
-    () => store.remove('acc-a', 'falha'),
+    () => store.remove('acc-a', 'falha', { expectedUpdatedAt: store.get('acc-a', 'falha').updatedAt }),
     (error) => error && error.code === 'pixel_delete_not_durable' && error.status === 503,
     'falha durável deve chegar à rota com código e status estáveis',
   );
@@ -50,7 +50,7 @@ function pixel(acc, slug, name) {
   store = freshStore({
     enabled: true,
     loadPixels: async () => ({ ok: true, data: [] }),
-    deletePixel: async () => true,
+    deletePixelVersioned: async () => ({ ok: true }),
   }, {
     enabled: true,
     loadPixelSnapshot: async () => {
@@ -72,7 +72,7 @@ function pixel(acc, slug, name) {
       ok: true,
       data: [pixel('acc-a', 'compartilhado', 'A'), pixel('acc-b', 'compartilhado', 'B')],
     }),
-    deletePixel: async (acc, slug) => { calls.push('db:' + acc + ':' + slug); return true; },
+    deletePixelVersioned: async (acc, slug) => { calls.push('db:' + acc + ':' + slug); return { ok: true }; },
   }, {
     enabled: true,
     loadPixelSnapshot: async () => [],
@@ -80,7 +80,7 @@ function pixel(acc, slug, name) {
     savePixelSnapshot: async () => true,
   });
   await store.init();
-  assert.strictEqual(await store.remove('acc-a', 'compartilhado'), true);
+  assert.strictEqual(await store.remove('acc-a', 'compartilhado', { expectedUpdatedAt: store.get('acc-a', 'compartilhado').updatedAt }), true);
   assert.strictEqual(store.get('acc-a', 'compartilhado'), null, 'pixel removido some da própria conta');
   assert.ok(store.get('acc-b', 'compartilhado'), 'mesmo slug de outra conta permanece');
   assert.deepStrictEqual(calls, [
@@ -94,7 +94,7 @@ function pixel(acc, slug, name) {
   store = freshStore({
     enabled: true,
     loadPixels: async () => ({ ok: true, data: [pixel('acc-a', 'compensa')] }),
-    deletePixel: async () => false,
+    deletePixelVersioned: async () => ({ ok: false, conflict: null }),
   }, {
     enabled: true,
     loadPixelSnapshot: async () => [],
@@ -105,7 +105,7 @@ function pixel(acc, slug, name) {
     },
   });
   await store.init();
-  await assert.rejects(() => store.remove('acc-a', 'compensa'), /Neon/);
+  await assert.rejects(() => store.remove('acc-a', 'compensa', { expectedUpdatedAt: store.get('acc-a', 'compensa').updatedAt }), /Neon/);
   assert.ok(store.get('acc-a', 'compensa'), 'falha no Neon preserva o pixel em memória');
   assert.deepStrictEqual(compensationCalls, ['delete', 'restore:acc-a:compensa']);
 
