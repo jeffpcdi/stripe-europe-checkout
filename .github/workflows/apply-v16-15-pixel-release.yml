@@ -27,13 +27,14 @@ jobs:
           parts=(
             .release/v16.15-pixel-config.part00
             .release/v16.15-pixel-config.part01a
-            .release/v16.15-pixel-config.part01b
+            .release/v16.15-pixel-config.part01b1
+            .release/v16.15-pixel-config.part01b2
             .release/v16.15-pixel-config.part02
             .release/v16.15-pixel-config.part03
           )
-          expected=(14000 7000 7000 14000 9064)
+          expected=(14000 7000 3500 3500 14000 9064)
           : > /tmp/v16.15-pixel-config.patch.gz
-          for i in 0 1 2 3 4; do
+          for i in 0 1 2 3 4 5; do
             clean="/tmp/part-${i}.b64"
             bin="/tmp/part-${i}.bin"
             tr -d '\r\n\t ' < "${parts[$i]}" > "$clean"
