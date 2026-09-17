@@ -13,7 +13,6 @@ const tiktok = read('dashboard/components/ads/tiktok-ads-view.tsx');
 const automation = read('dashboard/components/ads/automation-panel.tsx');
 const inbox = read('dashboard/components/ads/needs-you-inbox.tsx');
 const decide = read('dashboard/components/overview/decide-strip.tsx');
-const pixels = read('dashboard/components/pixels/pixels-view.tsx');
 const gateways = read('dashboard/components/gateways/gateways-view.tsx');
 const conversions = read('dashboard/components/conversions/conversions-view.tsx');
 
@@ -49,7 +48,7 @@ assert.match(decide, /refreshAfterDecision\(\)[\s\S]*?'\/api\/ads\/campaign-deci
 
 console.log('Auditoria funcional V8 — Pixels, Gateways e saúde derivada');
 for (const [name, source, helper] of [
-  ['Pixels', pixels, 'refreshPixelDependents'],
+  ['Pixels', conversions, 'refreshConversionDependents'],
   ['Gateways', gateways, 'refreshGatewayDependents'],
   ['Conversões', conversions, 'refreshConversionDependents'],
 ]) {

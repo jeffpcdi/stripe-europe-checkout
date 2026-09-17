@@ -1,3 +1,15 @@
+# V16.15 — Pixels: contrato profissional de configuração e concorrência
+
+- A subaba ativa `Rastreamento → Conversões → Pixels` passa a diferenciar CREATE, UPDATE e DELETE com compare-and-swap durável no Neon; revisão velha não consegue mais sobrescrever ou excluir uma configuração mais nova, inclusive em cenário futuro com múltiplas réplicas Railway.
+- `db.js` substitui o `upsertPixel()` incondicional por `createPixel()`, `updatePixelVersioned()` e `deletePixelVersioned()`. O mesmo `updatedAt` lógico fica persistido no JSONB e na coluna `updated_at`; Pixels legados sem revisão são promovidos idempotentemente no boot.
+- Pixel Code ganha proteção durável por conta: advisory lock serializa writes concorrentes e, quando a base não contém duplicatas legadas, um índice único parcial `account_id + pixelCode` reforça a invariável. Duplicatas antigas são apenas diagnosticadas; nenhuma configuração é apagada ou alterada automaticamente.
+- `pixel-store.js` deixa de montar UPDATE sobre snapshot de cache: patches top-level são aplicados atomicamente ao JSONB vencedor no Neon e o cache só muda depois do commit confirmado. Toggle, vínculo de checkout e exclusão usam a mesma revisão durável.
+- Novos Pixels nascem com `gatewayBindingMode='explicit'`; Pixels legados permanecem `legacy` até existir uma decisão explícita de `gatewayIds`, evitando transformar uma simples edição de nome em confirmação silenciosa do roteamento monetário.
+- A tela ativa passa a enviar `_createOnly`/`_baseUpdatedAt`, bloquear duplo submit síncrono, preservar o formulário em conflitos 409 e revalidar a lista. O modal de checkouts e o toggle Ativo/Pausado também carregam revisão; DELETE envia a revisão confirmada pelo usuário.
+- Access Token ganha ação explícita `Remover token`; valor mascarado continua significando “preservar” e nunca é persistido como credencial. Backend valida tamanho/ASCII de credenciais, estrutura completa de eventos, limites de nome/Pixel Code e ownership dos gateways.
+- `dashboard/components/pixels/pixels-view.tsx` foi removido após confirmar zero consumidores de produção. Audits V2/V5/V8 agora verificam `ConversionsView` e componentes realmente montados, eliminando testes verdes sobre uma UI morta.
+- Adicionado `test/pixel-config-contract-v16-15.test.js` cobrindo criação concorrente, edição concorrente, patch parcial, binding explícito, remoção de token, delete CAS e o contrato da UI ativa. Health, Verify URL, EMQ, CAPI retry, `/api/px/event` e tracker browser permanecem fora desta leva.
+
 # V16.14 — convergência de produção e deploy Railway
 
 - Consolida no GitHub/Railway a fonte de verdade construída nas V16.10–V16.13, sem introduzir nova regra financeira, automação ou mudança visual.

@@ -8,13 +8,15 @@ const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const server = read('server.js');
+const db = read('db.js');
+const pixelStore = read('pixel-store.js');
 const adsRoutes = read('ads-routes.js');
 const adsOps = read('ads-ops-store.js');
 const catalogStore = read('ads-catalog-store.js');
 const gatewayStore = read('gateway-store.js');
 const linkStore = read('link-store.js');
 const linkEditor = read('dashboard/components/links/link-editor.tsx');
-const pixelsView = read('dashboard/components/pixels/pixels-view.tsx');
+const conversionsView = read('dashboard/components/conversions/conversions-view.tsx');
 const cloakEditor = read('dashboard/components/cloak/cloak-entry-editor.tsx');
 const catalogEditor = read('dashboard/components/ads/catalog-editor.tsx');
 const catalogList = read('dashboard/components/ads/catalog-list.tsx');
@@ -31,15 +33,17 @@ assert.match(linkEditor, /const savingRef = useRef\(false\)/,
 assert.match(linkEditor, /_createOnly: !link/,
   'editor de Links deve declarar criação explicitamente');
 
-assert.match(server, /pixel_create_conflict/,
+assert.match(pixelStore, /pixel_create_conflict/,
   'criação de Pixel deve rejeitar colisão de slug em vez de editar registro existente');
-assert.match(server, /pixel_revision_conflict/,
+assert.match(pixelStore, /pixel_revision_conflict/,
   'edição de Pixel deve detectar versão antiga aberta em outra aba');
-assert.match(pixelsView, /_createOnly: clone \|\| !pixel/,
-  'novo Pixel e clone devem usar semântica create-only');
-assert.match(pixelsView, /_baseUpdatedAt: !clone \? pixel\?\.updatedAt : undefined/,
-  'edição de Pixel deve enviar versão base para concorrência otimista');
-assert.match(pixelsView, /savingRef\.current/,
+assert.match(db, /async function updatePixelVersioned[\s\S]*?COALESCE\(data->>'updatedAt', ''\)/,
+  'concorrência de Pixel precisa ser decidida pelo Neon, não só pelo cache');
+assert.match(conversionsView, /_createOnly: !pixel/,
+  'novo Pixel da tela ativa deve usar semântica create-only');
+assert.match(conversionsView, /_baseUpdatedAt: pixel\?\.updatedAt/,
+  'edição de Pixel da tela ativa deve enviar versão base para concorrência otimista');
+assert.match(conversionsView, /savingRef\.current/,
   'editor de Pixel deve impedir duplo submit antes do rerender');
 
 console.log('Auditoria funcional V5 — criação manual de campanha idempotente');

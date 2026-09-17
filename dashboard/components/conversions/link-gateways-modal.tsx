@@ -1,7 +1,8 @@
 'use client'
 import { useRef, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import type { Pixel, Gateway } from '@/lib/types'
-import { apiSend } from '@/lib/api'
+import { apiSend, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { DialogPortal } from '@/components/ui/dialog-portal'
@@ -9,19 +10,32 @@ import { GatewaySelector } from './gateway-selector'
 
 export function LinkGatewaysModal({ pixel, gateways, onClose, onSaved }: { pixel: Pixel; gateways: Gateway[]; onClose: () => void; onSaved: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  const savingRef = useRef(false)
+  const { mutate } = useSWRConfig()
   const [selected, setSelected] = useState(pixel.gatewayIds || [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useModalA11y(true, ref, () => { if (!busy) onClose() })
 
   async function save() {
-    if (busy) return
+    if (busy || savingRef.current) return
+    savingRef.current = true
     setBusy(true); setError('')
     try {
-      await apiSend('/api/pixels', 'POST', { slug: pixel.slug, gatewayIds: selected })
+      await apiSend('/api/pixels', 'POST', {
+        slug: pixel.slug,
+        gatewayIds: selected,
+        _baseUpdatedAt: pixel.updatedAt,
+      })
       toast.success('Vínculos salvos'); onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível salvar.')
+      if (e instanceof ApiError && e.code === 'pixel_revision_conflict') {
+        setError(e.hint || e.message)
+        await mutate('/api/pixels')
+      } else {
+        setError(e instanceof Error ? e.message : 'Não foi possível salvar.')
+      }
+      savingRef.current = false
       setBusy(false)
     }
   }

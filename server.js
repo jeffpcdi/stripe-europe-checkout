@@ -5402,101 +5402,158 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
   });
 });
 
+const PIXEL_EVENT_FIELDS = ['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'];
+
+function pixelFieldError(field, message, hint) {
+  const err = new Error(message);
+  err.status = 400;
+  err.code = 'pixel_invalid_' + field;
+  err.field = field;
+  err.hint = hint;
+  return err;
+}
+
+function pixelAsciiField(value, field, max, required) {
+  const text = String(value == null ? '' : value).trim();
+  if (required && !text) throw pixelFieldError(field, field + ' é obrigatório.');
+  if (text.length > max) throw pixelFieldError(field, field + ' excede o limite de ' + max + ' caracteres.');
+  if (!/^[\x20-\x7E]*$/.test(text)) {
+    throw pixelFieldError(field, field + ' contém caracteres inválidos.', 'Cole novamente o valor original sem quebras de linha ou caracteres invisíveis.');
+  }
+  return text;
+}
+
+function preparePixelMutation(body, creating) {
+  const raw = body || {};
+  const out = {};
+  if (creating || Object.prototype.hasOwnProperty.call(raw, 'name')) {
+    const name = String(raw.name == null ? '' : raw.name).trim();
+    if (!name) throw pixelFieldError('name', 'Nome é obrigatório.');
+    if (name.length > 120) throw pixelFieldError('name', 'Nome excede o limite de 120 caracteres.');
+    out.name = name;
+  }
+  if (creating || Object.prototype.hasOwnProperty.call(raw, 'pixelCode')) {
+    out.pixelCode = pixelAsciiField(raw.pixelCode, 'pixelCode', 128, true);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'active')) {
+    if (typeof raw.active !== 'boolean') throw pixelFieldError('active', 'Status do Pixel precisa ser verdadeiro ou falso.');
+    out.active = raw.active;
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'events')) {
+    if (!raw.events || typeof raw.events !== 'object' || Array.isArray(raw.events)) {
+      throw pixelFieldError('events', 'Configuração de eventos inválida.');
+    }
+    const unknown = Object.keys(raw.events).filter((key) => !PIXEL_EVENT_FIELDS.includes(key));
+    const incomplete = PIXEL_EVENT_FIELDS.filter((key) => typeof raw.events[key] !== 'boolean');
+    if (unknown.length || incomplete.length) {
+      throw pixelFieldError('events', 'A configuração de eventos está incompleta ou contém campos desconhecidos.',
+        'Atualize a tela e salve novamente todos os eventos do Pixel.');
+    }
+    out.events = Object.fromEntries(PIXEL_EVENT_FIELDS.map((key) => [key, raw.events[key]]));
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'testEventCode')) {
+    out.testEventCode = pixelAsciiField(raw.testEventCode, 'testEventCode', 256, false);
+  }
+
+  const clearAccessToken = raw.clearAccessToken === true;
+  const tokenProvided = Object.prototype.hasOwnProperty.call(raw, 'accessToken');
+  if (clearAccessToken && tokenProvided && String(raw.accessToken || '').trim() && !String(raw.accessToken).startsWith('••••')) {
+    throw pixelFieldError('accessToken', 'Escolha entre substituir ou remover o token, não as duas ações ao mesmo tempo.');
+  }
+  if (clearAccessToken) out.accessToken = '';
+  else if (tokenProvided) {
+    const token = String(raw.accessToken == null ? '' : raw.accessToken).trim();
+    // O valor mascarado veio da própria API e significa "preservar".
+    if (token && !token.startsWith('••••')) out.accessToken = pixelAsciiField(token, 'accessToken', 4096, false);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(raw, 'gatewayIds')) {
+    if (!Array.isArray(raw.gatewayIds) || raw.gatewayIds.length > 50) {
+      throw pixelFieldError('gatewayIds', 'Lista de checkouts inválida.');
+    }
+    const ids = [...new Set(raw.gatewayIds.map((id) => String(id || '').trim()).filter(Boolean))];
+    if (ids.some((id) => id.length > 160)) throw pixelFieldError('gatewayIds', 'Identificador de checkout inválido.');
+    out.gatewayIds = ids;
+    // A presença desse campo significa que houve decisão consciente de roteamento.
+    out.gatewayBindingMode = 'explicit';
+  } else if (creating) {
+    out.gatewayIds = [];
+    out.gatewayBindingMode = 'explicit';
+  }
+  return out;
+}
+
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
-    const b = Object.assign({}, req.body || {});
-    const createOnly = b._createOnly === true;
-    const baseUpdatedAt = b._baseUpdatedAt ? String(b._baseUpdatedAt) : '';
-    delete b._createOnly;
-    delete b._baseUpdatedAt;
-    if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
+    const body = Object.assign({}, req.body || {});
+    const createOnly = body._createOnly === true || !body.slug;
+    const baseUpdatedAt = body._baseUpdatedAt ? String(body._baseUpdatedAt) : '';
+    const slug = body.slug ? pixelStore.slugify(body.slug) : null;
+    const mutation = preparePixelMutation(body, createOnly);
 
-    // Criar e editar são operações distintas. Antes, criar um pixel com um
-    // nome que gerava o mesmo slug de outro registro atualizava o pixel antigo
-    // silenciosamente. Em retry após timeout isso era especialmente perigoso.
-    const requestedSlug = pixelStore.slugify(b.slug || b.name);
-    const requestedExisting = pixelStore.get(req.account.id, requestedSlug);
-    if (createOnly && requestedExisting) {
-      return apiError(res, 409,
-        'Já existe um pixel com este nome/endereço interno.',
-        'pixel_create_conflict',
-        'Atualize a lista ou escolha outro nome antes de criar novamente.');
-    }
-    if (!createOnly && b.slug && requestedExisting && baseUpdatedAt
-        && requestedExisting.updatedAt && requestedExisting.updatedAt !== baseUpdatedAt) {
-      return apiError(res, 409,
-        'Este pixel foi alterado em outra aba ou por outro usuário.',
-        'pixel_revision_conflict',
-        'Recarregue a lista, confira a versão atual e tente salvar novamente.');
+    if (!createOnly) {
+      if (!slug) throw pixelFieldError('slug', 'O Pixel a editar não foi identificado.');
+      if (!baseUpdatedAt) {
+        const err = new Error('A edição precisa informar a revisão do Pixel que foi aberta.');
+        err.code = 'pixel_revision_required';
+        err.status = 409;
+        err.hint = 'Atualize a lista e tente novamente para evitar sobrescrever uma alteração mais recente.';
+        throw err;
+      }
+      mutation.slug = slug;
+    } else if (body.slug) {
+      mutation.slug = pixelStore.slugify(body.slug);
     }
 
-    // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
-    // payload preservam o valor atual (merge-patch). Permite toggles inline
-    // (ex.: ativo/pausado) sem reenviar token/eventos e sem risco de apagá-los.
-    if (b.slug) {
-      const existing = pixelStore.get(req.account.id, pixelStore.slugify(b.slug));
-      if (existing) {
-        // Token mascarado (form) ou ausente (patch) → mantém o existente
-        if (b.accessToken === undefined || (b.accessToken && b.accessToken.indexOf('••••') === 0)) {
-          b.accessToken = existing.accessToken;
-        }
-        if (b.pixelCode === undefined) b.pixelCode = existing.pixelCode;
-        if (b.name === undefined) b.name = existing.name;
-        if (b.events === undefined) b.events = existing.events;
-        if (b.testEventCode === undefined) b.testEventCode = existing.testEventCode;
-        if (b.active === undefined) b.active = existing.active;
-        // Vínculo pixel↔gateway: campo ausente preserva o vínculo atual
-        if (b.gatewayIds === undefined) b.gatewayIds = existing.gatewayIds;
-      }
-    }
-    // Um mesmo Pixel Code cadastrado duas vezes cria eventos aparentemente
-    // duplicados e diagnósticos impossíveis de interpretar. Bloqueia a cópia
-    // acidental, mas permite editar o próprio registro.
-    if (b.pixelCode) {
-      const normalizedCode = String(b.pixelCode).trim();
-      const currentSlug = b.slug ? pixelStore.slugify(b.slug) : null;
-      const duplicate = pixelStore.list(req.account.id).find((p) => p.pixelCode === normalizedCode && p.slug !== currentSlug);
-      if (duplicate) {
-        return apiError(res, 409,
-          'Este Pixel Code já está cadastrado como "' + duplicate.name + '".',
-          'duplicate_pixel_code',
-          'Edite o pixel existente ou use um Pixel Code diferente.');
-      }
-    }
-    // Vínculo pixel↔gateway: só aceita IDs de gateways que EXISTEM nesta conta
-    // (impede vincular a gateway de outra conta ou a id digitado errado).
-    if (Array.isArray(b.gatewayIds) && b.gatewayIds.length) {
-      const valid = new Set(gatewayStore.list(req.account.id).map((g) => g.id));
-      const invalid = b.gatewayIds.filter((id) => !valid.has(String(id)));
+    // IDs de gateway são aceitos apenas quando pertencem à mesma conta.
+    if (Array.isArray(mutation.gatewayIds) && mutation.gatewayIds.length) {
+      const valid = new Set(gatewayStore.list(req.account.id).map((g) => String(g.id)));
+      const invalid = mutation.gatewayIds.filter((id) => !valid.has(String(id)));
       if (invalid.length) {
-        return res.status(400).json({ error: 'gateway(s) inválido(s) para esta conta: ' + invalid.join(', ') });
+        throw pixelFieldError('gatewayIds', 'Há checkout(s) inválido(s) para esta conta.', 'Atualize a lista de checkouts e tente novamente.');
       }
     }
-    const saved = await pixelStore.save(req.account.id, b);
+
+    const saved = await pixelStore.save(req.account.id, mutation, {
+      createOnly,
+      expectedUpdatedAt: baseUpdatedAt || null,
+    });
+
+    const changed = Object.keys(mutation).filter((key) => key !== 'slug');
+    let action = createOnly ? 'create' : 'update';
+    if (!createOnly && changed.length === 1 && changed[0] === 'active') action = saved.active ? 'activate' : 'pause';
+    else if (!createOnly && changed.includes('gatewayIds')) action = 'gateway_binding_change';
+    else if (!createOnly && body.clearAccessToken === true) action = 'credential_removed';
+    else if (!createOnly && Object.prototype.hasOwnProperty.call(mutation, 'accessToken')) action = 'credential_set';
+
     stats.logEvent(saved._durable ? 'info' : 'error', {
       acc: req.account.id,
       title: (saved._durable ? 'Pixel TikTok salvo: ' : 'Pixel salvo SÓ EM MEMÓRIA (não durável): ') + saved.name,
-      ref: saved.slug
+      ref: saved.slug,
+      action,
     });
     const { host, proto } = requestOrigin(req);
     res.json({
       ok: true,
-      // Avisa o painel quando a gravação NÃO foi durável — evita o cenário
-      // silencioso em que o usuário salva, some no restart e o pixel para.
       durable: saved._durable,
       warning: saved._durable ? null : saved._saveError,
       pixel: {
         ...saved,
         accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
+        hasToken: !!saved.accessToken,
         scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
         scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
       }
     });
   } catch (err) {
-    res.status(Number(err && err.status) || 500).json({
-      error: String(err && err.message || 'Falha ao salvar pixel').slice(0, 300),
+    const status = Number(err && err.status) || 500;
+    res.status(status).json({
+      ok: false,
+      error: String(err && err.message || 'Falha ao salvar Pixel').slice(0, 300),
       code: err && err.code || undefined,
       hint: err && err.hint || undefined,
+      field: err && err.field || undefined,
+      currentUpdatedAt: err && err.currentUpdatedAt || undefined,
     });
   }
 });
@@ -5504,11 +5561,6 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
 app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
   try {
     const slug = pixelStore.slugify(req.params.slug);
-    const pixel = pixelStore.get(req.account.id, slug);
-    if (!pixel) {
-      return apiError(res, 404, 'Pixel não encontrado.', 'pixel_not_found',
-        'Atualize a lista: ele pode já ter sido removido em outra aba.');
-    }
 
     // Nunca transforma um link em roteamento ambíguo silenciosamente. O
     // operador precisa escolher outro Pixel (ou retirar o vínculo) antes.
@@ -5521,7 +5573,10 @@ app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
         'Abra Links, escolha outro pixel nesses links e tente remover novamente.');
     }
 
-    await pixelStore.remove(req.account.id, slug);
+    const baseUpdatedAt = req.body && req.body._baseUpdatedAt
+      ? String(req.body._baseUpdatedAt)
+      : (req.query && req.query.baseUpdatedAt ? String(req.query.baseUpdatedAt) : '');
+    await pixelStore.remove(req.account.id, slug, { expectedUpdatedAt: baseUpdatedAt });
     // O Pixel já saiu das fontes autoritativas. Limpa os vínculos internos do
     // TikTok Ads; se essa manutenção secundária falhar, a leitura de Ads também
     // invalida o vínculo órfão, portanto não revertemos nem fingimos que o Pixel
@@ -5543,9 +5598,13 @@ app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
     stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok removido', ref: slug });
     res.json({ ok: true, removed: slug, adsBindingsRemoved, warning });
   } catch (err) {
-    apiError(res, err.status || 500, err.message || 'Falha ao remover o pixel',
-      err.code || 'pixel_delete_failed',
-      err.hint || 'O pixel foi preservado. Tente novamente em instantes.');
+    res.status(err.status || 500).json({
+      ok: false,
+      error: err.message || 'Falha ao remover o Pixel',
+      code: err.code || 'pixel_delete_failed',
+      hint: err.hint || 'O Pixel foi preservado. Tente novamente em instantes.',
+      currentUpdatedAt: err.currentUpdatedAt || undefined,
+    });
   }
 });
 

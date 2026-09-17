@@ -9,9 +9,14 @@ function fresh(name, db, redis) {
 (async () => {
   const p = { slug: 'existing', acc: 'account', token: 'px_existing', name: 'Original', pixelCode: 'CODE', active: true, gatewayIds: ['gw_a'] };
   let mirrored = 0;
-  const pixels = fresh('pixels', { enabled: true, loadPixels: async () => ({ ok: true, data: [p] }), upsertPixel: async () => false }, { enabled: true, savePixelSnapshot: async () => { mirrored++; return true; } });
+  const pixels = fresh('pixels', {
+    enabled: true,
+    loadPixels: async () => ({ ok: true, data: [p] }),
+    updatePixelVersioned: async () => ({ ok: false, conflict: null }),
+  }, { enabled: true, savePixelSnapshot: async () => { mirrored++; return true; } });
   await pixels.init();
-  await assert.rejects(pixels.save('account', { slug: p.slug, name: 'Alterado', gatewayIds: [] }), /preservado/);
+  const current = pixels.get('account', p.slug);
+  await assert.rejects(pixels.save('account', { slug: p.slug, name: 'Alterado', gatewayIds: [] }, { expectedUpdatedAt: current.updatedAt }), /preservado/);
   assert.equal(pixels.get('account', p.slug).name, 'Original');
   assert.deepEqual(pixels.get('account', p.slug).gatewayIds, ['gw_a']);
   assert.equal(mirrored, 0, 'Neon rejeitado não publica configuração divergente no Redis');

@@ -324,6 +324,31 @@ async function init() {
     await sql`CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions (account_id, last_seen DESC)`;
     migrations.presenceTenant = true;
     await sql`CREATE INDEX IF NOT EXISTS pixels_account_idx ON pixels (account_id)`;
+    // Pixels antigos podem não ter `data.updatedAt`; promove uma revisão durável
+    // usando o timestamp já persistido na própria linha. A partir daqui o mesmo
+    // valor lógico é usado pelo CAS de edição/delete e devolvido ao frontend.
+    await sql`UPDATE pixels
+      SET data = jsonb_set(data, '{updatedAt}', to_jsonb(updated_at::text), true)
+      WHERE COALESCE(data->>'updatedAt', '') = ''`;
+    // Um TikTok Pixel Code identifica uma integração dentro da conta. Antes a
+    // duplicidade era checada só no cache do processo, então dois requests
+    // concorrentes podiam persistir o mesmo código. Não alteramos duplicatas
+    // históricas automaticamente: auditamos e só instalamos a constraint quando
+    // o banco já está consistente.
+    const pixelCodeDupes = await sql`SELECT account_id, btrim(data->>'pixelCode') AS pixel_code, count(*)::int AS total
+      FROM pixels
+      WHERE account_id IS NOT NULL AND btrim(COALESCE(data->>'pixelCode', '')) <> ''
+      GROUP BY account_id, btrim(data->>'pixelCode')
+      HAVING count(*) > 1
+      LIMIT 20`;
+    if (!pixelCodeDupes.length) {
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS pixels_account_pixel_code_uidx
+        ON pixels (account_id, (btrim(data->>'pixelCode')))
+        WHERE account_id IS NOT NULL AND btrim(COALESCE(data->>'pixelCode', '')) <> ''`;
+    } else {
+      console.warn('[db] Pixels: índice único de Pixel Code não criado; duplicatas legadas detectadas:',
+        pixelCodeDupes.map((r) => String(r.account_id) + ':' + String(r.pixel_code)).join(', '));
+    }
     await sql`CREATE INDEX IF NOT EXISTS links_account_idx ON links (account_id)`;
     await sql`CREATE INDEX IF NOT EXISTS pixel_events_account_idx ON pixel_events (account_id, at DESC)`;
 
@@ -1684,26 +1709,120 @@ async function loadAccountCurrencies() {
 }
 
 // ── Pixels TikTok (por conta; PK namespaced) ──────────────────────────────
-// Retorna TRUE só quando a escrita foi confirmada pelo Postgres. Antes engolia
-// o erro e retornava void, então quem chamava (pixel-store.save) achava que o
-// pixel tinha sido salvo mesmo quando o banco falhava — a config "sumia" no
-// próximo restart. Agora o estado propaga para o chamador decidir o fallback.
-async function upsertPixel(accountId, slug, data) {
-  if (!enabled || !slug) return false;
-  try {
-    await sql`INSERT INTO pixels (slug, account_id, data, updated_at)
-      VALUES (${nsKey(accountId, slug)}, ${accountId || null}, ${JSON.stringify(data)}::jsonb, now())
-      ON CONFLICT (slug) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-    return true;
-  } catch (err) { console.error('[db] upsertPixel:', err.message); return false; }
+// Contrato profissional de mutação: CREATE, UPDATE e DELETE são operações
+// diferentes e a concorrência é decidida NO Postgres, nunca pelo cache local.
+// O `updatedAt` lógico viaja dentro do JSON e é o mesmo valor gravado na coluna
+// `updated_at`, permitindo CAS estável entre múltiplas instâncias do app.
+function pixelDbError(err, op) {
+  if (err && String(err.code || '') === '23505') {
+    return { ok: false, conflict: 'pixel_code', error: err.message || 'duplicate pixel code' };
+  }
+  console.error('[db] ' + op + ':', err && err.message || err);
+  return { ok: false, conflict: null, error: err && err.message || String(err || 'unknown') };
 }
 
-async function deletePixel(accountId, slug) {
-  if (!enabled || !slug) return false;
+async function createPixel(accountId, slug, data) {
+  if (!enabled || !slug || !data) return { ok: false, conflict: null };
+  const revision = String(data.updatedAt || new Date().toISOString());
+  const stored = { ...data, updatedAt: revision };
   try {
-    await sql`DELETE FROM pixels WHERE slug = ${nsKey(accountId, slug)}`;
-    return true;
-  } catch (err) { console.error('[db] deletePixel:', err.message); return false; }
+    const pixelCode = String(stored.pixelCode || '').trim();
+    const rows = pixelCode
+      ? await sql`WITH guard AS (
+          SELECT pg_advisory_xact_lock(hashtext(${String(accountId || '')}), hashtext(${pixelCode}))
+        )
+        INSERT INTO pixels (slug, account_id, data, updated_at)
+        SELECT ${nsKey(accountId, slug)}, ${accountId || null}, ${JSON.stringify(stored)}::jsonb, ${revision}::timestamptz
+        FROM guard
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pixels
+          WHERE account_id = ${accountId || null}
+            AND btrim(COALESCE(data->>'pixelCode', '')) = ${pixelCode}
+        )
+        ON CONFLICT (slug) DO NOTHING
+        RETURNING data, updated_at`
+      : await sql`INSERT INTO pixels (slug, account_id, data, updated_at)
+          VALUES (${nsKey(accountId, slug)}, ${accountId || null}, ${JSON.stringify(stored)}::jsonb, ${revision}::timestamptz)
+          ON CONFLICT (slug) DO NOTHING
+          RETURNING data, updated_at`;
+    if (!rows.length) {
+      const existing = await loadPixel(accountId, slug);
+      return { ok: false, conflict: existing ? 'slug' : 'pixel_code' };
+    }
+    return { ok: true, data: rows[0].data, updatedAt: revision };
+  } catch (err) { return pixelDbError(err, 'createPixel'); }
+}
+
+async function loadPixel(accountId, slug) {
+  if (!enabled || !slug) return null;
+  try {
+    const rows = await sql`SELECT slug, account_id, data FROM pixels
+      WHERE slug = ${nsKey(accountId, slug)} AND account_id = ${accountId || null}
+      LIMIT 1`;
+    if (!rows.length) return null;
+    const r = rows[0];
+    const clean = r.slug.includes(':') ? r.slug.slice(r.slug.indexOf(':') + 1) : r.slug;
+    return { slug: clean, accountId: r.account_id, ...r.data };
+  } catch (err) { console.error('[db] loadPixel:', err.message); return null; }
+}
+
+async function updatePixelVersioned(accountId, slug, patch, expectedUpdatedAt, nextUpdatedAt) {
+  if (!enabled || !slug || !patch || !expectedUpdatedAt) return { ok: false, conflict: null };
+  const revision = String(nextUpdatedAt || new Date().toISOString());
+  const safePatch = { ...patch, updatedAt: revision };
+  try {
+    const pixelCode = Object.prototype.hasOwnProperty.call(safePatch, 'pixelCode')
+      ? String(safePatch.pixelCode || '').trim() : '';
+    const rows = pixelCode
+      ? await sql`WITH guard AS (
+          SELECT pg_advisory_xact_lock(hashtext(${String(accountId || '')}), hashtext(${pixelCode}))
+        )
+        UPDATE pixels p
+        SET data = p.data || ${JSON.stringify(safePatch)}::jsonb,
+            updated_at = ${revision}::timestamptz
+        FROM guard
+        WHERE p.slug = ${nsKey(accountId, slug)}
+          AND p.account_id = ${accountId || null}
+          AND COALESCE(p.data->>'updatedAt', '') = ${String(expectedUpdatedAt)}
+          AND NOT EXISTS (
+            SELECT 1 FROM pixels other
+            WHERE other.account_id = ${accountId || null}
+              AND other.slug <> ${nsKey(accountId, slug)}
+              AND btrim(COALESCE(other.data->>'pixelCode', '')) = ${pixelCode}
+          )
+        RETURNING p.data, p.updated_at`
+      : await sql`UPDATE pixels
+          SET data = data || ${JSON.stringify(safePatch)}::jsonb,
+              updated_at = ${revision}::timestamptz
+          WHERE slug = ${nsKey(accountId, slug)}
+            AND account_id = ${accountId || null}
+            AND COALESCE(data->>'updatedAt', '') = ${String(expectedUpdatedAt)}
+          RETURNING data, updated_at`;
+    if (!rows.length) {
+      const current = await loadPixel(accountId, slug);
+      if (current && String(current.updatedAt || '') === String(expectedUpdatedAt) && pixelCode) {
+        return { ok: false, conflict: 'pixel_code', currentUpdatedAt: current.updatedAt, current };
+      }
+      return { ok: false, conflict: 'revision', currentUpdatedAt: current && current.updatedAt || null, current };
+    }
+    return { ok: true, data: rows[0].data, updatedAt: revision };
+  } catch (err) { return pixelDbError(err, 'updatePixelVersioned'); }
+}
+
+async function deletePixelVersioned(accountId, slug, expectedUpdatedAt) {
+  if (!enabled || !slug || !expectedUpdatedAt) return { ok: false, conflict: null };
+  try {
+    const rows = await sql`DELETE FROM pixels
+      WHERE slug = ${nsKey(accountId, slug)}
+        AND account_id = ${accountId || null}
+        AND COALESCE(data->>'updatedAt', '') = ${String(expectedUpdatedAt)}
+      RETURNING data`;
+    if (!rows.length) {
+      const current = await loadPixel(accountId, slug);
+      return { ok: false, conflict: 'revision', currentUpdatedAt: current && current.updatedAt || null, current };
+    }
+    return { ok: true, data: rows[0].data };
+  } catch (err) { return pixelDbError(err, 'deletePixelVersioned'); }
 }
 
 // Mesmo contrato do loadConfig: { ok, data } — erro de leitura NUNCA deve
@@ -1927,8 +2046,10 @@ module.exports = {
   loadConfig,
   loadAllConfigs,
   pruneSessions,
-  upsertPixel,
-  deletePixel,
+  createPixel,
+  updatePixelVersioned,
+  deletePixelVersioned,
+  loadPixel,
   loadPixels,
   getPixelByToken,
   upsertLink,
