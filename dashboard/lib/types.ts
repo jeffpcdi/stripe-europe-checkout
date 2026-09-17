@@ -480,6 +480,8 @@ export interface PixelEventHealth {
   emq: number | null
 }
 
+export type PixelRuntimeSource = 'neon' | 'hot-cache-fallback'
+
 export interface PixelHealthResponse {
   ok: boolean
   total: number
@@ -490,6 +492,8 @@ export interface PixelHealthResponse {
   errors: { at: string; pixel: string; event: string; message: string }[]
   retryQueue: number
   source?: 'memory' | 'neon' | 'memory+neon'
+  runtimeSource?: PixelRuntimeSource
+  runtimeCoverageComplete?: boolean
   coverage?: PixelCoverage[]
 }
 
@@ -497,7 +501,9 @@ export interface PixelCoverage {
   slug: string
   name: string
   active: boolean
-  status: 'saudavel' | 'atencao' | 'sem_dados' | 'pausado'
+  status: 'saudavel' | 'atencao' | 'sem_dados' | 'pausado' | 'indisponivel'
+  runtimeSource?: PixelRuntimeSource
+  runtimeCoverageComplete?: boolean
   lastBrowserAt: string | null
   lastCapiAt: string | null
   lastCapiStatus: string | null
@@ -812,18 +818,32 @@ export interface PixelTestResult {
 }
 
 // ── /api/pixels/verify-url — verificação de instalação por URL externa ──
+export type PixelRuntimeState = 'seen' | 'not_seen' | 'unknown'
+
 export interface PixelVerifyUrlPixel {
   slug: string
   name: string
   scriptOk: boolean // script /px/<token>.js presente na página
   nativeOk: boolean // pixelCode nativo (ttq) presente
   trackerScoped?: boolean // /t.js?px=TOKEN aponta para este pixel
-  instalado: boolean // scriptOk || nativeOk
+  runtimeSeen?: boolean
+  runtimeState?: PixelRuntimeState
+  runtimeSource?: PixelRuntimeSource
+  runtimeCoverageComplete?: boolean
+  lastSeenAt?: string | null
+  runtimeVisits?: number
+  instalado: boolean | null // null = runtime indisponível e HTML inconclusivo
 }
 export interface PixelVerifyUrlResult {
   ok: boolean
   url?: string // URL final após redirects
-  algumInstalado?: boolean
+  algumInstalado?: boolean | null
+  trackerOk?: boolean | null
+  trackerStaticOk?: boolean
+  runtimeSeen?: boolean
+  runtimeState?: PixelRuntimeState
+  runtimeSource?: PixelRuntimeSource
+  runtimeCoverageComplete?: boolean
   pixels?: PixelVerifyUrlPixel[]
   error?: string
 }

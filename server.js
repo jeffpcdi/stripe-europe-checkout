@@ -58,6 +58,7 @@ const {
 } = require('./checkout-currency-middleware');
  const { buildUtm } = require('./utm-macros');
  const db = require('./db');
+const { resolveRuntimeCoverage, installationVerdict, normalizeHost, DEFAULT_WINDOW_DAYS } = require('./pixel-runtime-coverage');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
 const botRiskStore = require('./bot-risk-store');
 const { loginPage, registerPage } = require('./auth-view');
@@ -5767,6 +5768,24 @@ async function buscarPaginaSegura(rawUrl) {
   return { error: 'a página redirecionou demais' };
 }
 
+async function readPixelRuntimeEvidence(accountId, options = {}) {
+  let durable;
+  try {
+    durable = await db.readPixelRuntimeCoverage(accountId, {
+      ...options,
+      windowDays: DEFAULT_WINDOW_DAYS,
+    });
+  } catch (err) {
+    durable = { ok: false, data: [], error: 'neon_query_failed' };
+  }
+  // O cache quente só participa quando a consulta durável falha. Em sucesso,
+  // inclusive sucesso vazio, Neon é a verdade — poda/restart não influenciam.
+  const hotLeads = durable && durable.ok === true
+    ? []
+    : ((stats.getStats(accountId).leads || []));
+  return resolveRuntimeCoverage(durable, hotLeads, options);
+}
+
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
   try {
     // Item 5/9: rate-limit dedicado — verify-url faz fetch externo, então
@@ -5780,29 +5799,12 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     const html = page.html || '';
     const pixels = pixelStore.list(req.account.id);
     let targetHost = null;
-    try { targetHost = new URL(page.finalUrl).hostname.toLowerCase().replace(/^www\./, ''); } catch (_) {}
-    // Verificação estática não enxerga tags injetadas por GTM, Next/React ou
-    // consent manager. Cruzamos o HTML com visitas realmente recebidas desse
-    // host para confirmar execução — evidência mais forte que achar texto.
-    const leads = (stats.getStats(req.account.id).leads || []);
-    function runtimeFor(pixelSlug) {
-      let lastSeenAt = null;
-      let visits = 0;
-      leads.forEach((lead) => {
-        if (!lead || lead.pixelSlug !== pixelSlug) return;
-        const sites = Array.isArray(lead.sites) && lead.sites.length
-          ? lead.sites
-          : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
-        sites.forEach((row) => {
-          const host = String(row && row.host || '').toLowerCase().replace(/^www\./, '');
-          if (!targetHost || host !== targetHost) return;
-          visits += Math.max(1, Number(row.hits) || 1);
-          const at = row.lastAt || lead.lastSeen || lead.at;
-          if (at && (!lastSeenAt || Date.parse(at) > Date.parse(lastSeenAt))) lastSeenAt = at;
-        });
-      });
-      return { runtimeSeen: visits > 0, lastSeenAt, visits };
-    }
+    try { targetHost = normalizeHost(new URL(page.finalUrl).hostname); } catch (_) {}
+    // Verificação estática não enxerga tags injetadas por GTM, Next/React,
+    // SPA ou consent manager. A execução real vem primeiro do Neon, filtrada
+    // por conta+host. O cache quente só entra se a consulta durável falhar.
+    const runtimeCoverage = await readPixelRuntimeEvidence(req.account.id, { host: targetHost });
+    const runtimeBySlug = new Map(runtimeCoverage.data.map((row) => [row.pixelSlug, row]));
     // Para cada pixel da conta: o script tag (/px/<token>.js) está na página?
     // E o pixel code do TikTok (instalação nativa ttq) aparece?
     const found = pixels.map((p) => {
@@ -5810,31 +5812,51 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
       const nativeOk = scriptOk || !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
       const trackerScoped = scriptOk || !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
         || html.indexOf('/t.js?px%3D' + p.token) !== -1));
-      const runtime = runtimeFor(p.slug);
+      const runtime = runtimeBySlug.get(p.slug) || null;
+      const verdict = installationVerdict(scriptOk && trackerScoped, runtime, runtimeCoverage.runtimeCoverageComplete);
       return {
         slug: p.slug, name: p.name, scriptOk, nativeOk, trackerScoped,
-        runtimeSeen: runtime.runtimeSeen,
-        lastSeenAt: runtime.lastSeenAt,
-        runtimeVisits: runtime.visits,
-        // "instalado" agora significa integração completa e isolada. Encontrar
-        // só o código nativo não garante jornada/CAPI nem separação multi-pixel.
-        // Execução real confirma também tags dinâmicas que não aparecem no HTML.
-        instalado: (scriptOk && trackerScoped) || runtime.runtimeSeen
+        runtimeSeen: verdict.runtimeSeen,
+        runtimeState: verdict.runtimeState,
+        lastSeenAt: runtime ? runtime.lastBrowserAt : null,
+        runtimeVisits: runtime ? runtime.visits : 0,
+        runtimeSource: runtimeCoverage.runtimeSource,
+        runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
+        // "instalado" continua verdadeiro com prova estática completa ou execução
+        // real. Sem Neon e sem fallback, ausência no HTML é inconclusiva (null).
+        instalado: verdict.instalado
       };
     });
-    const algum = found.some((f) => f.instalado);
+    const algum = found.some((f) => f.instalado === true)
+      ? true
+      : (runtimeCoverage.runtimeCoverageComplete ? false : null);
     // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
     // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
     // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
     const trackerStaticOk = html.indexOf('/t.js') !== -1 || found.some((f) => f.scriptOk);
     const runtimeSeen = found.some((f) => f.runtimeSeen);
-    const trackerOk = trackerStaticOk || runtimeSeen;
+    const trackerOk = trackerStaticOk || runtimeSeen
+      ? true
+      : (runtimeCoverage.runtimeCoverageComplete ? false : null);
     const legacyTracker = trackerStaticOk && !found.some((f) => f.trackerScoped);
+    const verdict = algum === true ? 'instalado' : (algum === false ? 'NÃO encontrado' : 'inconclusivo');
     stats.logEvent('info', {
       acc: req.account.id,
-      title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + (trackerOk ? '' : ' (sem rastreamento /t.js)') + ' em ' + page.finalUrl
+      title: 'Verificação de pixel por URL: ' + verdict + (trackerOk === false ? ' (sem rastreamento /t.js)' : '') + ' em ' + page.finalUrl
     });
-    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, trackerStaticOk, runtimeSeen, legacyTracker, pixels: found });
+    res.json({
+      ok: true,
+      url: page.finalUrl,
+      algumInstalado: algum,
+      trackerOk,
+      trackerStaticOk,
+      runtimeSeen,
+      runtimeState: runtimeSeen ? 'seen' : (runtimeCoverage.runtimeCoverageComplete ? 'not_seen' : 'unknown'),
+      runtimeSource: runtimeCoverage.runtimeSource,
+      runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
+      legacyTracker,
+      pixels: found
+    });
   } catch (err) {
     res.status(500).json({ error: 'falha na verificação' });
   }
@@ -5915,30 +5937,14 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     at: r.at, pixel: r.pixel, event: r.event,
     message: (r.response && (r.response.message || ('code ' + r.response.code))) || 'erro'
   }));
-  // Cobertura por pixel: mostra onde o tracker executou de verdade, quando o
-  // navegador foi visto e quando a CAPI respondeu. Usa o histórico de leads
-  // (durável no Neon) para continuar útil após restart e para instalações via
-  // GTM/SPA que não aparecem numa inspeção estática do HTML.
-  const accountLeads = (stats.getStats(req.account.id).leads || []);
+  // Cobertura de browser/runtime: Neon é a fonte durável e é consultado
+  // diretamente numa janela operacional finita. O hot cache só é fallback
+  // degradado para indisponibilidade do banco, nunca a fonte primária.
+  const runtimeCoverage = await readPixelRuntimeEvidence(req.account.id);
+  const runtimeBySlug = new Map(runtimeCoverage.data.map((row) => [row.pixelSlug, row]));
   const coverage = pixelStore.list(req.account.id).map((pixel) => {
-    const domains = new Map();
-    let lastBrowserAt = null;
-    accountLeads.forEach((lead) => {
-      if (!lead || lead.pixelSlug !== pixel.slug) return;
-      const sites = Array.isArray(lead.sites) && lead.sites.length
-        ? lead.sites
-        : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
-      sites.forEach((site) => {
-        const host = String(site && site.host || '').toLowerCase().replace(/^www\./, '').slice(0, 100);
-        if (!host) return;
-        const at = site.lastAt || lead.lastSeen || lead.at || null;
-        const current = domains.get(host) || { host, visits: 0, lastAt: null };
-        current.visits += Math.max(1, Number(site.hits) || 1);
-        if (at && (!current.lastAt || Date.parse(at) > Date.parse(current.lastAt))) current.lastAt = at;
-        domains.set(host, current);
-        if (at && (!lastBrowserAt || Date.parse(at) > Date.parse(lastBrowserAt))) lastBrowserAt = at;
-      });
-    });
+    const runtime = runtimeBySlug.get(pixel.slug) || null;
+    const lastBrowserAt = runtime ? runtime.lastBrowserAt : null;
     const pixelRows = rows.filter((row) => row.pixel === pixel.slug || row.pixel === pixel.name || row.pixel === pixel.pixelCode);
     const latest = pixelRows[0] || null;
     const successful = pixelRows.filter((row) => row.status === 'ok');
@@ -5949,22 +5955,37 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
       signals[key] = successful.length ? Math.round((hits / successful.length) * 100) : null;
     });
     const recommendations = [];
-    if (!lastBrowserAt) recommendations.push('Instale o bloco em todas as páginas e faça uma visita real.');
+    if (!lastBrowserAt && runtimeCoverage.runtimeCoverageComplete) {
+      recommendations.push('Instale o bloco em todas as páginas e faça uma visita real.');
+    } else if (!lastBrowserAt) {
+      recommendations.push('Não foi possível consultar o histórico durável de execução agora; tente novamente em instantes.');
+    }
     if (lastBrowserAt && !latest) recommendations.push('O navegador chegou, mas ainda não há resposta da CAPI; confira o Access Token.');
     if (latest && latest.status !== 'ok') recommendations.push('O último disparo falhou; abra o log para ver a resposta do TikTok.');
     if (successful.length && (signals.ttclid || 0) < 20) recommendations.push('Poucos eventos têm ttclid; preserve a query entre landing, checkout e upsell.');
     if (successful.length && (signals.email || 0) + (signals.phone || 0) < 20) recommendations.push('Advanced Matching baixo; identifique e-mail ou telefone com consentimento.');
+
+    let status;
+    if (!pixel.active) status = 'pausado';
+    else if (latest && latest.status !== 'ok') status = 'atencao';
+    else if (lastBrowserAt && latest) status = 'saudavel';
+    else if (lastBrowserAt) status = 'atencao';
+    else if (!runtimeCoverage.runtimeCoverageComplete) status = 'indisponivel';
+    else status = 'sem_dados';
+
     return {
       slug: pixel.slug,
       name: pixel.name,
       active: pixel.active,
-      status: !pixel.active ? 'pausado' : latest && latest.status !== 'ok' ? 'atencao' : (lastBrowserAt && latest ? 'saudavel' : 'sem_dados'),
+      status,
+      runtimeSource: runtimeCoverage.runtimeSource,
+      runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
       lastBrowserAt,
       lastCapiAt: latest ? latest.at : null,
       lastCapiStatus: latest ? latest.status : null,
-      domains: Array.from(domains.values())
-        .sort((a, b) => Date.parse(b.lastAt || '') - Date.parse(a.lastAt || ''))
-        .slice(0, 6),
+      domains: runtime
+        ? runtime.domains.map((domain) => ({ host: domain.host, visits: domain.hits, lastAt: domain.lastAt })).slice(0, 6)
+        : [],
       signals,
       recommendations: recommendations.slice(0, 3)
     };
@@ -5974,6 +5995,8 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     rate: total ? Math.round((ok / total) * 100) : null,
     emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
     events, errors, source, coverage,
+    runtimeSource: runtimeCoverage.runtimeSource,
+    runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
     retryQueue: ttEvents.retryQueueSize()
   });
 });

@@ -13,6 +13,7 @@
 //  - Dados legados (account_id IS NULL) são atribuídos ao PRIMEIRO usuário
 //    cadastrado (admin) via claimLegacyData().
 const crypto = require('crypto');
+const { normalizeDurableCoverage, normalizeHost, DEFAULT_WINDOW_DAYS } = require('./pixel-runtime-coverage');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
@@ -823,6 +824,90 @@ async function upsertLead(accountId, lead) {
         gateway = EXCLUDED.gateway, country = EXCLUDED.country, country_name = EXCLUDED.country_name,
         orphan = EXCLUDED.orphan, account_id = COALESCE(leads.account_id, EXCLUDED.account_id), updated_at = now()`;
   } catch (err) { console.error('[db] upsertLead:', err.message); }
+}
+
+
+// P2 Pixels (V16.16): evidência operacional do tracker vem do Neon, não do
+// cache quente podado. A consulta expande somente os hosts do JSONB e agrega
+// no PostgreSQL por pixel+host; nunca retorna leads completos para o Node.
+async function readPixelRuntimeCoverage(accountId, options = {}) {
+  if (!enabled) return { ok: false, data: [], error: 'neon_disabled' };
+  if (!accountId) return { ok: false, data: [], error: 'account_required' };
+
+  const rawDays = Number(options.windowDays);
+  const windowDays = Number.isFinite(rawDays)
+    ? Math.max(1, Math.min(DEFAULT_WINDOW_DAYS, Math.floor(rawDays)))
+    : DEFAULT_WINDOW_DAYS;
+  const pixelSlug = options.pixelSlug ? String(options.pixelSlug).trim() : null;
+  const normalizedHost = normalizeHost(options.host) || null;
+  // Datas do tracker são geradas com Date#toISOString(). Filtramos o formato
+  // canônico antes de agregar para que texto inválido nunca vire evidência.
+  const isoPattern = '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$';
+
+  try {
+    const rows = await sql`
+      WITH candidate_leads AS (
+        SELECT data, updated_at, created_at
+        FROM leads
+        WHERE account_id = ${accountId}
+          AND updated_at >= now() - (${windowDays} * interval '1 day')
+          AND (${pixelSlug}::text IS NULL OR data->>'pixelSlug' = ${pixelSlug})
+      ),
+      expanded AS (
+        SELECT
+          l.data->>'pixelSlug' AS pixel_slug,
+          l.data->>'lastSeen' AS last_seen,
+          l.updated_at,
+          l.created_at,
+          site
+        FROM candidate_leads l
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN jsonb_typeof(l.data->'sites') = 'array'
+              AND jsonb_array_length(l.data->'sites') > 0
+              THEN l.data->'sites'
+            WHEN NULLIF(btrim(l.data->>'site'), '') IS NOT NULL
+              THEN jsonb_build_array(jsonb_build_object('host', l.data->>'site', 'hits', 1))
+            ELSE '[]'::jsonb
+          END
+        ) AS site
+      ),
+      normalized AS (
+        SELECT
+          pixel_slug,
+          lower(regexp_replace(regexp_replace(btrim(site->>'host'), '^www[.]', '', 'i'), '[.]+$', '')) AS host,
+          CASE
+            WHEN COALESCE(site->>'hits', '') ~ '^[0-9]+([.][0-9]+)?$'
+              AND (site->>'hits')::numeric > 0
+              THEN LEAST(2147483647, GREATEST(1, floor((site->>'hits')::numeric)))::bigint
+            ELSE 1::bigint
+          END AS hits,
+          CASE WHEN COALESCE(site->>'lastAt', '') ~ ${isoPattern} THEN site->>'lastAt' ELSE NULL END AS site_last_at,
+          CASE WHEN COALESCE(last_seen, '') ~ ${isoPattern} THEN last_seen ELSE NULL END AS last_seen_at,
+          updated_at,
+          created_at
+        FROM expanded
+        WHERE NULLIF(btrim(pixel_slug), '') IS NOT NULL
+      )
+      SELECT
+        pixel_slug,
+        host,
+        SUM(hits)::bigint AS hits,
+        MAX(site_last_at) AS last_at,
+        MAX(last_seen_at) AS last_seen_at,
+        MAX(updated_at) AS updated_at,
+        MAX(created_at) AS created_at
+      FROM normalized
+      WHERE host <> ''
+        AND (${normalizedHost}::text IS NULL OR host = ${normalizedHost})
+      GROUP BY pixel_slug, host
+      ORDER BY pixel_slug ASC, MAX(updated_at) DESC, host ASC
+    `;
+    return { ok: true, data: normalizeDurableCoverage(rows) };
+  } catch (err) {
+    console.error('[db] readPixelRuntimeCoverage:', err.message);
+    return { ok: false, data: [], error: 'neon_query_failed' };
+  }
 }
 
 // Risco 7: fallback de MATCH no banco. O cache em memória guarda só os últimos
@@ -2014,6 +2099,7 @@ module.exports = {
   touchGateway,
   // dados por conta
   upsertLead,
+  readPixelRuntimeCoverage,
   findLeadsByContact,
   insertEvent,
   archiveOldEvents,

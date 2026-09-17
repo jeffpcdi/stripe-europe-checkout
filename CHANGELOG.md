@@ -1,3 +1,11 @@
+# V16.16 — Pixels: verdade durável de execução
+
+- Pixel Health e Verify URL deixam de depender do hot cache podado de leads para comprovar execução do browser: a fonte primária passa a ser uma leitura agregada e tenant-safe do Neon em janela operacional de 365 dias.
+- A leitura usa account_id obrigatório, recência por updated_at, agrega sites modernos e o formato legado sem duplicação, preserva subdomínios e soma hits reais sem carregar leads completos em Node.
+- Falha do Neon degrada explicitamente para hot-cache-fallback com runtimeCoverageComplete=false; ausência de cache nesse cenário vira estado inconclusivo, nunca falso “não instalado”.
+- Verify URL preserva o hardening SSRF existente e aceita execução durável como evidência para GTM, SPA e consent managers mesmo quando o snippet não aparece no HTML.
+- Nenhum índice JSONB/GIN foi criado nesta versão; mudanças de índice ficam condicionadas a evidência de plano/EXPLAIN em produção.
+
 # V16.15 — Pixels: contrato profissional de configuração e concorrência
 
 - A subaba ativa `Rastreamento → Conversões → Pixels` passa a diferenciar CREATE, UPDATE e DELETE com compare-and-swap durável no Neon; revisão velha não consegue mais sobrescrever ou excluir uma configuração mais nova, inclusive em cenário futuro com múltiplas réplicas Railway.
