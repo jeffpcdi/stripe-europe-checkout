@@ -24,13 +24,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat \
-            .release/v16.15-pixel-config.part00 \
-            .release/v16.15-pixel-config.part01 \
-            .release/v16.15-pixel-config.part02 \
-            .release/v16.15-pixel-config.part03 \
-            > /tmp/v16.15-pixel-config.patch.gz.b64
-          base64 -d /tmp/v16.15-pixel-config.patch.gz.b64 > /tmp/v16.15-pixel-config.patch.gz
+          parts=(
+            .release/v16.15-pixel-config.part00
+            .release/v16.15-pixel-config.part01
+            .release/v16.15-pixel-config.part02
+            .release/v16.15-pixel-config.part03
+          )
+          expected=(14000 14000 14000 9064)
+          : > /tmp/v16.15-pixel-config.patch.gz
+          for i in 0 1 2 3; do
+            clean="/tmp/part-${i}.b64"
+            bin="/tmp/part-${i}.bin"
+            tr -d '\r\n\t ' < "${parts[$i]}" > "$clean"
+            actual="$(wc -c < "$clean" | tr -d ' ')"
+            test "$actual" = "${expected[$i]}" || {
+              echo "part $i size mismatch: expected ${expected[$i]}, got $actual" >&2
+              exit 1
+            }
+            if grep -q '[^A-Za-z0-9+/=]' "$clean"; then
+              echo "part $i contains non-base64 characters" >&2
+              exit 1
+            fi
+            base64 -d "$clean" > "$bin"
+            cat "$bin" >> /tmp/v16.15-pixel-config.patch.gz
+          done
           gunzip -c /tmp/v16.15-pixel-config.patch.gz > /tmp/v16.15-pixel-config.patch
           echo "8c0e35474615f6efd55ca871118e42e5b9f7d13ccbb1f423238b8635b029f883  /tmp/v16.15-pixel-config.patch" | sha256sum -c -
           git apply --check /tmp/v16.15-pixel-config.patch
