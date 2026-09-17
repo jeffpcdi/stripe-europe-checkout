@@ -1,0 +1,52 @@
+name: Apply V16.15 Pixel Config Release
+
+on:
+  push:
+    branches:
+      - release/v16.15-pixel-config
+    paths:
+      - .github/workflows/apply-v1615-pixel-config.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: release/v16.15-pixel-config
+
+      - name: Reconstruct and verify release patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .release/v1615/part_* > /tmp/v1615.patch.xz.b64
+          echo "548c0f40effc32ecc6f7df0b4cbb74079add892ad373349301fb9c3a9d5784c0  /tmp/v1615.patch.xz.b64" | sha256sum -c -
+          base64 -d /tmp/v1615.patch.xz.b64 > /tmp/v1615.patch.xz
+          xz -dc /tmp/v1615.patch.xz > /tmp/v1615.patch
+          git apply --check /tmp/v1615.patch
+          git apply /tmp/v1615.patch
+
+      - name: Validate critical Pixel contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check server.js
+          node --check db.js
+          node --check pixel-store.js
+          node test/pixel-config-contract-v16-15.test.js
+          node test/pixel-delete.test.js
+
+      - name: Commit verified release tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "roi-nados-release"
+          git config user.email "release@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(v16.15): harden pixel configuration concurrency and persistence"
+          git push origin HEAD:release/v16.15-pixel-config
