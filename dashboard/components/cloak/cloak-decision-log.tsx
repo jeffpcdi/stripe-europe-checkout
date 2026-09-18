@@ -48,10 +48,15 @@ function DecisionRow({ row, entryKey }: { row: CloakDecisionRow; entryKey: strin
   const signals = Array.isArray(row.signals) ? row.signals : []
 
   async function rerun() {
-    const slug = entryKey.startsWith('cloak:') ? entryKey.slice(6) : entryKey
+    const isCampaign = entryKey.startsWith('campaign:')
+    const slug = entryKey.startsWith('cloak:') ? entryKey.slice(6) : ''
+    const campaignId = isCampaign ? entryKey.slice('campaign:'.length) : ''
     setRerunning(true)
     try {
-      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', { slug })
+      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', {
+        slug: slug || undefined,
+        campaignId: campaignId || undefined,
+      })
       toast.info(`Teste atual: ${verdictLabel(r.verdict)} · score ${r.score}/${r.threshold}`, {
         hint: 'O teste usa seu acesso atual; ele não reproduz o visitante histórico.',
       })

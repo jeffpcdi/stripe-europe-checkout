@@ -56,6 +56,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
   const [offerUrl, setOfferUrl] = useState(entry?.offerUrl ?? '')
   const [whitePageUrl, setWhitePageUrl] = useState(entry?.whitePageUrl ?? '')
   const [dominio, setDominio] = useState(entry?.dominio ?? initialDomain)
+  const [trafficSource, setTrafficSource] = useState<'tiktok_standard' | 'tiktok_smart_plus' | 'custom'>(entry?.trafficSource ?? 'tiktok_standard')
   const [enabled, setEnabled] = useState(entry?.enabled ?? true)
   const [shadowMode, setShadowMode] = useState(entry?.shadowMode ?? false)
   const [mobileOnly, setMobileOnly] = useState(entry?.mobileOnly ?? false)
@@ -76,7 +77,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
 
   const { data: domainsData } = useDomains()
   const { data: globalConfig } = useCloakConfig()
-  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && d.uso !== 'checkout')
+  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && (entry ? d.uso !== 'checkout' : d.uso === 'cloaker'))
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
   const globalSafePage = globalConfig?.defaultWhitePage?.trim() ?? ''
   const globalShadowMode = globalConfig?.shadowMode === true
@@ -93,12 +94,13 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
   async function handleSave() {
     if (savingRef.current) return
     setError(null)
-    if (!nome.trim() && !entry) return setError('Dê um nome ao link')
+    if (!nome.trim() && !entry) return setError('Dê um nome à campanha')
+    if (!dominio.trim()) return setError('Escolha um domínio dedicado ao Cloaker')
     if (!/^https:\/\//.test(offerUrl.trim())) return setError('O destino principal precisa ser uma URL https:// válida')
 
     const signature = JSON.stringify({
       nome: nome.trim(), slug: normalizePublicSlug(slug), offerUrl: offerUrl.trim(), whitePageUrl: whitePageUrl.trim(),
-      dominio: dominio.trim(), enabled, shadowMode, mobileOnly, sensitivity, paises, idiomas,
+      dominio: dominio.trim(), trafficSource, enabled, shadowMode, mobileOnly, sensitivity, paises, idiomas,
     })
     if (!entry && (!createRequestRef.current || createRequestRef.current.signature !== signature)) {
       createRequestRef.current = { signature, key: crypto.randomUUID() }
@@ -107,7 +109,9 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
     savingRef.current = true
     setSaving(true)
     try {
-      await apiSend('/api/cloak/entries', 'POST', {
+      await apiSend('/api/cloak/campaigns', 'POST', {
+        id: entry?.id ?? entry?.campaignId,
+        campaignId: entry?.campaignId ?? entry?.id,
         slug,
         _originalSlug: entry?.slug,
         _createOnly: !entry,
@@ -117,6 +121,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
         offerUrl: offerUrl.trim(),
         whitePageUrl: whitePageUrl.trim(),
         dominio: dominio.trim(),
+        trafficSource,
         enabled,
         shadowMode,
         mobileOnly,
@@ -280,11 +285,11 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               <label className={labelCls} htmlFor="ck-dom">Domínio</label>
               {verifiedDomains.length === 0 && !dominio ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Nenhum domínio verificado ainda. O link usará o domínio principal do app. Você pode cadastrar um domínio próprio em <span className="font-medium text-foreground">Domínios</span>.
+                  Nenhum domínio dedicado ao Cloaker está pronto. Cadastre ou ajuste um domínio em <span className="font-medium text-foreground">Domínios</span> antes de criar a campanha.
                 </p>
               ) : (
                 <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
-                  <option value="">Padrão (domínio principal do app)</option>
+                  <option value="">Selecione um domínio Cloaker</option>
                   {verifiedDomains.map((d) => (
                     <option key={d.host} value={d.host}>{d.host}</option>
                   ))}
@@ -293,9 +298,24 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               )}
               {dominio && !currentInList && (
                 <p className="mt-2 text-xs leading-relaxed text-warning">
-                  Este domínio não está pronto. Para usar /{previewSlug} nele, conclua DNS/HTTPS em Domínios ou escolha o domínio principal.
+                  Este domínio não está pronto para novas campanhas. Use um domínio verificado e configurado como Cloaker.
                 </p>
               )}
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-source">Fonte de tráfego</label>
+              <p className={`${hintCls} mb-2`}>Define os parâmetros prontos para colar no anúncio.</p>
+              <select
+                id="ck-source"
+                className={inputCls}
+                value={trafficSource}
+                onChange={(e) => setTrafficSource(e.target.value as 'tiktok_standard' | 'tiktok_smart_plus' | 'custom')}
+              >
+                <option value="tiktok_standard">TikTok Standard</option>
+                <option value="tiktok_smart_plus">TikTok Smart+</option>
+                <option value="custom">Personalizada</option>
+              </select>
             </div>
           </section>
 

@@ -324,7 +324,7 @@ export function useCloakStats() {
 }
 
 export function useCloakEntries() {
-  return useSWR<CloakEntriesResponse>('/api/cloak/entries', fetcher, {
+  return useSWR<CloakEntriesResponse>('/api/cloak/campaigns', fetcher, {
     refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,

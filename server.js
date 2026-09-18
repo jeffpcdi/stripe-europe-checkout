@@ -40,6 +40,8 @@ const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const publicSlug = require('./public-slug');
+const cloakCampaignStore = require('./cloak-campaign-store');
+const cloakTrafficSources = require('./cloak-traffic-sources');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
 const domainSecurity = require('./domain-security');
@@ -108,6 +110,10 @@ function publicSlugConflict(accountId, slug, ignore) {
   if (link && link.slug !== opts.linkSlug) return { type: 'link', item: link };
   const cloak = (config.get(accountId).cloakLinks || []).find((entry) => entry.slug === s);
   if (cloak && cloak.slug !== opts.cloakSlug) return { type: 'cloak', item: cloak };
+  if (cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.list(accountId).find((entry) => entry.path === s);
+    if (campaign && campaign.path !== opts.campaignPath) return { type: 'cloak_campaign', item: campaign };
+  }
   return null;
 }
 
@@ -1261,23 +1267,88 @@ app.get('/go/:slug', handleCheckoutPublic);
 // Roteia tráfego normal → destino principal; bots/automação → destino seguro. Usa a config
 // de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
 // sensibilidade e camadas de detecção.
+function campaignToCloakEntry(campaign) {
+  if (!campaign) return null;
+  const settings = campaign.settings || {};
+  return {
+    id: campaign.id,
+    campaignId: campaign.id,
+    revision: campaign.revision,
+    slug: campaign.path,
+    nome: campaign.name || campaign.path,
+    dominio: campaign.domainHost || '',
+    offerUrl: campaign.primaryUrl,
+    whitePageUrl: campaign.safeUrl || '',
+    trafficSource: campaign.trafficSource || 'tiktok_standard',
+    trafficToken: campaign.trafficToken || '',
+    legacySlug: campaign.legacySlug || '',
+    enabled: settings.enabled !== false,
+    shadowMode: settings.shadowMode === true,
+    mobileOnly: settings.mobileOnly === true,
+    requireAdClick: false,
+    sensitivity: settings.sensitivity || 'balanced',
+    threshold: settings.threshold,
+    deadlineMs: settings.deadlineMs,
+    paisPreset: settings.paisPreset || '',
+    paises: Array.isArray(settings.paises) ? settings.paises : [],
+    idiomas: Array.isArray(settings.idiomas) ? settings.idiomas : [],
+    blockDatacenter: settings.blockDatacenter,
+    blockHeadless: settings.blockHeadless,
+    checkHeaders: settings.checkHeaders,
+    requireJsChallenge: settings.requireJsChallenge,
+    checkWebgl: settings.checkWebgl,
+    checkTimezone: settings.checkTimezone,
+    checkBehavior: settings.checkBehavior,
+    blockZhLang: settings.blockZhLang,
+    checkWebview: settings.checkWebview,
+    checkCoherence: settings.checkCoherence,
+    checkEntropy: settings.checkEntropy,
+    criadoEm: campaign.createdAt,
+    updatedAt: campaign.updatedAt,
+    linkKit: cloakTrafficSources.buildLinkKit(campaign),
+  };
+}
+
 function resolveCloakEntry(req) {
   const slug = _ckSlugify(req.params.slug);
   if (!slug) return null;
+  const host = trustedRequestHost(req);
   const domainOwner = publicDomainOwner(req);
   const pref = domainOwner || publicAccountId(req);
+
+  // V16.21: campanhas profissionais usam host+path como chave pública e um ID
+  // permanente como identidade interna. O hot path é O(1) em memória.
+  if (cloakCampaignStore.isReady()) {
+    const exact = host ? cloakCampaignStore.resolve(host, slug) : null;
+    if (exact) {
+      if (domainOwner && exact.accountId !== domainOwner) return null;
+      if (exact.domainHost) {
+        const domain = (config.get(exact.accountId).customDomains || []).find((d) => d.host === exact.domainHost);
+        if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
+      }
+      return { acc: exact.accountId, entry: campaignToCloakEntry(exact), campaign: exact };
+    }
+
+    // Compatibilidade para campanhas migradas que ainda não tinham domínio.
+    // Novas campanhas V2 nunca entram aqui: a API exige domínio dedicado.
+    if (!domainOwner && pref) {
+      const shared = cloakCampaignStore.findByPath(pref, slug);
+      if (shared && !shared.domainHost) {
+        return { acc: shared.accountId, entry: campaignToCloakEntry(shared), campaign: shared };
+      }
+    }
+  }
+
+  // Fallback legado: config.cloakLinks continua somente para rollback e para
+  // instalações temporariamente sem Neon durante a migração.
   const tryAcc = (acc) => {
     const e = (config.get(acc).cloakLinks || []).find((l) => l.slug === slug);
-    return e ? { acc, entry: e } : null;
+    return e ? { acc, entry: e, campaign: null } : null;
   };
-  // Em host personalizado, o domínio já identifica a conta: não procure em
-  // nenhuma outra. Isso evita servir offer/white de outro tenant por colisão
-  // de slug. No host compartilhado, preserva o fallback global legado.
   if (pref) {
     const r = tryAcc(pref);
     if (domainOwner) {
       if (!r) return null;
-      const host = trustedRequestHost(req);
       const domain = (config.get(pref).customDomains || []).find((d) => d.host === host);
       if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
       if (r.entry.dominio && r.entry.dominio !== host) return null;
@@ -1293,7 +1364,8 @@ function resolveCloakEntry(req) {
 async function handleCloakPublic(req, res) {
   const found = resolveCloakEntry(req);
   if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
-  const { acc, entry } = found;
+  const { acc, entry, campaign = null } = found;
+  const decisionKey = campaign ? 'campaign:' + campaign.id : 'cloak:' + entry.slug;
   const offer = entry.offerUrl;
   // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
   const acctCloak = config.get(acc).cloak || {};
@@ -1308,9 +1380,9 @@ async function handleCloakPublic(req, res) {
   // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
   // sem PII. `score` é opcional (só o gate de score o conhece).
   const bumpDecision = (decision, reason, score, signals) => {
-    try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
+    try { redis.bumpCloakDecision(acc, decisionKey, decision, reason); } catch (_) {}
     try {
-      redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
+      redis.pushCloakDecision(acc, decisionKey, {
         decision, reason, score,
         signals, // Item 212: top sinais do judge nesta decisão (para calibrar camadas)
         ip: clientIp(req),
@@ -1320,16 +1392,17 @@ async function handleCloakPublic(req, res) {
     } catch (_) {}
   };
 
-  // preserva a query original (UTMs/ttclid) no destino final
+  // Preserva parâmetros de atribuição, mas nunca vaza parâmetros internos do
+  // ROI-NADOS (token rk, debug/challenge etc.) para a página de destino.
+  const outboundParams = () => cloakTrafficSources.stripInternalParams(
+    new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '')
+  );
   const go = (url) => {
-    const qs = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
+    const qs = outboundParams().toString();
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
-  // Igual ao go(), mas garante o vid na query do destino. O tracker (/t.js) dá
-  // preferência ao ?vid= da URL, então a página de destino (offer) amarra os
-  // sinais do browser a ESTE visitante mesmo em outro domínio (cookie não cruza).
   const goWithVid = (url, vid) => {
-    const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    const params = outboundParams();
     if (vid && !params.get('vid')) params.set('vid', vid);
     const qs = params.toString();
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
@@ -1408,7 +1481,7 @@ async function handleCloakPublic(req, res) {
       const vcfg = config.get(acc).cloak || {};
       const vLimit = vcfg.velocityLimit || 12;
       const vWin = vcfg.velocityWindowSec || 60;
-      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, vWin).catch(() => 0);
+      const vip = await redis.bumpVelocity('c:' + (campaign ? campaign.id : entry.slug) + ':ip', ip, vWin).catch(() => 0);
       if (vip > vLimit) {
         stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: 'cloak:' + entry.slug, ref: ip });
         bumpDecision('white', 'velocity');
@@ -2189,7 +2262,7 @@ app.get('/api/account/export', dashboardAuth, async (req, res) => {
   const auditRows = await db.listAudit(acc, 500).catch(() => []);
   const payload = {
     formato: 'pragmatic-flow-conta-completa',
-    versao: 1,
+    versao: 2,
     exportadoEm: new Date().toISOString(),
     conta: { id: acc, email: req.account.email, name: req.account.name, criadaEm: req.account.created_at || null },
     settings: cfg.settings || {},
@@ -2593,6 +2666,18 @@ app.get('/api/backup/export', dashboardAuth, (req, res) => {
       return rest;
     }),
     dominios: (cfg.customDomains || []).map((d) => ({ host: d.host, uso: d.uso || 'ambos' })),
+    cloakCampaigns: cloakCampaignStore.isReady() ? cloakCampaignStore.list(acc).map((campaign) => ({
+      id: campaign.id,
+      domainHost: campaign.domainHost,
+      path: campaign.path,
+      name: campaign.name,
+      primaryUrl: campaign.primaryUrl,
+      safeUrl: campaign.safeUrl,
+      trafficSource: campaign.trafficSource,
+      settings: campaign.settings,
+      createdAt: campaign.createdAt,
+      updatedAt: campaign.updatedAt,
+    })) : [],
     cloakLinks: cfg.cloakLinks || [],
     cloak: cfg.cloak || null
   };
@@ -2613,7 +2698,7 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
     return apiError(res, 400, 'Arquivo não reconhecido — exporte o backup pela própria dashboard.', 'bad_format');
   }
   const acc = req.account.id;
-  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, erros: [] };
+  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, cloakCampaigns: 0, erros: [] };
   try {
     for (const l of (Array.isArray(b.links) ? b.links : []).slice(0, 100)) {
       try { await linkStore.save(acc, l); report.links++; }
@@ -2634,6 +2719,34 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
     if (Object.keys(patch).length) {
       await config.setDurable(acc, patch);
       report.cloakLinks = (patch.cloakLinks || []).length;
+      if (patch.cloakLinks && cloakCampaignStore.enabled) {
+        await cloakCampaignStore.migrateLegacy(acc, patch.cloakLinks).catch((e) => {
+          report.erros.push('migração do Cloaker legado: ' + e.message);
+        });
+      }
+    }
+    if (Array.isArray(b.cloakCampaigns) && cloakCampaignStore.isReady()) {
+      const knownDomains = new Set((config.get(acc).customDomains || []).map((d) => d.host));
+      for (const campaign of b.cloakCampaigns.slice(0, 100)) {
+        try {
+          const domainHost = _ckHost(campaign && campaign.domainHost);
+          if (!domainHost || !knownDomains.has(domainHost)) {
+            throw new Error('domínio ' + (domainHost || 'ausente') + ' precisa estar cadastrado antes da restauração');
+          }
+          await cloakCampaignStore.create(acc, {
+            domainHost,
+            path: campaign.path,
+            name: campaign.name,
+            primaryUrl: campaign.primaryUrl,
+            safeUrl: campaign.safeUrl,
+            trafficSource: campaign.trafficSource,
+            settings: campaign.settings || {},
+          });
+          report.cloakCampaigns++;
+        } catch (e) {
+          report.erros.push('campanha Cloaker ' + String(campaign && (campaign.name || campaign.path) || '?') + ': ' + e.message);
+        }
+      }
     }
     stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
     audit(req, req.account.id, 'backup_importado', 'Backup restaurado no painel'); // item 417
@@ -3120,7 +3233,11 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   // Não cria referências órfãs. Um domínio usado por um link público ou por
   // uma entrada do Cloak precisa ser trocado antes de ser removido.
   const checkoutRefs = linkStore.list(req.account.id).filter((link) => link.dominio === host);
-  const cloakRefs = (config.get(req.account.id).cloakLinks || []).filter((link) => link.dominio === host);
+  const cloakRefsLegacy = (config.get(req.account.id).cloakLinks || []).filter((link) => link.dominio === host);
+  const cloakRefsV2 = cloakCampaignStore.isReady()
+    ? cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.domainHost === host)
+    : [];
+  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
   if (checkoutRefs.length || cloakRefs.length) {
     const refs = [];
     if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
@@ -3704,13 +3821,27 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   // Item 134: quando vem `slug`, simula o julgamento DAQUELE link /c/:slug —
   // usa a config do próprio entry no motor de score E reporta segmentações extras
   // (mobile, país, idioma) que decidem antes do score na rota real.
-  const slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
+  let slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
+  const campaignId = req.body && req.body.campaignId ? String(req.body.campaignId).slice(0, 80) : '';
   let cloakCfg = config.get(req.account.id).cloak || {};
   let entry = null;
-  if (slug) {
-    entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
+  if (campaignId && cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.get(req.account.id, campaignId);
+    if (!campaign) return res.status(404).json({ error: 'campanha de cloaking não encontrada' });
+    entry = campaignToCloakEntry(campaign);
+    slug = entry.slug;
+    cloakCfg = entry;
+  } else if (slug) {
+    if (cloakCampaignStore.isReady()) {
+      const candidates = cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.path === _ckSlugify(slug));
+      if (candidates.length === 1) entry = campaignToCloakEntry(candidates[0]);
+      else if (candidates.length > 1) {
+        return apiError(res, 409, 'Há mais de uma campanha com este path.', 'cloak_path_ambiguous', 'Envie o campaignId para testar a campanha correta.');
+      }
+    }
+    if (!entry) entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === _ckSlugify(slug)) || null;
     if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
-    cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
+    cloakCfg = entry;
   }
 
   // Modo simulação: monta um request sintético a partir do perfil escolhido.
@@ -3790,23 +3921,72 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
 
-  // Junta os dois tipos de link protegido: checkout (/go/<slug>) e cloak (/c/<slug>)
-  const goLinks = linkStore.list(acc).map((l) => ({ tipo: 'go', slug: l.slug, nome: l.nome, key: l.slug }));
-  const ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({ tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug }));
-  const all = goLinks.concat(ckLinks);
+  const zero = () => ({ offer: 0, white: 0, total: 0, offerRate: 0, reasons: {}, daily: [] });
+  const mergeStats = (a, b) => {
+    const left = a || zero(), right = b || zero();
+    const reasons = { ...(left.reasons || {}) };
+    for (const [key, value] of Object.entries(right.reasons || {})) reasons[key] = (reasons[key] || 0) + Number(value || 0);
+    const days = new Map();
+    for (const row of [...(left.daily || []), ...(right.daily || [])]) {
+      const cur = days.get(row.day) || { day: row.day, offer: 0, white: 0 };
+      cur.offer += Number(row.offer || 0);
+      cur.white += Number(row.white || 0);
+      days.set(row.day, cur);
+    }
+    const offer = Number(left.offer || 0) + Number(right.offer || 0);
+    const white = Number(left.white || 0) + Number(right.white || 0);
+    const total = offer + white;
+    return { offer, white, total, offerRate: total ? offer / total : 0, reasons, daily: [...days.values()].sort((x, y) => x.day.localeCompare(y.day)) };
+  };
 
+  const goLinks = linkStore.list(acc).map((l) => ({
+    tipo: 'go', slug: l.slug, nome: l.nome, key: l.slug, legacyKey: null, campaignId: null,
+  }));
+
+  let ckLinks;
+  if (cloakCampaignStore.isReady()) {
+    const durable = cloakCampaignStore.list(acc);
+    ckLinks = durable.map((campaign) => ({
+      tipo: 'cloak',
+      slug: campaign.path,
+      nome: campaign.name || campaign.path,
+      key: 'campaign:' + campaign.id,
+      legacyKey: campaign.legacySlug ? 'cloak:' + campaign.legacySlug : null,
+      campaignId: campaign.id,
+    }));
+    // Migração é fail-soft: se uma entrada antiga não conseguiu virar campanha,
+    // ela continua visível/operável e mantém seus contadores pelo key legado.
+    const migratedLegacy = new Set(durable.map((campaign) => campaign.legacySlug).filter(Boolean));
+    const durableRoutes = new Set(durable.map((campaign) => (campaign.domainHost || '') + '\0' + campaign.path));
+    for (const legacy of (config.get(acc).cloakLinks || [])) {
+      const route = String(legacy.dominio || '') + '\0' + String(legacy.slug || '');
+      if (migratedLegacy.has(legacy.slug) || durableRoutes.has(route)) continue;
+      ckLinks.push({
+        tipo: 'cloak', slug: legacy.slug, nome: legacy.nome || legacy.slug,
+        key: 'cloak:' + legacy.slug, legacyKey: null, campaignId: null,
+      });
+    }
+  } else {
+    ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({
+      tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug, legacyKey: null, campaignId: null,
+    }));
+  }
+
+  const all = goLinks.concat(ckLinks);
   const items = await Promise.all(all.map(async (l) => {
-    const s = await redis.getCloakStats(acc, l.key).catch(() => null);
-    const st = s || { offer: 0, white: 0, total: 0, offerRate: 0, reasons: {}, daily: [] };
+    const primary = await redis.getCloakStats(acc, l.key).catch(() => null);
+    const legacy = l.legacyKey && l.legacyKey !== l.key
+      ? await redis.getCloakStats(acc, l.legacyKey).catch(() => null)
+      : null;
+    const st = mergeStats(primary, legacy);
     return {
-      tipo: l.tipo, slug: l.slug, nome: l.nome,
+      tipo: l.tipo, slug: l.slug, nome: l.nome, campaignId: l.campaignId || undefined,
       offer: st.offer, white: st.white, total: st.total,
-      blockRate: st.total ? st.white / st.total : 0,   // taxa de bloqueio
-      reasons: st.reasons, daily: st.daily
+      blockRate: st.total ? st.white / st.total : 0,
+      reasons: st.reasons, daily: st.daily,
     };
   }));
 
-  // Agregado geral da conta
   const agg = items.reduce((a, it) => {
     a.offer += it.offer; a.white += it.white; a.total += it.total;
     Object.keys(it.reasons || {}).forEach((r) => { a.reasons[r] = (a.reasons[r] || 0) + it.reasons[r]; });
@@ -3814,8 +3994,6 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   }, { offer: 0, white: 0, total: 0, reasons: {} });
   agg.blockRate = agg.total ? agg.white / agg.total : 0;
 
-  // Item 201: quantos visitantes estão em cache como bot AGORA (sticky 6h).
-  // Item 203: quantos acessos foram barrados por replay de ttclid (30d).
   const [sticky, ttclidReplays] = await Promise.all([
     redis.countStickyBots().catch(() => ({ available: false, count: 0 })),
     redis.getTtclidReplayCount(acc).catch(() => 0)
@@ -3823,8 +4001,6 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
 
   res.json({
     ok: true, redis: redis.enabled, aggregate: agg, links: items, sticky, ttclidReplays,
-    // Item 209: se nunca chegou beacon do challenge, o snippet /t.js não está
-    // instalado nas páginas — as camadas D–H do julgamento ficam inertes.
     challenge: { beacons: _challengeBeacon.count, lastAt: _challengeBeacon.lastAt || null }
   });
 });
@@ -3871,13 +4047,25 @@ app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
 // Zera os contadores de um link (ou de todos, se slug ausente).
 app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
   const acc = req.account.id;
-  const key = req.body && req.body.key ? String(req.body.key).slice(0, 60) : null;
+  const key = req.body && req.body.key ? String(req.body.key).slice(0, 100) : null;
   if (key) {
-    await redis.resetCloakStats(acc, key).catch(() => {});
+    const keys = [key];
+    if (key.startsWith('campaign:') && cloakCampaignStore.isReady()) {
+      const campaign = cloakCampaignStore.get(acc, key.slice('campaign:'.length));
+      if (campaign && campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+    }
+    await Promise.all([...new Set(keys)].map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   } else {
-    const keys = linkStore.list(acc).map((l) => l.slug)
-      .concat((config.get(acc).cloakLinks || []).map((l) => 'cloak:' + l.slug));
-    await Promise.all(keys.map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
+    const keys = linkStore.list(acc).map((l) => l.slug);
+    if (cloakCampaignStore.isReady()) {
+      for (const campaign of cloakCampaignStore.list(acc)) {
+        keys.push('campaign:' + campaign.id);
+        if (campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+      }
+    } else {
+      keys.push(...(config.get(acc).cloakLinks || []).map((l) => 'cloak:' + l.slug));
+    }
+    await Promise.all([...new Set(keys)].map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   }
   res.json({ ok: true });
 });
@@ -3889,9 +4077,20 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
 app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
-  const key = req.query && req.query.key ? String(req.query.key).slice(0, 60) : '';
+  const key = req.query && req.query.key ? String(req.query.key).slice(0, 100) : '';
   if (!key) return res.status(400).json({ ok: false, error: 'informe key' });
-  const log = await redis.getCloakDecisionLog(acc, key).catch(() => []);
+
+  const keys = [key];
+  if (key.startsWith('campaign:') && cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.get(acc, key.slice('campaign:'.length));
+    if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+    if (campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+  }
+
+  const logs = await Promise.all([...new Set(keys)].map((item) =>
+    redis.getCloakDecisionLog(acc, item).catch(() => [])
+  ));
+  const log = logs.flat().sort((a, b) => Number(b.at || 0) - Number(a.at || 0)).slice(0, 50);
   res.json({ ok: true, key, log, source: redis.enabled ? 'redis' : 'memory' });
 });
 
@@ -3907,6 +4106,188 @@ const _ckHost = (input) => {
   const s = String(input || '').trim(); if (!s) return '';
   try { return new URL(s.includes('://') ? s : 'https://' + s).hostname.toLowerCase(); } catch (_) { return ''; }
 };
+
+// ── V16.21: campanhas de Cloaker duráveis (ID permanente + domínio + path) ──
+function _ckCampaignSettings(body) {
+  const b = body || {};
+  const out = {};
+  [
+    'enabled', 'shadowMode', 'mobileOnly', 'blockDatacenter', 'blockHeadless',
+    'checkHeaders', 'requireJsChallenge', 'checkWebgl', 'checkTimezone',
+    'checkBehavior', 'blockZhLang', 'checkWebview', 'checkCoherence', 'checkEntropy'
+  ].forEach((key) => { if (typeof b[key] === 'boolean') out[key] = b[key]; });
+  out.requireAdClick = false;
+  if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) out.sensitivity = b.sensitivity;
+  if (b.threshold !== undefined && Number.isFinite(Number(b.threshold))) out.threshold = Number(b.threshold);
+  if (b.deadlineMs !== undefined && Number.isFinite(Number(b.deadlineMs))) out.deadlineMs = Number(b.deadlineMs);
+  if (b.paisPreset !== undefined) out.paisPreset = String(b.paisPreset || '');
+  if (Array.isArray(b.paises)) out.paises = b.paises;
+  if (Array.isArray(b.idiomas)) out.idiomas = b.idiomas;
+  return out;
+}
+
+function _ckCampaignDomain(accountId, requestedHost) {
+  const host = _ckHost(requestedHost);
+  if (!host) return { ok: false, code: 'cloak_domain_required', error: 'Escolha um domínio dedicado ao Cloaker.' };
+  const domain = (config.get(accountId).customDomains || []).find((d) => d.host === host);
+  if (!domain) return { ok: false, code: 'cloak_domain_not_found', error: 'Este domínio não pertence à sua conta.' };
+  if (!domain.verificado || (domain.status && domain.status !== 'active')) {
+    return { ok: false, code: 'cloak_domain_not_verified', error: 'Este domínio ainda não está pronto.' };
+  }
+  if (domain.uso === 'checkout') {
+    return { ok: false, code: 'cloak_domain_wrong_usage', error: 'Este domínio está reservado para Links.' };
+  }
+  return { ok: true, host, domain };
+}
+
+app.get('/api/cloak/campaigns', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = trustedRequestHost(req);
+  const legacy = config.get(req.account.id).cloakLinks || [];
+  let entries;
+  if (cloakCampaignStore.isReady()) {
+    const campaigns = cloakCampaignStore.list(req.account.id);
+    entries = campaigns.map(campaignToCloakEntry);
+    const migratedLegacy = new Set(campaigns.map((campaign) => campaign.legacySlug).filter(Boolean));
+    const durableRoutes = new Set(campaigns.map((campaign) => (campaign.domainHost || '') + '\0' + campaign.path));
+    for (const item of legacy) {
+      const route = String(item.dominio || '') + '\0' + String(item.slug || '');
+      if (migratedLegacy.has(item.slug) || durableRoutes.has(route)) continue;
+      entries.push({ ...item, legacy: true });
+    }
+  } else {
+    entries = legacy.map((item) => ({ ...item, legacy: true }));
+  }
+  res.json({ entries, baseUrl: 'https://' + host, durable: cloakCampaignStore.isReady() });
+});
+
+app.post('/api/cloak/campaigns', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!cloakCampaignStore.isReady()) {
+    return apiError(res, 503,
+      'A persistência durável do Cloaker está indisponível.',
+      'cloak_campaign_store_unavailable',
+      'Nenhuma alteração foi publicada. Tente novamente em instantes.');
+  }
+
+  const b = req.body || {};
+  const acc = req.account.id;
+  const requestedId = String(b.id || b.campaignId || '').trim().slice(0, 80);
+  const createOnly = b._createOnly === true || (!requestedId && b._createOnly !== false);
+  let existing = requestedId ? cloakCampaignStore.get(acc, requestedId) : null;
+
+  // Compatibilidade para clientes que ainda identificam a edição pelo path.
+  if (!existing && !createOnly) {
+    const originalPath = _ckSlugify(b._originalSlug || b.slug || '');
+    const domainHost = _ckHost(b.dominio || '');
+    if (originalPath) existing = cloakCampaignStore.findByPath(acc, originalPath, domainHost || undefined);
+  }
+  if (!createOnly && !existing) {
+    return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found', 'Atualize a lista e tente novamente.');
+  }
+
+  const domainCheck = _ckCampaignDomain(acc, b.dominio !== undefined ? b.dominio : existing && existing.domainHost);
+  if (!domainCheck.ok) {
+    return apiError(res, 422, domainCheck.error, domainCheck.code, 'Cadastre e ative um domínio com uso Cloaker antes de salvar.');
+  }
+
+  // Novas campanhas e trocas de domínio usam namespace dedicado ao Cloaker.
+  // Campanhas migradas em domínio "ambos" continuam editáveis sem migração forçada.
+  const domainChanged = existing && existing.domainHost !== domainCheck.host;
+  if ((!existing || domainChanged) && domainCheck.domain.uso !== 'cloaker') {
+    return apiError(res, 422,
+      'Novas campanhas precisam de um domínio dedicado ao Cloaker.',
+      'cloak_domain_not_dedicated',
+      'Em Domínios, altere o uso para Cloaker e tente novamente.');
+  }
+
+  const name = String(b.nome !== undefined ? b.nome : existing && existing.name || '').trim();
+  const primaryUrl = String(b.offerUrl !== undefined ? b.offerUrl : existing && existing.primaryUrl || '').trim();
+  const safeUrl = String(b.whitePageUrl !== undefined ? b.whitePageUrl : existing && existing.safeUrl || '').trim();
+  if (!name) return apiError(res, 400, 'Dê um nome à campanha.', 'cloak_name_required');
+  if (!_ckValidHttps(primaryUrl)) return apiError(res, 400, 'O destino principal precisa ser uma URL https:// válida.', 'cloak_primary_url_invalid');
+  if (safeUrl && !_ckValidHttps(safeUrl)) return apiError(res, 400, 'O destino seguro precisa ser uma URL https:// válida.', 'cloak_safe_url_invalid');
+
+  const requestedPath = b.slug !== undefined ? _ckSlugify(b.slug) : (existing ? existing.path : '');
+  if (requestedPath) {
+    const checked = publicSlug.validate(requestedPath);
+    if (!checked.ok) return apiError(res, 422, checked.error, checked.code, 'Escolha outro endereço público.');
+  }
+
+  const createKey = String(b._createKey || '').trim().slice(0, 120);
+  const createKeyHash = createKey
+    ? crypto.createHash('sha256').update(acc + '|' + createKey).digest('hex').slice(0, 24)
+    : '';
+  const settings = _ckCampaignSettings(b);
+
+  try {
+    let campaign;
+    let replayed = false;
+    if (!existing) {
+      const created = await cloakCampaignStore.create(acc, {
+        domainHost: domainCheck.host,
+        path: requestedPath,
+        name,
+        primaryUrl,
+        safeUrl,
+        trafficSource: b.trafficSource || 'tiktok_standard',
+        createKeyHash,
+        settings,
+      });
+      campaign = created.campaign;
+      replayed = created.replayed === true;
+    } else {
+      campaign = await cloakCampaignStore.update(acc, existing.id, {
+        domainHost: domainCheck.host,
+        path: requestedPath || existing.path,
+        name,
+        primaryUrl,
+        safeUrl,
+        trafficSource: b.trafficSource !== undefined ? b.trafficSource : existing.trafficSource,
+        settings,
+      }, { expectedUpdatedAt: b._baseUpdatedAt || '' });
+    }
+    const entry = campaignToCloakEntry(campaign);
+    stats.logEvent('info', {
+      acc,
+      title: 'Campanha de Cloaker salva: ' + entry.nome,
+      ref: campaign.id,
+    });
+    return res.json({ ok: true, entry, replayed, linkKit: entry.linkKit });
+  } catch (err) {
+    const status = Number(err && err.status) || (err && err.code === 'conflict' ? 409 : 500);
+    return apiError(res, status,
+      err && err.message || 'Não foi possível salvar a campanha de Cloaker.',
+      err && err.code || 'cloak_campaign_save_failed',
+      status >= 500 ? 'Nenhuma alteração foi publicada. Tente novamente em instantes.' : undefined);
+  }
+});
+
+app.delete('/api/cloak/campaigns/:id', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!cloakCampaignStore.isReady()) {
+    return apiError(res, 503, 'A persistência durável do Cloaker está indisponível.', 'cloak_campaign_store_unavailable');
+  }
+  const id = String(req.params.id || '').slice(0, 80);
+  const campaign = cloakCampaignStore.get(req.account.id, id);
+  if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+  try {
+    await cloakCampaignStore.remove(req.account.id, id, {
+      expectedUpdatedAt: String((req.query && req.query.baseUpdatedAt) || ''),
+    });
+    stats.logEvent('info', { acc: req.account.id, title: 'Campanha de Cloaker removida', ref: id });
+    res.json({ ok: true });
+  } catch (err) {
+    return apiError(res, Number(err && err.status) || 500, err.message || 'Falha ao remover campanha.', err.code || 'cloak_campaign_delete_failed');
+  }
+});
+
+app.get('/api/cloak/campaigns/:id/link-kit', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const campaign = cloakCampaignStore.get(req.account.id, String(req.params.id || '').slice(0, 80));
+  if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+  res.json({ ok: true, campaignId: campaign.id, ...cloakTrafficSources.buildLinkKit(campaign) });
+});
 
 app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -6453,6 +6834,20 @@ botFilter.assertSecurityConfig();
 // no primeiro request pós-deploy.
 stats.hydrate()
   .then(() => config.hydrate())
+  .then(async () => {
+    if (!cloakCampaignStore.enabled) return;
+    try {
+      await cloakCampaignStore.ensureSchema();
+      const accountIds = await db.listAccountIds();
+      for (const accountId of accountIds) {
+        await cloakCampaignStore.migrateLegacy(accountId, config.get(accountId).cloakLinks || []);
+      }
+      await cloakCampaignStore.hydrate();
+      console.log('[cloak-campaign-store] campanhas hidratadas: ' + accountIds.reduce((n, accountId) => n + cloakCampaignStore.list(accountId).length, 0));
+    } catch (err) {
+      console.error('[cloak-campaign-store] boot degradado:', err && err.message || err);
+    }
+  })
   .then(() => pixelStore.init())
   .then(() => linkStore.init())
   .then(() => gatewayStore.init())

@@ -718,6 +718,7 @@ export interface CloakTestProfileMeta {
 // ── /api/cloak/stats — offer vs white por link ──
 export interface CloakStatItem {
   tipo: 'go' | 'cloak'
+  campaignId?: string
   slug: string
   nome: string
   offer: number
@@ -749,9 +750,22 @@ export interface CloakStatsResponse {
 
 // ── /api/cloak/entries — links de cloaking dedicados (URL pública /:slug; /c/:slug legado) ──
 export interface CloakEntry {
+  id?: string
+  campaignId?: string
+  revision?: number
+  legacy?: boolean
   slug: string
   nome: string
   dominio?: string
+  trafficSource?: 'tiktok_standard' | 'tiktok_smart_plus' | 'custom'
+  trafficToken?: string
+  linkKit?: {
+    trafficSource: string
+    trafficSourceLabel?: string
+    url: string
+    urlParams: string
+    combinedUrl: string
+  } | null
   offerUrl: string
   whitePageUrl: string
   enabled: boolean
