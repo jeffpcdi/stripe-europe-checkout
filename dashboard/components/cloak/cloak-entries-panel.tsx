@@ -82,7 +82,20 @@ export function CloakEntriesPanel() {
 
   function urlFor(e: CloakEntry) {
     const base = e.dominio ? `https://${e.dominio}` : baseUrl
-    return `${base}/${e.slug}`
+    return e.linkKit?.url || `${base}/${e.slug}`
+  }
+
+  function campaignIdFor(e: CloakEntry) {
+    return e.id || e.campaignId || ''
+  }
+
+  function historyKeyFor(e: CloakEntry) {
+    const id = campaignIdFor(e)
+    return id ? `campaign:${id}` : `cloak:${e.slug}`
+  }
+
+  function mutationEndpoint(e: CloakEntry) {
+    return campaignIdFor(e) ? '/api/cloak/campaigns' : '/api/cloak/entries'
   }
 
   function effectiveSafeUrl(e: CloakEntry) {
@@ -109,7 +122,17 @@ export function CloakEntriesPanel() {
   function handleCopy(e: CloakEntry) {
     navigator.clipboard.writeText(urlFor(e)).then(() => {
       setCopied(e.slug)
-      setCopyAnnounce(`URL do link ${e.nome} copiada para a área de transferência.`)
+      setCopyAnnounce(`URL da campanha ${e.nome} copiada para a área de transferência.`)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  function handleCopyParams(e: CloakEntry) {
+    const params = e.linkKit?.urlParams
+    if (!params) return
+    navigator.clipboard.writeText(params).then(() => {
+      setCopied('params:' + e.slug)
+      setCopyAnnounce(`Parâmetros da campanha ${e.nome} copiados para a área de transferência.`)
       setTimeout(() => setCopied(null), 2000)
     })
   }
@@ -120,7 +143,11 @@ export function CloakEntriesPanel() {
     setDeleteBusy(true)
     let removed = false
     try {
-      await apiSend(`/api/cloak/entries/${encodeURIComponent(target.slug)}?baseUpdatedAt=${encodeURIComponent(target.updatedAt)}`, 'DELETE')
+      const campaignId = campaignIdFor(target)
+      const endpoint = campaignId
+        ? `/api/cloak/campaigns/${encodeURIComponent(campaignId)}?baseUpdatedAt=${encodeURIComponent(target.updatedAt)}`
+        : `/api/cloak/entries/${encodeURIComponent(target.slug)}?baseUpdatedAt=${encodeURIComponent(target.updatedAt)}`
+      await apiSend(endpoint, 'DELETE')
       removed = true
       setDeleting(null)
       toast.success(`Link protegido "${target.nome}" removido.`)
@@ -146,7 +173,7 @@ export function CloakEntriesPanel() {
     if (testing) return
     setTesting(e.slug)
     try {
-      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', { slug: e.slug })
+      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', { slug: e.slug, campaignId: campaignIdFor(e) || undefined })
       setTestResult((prev) => ({ ...prev, [e.slug]: r }))
     } catch (err) {
       toast.error(`Falha ao testar "${e.nome}"`, {
@@ -166,7 +193,18 @@ export function CloakEntriesPanel() {
       { revalidate: false },
     )
     try {
-      await apiSend('/api/cloak/entries', 'POST', { slug: e.slug, enabled: next, _baseUpdatedAt: e.updatedAt })
+      await apiSend(mutationEndpoint(e), 'POST', {
+        id: campaignIdFor(e) || undefined,
+        campaignId: campaignIdFor(e) || undefined,
+        slug: e.slug,
+        dominio: e.dominio,
+        nome: e.nome,
+        offerUrl: e.offerUrl,
+        whitePageUrl: e.whitePageUrl,
+        trafficSource: e.trafficSource,
+        enabled: next,
+        _baseUpdatedAt: e.updatedAt,
+      })
       await mutate()
     } catch (err) {
       if (previous) await mutate(previous, { revalidate: false })
@@ -194,7 +232,19 @@ export function CloakEntriesPanel() {
       for (const slug of pending) {
         const current = entries.find((entry) => entry.slug === slug)
         try {
-          await apiSend('/api/cloak/entries', 'POST', { slug, enabled, _baseUpdatedAt: current?.updatedAt })
+          if (!current) throw new Error('campanha não encontrada')
+          await apiSend(mutationEndpoint(current), 'POST', {
+            id: campaignIdFor(current) || undefined,
+            campaignId: campaignIdFor(current) || undefined,
+            slug,
+            dominio: current.dominio,
+            nome: current.nome,
+            offerUrl: current.offerUrl,
+            whitePageUrl: current.whitePageUrl,
+            trafficSource: current.trafficSource,
+            enabled,
+            _baseUpdatedAt: current.updatedAt,
+          })
         } catch {
           failed.add(slug)
         }
@@ -222,8 +272,13 @@ export function CloakEntriesPanel() {
       for (const slug of pending) {
         const current = entries.find((entry) => entry.slug === slug)
         try {
-          const revision = current?.updatedAt ? `?baseUpdatedAt=${encodeURIComponent(current.updatedAt)}` : ''
-          await apiSend(`/api/cloak/entries/${encodeURIComponent(slug)}${revision}`, 'DELETE')
+          if (!current) throw new Error('campanha não encontrada')
+          const revision = current.updatedAt ? `?baseUpdatedAt=${encodeURIComponent(current.updatedAt)}` : ''
+          const campaignId = campaignIdFor(current)
+          const endpoint = campaignId
+            ? `/api/cloak/campaigns/${encodeURIComponent(campaignId)}${revision}`
+            : `/api/cloak/entries/${encodeURIComponent(slug)}${revision}`
+          await apiSend(endpoint, 'DELETE')
         } catch {
           failed.add(slug)
         }
@@ -509,6 +564,11 @@ export function CloakEntriesPanel() {
                     <button type="button" onClick={() => handleCopy(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                       {copied === e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === e.slug ? 'Copiado' : 'Copiar URL'}
                     </button>
+                    {e.linkKit?.urlParams && (
+                      <button type="button" onClick={() => handleCopyParams(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                        {copied === 'params:' + e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === 'params:' + e.slug ? 'Copiado' : 'Copiar parâmetros'}
+                      </button>
+                    )}
                     <button type="button" onClick={() => setEditing(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                       <Pencil className="size-3.5" /> Editar
                     </button>
@@ -520,13 +580,14 @@ export function CloakEntriesPanel() {
                         <button
                           type="button"
                           onClick={(event) => {
-                            setLogOpen((cur) => (cur === 'cloak:' + e.slug ? null : 'cloak:' + e.slug))
+                            const key = historyKeyFor(e)
+                            setLogOpen((cur) => (cur === key ? null : key))
                             closeActionMenu(event.currentTarget)
                           }}
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
                         >
                           <History className="size-3.5" />
-                          {logOpen === 'cloak:' + e.slug ? 'Fechar histórico' : 'Histórico'}
+                          {logOpen === historyKeyFor(e) ? 'Fechar histórico' : 'Histórico'}
                         </button>
                         {safeUrl && (
                           <a
@@ -554,8 +615,8 @@ export function CloakEntriesPanel() {
                     </details>
                   </div>
 
-                  {logOpen === 'cloak:' + e.slug && (
-                    <CloakDecisionLog entryKey={'cloak:' + e.slug} onClose={() => setLogOpen(null)} />
+                  {logOpen === historyKeyFor(e) && (
+                    <CloakDecisionLog entryKey={historyKeyFor(e)} onClose={() => setLogOpen(null)} />
                   )}
                 </div>
               </li>
