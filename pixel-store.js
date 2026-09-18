@@ -61,9 +61,6 @@ function mutationError(code, message, status, hint, currentUpdatedAt) {
   return err;
 }
 
-// Patch top-level seguro para UPDATE atômico. Campos ausentes simplesmente não
-// entram no JSONB merge do Postgres; assim toggle/vínculo não reenviam nem
-// restauram credencial/eventos a partir de um cache potencialmente antigo.
 function normalizePatch(input) {
   const raw = input || {};
   const patch = {};
@@ -271,8 +268,6 @@ async function save(accountId, input, options) {
       ...(input || {}),
       slug: requestedSlug,
       acc: accountId,
-      // Configurações criadas pelo produto atual têm intenção explícita de
-      // roteamento, inclusive quando a lista de checkouts está vazia.
       gatewayBindingMode: input && input.gatewayBindingMode === 'legacy' ? 'legacy' : 'explicit',
       updatedAt: revision,
     });
@@ -347,8 +342,6 @@ async function save(accountId, input, options) {
     }
   }
 
-  // O Neon é a fonte primária. Em dev sem Neon, o Redis pode ser a única
-  // camada durável. O espelho só recebe a versão já vencedora.
   if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, requestedSlug, committed);
   if (!db.enabled && ((redis.enabled && !redisOk) || (!redis.enabled && process.env.NODE_ENV === 'production'))) {
     throw mutationError('pixel_save_not_durable', 'Armazenamento indisponível. O Pixel não foi alterado.', 503,
@@ -404,9 +397,6 @@ async function remove(accountId, slug, options) {
       'Atualize a lista e confira a versão atual antes de excluir.', existing.updatedAt);
   }
 
-  // Mantém a política atual: o espelho é removido primeiro e restaurado se o
-  // commit primário não puder ser confirmado. A mudança desta leva é o CAS no
-  // delete do Neon, para uma revisão antiga nunca remover uma configuração nova.
   if (redis.enabled && !(await redis.deletePixelSnapshot(accountId, slug))) {
     throw mutationError('pixel_delete_not_durable',
       'Não foi possível confirmar a remoção no armazenamento durável: Redis.', 503,

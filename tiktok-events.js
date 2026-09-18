@@ -233,14 +233,45 @@ const RETRY_MAX_AGE_MS = 24 * 3600e3;
 const RETRY_QUEUE_CAP = 300;
 let retryQueue = [];
 let retryLoaded = false;
+let retryLoadPromise = null;
 
 function persistRetryQueue() { rdb.saveCapiRetryQueue(retryQueue).catch(() => {}); }
 
+function retryItemKey(item) {
+  const row = item || {};
+  return [row.token || '', row.acc || '', row.slug || '', row.eventId || ''].join('|');
+}
+
+function mergeRetryItems(saved, current) {
+  const byKey = new Map();
+  (Array.isArray(saved) ? saved : []).concat(Array.isArray(current) ? current : []).forEach((item) => {
+    if (!item) return;
+    const key = retryItemKey(item);
+    // Itens legados sem identidade suficiente continuam preservados, mas não
+    // podem colidir entre si por uma chave vazia.
+    byKey.set(key === '|||' ? 'legacy:' + byKey.size : key, item);
+  });
+  return Array.from(byKey.values()).slice(-RETRY_QUEUE_CAP);
+}
+
 async function ensureRetryLoaded() {
-  if (retryLoaded) return;
-  retryLoaded = true;
-  const saved = await rdb.loadCapiRetryQueue();
-  if (saved && saved.length) retryQueue = saved.concat(retryQueue).slice(0, RETRY_QUEUE_CAP);
+  if (retryLoaded) return true;
+  if (retryLoadPromise) return retryLoadPromise;
+  retryLoadPromise = (async () => {
+    const saved = await rdb.loadCapiRetryQueue();
+    // `null` significa leitura indisponível/falhou. Não marca como carregado:
+    // o próximo drain precisa tentar novamente em vez de esconder a fila até
+    // outro restart. `[]` é resposta válida e conclui a hidratação.
+    if (!Array.isArray(saved)) return false;
+    retryQueue = mergeRetryItems(saved, retryQueue);
+    retryLoaded = true;
+    return true;
+  })();
+  try {
+    return await retryLoadPromise;
+  } finally {
+    retryLoadPromise = null;
+  }
 }
 
 function queueRetry(pixel, p, eventId) {

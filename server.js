@@ -39,9 +39,13 @@ const fs = require('fs');
 const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
+const publicSlug = require('./public-slug');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
 const domainSecurity = require('./domain-security');
+const edgeDomainAuth = require('./edge-domain-auth');
+const protectedDomains = require('./protected-domains');
+const { customDomainLimit } = require('./domain-limits');
 const domainReconciler = require('./domain-reconciler');
 const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
@@ -63,6 +67,12 @@ const botRiskStore = require('./bot-risk-store');
 const { loginPage, registerPage } = require('./auth-view');
 const { buildOverviewHealth } = require('./overview-health');
 const { periodWindow, safeTimeZone } = require('./overview-window');
+const {
+  DEFAULT_WINDOW_DAYS,
+  normalizeHost,
+  resolveRuntimeCoverage,
+  installationVerdict,
+} = require('./pixel-runtime-coverage');
 
 // ── Resolução da conta para tráfego PÚBLICO (multi-tenant) ────────────────
 // Rotas públicas (/go, /t.js, /px.js, /l, /px.gif, /api/track) não têm sessão.
@@ -75,14 +85,49 @@ async function refreshDefaultAccount() {
   try { _defaultAccountId = await db.getFirstAccountId(); }
   catch (_) { _defaultAccountId = null; }
 }
+function trustedRequestHost(req) {
+  try { return edgeDomainAuth.resolveTrustedRequestHost(req).host || ''; }
+  catch (_) { return ''; }
+}
 function publicDomainOwner(req) {
   try {
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    return config.accountForDomain(host) || null;
+    const host = trustedRequestHost(req);
+    return host ? (config.accountForDomain(host) || null) : null;
   } catch (_) { return null; }
 }
 function publicAccountId(req) {
   return publicDomainOwner(req) || _defaultAccountId;
+}
+
+
+function publicSlugConflict(accountId, slug, ignore) {
+  const s = publicSlug.normalize(slug);
+  if (!s) return { type: 'invalid' };
+  const opts = ignore || {};
+  const link = linkStore.get(accountId, s);
+  if (link && link.slug !== opts.linkSlug) return { type: 'link', item: link };
+  const cloak = (config.get(accountId).cloakLinks || []).find((entry) => entry.slug === s);
+  if (cloak && cloak.slug !== opts.cloakSlug) return { type: 'cloak', item: cloak };
+  return null;
+}
+
+function generateAvailablePublicSlug(accountId) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const slug = publicSlug.generate();
+    if (!publicSlug.isReserved(slug) && !publicSlugConflict(accountId, slug)) return slug;
+  }
+  const err = new Error('Não foi possível gerar um endereço público disponível agora. Tente novamente.');
+  err.code = 'slug_generation_failed';
+  throw err;
+}
+
+
+function isCleanPublicSlugPath(pathname) {
+  const p = String(pathname || '');
+  if (!/^\/[^/]+$/.test(p)) return false;
+  const raw = p.slice(1);
+  const slug = publicSlug.normalize(raw);
+  return !!slug && !publicSlug.isReserved(slug);
 }
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -145,8 +190,7 @@ async function seenPixelEvent(eventId) {
 // (HTTPS), mas localhost precisa manter HTTP; caso contrário o painel copiava
 // tags https://localhost que nunca carregavam na loja de teste.
 function requestOrigin(req) {
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-    .split(',')[0].trim();
+  const host = trustedRequestHost(req) || String(req.headers.host || '').split(',')[0].trim();
   const forwarded = String(req.headers['x-forwarded-proto'] || '')
     .split(',')[0].trim().toLowerCase();
   const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::|$)/i.test(host);
@@ -337,7 +381,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   const p = req.path || '';
   const isPublicFunnel = isCustomDomain(req) ||
-    p.startsWith('/go/') || p.startsWith('/c/') || p.startsWith('/l/') ||
+    p.startsWith('/go/') || p.startsWith('/c/') || p.startsWith('/l/') || isCleanPublicSlugPath(p) ||
     p === '/px.gif' || p === '/px.js' || p === '/t.js' || /^\/px\//.test(p);
   if (!isPublicFunnel && !p.startsWith('/api')) {
     // Painel/landing: sem preview de DNS. Permite iframe no preview do AI Studio.
@@ -370,8 +414,7 @@ app.use('/api', (req, res, next) => {
   if (!origin) return next(); // same-origin server-side / sendBeacon sem Origin
   try {
     const originHost = new URL(origin).host.toLowerCase().replace(/:\d+$/, '');
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-      .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    const host = trustedRequestHost(req);
     if (originHost && host && originHost !== host) {
       return res.status(403).json({ error: 'origem não permitida' });
     }
@@ -407,21 +450,21 @@ const CUSTOM_ALLOW_PREFIX = ['/go/', '/c/', '/l/', '/hook/', '/assets/', '/uploa
 function allowedOnCustomDomain(p) {
   if (CUSTOM_ALLOW_EXACT.has(p)) return true;
   if (/^\/px\/[^/]+\.js$/.test(p)) return true;              // /px/:token.js
+  if (isCleanPublicSlugPath(p)) return true;                        // /:slug (V16.18)
   for (const pre of CUSTOM_ALLOW_PREFIX) if (p.startsWith(pre)) return true;
   return false;
 }
 // Hosts que NUNCA são tratados como personalizados (salvaguarda contra lockout
 // do painel caso o apex principal seja adicionado por engano a uma conta).
 const PRIMARY_HOSTS = new Set(
-  [process.env.PRIMARY_HOST, process.env.RAILWAY_PUBLIC_DOMAIN]
-    .filter(Boolean).map((h) => String(h).toLowerCase().replace(/:\d+$/, ''))
+  [process.env.PRIMARY_HOST, process.env.RAILWAY_PUBLIC_DOMAIN, process.env.RAILWAY_STATIC_URL]
+    .filter(Boolean).map((h) => protectedDomains.cleanHost(h))
 );
 function isCustomDomain(req) {
   try {
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-      .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
-    if (!host || PRIMARY_HOSTS.has(host)) return false;      // host principal
-    return !!config.accountForDomain(host);                  // achou conta dona → personalizado
+    const host = trustedRequestHost(req);
+    if (!host || PRIMARY_HOSTS.has(host) || protectedDomains.isProtectedSaasHost(host)) return false;
+    return !!config.accountForDomain(host);
   } catch (_) { return false; }
 }
 app.use((req, res, next) => {
@@ -436,7 +479,7 @@ app.use(async (req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
     if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/go/')
-        || p.startsWith('/c/') || p.startsWith('/__dev') || p === '/dashboard') return next();
+        || p.startsWith('/c/') || isCleanPublicSlugPath(p) || p.startsWith('/__dev') || p === '/dashboard') return next();
     const accept = req.headers.accept || '';
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
@@ -953,14 +996,23 @@ function linkErrorPage(res, status) {
 // do usuário (qualquer gateway). Este redirect é o ponto de rastreamento:
 // registra o clique, dispara InitiateCheckout na CAPI e repassa o leadId
 // para o checkout externo — a conversão volta pelo webhook universal.
-app.get('/go/:slug', async (req, res) => {
+function resolveCheckoutLink(req) {
+  const domainOwner = publicDomainOwner(req);
+  if (!domainOwner) return linkStore.resolve(req.params.slug, publicAccountId(req));
+  const link = linkStore.get(domainOwner, req.params.slug);
+  if (!link) return null;
+  const host = trustedRequestHost(req);
+  const domain = (config.get(domainOwner).customDomains || []).find((d) => d.host === host);
+  if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'cloaker') return null;
+  if (link.dominio && link.dominio !== host) return null;
+  return link;
+}
+
+async function handleCheckoutPublic(req, res) {
   // Em domínio personalizado o isolamento é estrito: um slug inexistente
   // nessa conta NUNCA pode cair em um link homônimo de outra conta. No host
   // compartilhado, sem domínio dono, mantemos a resolução global legada.
-  const domainOwner = publicDomainOwner(req);
-  const link = domainOwner
-    ? linkStore.get(domainOwner, req.params.slug)
-    : linkStore.resolve(req.params.slug, publicAccountId(req));
+  const link = resolveCheckoutLink(req);
   if (!link || !link.ativo || link.arquivado || !link.variantes.length) {
     return linkErrorPage(res, 404); // itens 500/501: página amigável; 531: arquivado = indisponível
   }
@@ -1201,7 +1253,9 @@ app.get('/go/:slug', async (req, res) => {
   const baseUrl = (dev.device !== 'desktop' && variant.urlMobile) ? variant.urlMobile : variant.url;
   const dest = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
   return res.redirect(302, dest);
-});
+}
+
+app.get('/go/:slug', handleCheckoutPublic);
 
 // ── Links de cloaking (/c/:slug) ───────────────────────────────��─────
 // Roteia tráfego normal → destino principal; bots/automação → destino seguro. Usa a config
@@ -1223,7 +1277,7 @@ function resolveCloakEntry(req) {
     const r = tryAcc(pref);
     if (domainOwner) {
       if (!r) return null;
-      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
+      const host = trustedRequestHost(req);
       const domain = (config.get(pref).customDomains || []).find((d) => d.host === host);
       if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
       if (r.entry.dominio && r.entry.dominio !== host) return null;
@@ -1236,7 +1290,7 @@ function resolveCloakEntry(req) {
   return null;
 }
 
-app.get('/c/:slug', async (req, res) => {
+async function handleCloakPublic(req, res) {
   const found = resolveCloakEntry(req);
   if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
   const { acc, entry } = found;
@@ -1456,7 +1510,9 @@ app.get('/c/:slug', async (req, res) => {
   // Encaminha o vid ao destino para o tracker da offer amarrar os sinais do
   // browser a ESTE visitante (habilita sticky/atribuição sem cookie de terceiros).
   return goWithVid(offer, cloakVid);
-});
+}
+
+app.get('/c/:slug', handleCloakPublic);
 
 // ── Encurtador rastreável (/l/:slug) ─────�����������������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
@@ -2593,12 +2649,31 @@ app.get('/api/links', dashboardAuth, (req, res) => {
 });
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
+  let reservedSlug = null;
   try {
     const body = Object.assign({}, req.body || {});
+    const createOnly = body._createOnly === true;
+    const originalSlug = publicSlug.normalize(body._originalSlug || body.slug || '');
+
+    if (createOnly && !body.slug) body.slug = generateAvailablePublicSlug(req.account.id);
+    if (body.slug) {
+      const checked = publicSlug.validate(body.slug);
+      const changingPublicAddress = createOnly || (originalSlug && checked.slug !== originalSlug);
+      if (!checked.ok && changingPublicAddress) {
+        return apiError(res, 422, checked.error, checked.code, 'Escolha outro endereço público.');
+      }
+      if (checked.ok) body.slug = checked.slug;
+      if (changingPublicAddress) {
+        const conflict = publicSlugConflict(req.account.id, body.slug, { linkSlug: originalSlug || null });
+        if (conflict) return apiError(res, 409, 'Este endereço público já está em uso.', 'public_slug_conflict', 'Escolha outro endereço para este link.');
+        if (!publicSlug.reserve(req.account.id, body.slug)) {
+          return apiError(res, 409, 'Este endereço está sendo reservado por outra operação.', 'public_slug_busy', 'Tente novamente ou escolha outro endereço.');
+        }
+        reservedSlug = body.slug;
+      }
+    }
+
     const accountDomains = config.get(req.account.id).customDomains || [];
-    // Se o frontend escolheu um domínio personalizado, ele precisa pertencer
-    // à conta e estar habilitado para checkout. Antes qualquer hostname podia
-    // ser salvo no link e a UI gerava uma URL pública que nunca funcionaria.
     if (Object.prototype.hasOwnProperty.call(body, 'dominio') && body.dominio) {
       const host = normHost(body.dominio);
       const domain = accountDomains.find((d) => d.host === host);
@@ -2613,22 +2688,18 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
       }
       body.dominio = host;
     }
-    // Um domínio já verificado na aba "Domínio personalizado" conta como
-    // validado para o link — sem precisar revalidar por link (era a origem do
-    // "Domínio não validado" apesar do domínio estar verificado).
-    accountDomains
-      .filter((d) => d.verificado)
-      .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
+    accountDomains.filter((d) => d.verificado).forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
     const saved = await linkStore.save(req.account.id, body);
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
-    audit(req, req.account.id, 'link_salvo', 'Link ' + saved.slug + ' (' + saved.nome + ')'); // item 417
+    audit(req, req.account.id, 'link_salvo', 'Link ' + saved.slug + ' (' + saved.nome + ')');
     res.json({ ok: true, link: saved });
   } catch (err) {
-    // Conflito = 409; falha de persistência = indisponibilidade temporária,
-    // nunca erro de formulário. Isso permite ao frontend orientar retry sem
-    // culpar dados válidos do usuário.
-    const status = err.code === 'conflict' ? 409 : err.code === 'persistence_failed' ? 503 : 400;
+    const status = err.code === 'conflict' ? 409
+      : String(err.code || '').startsWith('slug_') ? 422
+        : err.code === 'persistence_failed' ? 503 : 400;
     res.status(status).json({ error: err.message, code: err.code });
+  } finally {
+    if (reservedSlug) publicSlug.release(req.account.id, reservedSlug);
   }
 });
 
@@ -2667,11 +2738,14 @@ const dnsp = require('dns').promises;
 // Mantemos Railway como fallback para instalações antigas sem CLOUDFLARE_*.
 const railwayDomainProvider = require('./domain-provider');
 const cloudflareDomainProvider = require('./cloudflare-domain-provider');
+const domainOnboarding = require('./domain-onboarding');
 // Seleção DINÂMICA: o preflight do Cloudflare roda assíncrono no boot e pode
 // desabilitar o provider (token inválido / origem privada / origem offline).
 // Capturar o valor uma única vez no boot congelava a decisão errada.
 function activeDomainProvider() {
-  return cloudflareDomainProvider.enabled ? cloudflareDomainProvider : railwayDomainProvider;
+  // V16.20: novos domínios SEMPRE usam Cloudflare for SaaS. Uma falha/ausência
+  // de configuração bloqueia o cadastro; nunca cai silenciosamente no Railway.
+  return cloudflareDomainProvider;
 }
 function providerForDomainEntry(entry) {
   const tagged = String(entry && entry.provider || '').toLowerCase();
@@ -2682,15 +2756,32 @@ function providerForDomainEntry(entry) {
   if (entry && entry.providerId) return railwayDomainProvider;
   return activeDomainProvider();
 }
+function providerReadable(provider) {
+  if (!provider) return false;
+  if (provider.name === 'cloudflare') return provider.configured === true;
+  return provider.enabled === true;
+}
 // normHost/DOMAIN_RE extraídos para security-helpers.js (testáveis — item 60)
 const { normHost } = require('./security-helpers');
+function publicAppHost(req) {
+  const raw = String(
+    process.env.PUBLIC_APP_HOST
+    || process.env.RAILWAY_PUBLIC_DOMAIN
+    || process.env.RAILWAY_STATIC_URL
+    || req.headers['x-forwarded-host']
+    || req.headers.host
+    || ''
+  ).split(',')[0].trim();
+  const clean = raw.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '').replace(/\.$/, '').toLowerCase();
+  return normHost(clean) || '';
+}
 const APP_CHECK_ID = domainSecurity.APP_CHECK_ID;
 
 // Marcador público que prova que o tráfego do domínio chega NESTE app
 // (usado pela verificação; sem auth de propósito — não expõe nada).
 app.get('/__domain-check', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const rawHost = trustedRequestHost(req);
   const host = normHost(rawHost);
   const owner = host ? config.accountForDomain(host) : null;
   let proof = null;
@@ -2861,25 +2952,34 @@ app.post('/api/settings/webhook-test', dashboardAuth, async (req, res) => {
   }
 });
 
-app.get('/api/domains', dashboardAuth, (req, res) => {
+app.get('/api/domains', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const domainProvider = activeDomainProvider();
   const accountConfig = config.get(req.account.id);
+  let providerHealth = null;
+  try { providerHealth = await cloudflareDomainProvider.health(); }
+  catch (_) { providerHealth = { healthy: false, enabled: false, reason: 'offline' }; }
+  const autoProvision = !!(providerHealth && providerHealth.healthy);
   res.json({
     domains: accountConfig.customDomains || [],
     configUpdatedAt: accountConfig.updatedAt || null,
-    // Alvo amigável do CNAME. Com Cloudflare for SaaS, o alvo é o Managed CNAME
-    // target (CLOUDFLARE_CNAME_TARGET) — NUNCA a origem Railway, que serve o
-    // certificado errado. Sem Cloudflare, mantém o host principal legado.
-    appHost: cloudflareDomainProvider.enabled
-      ? cloudflareDomainProvider.cnameTarget()
-      : String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, ''),
-    // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
-    // precisa ser adicionado manualmente no painel da hospedagem — a UI avisa.
-    autoProvision: domainProvider.enabled,
-    domainProvider: domainProvider.enabled ? (domainProvider.name || 'hosting') : null,
-    // Modo degradado (sem CLOUDFLARE_CNAME_TARGET) — a UI mostra o aviso.
-    providerDegraded: cloudflareDomainProvider.enabled ? cloudflareDomainProvider.preflightState.degraded : false
+    // Alvo técnico mostrado apenas como registro DNS a copiar. Nunca é oferecido
+    // como URL pública do cliente.
+    appHost: cloudflareDomainProvider.cnameTarget() || null,
+    autoProvision,
+    domainProvider: autoProvision ? 'managed' : null,
+    providerDegraded: !!(cloudflareDomainProvider.configured && !autoProvision),
+    providerStatus: providerHealth ? {
+      configured: providerHealth.configured === true,
+      authenticated: providerHealth.authenticated === true,
+      saasAvailable: providerHealth.saasAvailable === true,
+      edgeReady: providerHealth.edgeReady === true,
+      fallbackReady: providerHealth.fallbackReady === true,
+      capacityAvailable: providerHealth.capacityAvailable !== false,
+      reason: providerHealth.reason || null,
+    } : null,
+    // V16.20: nunca sugerir CNAME direto para Railway quando a automação SaaS
+    // estiver indisponível. O usuário aguarda a infraestrutura voltar.
+    manualDnsAllowed: false,
   });
 });
 
@@ -2887,8 +2987,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   const body = req.body || {};
   const host = normHost(body.host);
   if (!host) return res.status(400).json({ error: 'domínio inválido (ex.: link.seudominio.com)' });
-  // domínio precisa ser único ENTRE TODAS as contas: ele identifica a conta
-  // dona do tráfego público (publicAccountId) — duas contas não podem tê-lo
+  if (protectedDomains.isProtectedSaasHost(host)) {
+    return apiError(res, 409, 'Este domínio é reservado para a infraestrutura do ROI-NADOS.', 'domain_reserved');
+  }
+
   const owner = config.accountForDomain(host);
   if (owner && owner !== req.account.id) return res.status(400).json({ error: 'domínio já cadastrado em outra conta' });
   const configSnapshot = config.get(req.account.id);
@@ -2897,11 +2999,22 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   }
   const cur = configSnapshot.customDomains || [];
   if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
-  if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
+  if (cur.length >= customDomainLimit()) return res.status(400).json({ error: 'limite de domínios da conta atingido' });
 
-  // Reserva atômica no banco ANTES de falar com o provider. A checagem em
-  // memória acima é rápida, mas duas contas em instâncias diferentes podem
-  // chegar juntas; a PK host + claim fecha essa corrida no armazenamento.
+  // Antes de reservar/criar, exige infraestrutura completa. Isso impede deploy
+  // parcial de criar hostnames que ainda não têm Worker/fallback prontos.
+  let health;
+  try { health = await cloudflareDomainProvider.health({ force: true }); }
+  catch (_) { health = { healthy: false, reason: 'offline' }; }
+  if (!health || !health.healthy) {
+    const reason = health && health.reason;
+    const code = reason === 'capacity' ? 'domain_capacity' : 'domain_service_unavailable';
+    const message = reason === 'capacity'
+      ? 'A capacidade de domínios está temporariamente indisponível.'
+      : 'A configuração automática de domínios ainda não está pronta. Tente novamente em instantes.';
+    return apiError(res, 503, message, code);
+  }
+
   let domainClaim = null;
   if (db.enabled) {
     domainClaim = await db.claimCustomDomain(req.account.id, host);
@@ -2913,81 +3026,89 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
     }
   }
 
-  // Registra o domínio na hospedagem (Railway) para ele ser roteado + ganhar
-  // SSL. Se o provider estiver em modo manual (sem token), segue o fluxo antigo:
-  // o lojista aponta o CNAME e adiciona o domínio na hospedagem na mão.
-  const domainProvider = activeDomainProvider();
-  let dnsRecords = null, providerId = null, providerNote = null, providerName = null, providerStatus = null;
-  if (domainProvider.enabled) {
-    try {
-      const reg = await domainProvider.register(host);
-      providerId = reg.providerId || null;
-      providerName = reg.provider || domainProvider.name || null;
-      dnsRecords = reg.dns || null;
-      providerStatus = reg.status || null;
-    } catch (e) {
-      // NENHUM erro da hospedagem bloqueia o cadastro: tudo degrada para modo
-      // manual (o lojista aponta o CNAME/adiciona o domínio depois). Assim que
-      // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
-      // genéricas — nunca expõem token nem detalhe interno da API.
-      // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
-      // só precisa saber que o provisionamento automático não completou agora
-      // e que a reconexão é automática.
-      const notes = {
-        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
-        duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
-        auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
-        offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
-      };
-      providerNote = notes[e.message] || 'domínio salvo — o provisionamento automático completa na próxima verificação';
-      stats.logEvent('warn', { acc: req.account.id, title: 'Domínio salvo em modo manual (' + e.message + '): ' + host });
-    }
+  const domainProvider = cloudflareDomainProvider;
+  let dnsRecords = null, providerId = null, providerNote = null, providerStatus = 'pending_dns';
+  let providerError = null;
+  try {
+    const reg = await domainProvider.register(host);
+    providerId = reg && reg.providerId || null;
+    dnsRecords = reg && reg.dns || { cname: { host, target: domainProvider.cnameTarget() } };
+    providerStatus = reg && reg.status || 'pending_dns';
+  } catch (e) {
+    providerError = String(e && e.message || 'failure');
+    // O claim local é preservado para permitir recuperação automática. Como o
+    // CNAME target é estável, a UI pode manter o domínio pendente sem expor
+    // Railway nem pedir ação no backend.
+    dnsRecords = { cname: { host, target: domainProvider.cnameTarget() } };
+    providerStatus = ['auth', 'capacity', 'saas_unavailable'].includes(providerError) ? 'error' : 'pending_dns';
+    providerNote = providerStatus === 'error'
+      ? 'A configuração automática precisa de atenção. O ROI-NADOS continuará acompanhando este domínio.'
+      : 'Não foi possível concluir a preparação agora. O ROI-NADOS tentará novamente automaticamente.';
   }
 
-  // Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos.
-  const usoRaw = String((req.body || {}).uso || 'ambos');
+  const usoRaw = String(body.uso || 'ambos');
   const uso = ['checkout', 'cloaker', 'ambos'].includes(usoRaw) ? usoRaw : 'ambos';
-  // status: 'pending_dns' | 'pending_ssl' | 'active' | 'error' — estado
-  // explícito do provisionamento (substitui o booleano cru na origem; o campo
-  // legado `verificado` continua espelhado para compatibilidade da UI antiga).
-  const entry = { host, uso, verificado: false, verificadoEm: null, status: providerStatus || 'pending_dns', lastCheckedAt: null, lastError: null, criadoEm: new Date().toISOString() };
+  const entry = {
+    host, uso, verificado: false, verificadoEm: null,
+    status: providerStatus, lastCheckedAt: null,
+    lastError: providerError ? ('provider: ' + providerError) : null,
+    criadoEm: new Date().toISOString(), provider: 'cloudflare', dns: dnsRecords,
+  };
   if (providerId) entry.providerId = providerId;
-  if (providerName) entry.provider = providerName;
   if (providerNote) entry.providerNote = providerNote;
-  // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
-  // deles a qualquer momento (não só na resposta do cadastro), para o lojista
-  // reabrir as instruções sem depender de acesso à hospedagem.
-  if (dnsRecords) entry.dns = dnsRecords;
+
   try {
     await config.setDurable(req.account.id, (latest) => {
       const currentDomains = Array.isArray(latest.customDomains) ? latest.customDomains : [];
       if (currentDomains.some((d) => d.host === host)) {
         const err = new Error('domínio já cadastrado'); err.status = 409; err.code = 'domain_conflict'; throw err;
       }
-      if (currentDomains.length >= 20) {
-        const err = new Error('limite de 20 domínios'); err.status = 409; err.code = 'domain_limit'; throw err;
+      if (currentDomains.length >= customDomainLimit()) {
+        const err = new Error('limite de domínios da conta atingido'); err.status = 409; err.code = 'domain_limit'; throw err;
       }
       return { customDomains: currentDomains.concat([entry]) };
     }, { expectedUpdatedAt: body._baseUpdatedAt || null });
   } catch (err) {
-    // Se o provider foi criado antes do commit local e a persistência falhou,
-    // remove o registro remoto para não deixar um domínio órfão consumindo cota.
-    if (providerId && domainProvider.enabled) {
-      try { await domainProvider.remove(providerId, host); } catch (_) {}
-    }
-    if (domainClaim && domainClaim.claimed) {
-      try { await db.deleteCustomDomain(req.account.id, host); } catch (_) {}
-    }
+    if (providerId) { try { await domainProvider.remove(providerId, host); } catch (_) {} }
+    if (domainClaim && domainClaim.claimed) { try { await db.deleteCustomDomain(req.account.id, host); } catch (_) {} }
     return configMutationError(res, err);
   }
+
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
-  // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
-  // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
-  // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
-  // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
-  // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
-  const managed = domainProvider.enabled && !!providerId;
-  res.json({ ok: true, host, dnsRecords, managed, mode: managed ? 'auto' : 'manual', providerNote });
+  res.json({
+    ok: true, host, dnsRecords,
+    managed: !!providerId,
+    mode: providerId ? 'auto' : 'pending',
+    providerNote,
+  });
+});
+
+// Guia de onboarding DNS. A detecção por NS serve SOMENTE para UX: não
+// concede ownership, não altera provider de infraestrutura e não muda o estado
+// do domínio. Se o provedor não puder ser identificado, devolvemos um tutorial
+// universal sem bloquear o fluxo.
+app.get('/api/domains/:host/guide', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = normHost(req.params.host);
+  if (!host) return apiError(res, 400, 'Domínio inválido.', 'domain_invalid');
+  const entry = (config.get(req.account.id).customDomains || []).find((domain) => domain.host === host);
+  if (!entry) return apiError(res, 404, 'Domínio não encontrado nesta conta.', 'domain_not_found');
+  try {
+    const guide = await domainOnboarding.detectDnsProvider(host, dnsp);
+    return res.json({
+      host,
+      provider: guide.provider,
+      providerLabel: guide.providerLabel,
+      confidence: guide.confidence,
+      zone: guide.zone,
+      nameservers: guide.nameservers,
+      apex: !!(guide.zone && guide.zone === host),
+      steps: guide.steps,
+    });
+  } catch (_) {
+    const fallback = domainOnboarding.providerFromNameservers([]);
+    return res.json({ host, ...fallback, zone: null, nameservers: [] });
+  }
 });
 
 app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
@@ -3014,7 +3135,7 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   // detecta o binding ausente e o re-adota automaticamente.
   const domainProvider = providerForDomainEntry(found);
   if (found.providerId) {
-    if (!domainProvider.enabled) {
+    if (!providerReadable(domainProvider)) {
       return apiError(res, 503, 'O provisionamento do domínio está temporariamente indisponível.', 'domain_provider_unavailable', 'Tente remover novamente em alguns instantes.', { retryable: true });
     }
     try {
@@ -3086,7 +3207,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   if (!registeredDomain) {
     return apiError(res, 404, 'Domínio não cadastrado nesta conta.', 'domain_not_found', 'Adicione o domínio nesta conta antes de verificar a conexão.');
   }
-  const appHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '');
+  const appHost = publicAppHost(req);
   const out = { host, appHost, dnsOk: false, dnsDetail: '', httpOk: false, httpDetail: '' };
 
   // 0. Auto-recuperação: se o domínio está em modo manual (sem providerId) e a
@@ -3095,7 +3216,10 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // verificação, mas o MOTIVO da falha não é mais silencioso (registroErro) —
   // antes um token inválido deixava o lojista preso em "reconexão automática"
   // que nunca acontecia, sem nenhuma pista.
-  const domainProvider = activeDomainProvider();
+  // Domínio já persistido continua no provider que o provisionou. Só domínios
+  // ainda sem vínculo usam o provider preferencial atual. Isso evita consultar
+  // ou migrar silenciosamente um domínio Railway pelo ID no Cloudflare (ou vice-versa).
+  const domainProvider = providerForDomainEntry(registeredDomain);
   let registroErro = null; // 'auth' | 'limite' | 'offline' | 'falha' | null
   if (domainProvider.enabled) {
     const cur0 = config.get(req.account.id).customDomains || [];
@@ -3122,7 +3246,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           out.dnsRecords = reg.dns || null;
         }
       } catch (e) {
-        registroErro = ['auth', 'limite', 'offline', 'duplicado'].includes(e.message) ? e.message : 'falha';
+        registroErro = ['auth', 'capacity', 'rate_limit', 'offline', 'saas_unavailable', 'duplicate'].includes(e.message) ? e.message : 'failure';
         stats.logEvent('warn', { acc: req.account.id, title: 'Re-registro do domínio falhou (' + registroErro + '): ' + host });
       }
     }
@@ -3137,13 +3261,15 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   const entry2 = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
   const providerTarget = (entry2 && entry2.dns && entry2.dns.cname && entry2.dns.cname.target)
     ? String(entry2.dns.cname.target).toLowerCase().replace(/\.$/, '') : '';
-  const targets = Array.from(new Set([appHost.toLowerCase(), providerTarget].filter(Boolean)));
+  const targets = domainProvider.name === 'cloudflare'
+    ? Array.from(new Set([providerTarget, cloudflareDomainProvider.cnameTarget()].filter(Boolean)))
+    : Array.from(new Set([appHost.toLowerCase(), providerTarget].filter(Boolean)));
 
   // 1a. Fonte de verdade da hospedagem: se o provedor já validou o DNS deste
   // domínio, ele está certo — mesmo que os resolvers daqui ainda não reflitam
   // (apex com CNAME flattening da Cloudflare "esconde" o CNAME; vira registro A).
   // Também sincroniza os registros do tutorial com o que a hospedagem exige hoje.
-  if (domainProvider.enabled && entry2 && entry2.providerId && (!entry2.provider || entry2.provider === domainProvider.name)) {
+  if (providerReadable(domainProvider) && entry2 && entry2.providerId && (!entry2.provider || entry2.provider === domainProvider.name)) {
   try {
       const st = await domainProvider.status(entry2.providerId, host);
       if (st) {
@@ -3160,7 +3286,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           status: nextStatus,
           sslStatus: st.sslStatus || st.certificateStatus || null,
           lastCheckedAt: new Date().toISOString(),
-          lastError: st.status === 'error' ? ((st.verificationErrors || []).concat(st.sslErrors || []).join('; ') || 'erro reportado pela Cloudflare') : null,
+          lastError: st.status === 'error' ? ((st.verificationErrors || []).concat(st.sslErrors || []).join('; ') || 'erro reportado pelo serviço de domínio') : null,
         };
         const needsDnsSync = st.dns && JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns);
         if (needsDnsSync || nextStatus !== prevStatus || statusPatch.lastError) {
@@ -3209,13 +3335,13 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           (dohA.length && targetIps.length && dohA.some((ip) => targetIps.includes(ip)));
         if (dohPointsHere) {
           out.dnsPropagating = true;
-          out.dnsDetail = 'registro já visível nos resolvers públicos (dns.google/cloudflare) apontando pra cá — propagação em curso; aguarde alguns minutos e verifique de novo';
+          out.dnsDetail = 'registro já visível nos resolvers públicos apontando pra cá — propagação em curso; o tempo varia conforme o provedor de DNS';
         } else if (dohCn.length || dohA.length) {
           out.dnsDetail = 'DNS aponta para outro destino (' + (dohCn[0] || dohA.join(', ')) + ') — corrija o registro para apontar para ' + (providerTarget || appHost);
         } else {
           out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
         }
-      } else if (hostIps.length && hostIps.some(isCloudflareIp) && !targetIps.some(isCloudflareIp)) {
+      } else if (domainProvider.name !== 'cloudflare' && hostIps.length && hostIps.some(isCloudflareIp) && !targetIps.some(isCloudflareIp)) {
         out.cloudflareProxy = true;
         out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — edite o registro na Cloudflare e mude para "Somente DNS" (nuvem cinza)';
       } else {
@@ -3240,26 +3366,26 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       if (out.cloudflareProxy) {
         out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
       } else if (gerenciado) {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL ainda está sendo concluída. Aguarde a atualização do serviço e verifique novamente.';
       } else if (!domainProvider.enabled) {
         // HONESTIDADE: sem automação configurada NÃO existe "reconexão
         // automática" — dizer isso deixava o lojista clicando em Verificar
         // para sempre. out.autoProvision=false permite à UI destacar o aviso.
         out.autoProvision = false;
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o registro automático de domínios está desligado neste servidor, então este domínio precisa ser ativado manualmente na hospedagem. Veja o aviso no topo desta aba para ligar o registro automático de vez.';
-        stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok mas registro automático DESLIGADO (exige ação manual na hospedagem): ' + host });
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está correto, mas a infraestrutura automática ainda não está pronta. Aguarde a ativação do serviço e tente novamente.';
+        stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando infraestrutura automática: ' + host });
       } else if (registroErro) {
         const motivos = {
-          auth: 'a autenticação com a hospedagem está falhando (token inválido ou expirado) — o administrador precisa gerar um novo token e atualizar a variável no servidor',
-          limite: 'o limite de domínios simultâneos da hospedagem foi atingido — remova um domínio não usado e clique em Verificar de novo',
-          duplicado: 'este domínio já está provisionado em outro projeto/conta da hospedagem — remova-o de lá primeiro',
-          offline: 'a hospedagem não respondeu agora — clique em Verificar de novo em instantes',
-          falha: 'a hospedagem recusou o registro agora — clique em Verificar de novo em instantes'
+          auth: 'a configuração automática precisa de atenção do sistema',
+          capacity: 'a capacidade de domínios está temporariamente indisponível',
+          rate_limit: 'o serviço está limitando tentativas agora; vamos tentar novamente',
+          offline: 'o serviço de domínios não respondeu agora; vamos tentar novamente',
+          failure: 'o provisionamento ainda não foi concluído'
         };
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o registro automático falhou: ' + (motivos[registroErro] || motivos.falha) + '.';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o registro automático falhou: ' + (motivos[registroErro] || motivos.failure) + '.';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (' + registroErro + '): ' + host });
       } else {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Aguarde a atualização automática e verifique novamente se quiser antecipar a checagem.';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
       }
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
@@ -3269,8 +3395,8 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       out.securityBlocked = true;
     } else {
       out.httpDetail = out.dnsOk
-        ? 'HTTPS ainda não responde — o certificado SSL deve estar sendo emitido. Aguarde alguns minutos e clique em Verificar de novo.'
-        : 'sem resposta HTTPS — confira se o registro DNS foi criado e aguarde a propagação (pode levar de minutos a algumas horas)';
+        ? 'HTTPS ainda não responde — o certificado SSL deve estar sendo emitido. O tempo varia conforme a validação; aguarde a atualização automática ou verifique novamente mais tarde.'
+        : 'sem resposta HTTPS — confira se o registro DNS foi criado e aguarde a propagação; o tempo varia conforme o seu provedor de DNS';
     }
   }
 
@@ -3278,7 +3404,8 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // responder no domínio. Só DNS apontado não basta — na Railway o host só é
   // servido depois de adicionado como Custom Domain; sem isso os /go dão 404
   // (era o falso "Verificado" que deixava os links quebrados).
-  out.ok = out.httpOk;
+  const providerActiveForVerify = domainProvider.name !== 'cloudflare' || out.providerStatus === 'active';
+  out.ok = !!(out.dnsOk && out.httpOk && providerActiveForVerify);
   out.verified = out.ok; // contrato explícito consumido pela dashboard
   out.dnsPronto = out.dnsOk && !out.httpOk; // DNS ok mas app ainda não atende
   {
@@ -3330,15 +3457,31 @@ app.get('/api/custom-domains/:host/diagnostics', dashboardAuth, async (req, res)
 
   const out = { host, checkedAt: new Date().toISOString() };
 
-  // 1. Provider (preflight + status Cloudflare do hostname)
+  // 1. Provider efetivo deste domínio. Diagnóstico é read-only e nunca troca
+  // provider nem cria binding: Railway continua Railway; Cloudflare continua
+  // Cloudflare. A UI recebe somente estados funcionais, sem credenciais.
+  const domainProvider = providerForDomainEntry(entry);
   try {
-    out.provider = await cloudflareDomainProvider.health();
-  } catch (e) { out.provider = { enabled: false, reason: e.message }; }
-  if (out.provider && out.provider.enabled) {
+    const health = typeof domainProvider.health === 'function'
+      ? await domainProvider.health()
+      : { enabled: !!domainProvider.enabled };
+    out.provider = Object.assign({ name: domainProvider.name || 'managed' }, health || {});
+  } catch (e) {
+    out.provider = { name: domainProvider.name || 'managed', enabled: false, reason: String(e && e.message || 'offline') };
+  }
+  if (providerReadable(domainProvider) && entry.providerId) {
     try {
-      const st = await cloudflareDomainProvider.status(entry.providerId || null, host);
-      out.cloudflare = st ? { status: st.status, sslStatus: st.sslStatus, verificationErrors: st.verificationErrors, sslErrors: st.sslErrors } : { status: 'not_found' };
-    } catch (e) { out.cloudflare = { error: e.message }; }
+      const st = await domainProvider.status(entry.providerId, host);
+      out.providerState = st ? {
+        status: st.status || null,
+        verified: st.verified === true,
+        sslStatus: st.sslStatus || st.certificateStatus || null,
+        verificationErrors: st.verificationErrors || [],
+        sslErrors: st.sslErrors || [],
+      } : { status: 'not_found' };
+      // Alias legado apenas para clientes antigos; a tela atual usa providerState.
+      if (domainProvider.name === 'cloudflare') out.cloudflare = out.providerState;
+    } catch (e) { out.providerState = { error: String(e && e.message || 'status_unavailable') }; }
   }
 
   // 2. DNS público
@@ -3368,9 +3511,10 @@ app.get('/api/custom-domains/:host/diagnostics', dashboardAuth, async (req, res)
   } catch (e) { out.http = { error: e.code || e.message, securityBlocked: e.code === 'unsafe_address' }; }
 
   // Veredito consolidado + causa mais provável (para o badge da UI)
-  out.healthy = !!(out.tls && out.tls.ok && out.http && out.http.servedByThisApp);
+  const providerStateHealthy = domainProvider.name !== 'cloudflare' || !!(out.providerState && out.providerState.status === 'active' && out.providerState.verified);
+  out.healthy = !!(providerStateHealthy && out.tls && out.tls.ok && out.http && out.http.servedByThisApp);
   if (!out.healthy) {
-    if (out.provider && !out.provider.enabled) out.likelyCause = 'provider: ' + (out.provider.detail || out.provider.reason || 'desativado');
+    if (out.provider && !out.provider.enabled) out.likelyCause = 'A configuração automática está temporariamente indisponível. Tente novamente em instantes.';
     else if (out.dns && !out.dns.resolves) out.likelyCause = 'DNS não resolve — crie o registro CNAME';
     else if (out.tls && !out.tls.ok) out.likelyCause = 'certificado TLS não cobre o domínio — emissão pendente ou CNAME apontando direto para a origem';
     else if (out.http && !out.http.servedByThisApp) out.likelyCause = 'HTTPS responde mas não é este app — roteamento pendente';
@@ -3756,12 +3900,8 @@ app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
 // própria configuração de proteção (interruptor, sensibilidade, camadas de
 // detecção) + offer/white page + allowlists de país e idioma. Guardados no
 // bloco cloakLinks da config da conta (durável no Neon + snapshot local).
-const _ckSlugify = (s) => String(s || '').toLowerCase().normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+const _ckSlugify = (s) => publicSlug.normalize(s);
 const _ckValidHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
-// Slug curto gerado para links públicos. A unicidade entre contas é validada
-// pelo índice global abaixo; o identificador não é tratado como segredo.
-const _ckRandSlug = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
 // Extrai só o hostname de um domínio digitado (aceita com ou sem https://)
 const _ckHost = (input) => {
   const s = String(input || '').trim(); if (!s) return '';
@@ -3770,11 +3910,13 @@ const _ckHost = (input) => {
 
 app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-  res.json({
-    entries: config.get(req.account.id).cloakLinks || [],
-    baseUrl: 'https://' + host
+  const host = trustedRequestHost(req);
+  const entries = (config.get(req.account.id).cloakLinks || []).map((item) => {
+    const clean = { ...item };
+    delete clean.createKeyHash;
+    return clean;
   });
+  res.json({ entries, baseUrl: 'https://' + host });
 });
 
 app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
@@ -3782,14 +3924,18 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
   const cur = config.get(req.account.id).cloakLinks || [];
   const baseUpdatedAt = b._baseUpdatedAt ? String(b._baseUpdatedAt) : '';
   const createKey = String(b._createKey || '').trim().slice(0, 120);
-
-  // Edição funciona como MERGE-PATCH. A UI usa este mesmo endpoint para o
-  // switch ligado/desligado e para ações em massa, então exigir offerUrl em
-  // toda chamada fazia esses controles falharem com 400 embora parecessem
-  // toggles simples no frontend.
+  const createKeyHash = createKey ? crypto.createHash('sha256').update(req.account.id + '|' + createKey).digest('hex').slice(0, 24) : '';
+  const createOnly = b._createOnly === true;
   const requestedSlug = b.slug ? _ckSlugify(b.slug) : '';
-  const existing = requestedSlug ? cur.find((l) => l.slug === requestedSlug) : null;
-  if (requestedSlug && !existing) {
+  const originalSlug = _ckSlugify(b._originalSlug || requestedSlug);
+  const existing = originalSlug ? cur.find((l) => l.slug === originalSlug) : null;
+
+  if (createOnly && existing && createKeyHash && existing.createKeyHash === createKeyHash) {
+    const replay = { ...existing };
+    delete replay.createKeyHash;
+    return res.json({ ok: true, entry: replay, replayed: true });
+  }
+  if (!createOnly && requestedSlug && !existing) {
     return res.status(404).json({ error: 'link de cloaking não encontrado — atualize a lista e tente novamente' });
   }
   if (existing && baseUpdatedAt && existing.updatedAt && existing.updatedAt !== baseUpdatedAt) {
@@ -3804,23 +3950,30 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
   if (!existing && !nome) return res.status(400).json({ error: 'dê um nome ao link' });
   if (!_ckValidHttps(offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
 
-  // Criação: o cliente manda uma chave estável por tentativa. Dela derivamos
-  // um slug aleatório-looking e determinístico: se a resposta se perder e o
-  // mesmo formulário for reenviado, devolvemos a entidade já criada em vez de
-  // gerar um segundo link. Clientes antigos continuam no slug aleatório.
   let slug = requestedSlug;
   if (!slug && createKey) {
     slug = crypto.createHash('sha256').update(req.account.id + '|' + createKey).digest('hex').slice(0, 16);
     const replay = cur.find((l) => l.slug === slug);
     if (replay) return res.json({ ok: true, entry: replay, replayed: true });
   }
-  if (!slug) {
-    do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug) || config.accountForCloakSlug(slug));
-  } else if (!existing) {
-    const slugOwner = config.accountForCloakSlug(slug);
-    if (slugOwner && slugOwner !== req.account.id) {
-      return apiError(res, 409, 'Não foi possível reservar este identificador público.', 'cloak_slug_conflict', 'Tente criar o link novamente.');
-    }
+  if (!slug) slug = generateAvailablePublicSlug(req.account.id);
+
+  const checked = publicSlug.validate(slug);
+  const changingPublicAddress = createOnly || !existing || (existing && checked.slug !== existing.slug);
+  if (!checked.ok && changingPublicAddress) {
+    return apiError(res, 422, checked.error, checked.code, 'Escolha outro endereço público.');
+  }
+  if (checked.ok) slug = checked.slug;
+
+  if (createOnly && cur.some((l) => l.slug === slug)) {
+    return apiError(res, 409, 'Este endereço público já está em uso.', 'public_slug_conflict', 'Escolha outro endereço para este link.');
+  }
+  if (existing && slug !== existing.slug && cur.some((l) => l.slug === slug)) {
+    return apiError(res, 409, 'Este endereço público já está em uso.', 'public_slug_conflict', 'Escolha outro endereço para este link.');
+  }
+  if (changingPublicAddress) {
+    const conflict = publicSlugConflict(req.account.id, slug, { cloakSlug: existing ? existing.slug : null });
+    if (conflict) return apiError(res, 409, 'Este endereço público já está em uso.', 'public_slug_conflict', 'Escolha outro endereço para este link.');
   }
 
   const validSensitivity = ['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)
@@ -3850,18 +4003,14 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
   const entry = Object.assign({}, existing || {}, {
     slug,
     nome: nome || slug,
-    // Domínio personalizado (opcional): campo AUSENTE preserva o atual;
-    // string vazia remove o domínio customizado de forma explícita.
     dominio: requestedDomain,
     offerUrl,
     whitePageUrl: b.whitePageUrl !== undefined
       ? (_ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '')
       : (existing ? existing.whitePageUrl || '' : ''),
     enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled !== false : true),
-    // Novos links começam com segmentações de campanha desligadas: a proteção
-    // padrão é genérica (automação/bots), não dependente de plataforma.
     mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : false),
-    requireAdClick: false, // legado desativado: origem de campanha não participa da proteção
+    requireAdClick: false,
     sensitivity: validSensitivity,
     threshold: nextThreshold,
     deadlineMs: nextDeadline,
@@ -3869,6 +4018,7 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
     paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises || [] : []),
     idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas || [] : []),
     criadoEm: existing ? existing.criadoEm : new Date().toISOString(),
+    createKeyHash: existing ? existing.createKeyHash || '' : createKeyHash,
     updatedAt: new Date().toISOString()
   });
   ['shadowMode', 'blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
@@ -3877,16 +4027,26 @@ app.post('/api/cloak/entries', dashboardAuth, async (req, res) => {
     if (typeof b[k] === 'boolean') entry[k] = b[k];
   });
 
-  const nextList = existing ? cur.map((l) => (l.slug === slug ? entry : l)) : cur.concat([entry]);
-  let savedCfg;
-  try {
-    savedCfg = await config.setDurable(req.account.id, { cloakLinks: nextList });
-  } catch (err) {
-    return configMutationError(res, err);
+  const needsReservation = changingPublicAddress;
+  if (needsReservation && !publicSlug.reserve(req.account.id, slug)) {
+    return apiError(res, 409, 'Este endereço está sendo reservado por outra operação.', 'public_slug_busy', 'Tente novamente ou escolha outro endereço.');
   }
-  const saved = (savedCfg.cloakLinks || []).find((l) => l.slug === slug);
-  stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking salvo: ' + saved.nome, ref: saved.slug });
-  res.json({ ok: true, entry: saved, configUpdatedAt: savedCfg.updatedAt || null });
+  try {
+    const nextList = existing ? cur.map((l) => (l.slug === existing.slug ? entry : l)) : cur.concat([entry]);
+    let savedCfg;
+    try {
+      savedCfg = await config.setDurable(req.account.id, { cloakLinks: nextList });
+    } catch (err) {
+      return configMutationError(res, err);
+    }
+    const saved = (savedCfg.cloakLinks || []).find((l) => l.slug === slug);
+    stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking salvo: ' + saved.nome, ref: saved.slug });
+    const responseEntry = { ...saved };
+    delete responseEntry.createKeyHash;
+    res.json({ ok: true, entry: responseEntry, configUpdatedAt: savedCfg.updatedAt || null });
+  } finally {
+    if (needsReservation) publicSlug.release(req.account.id, slug);
+  }
 });
 
 app.delete('/api/cloak/entries/:slug', dashboardAuth, async (req, res) => {
@@ -4954,7 +5114,7 @@ app.post('/hook/:token', checkoutCurrencyMiddleware, async (req, res) => {
 // ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════
 app.get('/api/gateways', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const host = trustedRequestHost(req);
   const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
   res.json({
     providers: Object.keys(gatewayStore.PROVIDERS).map((k) => ({
@@ -4996,7 +5156,7 @@ app.post('/api/gateways', dashboardAuth, async (req, res) => {
 
     const saved = await gatewayStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Gateway salvo: ' + saved.name + ' (' + saved.provider + ')' });
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const host = trustedRequestHost(req);
     const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
     res.json({
       ok: true,
@@ -5051,7 +5211,7 @@ app.post('/api/gateways/:id/rotate', dashboardAuth, async (req, res) => {
     const g = await gatewayStore.rotateToken(req.account.id, String(req.params.id || ''));
     if (!g) return res.status(404).json({ error: 'gateway não encontrado' });
     stats.logEvent('warn', { acc: req.account.id, title: 'Webhook do gateway rotacionado: ' + g.name });
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const host = trustedRequestHost(req);
     const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
     res.json({ ok: true, webhookUrl: proto + '://' + host + '/hook/' + g.webhookToken });
   } catch (err) {
@@ -5767,11 +5927,34 @@ async function buscarPaginaSegura(rawUrl) {
   return { error: 'a página redirecionou demais' };
 }
 
+async function readPixelRuntimeEvidence(accountId, options = {}) {
+  let durable = { ok: false, data: [], error: 'runtime_reader_unavailable' };
+  if (db && typeof db.readPixelRuntimeCoverage === 'function') {
+    durable = await db.readPixelRuntimeCoverage(accountId, {
+      windowDays: DEFAULT_WINDOW_DAYS,
+      pixelSlug: options.pixelSlug || null,
+      host: options.host || null,
+    });
+  }
+  if (durable && durable.ok) return resolveRuntimeCoverage(durable, [], options);
+  const hotLeads = (stats.getStats(accountId).leads || []);
+  return resolveRuntimeCoverage(durable, hotLeads, options);
+}
+
+function runtimeRowMap(rows) {
+  const out = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!row || !row.pixelSlug || !row.host) return;
+    out.set(JSON.stringify([String(row.pixelSlug), normalizeHost(row.host)]), row);
+  });
+  return out;
+}
+
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
   try {
     // Item 5/9: rate-limit dedicado — verify-url faz fetch externo, então
     // limitamos a 10 verificações por janela por conta (evita abuso de SSRF-scan
-    // e proteje nossa saída de rede). 429 com mensagem pt-BR clara.
+    // e protege nossa saída de rede). 429 com mensagem pt-BR clara.
     if (rateLimited('verify-url|' + req.account.id, 'verifyurl', 10)) {
       return res.status(429).json({ ok: false, error: 'Muitas verificações seguidas. Aguarde um minuto e tente de novo.' });
     }
@@ -5780,114 +5963,130 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     const html = page.html || '';
     const pixels = pixelStore.list(req.account.id);
     let targetHost = null;
-    try { targetHost = new URL(page.finalUrl).hostname.toLowerCase().replace(/^www\./, ''); } catch (_) {}
-    // Verificação estática não enxerga tags injetadas por GTM, Next/React ou
-    // consent manager. Cruzamos o HTML com visitas realmente recebidas desse
-    // host para confirmar execução — evidência mais forte que achar texto.
-    const leads = (stats.getStats(req.account.id).leads || []);
-    function runtimeFor(pixelSlug) {
-      let lastSeenAt = null;
-      let visits = 0;
-      leads.forEach((lead) => {
-        if (!lead || lead.pixelSlug !== pixelSlug) return;
-        const sites = Array.isArray(lead.sites) && lead.sites.length
-          ? lead.sites
-          : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
-        sites.forEach((row) => {
-          const host = String(row && row.host || '').toLowerCase().replace(/^www\./, '');
-          if (!targetHost || host !== targetHost) return;
-          visits += Math.max(1, Number(row.hits) || 1);
-          const at = row.lastAt || lead.lastSeen || lead.at;
-          if (at && (!lastSeenAt || Date.parse(at) > Date.parse(lastSeenAt))) lastSeenAt = at;
-        });
-      });
-      return { runtimeSeen: visits > 0, lastSeenAt, visits };
-    }
-    // Para cada pixel da conta: o script tag (/px/<token>.js) está na página?
-    // E o pixel code do TikTok (instalação nativa ttq) aparece?
+    try { targetHost = normalizeHost(new URL(page.finalUrl).hostname); } catch (_) {}
+
+    // A inspeção estática não enxerga GTM/SPA/consent managers. A evidência
+    // principal de execução vem do Neon; o cache quente só entra quando a
+    // leitura durável falha e, nesse caso, nunca autoriza uma conclusão negativa.
+    const runtime = await readPixelRuntimeEvidence(req.account.id, { host: targetHost });
+    const runtimeByPixelHost = runtimeRowMap(runtime.data);
+
     const found = pixels.map((p) => {
       const scriptOk = !!(p.token && html.indexOf('/px/' + p.token + '.js') !== -1);
       const nativeOk = scriptOk || !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
       const trackerScoped = scriptOk || !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
         || html.indexOf('/t.js?px%3D' + p.token) !== -1));
-      const runtime = runtimeFor(p.slug);
+      const runtimeRow = targetHost
+        ? runtimeByPixelHost.get(JSON.stringify([String(p.slug), targetHost])) || null
+        : null;
+      const verdict = installationVerdict(scriptOk || nativeOk, runtimeRow, runtime.runtimeCoverageComplete);
       return {
-        slug: p.slug, name: p.name, scriptOk, nativeOk, trackerScoped,
-        runtimeSeen: runtime.runtimeSeen,
-        lastSeenAt: runtime.lastSeenAt,
-        runtimeVisits: runtime.visits,
-        // "instalado" agora significa integração completa e isolada. Encontrar
-        // só o código nativo não garante jornada/CAPI nem separação multi-pixel.
-        // Execução real confirma também tags dinâmicas que não aparecem no HTML.
-        instalado: (scriptOk && trackerScoped) || runtime.runtimeSeen
+        slug: p.slug,
+        name: p.name,
+        scriptOk,
+        nativeOk,
+        trackerScoped,
+        runtimeSeen: verdict.runtimeState === 'seen',
+        runtimeState: verdict.runtimeState,
+        lastSeenAt: runtimeRow ? runtimeRow.lastSeenAt : null,
+        runtimeVisits: runtimeRow ? Number(runtimeRow.visits) || 0 : 0,
+        runtimeSource: runtime.runtimeSource,
+        runtimeCoverageComplete: runtime.runtimeCoverageComplete,
+        // null = inconclusivo. Não chamar de "não instalado" quando Neon
+        // falhou e o cache volátil também não tem evidência suficiente.
+        instalado: verdict.installed,
       };
     });
-    const algum = found.some((f) => f.instalado);
-    // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
-    // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
-    // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
+
+    const anyInstalled = found.some((f) => f.instalado === true);
+    const algum = anyInstalled ? true : (runtime.runtimeCoverageComplete ? false : null);
     const trackerStaticOk = html.indexOf('/t.js') !== -1 || found.some((f) => f.scriptOk);
     const runtimeSeen = found.some((f) => f.runtimeSeen);
-    const trackerOk = trackerStaticOk || runtimeSeen;
+    const trackerOk = trackerStaticOk || runtimeSeen
+      ? true
+      : (runtime.runtimeCoverageComplete ? false : null);
     const legacyTracker = trackerStaticOk && !found.some((f) => f.trackerScoped);
+    const runtimeState = runtimeSeen ? 'seen' : (runtime.runtimeCoverageComplete ? 'not_seen' : 'unknown');
+    const verdictText = algum === true ? 'instalado' : (algum === false ? 'NÃO encontrado' : 'inconclusivo');
     stats.logEvent('info', {
       acc: req.account.id,
-      title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + (trackerOk ? '' : ' (sem rastreamento /t.js)') + ' em ' + page.finalUrl
+      title: 'Verificação de pixel por URL: ' + verdictText + (trackerOk === false ? ' (sem rastreamento /t.js)' : '') + ' em ' + page.finalUrl
     });
-    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, trackerStaticOk, runtimeSeen, legacyTracker, pixels: found });
+    res.json({
+      ok: true,
+      url: page.finalUrl,
+      algumInstalado: algum,
+      trackerOk,
+      trackerStaticOk,
+      runtimeSeen,
+      runtimeState,
+      runtimeSource: runtime.runtimeSource,
+      runtimeCoverageComplete: runtime.runtimeCoverageComplete,
+      legacyTracker,
+      pixels: found,
+    });
   } catch (err) {
     res.status(500).json({ error: 'falha na verificação' });
   }
 });
 
-// Log de disparos CAPI (memória rápida + histórico do banco, por conta)
-app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
-  const rows = await ttEvents.recentLogAsync(100, req.account.id);
-  if (rows.length) return res.json({ log: rows, source: 'redis' });
-  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
-  const dbRows = await db.loadPixelEvents(req.account.id, 100);
-  res.json({ log: (dbRows || []).map((r) => ({
-    id: r.id, at: r.at, pixel: r.pixel, event: r.event,
-    eventId: r.event_id, leadId: r.lead_id, status: r.status,
+function mapDurablePixelEvent(r) {
+  return {
+    id: r.id,
+    at: r.at,
+    pixel: r.pixel,
+    event: r.event,
+    eventId: r.event_id,
+    leadId: r.lead_id,
+    status: r.status,
     emq: r.emq == null ? null : Number(r.emq),
     emqFields: Array.isArray(r.emq_fields) ? r.emq_fields : [],
-    response: r.response
-  })), source: 'neon' });
+    response: r.response,
+  };
+}
+
+function mergePixelEventRows(volatileRows, dbRows, limit) {
+  const durableRows = (Array.isArray(dbRows) ? dbRows : []).map(mapDurablePixelEvent);
+  const byId = new Map();
+  durableRows.concat(Array.isArray(volatileRows) ? volatileRows : []).forEach((row) => {
+    if (!row) return;
+    const key = row.id || [row.pixel, row.event, row.eventId, row.at].join(':');
+    byId.set(key, row);
+  });
+  const rows = Array.from(byId.values())
+    .sort((a, b) => {
+      const aAt = Date.parse(a.at || '');
+      const bAt = Date.parse(b.at || '');
+      return (Number.isFinite(bAt) ? bAt : 0) - (Number.isFinite(aAt) ? aAt : 0);
+    })
+    .slice(0, limit || 100);
+  return { rows, durableRows };
+}
+
+// Log de disparos CAPI. Memória/Redis dão baixa latência; Neon mantém a
+// continuidade do histórico após restart. Mesclamos sempre as duas fontes para
+// que um único evento novo não esconda dezenas de eventos duráveis anteriores.
+app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const volatileRows = await ttEvents.recentLogAsync(100, req.account.id).catch(() => []);
+  const dbRows = await db.loadPixelEvents(req.account.id, 100).catch(() => null);
+  const merged = mergePixelEventRows(volatileRows, dbRows, 100);
+  res.json({ log: merged.rows, source: volatileRows.length ? 'redis' : 'neon' });
 });
 
 // Saúde da CAPI: taxa de sucesso, EMQ médio por evento, últimos erros e o
 // tamanho da fila de retry ��� visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const volatileRows = await ttEvents.recentLogAsync(200, req.account.id);
+  const volatileRows = await ttEvents.recentLogAsync(200, req.account.id).catch(() => []);
   // O buffer rápido só contém o processo atual. Mesclamos sempre o Neon para
   // que um único evento novo não esconda o restante das últimas 24 horas.
-  const dbRows = await db.loadPixelEvents(req.account.id, 200);
-  const durableRows = (dbRows || []).map((r) => ({
-      id: r.id,
-      at: r.at,
-      pixel: r.pixel,
-      event: r.event,
-      eventId: r.event_id,
-      leadId: r.lead_id,
-      status: r.status,
-      emq: r.emq == null ? null : Number(r.emq),
-      emqFields: Array.isArray(r.emq_fields) ? r.emq_fields : [],
-      response: r.response
-    }));
-  const byId = new Map();
-  durableRows.concat(volatileRows).forEach((r) => {
-    const key = r.id || [r.pixel, r.event, r.eventId, r.at].join(':');
-    byId.set(key, r);
-  });
-  const recent = Array.from(byId.values())
-    .sort((a, b) => Date.parse(b.at || '') - Date.parse(a.at || ''))
-    .slice(0, 200);
-  const source = durableRows.length && volatileRows.length
+  const dbRows = await db.loadPixelEvents(req.account.id, 200).catch(() => null);
+  const mergedEvents = mergePixelEventRows(volatileRows, dbRows, 200);
+  const recent = mergedEvents.rows;
+  const source = mergedEvents.durableRows.length && volatileRows.length
     ? 'memory+neon'
-    : (durableRows.length ? 'neon' : 'memory');
+    : (mergedEvents.durableRows.length ? 'neon' : 'memory');
   const cutoff = Date.now() - 24 * 3600e3;
   const rows = recent.filter((r) => {
     const at = Date.parse(r.at || '');
@@ -5915,30 +6114,31 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     at: r.at, pixel: r.pixel, event: r.event,
     message: (r.response && (r.response.message || ('code ' + r.response.code))) || 'erro'
   }));
-  // Cobertura por pixel: mostra onde o tracker executou de verdade, quando o
-  // navegador foi visto e quando a CAPI respondeu. Usa o histórico de leads
-  // (durável no Neon) para continuar útil após restart e para instalações via
-  // GTM/SPA que não aparecem numa inspeção estática do HTML.
-  const accountLeads = (stats.getStats(req.account.id).leads || []);
+  // Cobertura Browser: Neon é a verdade durável. Em falha de banco, o cache
+  // quente continua útil como evidência positiva, mas nunca como prova de que
+  // o Pixel NÃO está instalado.
+  const runtimeCoverage = await readPixelRuntimeEvidence(req.account.id);
+  const runtimeByPixel = new Map();
+  (runtimeCoverage.data || []).forEach((row) => {
+    if (!row || !row.pixelSlug) return;
+    const list = runtimeByPixel.get(row.pixelSlug) || [];
+    list.push(row);
+    runtimeByPixel.set(row.pixelSlug, list);
+  });
   const coverage = pixelStore.list(req.account.id).map((pixel) => {
-    const domains = new Map();
-    let lastBrowserAt = null;
-    accountLeads.forEach((lead) => {
-      if (!lead || lead.pixelSlug !== pixel.slug) return;
-      const sites = Array.isArray(lead.sites) && lead.sites.length
-        ? lead.sites
-        : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
-      sites.forEach((site) => {
-        const host = String(site && site.host || '').toLowerCase().replace(/^www\./, '').slice(0, 100);
-        if (!host) return;
-        const at = site.lastAt || lead.lastSeen || lead.at || null;
-        const current = domains.get(host) || { host, visits: 0, lastAt: null };
-        current.visits += Math.max(1, Number(site.hits) || 1);
-        if (at && (!current.lastAt || Date.parse(at) > Date.parse(current.lastAt))) current.lastAt = at;
-        domains.set(host, current);
-        if (at && (!lastBrowserAt || Date.parse(at) > Date.parse(lastBrowserAt))) lastBrowserAt = at;
-      });
-    });
+    const browserRows = runtimeByPixel.get(pixel.slug) || [];
+    const domains = browserRows
+      .map((row) => ({
+        host: row.host,
+        visits: Math.max(1, Number(row.visits) || 1),
+        lastAt: row.lastSeenAt || null,
+      }))
+      .sort((a, b) => Date.parse(b.lastAt || '') - Date.parse(a.lastAt || ''))
+      .slice(0, 6);
+    const lastBrowserAt = browserRows
+      .map((row) => row.lastSeenAt)
+      .filter(Boolean)
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
     const pixelRows = rows.filter((row) => row.pixel === pixel.slug || row.pixel === pixel.name || row.pixel === pixel.pixelCode);
     const latest = pixelRows[0] || null;
     const successful = pixelRows.filter((row) => row.status === 'ok');
@@ -5949,22 +6149,32 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
       signals[key] = successful.length ? Math.round((hits / successful.length) * 100) : null;
     });
     const recommendations = [];
-    if (!lastBrowserAt) recommendations.push('Instale o bloco em todas as páginas e faça uma visita real.');
+    if (!lastBrowserAt && runtimeCoverage.runtimeCoverageComplete) {
+      recommendations.push('Instale o bloco em todas as páginas e faça uma visita real.');
+    } else if (!lastBrowserAt) {
+      recommendations.push('O histórico durável está indisponível agora; não foi possível confirmar nem descartar execução do navegador.');
+    }
     if (lastBrowserAt && !latest) recommendations.push('O navegador chegou, mas ainda não há resposta da CAPI; confira o Access Token.');
     if (latest && latest.status !== 'ok') recommendations.push('O último disparo falhou; abra o log para ver a resposta do TikTok.');
     if (successful.length && (signals.ttclid || 0) < 20) recommendations.push('Poucos eventos têm ttclid; preserve a query entre landing, checkout e upsell.');
     if (successful.length && (signals.email || 0) + (signals.phone || 0) < 20) recommendations.push('Advanced Matching baixo; identifique e-mail ou telefone com consentimento.');
+    let status;
+    if (!pixel.active) status = 'pausado';
+    else if (latest && latest.status !== 'ok') status = 'atencao';
+    else if (lastBrowserAt && latest) status = 'saudavel';
+    else if (!lastBrowserAt && !runtimeCoverage.runtimeCoverageComplete) status = 'indisponivel';
+    else status = 'sem_dados';
     return {
       slug: pixel.slug,
       name: pixel.name,
       active: pixel.active,
-      status: !pixel.active ? 'pausado' : latest && latest.status !== 'ok' ? 'atencao' : (lastBrowserAt && latest ? 'saudavel' : 'sem_dados'),
+      status,
       lastBrowserAt,
+      runtimeSource: runtimeCoverage.runtimeSource,
+      runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
       lastCapiAt: latest ? latest.at : null,
       lastCapiStatus: latest ? latest.status : null,
-      domains: Array.from(domains.values())
-        .sort((a, b) => Date.parse(b.lastAt || '') - Date.parse(a.lastAt || ''))
-        .slice(0, 6),
+      domains,
       signals,
       recommendations: recommendations.slice(0, 3)
     };
@@ -5974,6 +6184,8 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     rate: total ? Math.round((ok / total) * 100) : null,
     emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
     events, errors, source, coverage,
+    runtimeSource: runtimeCoverage.runtimeSource,
+    runtimeCoverageComplete: runtimeCoverage.runtimeCoverageComplete,
     retryQueue: ttEvents.retryQueueSize()
   });
 });
@@ -6203,6 +6415,24 @@ app.get('/privacidade', (req, res) => {
 app.get('/termos', (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(termsPage);
+});
+
+
+// ── URLs públicas limpas (V16.18) ─────────────────────────────────────────
+// Compatibilidade: /go/:slug e /c/:slug continuam registradas acima. Esta rota
+// fica no fim das superfícies públicas específicas para nunca capturar APIs,
+// dashboard, assets ou páginas institucionais. Link e Cloaker compartilham o
+// namespace: colisões legadas são fail-closed em vez de escolher um destino.
+app.get('/:slug', async (req, res, next) => {
+  const cleanSlug = publicSlug.normalize(req.params.slug);
+  if (!cleanSlug || publicSlug.isReserved(cleanSlug)) return next();
+  req.params.slug = cleanSlug;
+  const link = resolveCheckoutLink(req);
+  const cloak = resolveCloakEntry(req);
+  if (link && cloak) return linkErrorPage(res, 404);
+  if (link) return handleCheckoutPublic(req, res);
+  if (cloak) return handleCloakPublic(req, res);
+  return linkErrorPage(res, 404);
 });
 
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────

@@ -26,7 +26,7 @@ const GESTAO_STEPS: TutorialStep[] = [
     title: 'Links — a porta de entrada',
     body: (
       <p>
-        Cada link (<code>/go/slug</code>) redireciona o visitante para a página de venda e registra
+        Cada link público (<code>/slug</code>) redireciona o visitante para a página de venda e registra
         o clique. Dá para dividir o tráfego em variantes A/B por peso, filtrar por país/idioma e
         associar um pixel para os disparos automáticos.
       </p>
@@ -72,7 +72,7 @@ const GESTAO_STEPS: TutorialStep[] = [
       <p>
         O cloaker decide, visita a visita, quem vê a página real e quem vê a página alternativa —
         por país, idioma, dispositivo, bots conhecidos e outras camadas. Funciona nos links{' '}
-        <code>/c/slug</code> e pode usar os mesmos domínios verificados.
+        <code>/slug</code> e pode usar os mesmos domínios verificados.
       </p>
     ),
     tip: 'Comece em modo permissivo e aperte as camadas aos poucos, acompanhando o log de decisões.',

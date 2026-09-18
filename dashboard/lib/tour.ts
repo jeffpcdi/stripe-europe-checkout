@@ -121,7 +121,7 @@ const LINKS_TOUR: Tour = {
     {
       target: 'links-new',
       title: 'Criar link',
-      body: 'Comece por aqui: dê um nome e um slug (o final de /go/slug). É o link que você divulga.',
+      body: 'Comece por aqui: dê um nome e um slug (o endereço final do seu link). É o link que você divulga.',
     },
     {
       target: 'links-list',

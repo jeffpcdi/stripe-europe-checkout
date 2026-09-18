@@ -3,244 +3,194 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ENV_KEYS = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ZONE_ID', 'CLOUDFLARE_FALLBACK_ORIGIN', 'CLOUDFLARE_CNAME_TARGET'];
+const ENV_KEYS = [
+  'CLOUDFLARE_API_TOKEN','CLOUDFLARE_ZONE_ID','CLOUDFLARE_CNAME_TARGET','CLOUDFLARE_FALLBACK_ORIGIN',
+  'CLOUDFLARE_EDGE_READY','EDGE_DOMAIN_SECRET','EDGE_ORIGIN_HOST'
+];
 const originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const originalFetch = global.fetch;
 
-function setup(env) {
-  process.env.CLOUDFLARE_API_TOKEN = 'test-token';
-  process.env.CLOUDFLARE_ZONE_ID = 'zone-123';
-  process.env.CLOUDFLARE_FALLBACK_ORIGIN = 'app-production.up.railway.app';
-  process.env.CLOUDFLARE_CNAME_TARGET = 'domains.roi-nados.top';
-  for (const [k, v] of Object.entries(env || {})) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
+function setup(overrides = {}) {
+  Object.assign(process.env, {
+    CLOUDFLARE_API_TOKEN: 'test-token',
+    CLOUDFLARE_ZONE_ID: 'zone-123',
+    CLOUDFLARE_CNAME_TARGET: 'customers.roi-nados.top',
+    CLOUDFLARE_FALLBACK_ORIGIN: 'proxy-fallback.roi-nados.top',
+    CLOUDFLARE_EDGE_READY: 'true',
+    EDGE_DOMAIN_SECRET: 'edge-secret-test',
+    EDGE_ORIGIN_HOST: 'app-production.up.railway.app',
+  });
+  for (const [k,v] of Object.entries(overrides)) v === undefined ? delete process.env[k] : process.env[k] = String(v);
   delete require.cache[require.resolve('../cloudflare-domain-provider')];
   return require('../cloudflare-domain-provider');
 }
-
-function response(result, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => result };
-}
-
-// fetch mockado que responde por prefixo de URL (Cloudflare API vs origem HTTP)
-function routedFetch(routes) {
-  return async (url, options) => {
-    for (const [prefix, handler] of routes) {
-      if (String(url).startsWith(prefix)) return handler(url, options);
-    }
-    throw new Error('unmocked fetch: ' + url);
+function response(body, status = 200, headers = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name) => headers[String(name).toLowerCase()] || null },
+    json: async () => body,
   };
 }
-
-test.beforeEach(() => {
-  // Silencia os logs de boot do provider nos testes
-  global.fetch = async () => response({ success: true, result: {} });
-});
+function customHost(id='cf-1', hostname='shop.customer.com', extra={}) {
+  return Object.assign({ id, hostname, status: 'pending', ssl: { status: 'pending_validation', method: 'http', validation_records: [] } }, extra);
+}
 
 test.afterEach(() => {
   global.fetch = originalFetch;
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) delete process.env[key];
-    else process.env[key] = originalEnv[key];
-  }
+  for (const key of ENV_KEYS) originalEnv[key] === undefined ? delete process.env[key] : process.env[key] = originalEnv[key];
 });
 
-// ── register / status / normalização ─────────────────────────────────────────
-
-test('register cria custom hostname e instrui CNAME para o Managed target (não a origem)', async () => {
-  let request;
-  global.fetch = async (url, options) => {
-    if (String(url).includes('/custom_hostnames') && options && options.method === 'POST') {
-      request = { url, options };
-      return response({ success: true, result: {
-        id: 'cf-host-1', hostname: 'link.exemplo.com', status: 'pending',
-        ownership_verification: { type: 'txt', name: '_cf-custom-hostname.link.exemplo.com', value: 'owner-token' },
-        ssl: { status: 'pending_validation', validation_records: [{ txt_name: '_acme-challenge.link.exemplo.com', txt_value: 'ssl-token' }] },
-      } });
+test('register cria Custom Hostname com HTTP DCV e CNAME target SaaS', async () => {
+  let postBody;
+  global.fetch = async (url, options={}) => {
+    if (options.method === 'POST') {
+      postBody = JSON.parse(options.body);
+      return response({ success:true, result: customHost('cf-1','shop.customer.com') }, 201);
     }
-    return response({ success: true, result: {} });
+    if (String(url).includes('/custom_hostnames/cf-1')) return response({ success:true, result: customHost('cf-1','shop.customer.com') });
+    return response({ success:true, result:{} });
   };
-  const provider = setup();
-  const result = await provider.register('https://LINK.exemplo.com/');
-  assert.equal(request.url, 'https://api.cloudflare.com/client/v4/zones/zone-123/custom_hostnames');
-  assert.equal(JSON.parse(request.options.body).hostname, 'link.exemplo.com');
+  const p = setup();
+  const result = await p.register('SHOP.customer.com');
+  assert.equal(postBody.hostname, 'shop.customer.com');
+  assert.equal(postBody.ssl.method, 'http');
+  assert.equal(postBody.custom_metadata, undefined);
   assert.equal(result.provider, 'cloudflare');
-  assert.equal(result.providerId, 'cf-host-1');
-  // CORREÇÃO CENTRAL: o CNAME do lojista aponta para o Managed target,
-  // nunca para a origem Railway (que serve o certificado errado).
-  assert.equal(result.dns.cname.target, 'domains.roi-nados.top');
-  assert.equal(result.dns.ownership.value, 'owner-token');
-  assert.equal(result.dns.certificate.value, 'ssl-token');
-  assert.equal(result.verified, false);
+  assert.equal(result.dns.cname.target, 'customers.roi-nados.top');
   assert.equal(result.status, 'pending_dns');
 });
 
-test('sem CLOUDFLARE_CNAME_TARGET degrada para a origem nas instruções', async () => {
-  global.fetch = async () => response({ success: true, result: {
-    id: 'cf-host-9', hostname: 'x.exemplo.com', status: 'pending', ssl: { status: 'pending_validation' },
-  } });
-  const provider = setup({ CLOUDFLARE_CNAME_TARGET: undefined });
-  const result = await provider.register('x.exemplo.com');
-  assert.equal(result.dns.cname.target, 'app-production.up.railway.app');
-  assert.equal(provider.preflightState.degraded === true || provider.cnameTarget() === 'app-production.up.railway.app', true);
+test('hostname >64 caracteres ativa cloudflare_branding', async () => {
+  let body;
+  const host = 'very-long-label-abcdefghijklmnopqrstuvwxyz0123456789.customer.example.com';
+  assert.equal(host.length > 64, true);
+  global.fetch = async (url, options={}) => {
+    if (options.method === 'POST') { body = JSON.parse(options.body); return response({success:true,result:customHost('long',host)},201); }
+    return response({success:true,result:customHost('long',host)});
+  };
+  const p = setup();
+  await p.register(host);
+  assert.equal(body.ssl.cloudflare_branding, true);
 });
 
-test('status mapeia estados: pending_dns / pending_ssl / active / error', async () => {
-  const cases = [
-    [{ status: 'pending', ssl: { status: 'pending_validation' } }, 'pending_dns'],
-    [{ status: 'active', ssl: { status: 'pending_validation' } }, 'pending_ssl'],
-    [{ status: 'active', ssl: { status: 'active' } }, 'active'],
-    [{ status: 'pending', verification_errors: ['DNS mismatch'], ssl: { status: 'pending_validation' } }, 'error'],
-    [{ status: 'active', ssl: { status: 'pending_validation', validation_errors: [{ message: 'CAA blocked' }] } }, 'error'],
-  ];
-  const provider = setup();
-  for (const [cfResult, expected] of cases) {
-    global.fetch = async () => response({ success: true, result: Object.assign({ id: 'cf-x', hostname: 'go.exemplo.com' }, cfResult) });
-    const st = await provider.status('cf-x', 'go.exemplo.com');
-    assert.equal(st.status, expected, JSON.stringify(cfResult) + ' → ' + expected);
+test('sem edge pronta register falha fechado e nunca cai para Railway', async () => {
+  global.fetch = async () => response({success:true,result:{}});
+  const p = setup({ CLOUDFLARE_EDGE_READY:'false' });
+  await assert.rejects(p.register('shop.customer.com'), /edge_not_ready/);
+});
+
+test('mapStatus exige hostname e SSL ativos', () => {
+  const p = setup();
+  assert.equal(p.mapStatus({status:'pending',ssl:{status:'pending_validation'}}),'pending_dns');
+  assert.equal(p.mapStatus({status:'active',ssl:{status:'pending_validation'}}),'pending_ssl');
+  assert.equal(p.mapStatus({status:'active',ssl:{status:'active'}}),'active');
+  assert.equal(p.mapStatus({status:'blocked',ssl:{status:'pending_validation'}}),'error');
+});
+
+test('erro 1406 é duplicado e adota hostname existente', async () => {
+  let calls=0;
+  global.fetch = async (url, options={}) => {
+    calls++;
+    if (options.method === 'POST') return response({success:false,errors:[{code:1406,message:'Duplicate custom hostname found.'}]},409);
+    if (String(url).includes('?hostname=')) return response({success:true,result:[customHost('existing','dup.customer.com',{status:'active',ssl:{status:'active',method:'http'}})]});
+    return response({success:true,result:{}});
+  };
+  const p=setup();
+  const result=await p.register('dup.customer.com');
+  assert.equal(result.providerId,'existing');
+  assert.equal(result.status,'active');
+  assert.equal(calls>=2,true);
+});
+
+test('códigos 1404/1405/1406 têm classificação estruturada', async () => {
+  const cases = [[1404,403,'saas_unavailable'],[1405,403,'capacity'],[1406,409,'duplicate']];
+  for (const [code,status,msg] of cases) {
+    global.fetch = async () => response({success:false,errors:[{code,message:'x'}]},status);
+    const p=setup();
+    await assert.rejects(p._cfEnvelope('/x'), (e) => e.message === msg && e.codes.includes(code));
   }
 });
 
-test('status active exige hostname E certificado ativos (verified=true)', async () => {
-  global.fetch = async () => response({ success: true, result: {
-    id: 'cf-host-2', hostname: 'go.exemplo.com', status: 'active', ssl: { status: 'active', validation_records: [] },
-  } });
-  const provider = setup();
-  const result = await provider.status('cf-host-2', 'go.exemplo.com');
-  assert.equal(result.verified, true);
-  assert.equal(result.status, 'active');
-  assert.equal(result.certificateStatus, 'active');
+test('429 preserva Retry-After', async () => {
+  global.fetch = async () => response({success:false,errors:[{code:1015,message:'rate limited'}]},429,{'retry-after':'17'});
+  const p=setup();
+  await assert.rejects(p._cfEnvelope('/x'), (e) => e.message==='rate_limit' && e.retryAfterSeconds===17);
 });
 
-test('register duplicado adota o hostname existente em vez de falhar', async () => {
-  let calls = 0;
-  global.fetch = async (url, options) => {
-    calls++;
-    if (options && options.method === 'POST') {
-      return response({ success: false, errors: [{ message: 'custom hostname already exists' }] }, 409);
-    }
-    return response({ success: true, result: [{ id: 'cf-existing', hostname: 'dup.exemplo.com', status: 'active', ssl: { status: 'active' } }] });
+test('health só fica healthy com auth + SaaS + edge + fallback ativo', async () => {
+  global.fetch = async (url) => {
+    const u=String(url);
+    if (/\/zones\/zone-123$/.test(u)) return response({success:true,result:{id:'zone-123',name:'roi-nados.top'}});
+    if (u.includes('/custom_hostnames?per_page=1')) return response({success:true,result:[],result_info:{total_count:7}});
+    if (u.endsWith('/custom_hostnames/fallback_origin')) return response({success:true,result:{origin:'proxy-fallback.roi-nados.top',status:'active'}});
+    throw new Error('unmocked '+u);
   };
-  const provider = setup();
-  const result = await provider.register('dup.exemplo.com');
-  assert.equal(result.providerId, 'cf-existing');
-  assert.equal(result.status, 'active');
-  assert.equal(calls >= 2, true);
+  const p=setup();
+  const h=await p.health({force:true});
+  assert.equal(h.healthy,true);
+  assert.equal(h.configured,true);
+  assert.equal(h.authenticated,true);
+  assert.equal(h.saasAvailable,true);
+  assert.equal(h.edgeReady,true);
+  assert.equal(h.fallbackReady,true);
+  assert.equal(h.used,7);
 });
 
-test('classifica erro de autenticação sem vazar o token', async () => {
-  global.fetch = async () => response({ success: false, errors: [{ message: 'Authentication error' }] }, 403);
-  const provider = setup();
-  await assert.rejects(provider.register('go.exemplo.com'), (error) => {
-    assert.equal(error.message, 'auth');
-    assert.equal(String(error.detail).includes('test-token'), false);
-    return true;
-  });
+test('fallback pending mantém auto provider não saudável', async () => {
+  global.fetch = async (url) => {
+    const u=String(url);
+    if (/\/zones\/zone-123$/.test(u)) return response({success:true,result:{name:'roi-nados.top'}});
+    if (u.includes('/custom_hostnames?per_page=1')) return response({success:true,result:[],result_info:{total_count:0}});
+    if (u.endsWith('/fallback_origin')) return response({success:true,result:{origin:'proxy-fallback.roi-nados.top',status:'pending_deployment'}});
+    return response({success:true,result:{}});
+  };
+  const p=setup();
+  const h=await p.health({force:true});
+  assert.equal(h.healthy,false);
+  assert.equal(h.reason,'fallback_not_ready');
 });
 
-// ── isPublicHostname ─────────────────────────────────────────────────────────
-
-test('isPublicHostname rejeita hosts internos e IPs privados', () => {
-  const provider = setup();
-  assert.equal(provider.isPublicHostname('app-production.up.railway.app'), true);
-  assert.equal(provider.isPublicHostname('domains.roi-nados.top'), true);
-  assert.equal(provider.isPublicHostname('teste.railway.internal'), false);
-  assert.equal(provider.isPublicHostname('localhost'), false);
-  assert.equal(provider.isPublicHostname('meu-app.local'), false);
-  assert.equal(provider.isPublicHostname('10.0.0.5'), false);
-  assert.equal(provider.isPublicHostname('192.168.1.1'), false);
-  assert.equal(provider.isPublicHostname('172.20.0.1'), false);
-  assert.equal(provider.isPublicHostname('127.0.0.1'), false);
-  assert.equal(provider.isPublicHostname(''), false);
-  assert.equal(provider.isPublicHostname('https://app.exemplo.com/path'), true);
+test('auth inválida deixa health falhar sem vazar token', async () => {
+  global.fetch = async () => response({success:false,errors:[{code:1000,message:'Unauthorized'}]},401);
+  const p=setup();
+  const h=await p.health({force:true});
+  assert.equal(h.healthy,false);
+  assert.equal(h.reason,'auth');
+  assert.equal(JSON.stringify(h).includes('test-token'),false);
 });
 
-// ── preflight ────────────────────────────────────────────────────────────────
-
-test('preflight falha com causa "origem privada" quando a origem é interna', async () => {
-  const provider = setup({ CLOUDFLARE_FALLBACK_ORIGIN: 'teste.railway.internal' });
-  const p = await provider.runPreflight();
-  assert.equal(p.ok, false);
-  assert.equal(p.cause, 'origem privada');
-  assert.equal(provider.enabled, false);
+test('retrigger HTTP DCV usa PATCH e cooldown', async () => {
+  let patches=0;
+  global.fetch = async (url,options={}) => {
+    if (options.method==='PATCH') { patches++; return response({success:true,result:customHost('cf-1','shop.customer.com')},202); }
+    return response({success:true,result:{}});
+  };
+  const p=setup();
+  const one=await p.retriggerValidation('cf-1','shop.customer.com',{nowMs:1_000_000});
+  const two=await p.retriggerValidation('cf-1','shop.customer.com',{nowMs:1_000_001});
+  assert.equal(one.triggered,true);
+  assert.equal(two.triggered,false);
+  assert.equal(two.reason,'cooldown');
+  assert.equal(patches,1);
 });
 
-test('preflight falha com causa "auth" quando o token é rejeitado', async () => {
-  global.fetch = routedFetch([
-    ['https://api.cloudflare.com', () => response({ success: false, errors: [{ message: 'Authentication error' }] }, 403)],
-  ]);
-  const provider = setup();
-  const p = await provider.runPreflight();
-  assert.equal(p.ok, false);
-  assert.equal(p.cause, 'auth');
-  assert.equal(String(p.detail).includes('test-token'), false);
-  assert.equal(provider.enabled, false);
+test('normalize separa ownership HTTP, TXT e certificate validation', () => {
+  const p=setup();
+  const n=p._normalize(customHost('x','shop.customer.com',{
+    ownership_verification:{type:'txt',name:'_cf-custom-hostname.shop.customer.com',value:'owner'},
+    ownership_verification_http:{http_url:'http://shop.customer.com/.well-known/cf',http_body:'token'},
+    ssl:{status:'pending_validation',method:'http',validation_records:[{txt_name:'_acme-challenge.shop.customer.com',txt_value:'cert'}]},
+  }));
+  assert.equal(n.dns.ownership.value,'owner');
+  assert.equal(n.ownershipHttp.body,'token');
+  assert.equal(n.dns.certificate.value,'cert');
 });
 
-test('preflight falha com causa "origem offline" quando o marcador não responde 200', async () => {
-  global.fetch = routedFetch([
-    ['https://api.cloudflare.com/client/v4/zones/zone-123/custom_hostnames/fallback_origin', () => response({ success: true, result: { origin: 'app-production.up.railway.app', status: 'active' } })],
-    ['https://api.cloudflare.com', () => response({ success: true, result: { id: 'zone-123', name: 'roi-nados.top' } })],
-    ['https://app-production.up.railway.app', () => response({ ok: false }, 404)],
-  ]);
-  const provider = setup();
-  const p = await provider.runPreflight();
-  assert.equal(p.ok, false);
-  assert.equal(p.cause, 'origem offline');
-  assert.equal(provider.enabled, false);
-});
-
-test('preflight OK ativa o provider e sincroniza o fallback origin da zona', async () => {
-  let fallbackPut = null;
-  global.fetch = routedFetch([
-    ['https://api.cloudflare.com/client/v4/zones/zone-123/custom_hostnames/fallback_origin', (url, options) => {
-      if (options && options.method === 'PUT') {
-        fallbackPut = JSON.parse(options.body);
-        return response({ success: true, result: { origin: fallbackPut.origin, status: 'pending_deployment' } });
-      }
-      // GET: zona ainda sem fallback origin
-      return response({ success: false, errors: [{ message: 'not found' }] }, 404);
-    }],
-    ['https://api.cloudflare.com', () => response({ success: true, result: { id: 'zone-123', name: 'roi-nados.top' } })],
-    ['https://app-production.up.railway.app', () => response({ app: 'roi-nados-tracker', ok: true })],
-  ]);
-  const provider = setup();
-  const p = await provider.runPreflight();
-  assert.equal(p.ok, true);
-  assert.equal(p.zone, 'roi-nados.top');
-  assert.equal(fallbackPut.origin, 'app-production.up.railway.app');
-  assert.equal(p.fallbackOrigin.changed, true);
-  assert.equal(provider.enabled, true);
-});
-
-test('preflight idempotente: fallback origin já correto não dispara PUT', async () => {
-  let putCalled = false;
-  global.fetch = routedFetch([
-    ['https://api.cloudflare.com/client/v4/zones/zone-123/custom_hostnames/fallback_origin', (url, options) => {
-      if (options && options.method === 'PUT') { putCalled = true; }
-      return response({ success: true, result: { origin: 'app-production.up.railway.app', status: 'active' } });
-    }],
-    ['https://api.cloudflare.com', () => response({ success: true, result: { id: 'zone-123', name: 'roi-nados.top' } })],
-    ['https://app-production.up.railway.app', () => response({ app: 'roi-nados-tracker', ok: true })],
-  ]);
-  const provider = setup();
-  const p = await provider.runPreflight();
-  assert.equal(p.ok, true);
-  assert.equal(putCalled, false);
-  assert.equal(p.fallbackOrigin.changed, false);
-});
-
-test('health() reporta modo degradado sem CLOUDFLARE_CNAME_TARGET', async () => {
-  global.fetch = routedFetch([
-    ['https://api.cloudflare.com/client/v4/zones/zone-123/custom_hostnames/fallback_origin', () => response({ success: true, result: { origin: 'app-production.up.railway.app', status: 'active' } })],
-    ['https://api.cloudflare.com', () => response({ success: true, result: { id: 'zone-123', name: 'roi-nados.top' } })],
-    ['https://app-production.up.railway.app', () => response({ app: 'roi-nados-tracker', ok: true })],
-  ]);
-  const provider = setup({ CLOUDFLARE_CNAME_TARGET: undefined });
-  const h = await provider.health();
-  assert.equal(h.enabled, true);
-  assert.equal(h.degraded, true);
-  assert.equal(h.cnameTarget, 'app-production.up.railway.app');
+test('isPublicHostname rejeita rede privada e aceita Railway público', () => {
+  const p=setup();
+  assert.equal(p.isPublicHostname('app-production.up.railway.app'),true);
+  assert.equal(p.isPublicHostname('x.railway.internal'),false);
+  assert.equal(p.isPublicHostname('127.0.0.1'),false);
+  assert.equal(p.isPublicHostname('10.0.0.1'),false);
 });

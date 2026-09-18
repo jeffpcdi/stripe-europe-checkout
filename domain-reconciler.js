@@ -15,7 +15,7 @@ let lastRunAt = null;
 let lastResult = null;
 let lastError = null;
 
-function provider() { return cloudflare.enabled ? cloudflare : railway; }
+function provider() { return cloudflare; }
 function providerForDomain(domain) {
   const tagged = String(domain && domain.provider || '').toLowerCase();
   if (tagged === 'cloudflare') return cloudflare;
@@ -91,16 +91,19 @@ async function inspectDomain(accountId, original, deps = {}) {
   const configuredTarget = domain.dns && domain.dns.cname && domain.dns.cname.target
     ? String(domain.dns.cname.target).toLowerCase().replace(/\.$/, '') : '';
   if (configuredTarget) targets.add(configuredTarget);
-  if (cloudflare.enabled) {
+  if (p.name === 'cloudflare') {
     try { const t = String(cloudflare.cnameTarget() || '').toLowerCase().replace(/\.$/, ''); if (t) targets.add(t); } catch (_) {}
+  } else if (process.env.PUBLIC_APP_HOST) {
+    // Compatibilidade exclusiva de domínios Railway legados. Novos domínios
+    // Cloudflare nunca validam apontando direto para a origem Railway.
+    targets.add(String(process.env.PUBLIC_APP_HOST).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, ''));
   }
-  if (process.env.PUBLIC_APP_HOST) targets.add(String(process.env.PUBLIC_APP_HOST).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, ''));
 
   let cnames = [];
   try { cnames = (await dnsApi.resolveCname(host)).map((x) => x.toLowerCase().replace(/\.$/, '')); } catch (_) {}
   const targetList = Array.from(targets).filter(Boolean);
   let dnsOk = cnames.some((c) => targets.has(c));
-  const providerVerified = !!(providerState && providerState.verified);
+  let providerVerified = !!(providerState && providerState.verified);
 
   if (!dnsOk && targetList.length) {
     const [hostIps, targetIpGroups] = await Promise.all([
@@ -111,6 +114,21 @@ async function inspectDomain(accountId, original, deps = {}) {
     dnsOk = hostIps.some((ip) => targetIps.has(ip));
   }
   if (!dnsOk && providerVerified) dnsOk = true;
+
+  // HTTP DCV pode ter entrado em backoff antes de o cliente criar o CNAME.
+  // Quando o CNAME finalmente aponta ao target SaaS, reinicia a validação uma
+  // única vez por janela de cooldown e atualiza o estado do provider.
+  if (dnsOk && p.name === 'cloudflare' && domain.providerId && providerState && providerState.status === 'pending_dns'
+      && typeof p.retriggerValidation === 'function') {
+    try {
+      const retriggered = await p.retriggerValidation(domain.providerId, host);
+      if (retriggered && retriggered.triggered) {
+        providerState = await p.status(domain.providerId, host).catch(() => providerState);
+        providerVerified = !!(providerState && providerState.verified);
+        if (providerState && providerState.dns) domain.dns = providerState.dns;
+      }
+    } catch (_) { /* best-effort; retry normal do reconciliador */ }
+  }
 
   let tls = { ok: false, error: 'dns_pending' };
   let marker = { ok: false, error: 'dns_pending' };
@@ -127,7 +145,8 @@ async function inspectDomain(accountId, original, deps = {}) {
     } catch (err) { marker = { ok: false, error: err.code || err.message }; }
   }
 
-  const healthy = !!(dnsOk && tls.ok && marker.ok);
+  const providerReady = p.name !== 'cloudflare' || !!(providerState && providerState.status === 'active' && providerState.verified);
+  const healthy = !!(dnsOk && providerReady && tls.ok && marker.ok);
   const now = Date.now();
   const wasActive = domain.verificado === true && domain.status === 'active';
   const providerStatus = providerState && providerState.status;
@@ -143,9 +162,13 @@ async function inspectDomain(accountId, original, deps = {}) {
   const reasons = [];
   if (providerError) reasons.push('provider: ' + providerError);
   if (!dnsOk) reasons.push('DNS pendente');
+  else if (!providerReady) reasons.push('validação/SSL pendente');
   else if (!tls.ok) reasons.push('TLS pendente');
   else if (!marker.ok) reasons.push('roteamento HTTPS pendente');
   const nextDelay = healthy ? 6 * 60 * 60_000 : backoffMs(retryCount);
+  if ((original.status || 'pending_dns') !== status) {
+    console.log('[domain-reconciler] ' + host + ': ' + (original.status || 'pending_dns') + ' -> ' + status);
+  }
 
   return Object.assign({}, domain, {
     verificado: healthy || (status === 'active' && wasActive),

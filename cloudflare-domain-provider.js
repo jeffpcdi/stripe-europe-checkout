@@ -1,32 +1,18 @@
-// Cloudflare for SaaS / Custom Hostnames provider.
-// Provisions arbitrary customer domains without consuming Railway custom-domain slots.
-//
-// ARQUITETURA (correção definitiva — ver plano de domínios):
-//   - CLOUDFLARE_FALLBACK_ORIGIN  = origem Railway PÚBLICA (ex.: app-production.up.railway.app).
-//     Registrada na zona via API como fallback origin. NUNCA aparece nas instruções DNS.
-//   - CLOUDFLARE_CNAME_TARGET     = Managed CNAME target público (ex.: domains.roi-nados.top).
-//     É o alvo que o LOJISTA aponta no CNAME dele. Sem ele, operamos em modo degradado
-//     (instruções usam o fallback origin) com aviso claro no diagnóstico.
-//   - Preflight rígido no boot: token autentica + origem é pública + origem responde
-//     /__domain-check. Qualquer falha → enabled=false com causa exata, e o app cai
-//     para o provider legado (Railway) sem quebrar nada.
-//
-// SEGURANÇA: o token é lido só de process.env, nunca logado nem devolvido em erro.
+// Cloudflare for SaaS / Custom Hostnames provider (V16.20).
+// New customer domains live in Cloudflare for SaaS; Railway is only the origin.
 'use strict';
 
 const API = 'https://api.cloudflare.com/client/v4';
+const dns = require('dns').promises;
 
 function cleanHost(value) {
-  return String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, '');
+  return String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
-// Hostname público válido para servir de origem/alvo? Rejeita hosts internos
-// (railway.internal, .local, localhost), IPs privados e valores vazios.
 function isPublicHostname(value) {
   const host = cleanHost(value);
   if (!host || !host.includes('.')) return false;
   if (/\.(railway\.internal|internal|local|localhost)$/.test(host) || host === 'localhost') return false;
-  // IP literal? rejeita faixas privadas/loopback/link-local
   const ip = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ip) {
     const [a, b] = [Number(ip[1]), Number(ip[2])];
@@ -36,76 +22,77 @@ function isPublicHostname(value) {
 }
 
 function configured() {
-  return Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ZONE_ID && process.env.CLOUDFLARE_FALLBACK_ORIGIN);
+  return Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ZONE_ID && cleanHost(process.env.CLOUDFLARE_CNAME_TARGET));
 }
 
-// Alvo do CNAME mostrado ao lojista. Preferência: CLOUDFLARE_CNAME_TARGET
-// (Managed CNAME target). Fallback degradado: a própria origem (funciona só
-// se a Cloudflare estiver na frente — o diagnóstico avisa).
-function cnameTarget() {
-  const t = cleanHost(process.env.CLOUDFLARE_CNAME_TARGET);
-  return t || cleanHost(process.env.CLOUDFLARE_FALLBACK_ORIGIN);
-}
-
-function degradedMode() {
-  return !cleanHost(process.env.CLOUDFLARE_CNAME_TARGET);
+function cnameTarget() { return cleanHost(process.env.CLOUDFLARE_CNAME_TARGET); }
+function fallbackOrigin() { return cleanHost(process.env.CLOUDFLARE_FALLBACK_ORIGIN); }
+function edgeOrigin() { return cleanHost(process.env.EDGE_ORIGIN_HOST); }
+function staticEdgeReady() {
+  return Boolean(
+    process.env.CLOUDFLARE_EDGE_READY === 'true'
+    && process.env.EDGE_DOMAIN_SECRET
+    && isPublicHostname(process.env.EDGE_ORIGIN_HOST)
+    && cnameTarget()
+    && fallbackOrigin()
+  );
 }
 
 function headers() {
-  return {
-    Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_TOKEN,
-    'Content-Type': 'application/json',
-  };
+  return { Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_TOKEN, 'Content-Type': 'application/json' };
 }
 
-function message(body, fallback) {
-  const errors = body && Array.isArray(body.errors) ? body.errors : [];
-  return errors.map((e) => e.message || e.code).filter(Boolean).join('; ') || fallback;
+function errorsFrom(body) {
+  return body && Array.isArray(body.errors) ? body.errors : [];
 }
-
-function classify(status, text) {
-  const s = String(text || '').toLowerCase();
+function errorCodes(body) { return errorsFrom(body).map((e) => Number(e && e.code)).filter(Number.isFinite); }
+function errorMessage(body, fallback) {
+  return errorsFrom(body).map((e) => e && (e.message || e.code)).filter(Boolean).join('; ') || fallback;
+}
+function classify(status, body) {
+  const codes = errorCodes(body);
+  if (codes.includes(1404)) return 'saas_unavailable';
+  if (codes.includes(1405)) return 'capacity';
+  if (codes.includes(1406)) return 'duplicate';
+  if (codes.includes(1413)) return 'metadata_unavailable';
+  if (codes.includes(1414)) return 'origin_unavailable';
   if (status === 401 || status === 403) return 'auth';
-  if (status === 429) return 'limite';
+  if (status === 429) return 'rate_limit';
   if (status >= 500) return 'offline';
-  if (s.includes('already exists') || s.includes('already been added')) return 'duplicado';
-  return 'falha';
+  const text = errorMessage(body, '').toLowerCase();
+  if (text.includes('duplicate') || text.includes('already exists') || text.includes('already been added')) return 'duplicate';
+  return 'failure';
 }
 
-async function cf(path, options) {
+async function cfEnvelope(path, options = {}) {
   let res;
   try {
-    res = await fetch(API + path, Object.assign({ headers: headers(), signal: AbortSignal.timeout(15000) }, options || {}));
+    res = await fetch(API + path, Object.assign({ headers: headers(), signal: AbortSignal.timeout(15000) }, options));
   } catch (error) {
-    const e = new Error('offline');
-    e.detail = error.message;
-    throw e;
+    const e = new Error('offline'); e.detail = error.message; throw e;
   }
   let body = null;
-  try { body = await res.json(); } catch (_) { /* response may be empty */ }
+  try { body = await res.json(); } catch (_) { body = null; }
   if (!res.ok || !body || body.success !== true) {
-    const detail = message(body, 'Cloudflare HTTP ' + res.status);
-    const e = new Error(classify(res.status, detail));
-    e.detail = detail;
+    const e = new Error(classify(res.status, body));
+    e.detail = errorMessage(body, 'Cloudflare HTTP ' + res.status);
     e.status = res.status;
+    e.codes = errorCodes(body);
+    const retry = Number(res.headers && res.headers.get && res.headers.get('retry-after'));
+    if (Number.isFinite(retry) && retry > 0) e.retryAfterSeconds = retry;
     throw e;
   }
-  return body.result;
+  return body;
 }
+async function cf(path, options) { return (await cfEnvelope(path, options)).result; }
 
-// ── Estados de provisionamento ───────────────────────────────────────────────
-// Mapeia a resposta da Cloudflare para um estado único e explícito:
-//   pending_dns  → hostname ainda não verificado (CNAME não chegou / posse pendente)
-//   pending_ssl  → posse ok, certificado em emissão/validação
-//   active       → hostname E certificado ativos (tráfego servido com TLS válido)
-//   error        → erro de verificação/validação reportado pela Cloudflare
 function mapStatus(result) {
-  const hostStatus = String(result.status || 'pending');
-  const sslStatus = result.ssl ? String(result.ssl.status || '') : '';
-  const hasErrors = (Array.isArray(result.verification_errors) && result.verification_errors.length > 0)
-    || (result.ssl && Array.isArray(result.ssl.validation_errors) && result.ssl.validation_errors.length > 0);
+  const hostStatus = String((result && result.status) || 'pending');
+  const sslStatus = result && result.ssl ? String(result.ssl.status || '') : '';
+  const hasErrors = (Array.isArray(result && result.verification_errors) && result.verification_errors.length > 0)
+    || (result && result.ssl && Array.isArray(result.ssl.validation_errors) && result.ssl.validation_errors.length > 0);
   if (hostStatus === 'active' && sslStatus === 'active') return 'active';
-  if (hasErrors) return 'error';
+  if (hasErrors || hostStatus === 'blocked' || sslStatus === 'blocked') return 'error';
   if (hostStatus === 'active') return 'pending_ssl';
   return 'pending_dns';
 }
@@ -113,54 +100,68 @@ function mapStatus(result) {
 function normalize(result) {
   if (!result) return null;
   const ownership = result.ownership_verification || null;
-  const validation = result.ssl && Array.isArray(result.ssl.validation_records) ? result.ssl.validation_records[0] : null;
+  const ownershipHttp = result.ownership_verification_http || null;
+  const validationRecords = result.ssl && Array.isArray(result.ssl.validation_records) ? result.ssl.validation_records : [];
+  const validation = validationRecords[0] || null;
   const status = mapStatus(result);
   return {
     provider: 'cloudflare',
-    providerId: result.id,
+    providerId: result.id || null,
     hostname: cleanHost(result.hostname),
     status,
     verified: status === 'active',
-    certificateStatus: result.ssl ? result.ssl.status : null,
-    sslStatus: result.ssl ? result.ssl.status : null,
+    certificateStatus: result.ssl ? result.ssl.status || null : null,
+    sslStatus: result.ssl ? result.ssl.status || null : null,
+    sslMethod: result.ssl ? result.ssl.method || null : null,
     verificationErrors: result.verification_errors || [],
     sslErrors: result.ssl && result.ssl.validation_errors ? result.ssl.validation_errors.map((x) => x.message || String(x)) : [],
+    ownershipHttp: ownershipHttp && ownershipHttp.http_url ? { url: ownershipHttp.http_url, body: ownershipHttp.http_body || '' } : null,
     lastCheckedAt: new Date().toISOString(),
     dns: {
-      // O lojista aponta para o Managed CNAME target — NUNCA para a origem Railway.
-      cname: { name: cleanHost(result.hostname), target: cnameTarget() },
+      cname: { host: cleanHost(result.hostname), name: cleanHost(result.hostname), target: cnameTarget() },
       ownership: ownership && ownership.name && ownership.value
-        ? { type: ownership.type || 'TXT', name: ownership.name, value: ownership.value }
+        ? { type: ownership.type || 'TXT', host: ownership.name, name: ownership.name, value: ownership.value }
         : null,
-      certificate: validation
-        ? { type: validation.txt_name ? 'TXT' : 'CNAME', name: validation.txt_name || validation.cname, value: validation.txt_value || validation.cname_target }
-        : null,
+      certificate: validation ? {
+        type: validation.txt_name ? 'TXT' : 'CNAME',
+        host: validation.txt_name || validation.cname || null,
+        name: validation.txt_name || validation.cname || null,
+        value: validation.txt_value || validation.txt_record || validation.cname_target || null,
+      } : null,
     },
   };
 }
 
 async function findByHostname(hostname) {
+  if (!configured()) return null;
   const host = cleanHost(hostname);
-  const zone = process.env.CLOUDFLARE_ZONE_ID;
-  const result = await cf('/zones/' + encodeURIComponent(zone) + '/custom_hostnames?hostname=' + encodeURIComponent(host));
+  const result = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames?hostname=' + encodeURIComponent(host));
   return Array.isArray(result) && result.length ? normalize(result[0]) : null;
 }
 
+function sslRequest(host) {
+  const ssl = { method: 'http', type: 'dv', settings: { min_tls_version: '1.2' } };
+  if (String(host || '').length > 64) ssl.cloudflare_branding = true;
+  return ssl;
+}
+
 async function register(hostname) {
-  if (!configured()) throw new Error('desativado');
+  if (!configured()) throw new Error('not_configured');
+  if (!staticEdgeReady()) throw new Error('edge_not_ready');
   const host = cleanHost(hostname);
   try {
     const result = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames', {
       method: 'POST',
-      body: JSON.stringify({
-        hostname: host,
-        ssl: { method: 'http', type: 'dv', settings: { min_tls_version: '1.2' } },
-        custom_metadata: { source: 'roi-nados' },
-      }),
+      body: JSON.stringify({ hostname: host, ssl: sslRequest(host) }),
     });
-    return normalize(result);
+    // A API pode não devolver os tokens DCV no POST. Uma leitura subsequente é
+    // feita quando possível, sem transformar ausência transitória em falha.
+    try {
+      const fresh = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames/' + encodeURIComponent(result.id));
+      return normalize(fresh || result);
+    } catch (_) { return normalize(result); }
   } catch (error) {
-    if (error.message === 'duplicado') {
+    if (error.message === 'duplicate') {
       const existing = await findByHostname(host);
       if (existing) return existing;
     }
@@ -171,8 +172,7 @@ async function register(hostname) {
 async function status(providerId, hostname) {
   if (!configured()) return null;
   if (!providerId) return findByHostname(hostname);
-  const result = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames/' + encodeURIComponent(providerId));
-  return normalize(result);
+  return normalize(await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames/' + encodeURIComponent(providerId)));
 }
 
 async function remove(providerId, hostname) {
@@ -187,156 +187,160 @@ async function remove(providerId, hostname) {
   return true;
 }
 
-// ── Fallback origin da zona (idempotente) ────────────────────────────────────
-// A zona precisa saber para ONDE mandar o tráfego dos custom hostnames. Sem
-// isso, os hostnames ficam 404. GET → compara → PUT só se divergir.
-async function ensureFallbackOrigin() {
-  const zone = process.env.CLOUDFLARE_ZONE_ID;
-  const want = cleanHost(process.env.CLOUDFLARE_FALLBACK_ORIGIN);
-  let current = null;
+const revalidationAt = new Map();
+const REVALIDATE_COOLDOWN_MS = 5 * 60_000;
+async function retriggerValidation(providerId, hostname, options = {}) {
+  if (!configured() || !providerId) return { triggered: false, reason: 'unavailable' };
+  const host = cleanHost(hostname);
+  const now = Number(options.nowMs) || Date.now();
+  const last = revalidationAt.get(providerId) || 0;
+  if (now - last < REVALIDATE_COOLDOWN_MS) return { triggered: false, reason: 'cooldown' };
+  revalidationAt.set(providerId, now);
   try {
-    current = await cf('/zones/' + encodeURIComponent(zone) + '/custom_hostnames/fallback_origin');
-  } catch (e) {
-    // 404 = nunca configurado; qualquer outro erro propaga
-    if (e.status !== 404) throw e;
+    await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames/' + encodeURIComponent(providerId), {
+      method: 'PATCH',
+      body: JSON.stringify({ ssl: sslRequest(host) }),
+    });
+    return { triggered: true };
+  } catch (error) {
+    // Em erro transitório libera uma nova tentativa após um intervalo menor pelo
+    // reconciliador, sem loop imediato na mesma execução.
+    if (error.message === 'offline' || error.message === 'rate_limit') revalidationAt.set(providerId, now - REVALIDATE_COOLDOWN_MS + 60_000);
+    throw error;
   }
-  const currentOrigin = current ? cleanHost(current.origin) : '';
-  if (currentOrigin === want && current && current.status === 'active') {
-    return { origin: want, status: 'active', changed: false };
-  }
-  const updated = await cf('/zones/' + encodeURIComponent(zone) + '/custom_hostnames/fallback_origin', {
-    method: 'PUT',
-    body: JSON.stringify({ origin: want }),
-  });
-  return { origin: cleanHost(updated.origin), status: updated.status || 'pending_deployment', changed: true };
 }
 
-// ── Preflight rígido ─────────────────────────────────────────────────────────
-// enabled=true SÓ se: (a) token autentica na zona, (b) fallback origin é
-// hostname público, (c) a origem responde 200 no /__domain-check.
-// Falha → causa exata registrada + provider desabilitado (cai para o legado).
+async function cnamePointsToTarget(hostname, dnsApi = dns) {
+  const host = cleanHost(hostname); const target = cnameTarget();
+  if (!host || !target) return false;
+  try {
+    const cnames = (await dnsApi.resolveCname(host)).map(cleanHost);
+    if (cnames.includes(target)) return true;
+  } catch (_) {}
+  return false;
+}
+
 const preflight = {
-  checked: false,     // já rodou?
-  ok: false,          // passou?
-  cause: null,        // 'missing_env' | 'auth' | 'origem privada' | 'origem offline' | 'offline'
-  detail: null,       // texto legível (sem segredos)
-  zone: null,         // nome da zona autenticada
-  fallbackOrigin: null,     // { origin, status, changed }
-  cnameTarget: null,
-  degraded: false,    // sem CLOUDFLARE_CNAME_TARGET
-  at: null,
+  checked: false, ok: false, cause: 'not_checked', detail: null, zone: null,
+  configured: false, authenticated: false, saasAvailable: false,
+  edgeReady: false, fallbackReady: false, capacityAvailable: true,
+  fallbackOrigin: null, cnameTarget: null, used: null, at: null,
 };
+let lastHealthAt = 0;
+let lastCapacityErrorAt = 0;
+
+async function fallbackStatus() {
+  const result = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames/fallback_origin');
+  return result || null;
+}
 
 async function runPreflight() {
-  preflight.checked = true;
-  preflight.at = new Date().toISOString();
-  preflight.cnameTarget = cnameTarget();
-  preflight.degraded = degradedMode();
-
+  Object.assign(preflight, {
+    checked: true, ok: false, cause: null, detail: null, zone: null,
+    configured: configured(), authenticated: false, saasAvailable: false,
+    edgeReady: staticEdgeReady(), fallbackReady: false,
+    capacityAvailable: Date.now() - lastCapacityErrorAt > 10 * 60_000,
+    fallbackOrigin: fallbackOrigin(), cnameTarget: cnameTarget(), used: null,
+    at: new Date().toISOString(),
+  });
+  lastHealthAt = Date.now();
   if (!configured()) {
-    preflight.ok = false; preflight.cause = 'missing_env';
-    preflight.detail = 'faltam CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID / CLOUDFLARE_FALLBACK_ORIGIN';
-    return preflight;
+    preflight.cause = 'missing_env';
+    preflight.detail = 'configuração do provider incompleta';
+    return Object.assign({}, preflight);
   }
-  // (b) origem pública — checagem estática, primeiro (não gasta rede)
-  if (!isPublicHostname(process.env.CLOUDFLARE_FALLBACK_ORIGIN)) {
-    preflight.ok = false; preflight.cause = 'origem privada';
-    preflight.detail = 'CLOUDFLARE_FALLBACK_ORIGIN não é um hostname público (hosts *.railway.internal / IPs privados não são alcançáveis pela Cloudflare)';
-    return preflight;
+  if (!preflight.edgeReady) {
+    preflight.cause = 'edge_not_ready';
+    preflight.detail = 'edge/fallback ainda não foi ativado';
   }
-  // (a) token autentica na zona
   try {
     const zone = await cf('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID));
-    preflight.zone = zone.name || null;
-  } catch (e) {
-    preflight.ok = false;
-    preflight.cause = e.message === 'auth' ? 'auth' : 'offline';
-    preflight.detail = e.message === 'auth'
-      ? 'CLOUDFLARE_API_TOKEN rejeitado — gere um token com "SSL and Certificates: Edit" + "Zone: Read" na zona'
-      : 'API da Cloudflare inacessível agora (' + (e.detail || e.message) + ')';
-    return preflight;
+    preflight.authenticated = true;
+    preflight.zone = zone && zone.name || null;
+  } catch (error) {
+    preflight.cause = error.message === 'auth' ? 'auth' : error.message;
+    preflight.detail = 'API do provider indisponível';
+    return Object.assign({}, preflight);
   }
-  // (c) origem responde o marcador deste app
+
   try {
-    const origin = cleanHost(process.env.CLOUDFLARE_FALLBACK_ORIGIN);
-    const r = await fetch('https://' + origin + '/__domain-check', { redirect: 'manual', signal: AbortSignal.timeout(10000) });
-    if (r.status !== 200) {
-      preflight.ok = false; preflight.cause = 'origem offline';
-      preflight.detail = 'a origem ' + origin + ' respondeu HTTP ' + r.status + ' no /__domain-check';
-      return preflight;
+    const listEnvelope = await cfEnvelope('/zones/' + encodeURIComponent(process.env.CLOUDFLARE_ZONE_ID) + '/custom_hostnames?per_page=1&page=1');
+    preflight.saasAvailable = true;
+    if (listEnvelope.result_info && Number.isFinite(Number(listEnvelope.result_info.total_count))) preflight.used = Number(listEnvelope.result_info.total_count);
+  } catch (error) {
+    if (error.message === 'saas_unavailable') {
+      preflight.cause = 'saas_unavailable'; preflight.detail = 'Cloudflare for SaaS não provisionado';
+    } else if (error.message === 'capacity') {
+      lastCapacityErrorAt = Date.now(); preflight.capacityAvailable = false; preflight.saasAvailable = true;
+      preflight.cause = 'capacity'; preflight.detail = 'capacidade de custom hostnames esgotada';
+    } else {
+      preflight.cause = error.message; preflight.detail = 'não foi possível consultar custom hostnames';
     }
-  } catch (e) {
-    preflight.ok = false; preflight.cause = 'origem offline';
-    preflight.detail = 'a origem não respondeu o /__domain-check (' + (e.name === 'TimeoutError' ? 'timeout' : e.message) + ')';
-    return preflight;
+    return Object.assign({}, preflight);
   }
-  // Fallback origin da zona — idempotente; falha aqui NÃO desabilita o provider
-  // (registro de hostname ainda funciona), mas fica visível no diagnóstico.
+
   try {
-    preflight.fallbackOrigin = await ensureFallbackOrigin();
-  } catch (e) {
-    preflight.fallbackOrigin = { error: e.message, detail: e.detail || null };
+    const fb = await fallbackStatus();
+    preflight.fallbackReady = !!(fb && String(fb.status || '').toLowerCase() === 'active'
+      && (!fallbackOrigin() || cleanHost(fb.origin) === fallbackOrigin()));
+  } catch (error) {
+    preflight.fallbackReady = false;
+    if (!preflight.cause) preflight.cause = 'fallback_not_ready';
   }
-  preflight.ok = true;
-  preflight.cause = null;
-  preflight.detail = preflight.degraded
-    ? 'operacional em modo degradado — defina CLOUDFLARE_CNAME_TARGET (ex.: domains.' + (preflight.zone || 'sua-zona') + ') para instruções DNS corretas'
-    : null;
-  return preflight;
+
+  if (!preflight.edgeReady) preflight.cause = preflight.cause || 'edge_not_ready';
+  else if (!preflight.fallbackReady) preflight.cause = preflight.cause || 'fallback_not_ready';
+  else if (!preflight.capacityAvailable) preflight.cause = preflight.cause || 'capacity';
+
+  preflight.ok = !!(
+    preflight.configured && preflight.authenticated && preflight.saasAvailable
+    && preflight.edgeReady && preflight.fallbackReady && preflight.capacityAvailable
+  );
+  if (preflight.ok) { preflight.cause = null; preflight.detail = null; }
+  return Object.assign({}, preflight);
 }
 
-// health() — visão consolidada para diagnóstico (roda o preflight na hora).
-async function health() {
-  if (!configured()) return { enabled: false, reason: 'missing_env' };
+async function health(options = {}) {
+  const maxAge = Math.max(0, Number(options.maxAgeMs) || 60_000);
+  const current = Date.now();
+  if (!options.force && preflight.checked && current - lastHealthAt < maxAge) {
+    return {
+      enabled: preflight.ok, healthy: preflight.ok,
+      configured: preflight.configured, authenticated: preflight.authenticated,
+      saasAvailable: preflight.saasAvailable, edgeReady: preflight.edgeReady,
+      fallbackReady: preflight.fallbackReady, capacityAvailable: preflight.capacityAvailable,
+      used: preflight.used, reason: preflight.cause, detail: preflight.detail,
+      zone: preflight.zone, cnameTarget: preflight.cnameTarget, fallbackOrigin: preflight.fallbackOrigin,
+    };
+  }
   const p = await runPreflight();
   return {
-    enabled: p.ok,
-    reason: p.cause,
-    detail: p.detail,
-    zone: p.zone,
-    fallbackOrigin: cleanHost(process.env.CLOUDFLARE_FALLBACK_ORIGIN),
-    fallbackOriginZoneStatus: p.fallbackOrigin,
-    cnameTarget: p.cnameTarget,
-    degraded: p.degraded,
+    enabled: p.ok, healthy: p.ok,
+    configured: p.configured, authenticated: p.authenticated,
+    saasAvailable: p.saasAvailable, edgeReady: p.edgeReady,
+    fallbackReady: p.fallbackReady, capacityAvailable: p.capacityAvailable,
+    used: p.used, reason: p.cause, detail: p.detail,
+    zone: p.zone, cnameTarget: p.cnameTarget, fallbackOrigin: p.fallbackOrigin,
   };
 }
 
-// Preflight no boot — não bloqueia; loga a causa exata. Sem rede no boot, a
-// próxima chamada de health()/verificação re-roda o preflight.
 if (configured()) {
   runPreflight().then((p) => {
-    if (p.ok) {
-      console.log('[cloudflare-domains] preflight OK — zona "' + p.zone + '"' +
-        (p.degraded ? ' (MODO DEGRADADO: defina CLOUDFLARE_CNAME_TARGET)' : '') +
-        (p.fallbackOrigin && p.fallbackOrigin.changed ? ' — fallback origin atualizado na zona' : ''));
-    } else {
-      console.warn('[cloudflare-domains] preflight FALHOU (' + p.cause + '): ' + p.detail + ' — usando provider legado');
-    }
-  }).catch((e) => {
-    console.warn('[cloudflare-domains] preflight não completou (' + e.message + ') — re-tenta na próxima verificação');
-  });
+    if (p.ok) console.log('[cloudflare-domains] provider SaaS pronto — novos domínios usam Cloudflare');
+    else console.warn('[cloudflare-domains] provider SaaS aguardando infraestrutura (' + (p.cause || 'pending') + ')');
+  }).catch((e) => console.warn('[cloudflare-domains] preflight não completou:', e.message));
 } else {
-  console.log('[cloudflare-domains] variáveis ausentes — provider desativado (modo legado/manual)');
+  console.log('[cloudflare-domains] configuração ausente — novos domínios ficam bloqueados até Cloudflare SaaS estar pronta');
 }
 
 module.exports = {
   name: 'cloudflare',
-  // enabled reflete configuração + resultado do preflight. Antes do preflight
-  // rodar (boot), considera habilitado se a checagem estática passa — o
-  // preflight assíncrono derruba para false se token/origem falharem.
-  get enabled() {
-    if (!configured()) return false;
-    if (!isPublicHostname(process.env.CLOUDFLARE_FALLBACK_ORIGIN)) return false;
-    return preflight.checked ? preflight.ok : true;
-  },
+  get preferred() { return true; },
+  get configured() { return configured(); },
+  get enabled() { return preflight.checked ? preflight.ok : false; },
   get preflightState() { return Object.assign({}, preflight); },
-  register,
-  status,
-  remove,
-  health,
-  findByHostname,
-  runPreflight,
-  ensureFallbackOrigin,
-  cnameTarget,
-  isPublicHostname,
+  register, status, remove, health, findByHostname, runPreflight,
+  cnameTarget, fallbackOrigin, edgeOrigin, isPublicHostname, mapStatus,
+  retriggerValidation, cnamePointsToTarget, sslRequest,
+  _classify: classify, _normalize: normalize, _cfEnvelope: cfEnvelope,
 };

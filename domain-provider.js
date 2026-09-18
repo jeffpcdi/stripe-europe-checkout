@@ -106,14 +106,46 @@ async function gql(query, variables) {
   throw new Error('auth');
 }
 
-// Extrai só o registro CNAME que interessa ao lojista (host → alvo).
-function pickCname(dnsRecords) {
+// Normaliza os registros que o cliente precisa criar. O Railway passou a
+// devolver o TXT de posse FORA de dnsRecords: verificationDnsHost (nome) +
+// verificationToken (valor). Mantemos suporte ao TXT eventualmente presente
+// em dnsRecords para compatibilidade com respostas/fixtures antigas.
+function pickDns(dnsRecords, verificationDnsHost, verificationToken) {
   const list = Array.isArray(dnsRecords) ? dnsRecords : [];
   const cname = list.find((d) => String(d.recordType || '').toUpperCase() === 'CNAME') || list[0] || null;
-  const txt = list.find((d) => String(d.recordType || '').toUpperCase() === 'TXT') || null;
+  const txtRecord = list.find((d) => String(d.recordType || '').toUpperCase() === 'TXT') || null;
+  const txtHost = String(verificationDnsHost || (txtRecord && (txtRecord.fqdn || txtRecord.hostlabel)) || '').trim();
+  const txtValue = String(verificationToken || (txtRecord && txtRecord.requiredValue) || '').trim();
   return {
     cname: cname ? { host: cname.fqdn || cname.hostlabel || '', target: cname.requiredValue || '' } : null,
-    txt: txt ? { host: txt.fqdn || txt.hostlabel || '', value: txt.requiredValue || '' } : null
+    txt: txtHost && txtValue ? { host: txtHost, value: txtValue } : null
+  };
+}
+
+function mapStatus(status) {
+  status = status || {};
+  const cert = String(status.certificateStatus || '').toUpperCase();
+  if (/FAILED|ERROR|INVALID/.test(cert)) return 'error';
+  if (status.verified && /ISSUED|ACTIVE|VALID/.test(cert)) return 'active';
+  if (status.verified) return 'pending_ssl';
+  return 'pending_dns';
+}
+
+function normalizeDomain(cd) {
+  if (!cd) return null;
+  const status = cd.status || {};
+  const mapped = mapStatus(status);
+  return {
+    manual: false,
+    provider: 'railway',
+    providerId: cd.id || null,
+    status: mapped,
+    verified: !!status.verified,
+    verificationToken: status.verificationToken || null,
+    verificationDnsHost: status.verificationDnsHost || null,
+    certificateStatus: status.certificateStatus || null,
+    sslStatus: status.certificateStatus || null,
+    dns: pickDns(status.dnsRecords, status.verificationDnsHost, status.verificationToken)
   };
 }
 
@@ -124,20 +156,14 @@ function pickCname(dnsRecords) {
 async function findByDomain(host) {
   if (!enabled) return null;
   const data = await gql(
-    'query($p:String!,$e:String!,$s:String!){domains(projectId:$p,environmentId:$e,serviceId:$s){customDomains{id domain status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified certificateStatus}}}}',
+    'query($p:String!,$e:String!,$s:String!){domains(projectId:$p,environmentId:$e,serviceId:$s){customDomains{id domain status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationDnsHost verificationToken verified certificateStatus}}}}',
     { p: PROJECT_ID, e: ENVIRONMENT_ID, s: SERVICE_ID }
   );
   const list = (data && data.domains && data.domains.customDomains) || [];
   const want = String(host || '').toLowerCase();
   const cd = list.find((d) => String(d.domain || '').toLowerCase() === want);
   if (!cd) return null;
-  return {
-    manual: false,
-    providerId: cd.id || null,
-    verified: !!(cd.status && cd.status.verified),
-    verificationToken: (cd.status && cd.status.verificationToken) || null,
-    dns: pickCname(cd.status && cd.status.dnsRecords)
-  };
+  return normalizeDomain(cd);
 }
 
 // Registra o domínio na hospedagem. Retorna os registros DNS que o lojista
@@ -149,7 +175,7 @@ async function register(host) {
   let data;
   try {
     data = await gql(
-      'mutation($input:CustomDomainCreateInput!){customDomainCreate(input:$input){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified}}}',
+      'mutation($input:CustomDomainCreateInput!){customDomainCreate(input:$input){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationDnsHost verificationToken verified certificateStatus}}}',
       { input: { domain: host, projectId: PROJECT_ID, environmentId: ENVIRONMENT_ID, serviceId: SERVICE_ID } }
     );
   } catch (e) {
@@ -161,14 +187,7 @@ async function register(host) {
   }
   const cd = data && data.customDomainCreate;
   if (!cd) throw new Error('falha na hospedagem');
-  const rec = pickCname(cd.status && cd.status.dnsRecords);
-  return {
-    manual: false,
-    providerId: cd.id || null,
-    verified: !!(cd.status && cd.status.verified),
-    verificationToken: (cd.status && cd.status.verificationToken) || null,
-    dns: rec
-  };
+  return normalizeDomain(cd);
 }
 
 // Consulta status/registros de um domínio já registrado (por id do provedor).
@@ -176,16 +195,27 @@ async function register(host) {
 async function status(providerId) {
   if (!enabled || !providerId) return null;
   const data = await gql(
-    'query($id:String!,$projectId:String!){customDomain(id:$id,projectId:$projectId){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified certificateStatus}}}',
+    'query($id:String!,$projectId:String!){customDomain(id:$id,projectId:$projectId){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationDnsHost verificationToken verified certificateStatus}}}',
     { id: providerId, projectId: PROJECT_ID }
   );
   const cd = data && data.customDomain;
   if (!cd) return null;
-  return {
-    verified: !!(cd.status && cd.status.verified),
-    certificateStatus: (cd.status && cd.status.certificateStatus) || null,
-    dns: pickCname(cd.status && cd.status.dnsRecords)
-  };
+  return normalizeDomain(cd);
+}
+
+// Diagnóstico read-only do provider. Não expõe token, IDs internos nem
+// detalhes de transporte ao cliente; apenas diz se a automação está disponível.
+async function health() {
+  if (!enabled) return { enabled: false, reason: 'missing_env' };
+  try {
+    await gql(
+      'query($p:String!,$e:String!,$s:String!){domains(projectId:$p,environmentId:$e,serviceId:$s){serviceDomains{id}}}',
+      { p: PROJECT_ID, e: ENVIRONMENT_ID, s: SERVICE_ID }
+    );
+    return { enabled: true };
+  } catch (err) {
+    return { enabled: false, reason: String(err && err.message || 'offline').slice(0, 40) };
+  }
 }
 
 // Remove o domínio da hospedagem (evita acumular contra o teto do provedor).
@@ -225,4 +255,4 @@ async function selfTest() {
 // Dispara sem bloquear o boot do servidor.
 if (enabled) { selfTest(); }
 
-module.exports = { name: 'railway', enabled, register, status, remove };
+module.exports = { name: 'railway', enabled, register, status, remove, health, mapStatus, pickDns };

@@ -9,20 +9,14 @@ const dns = require('dns').promises;
 const db = require('./db');
 const abPredictor = require('./ab-predictor');
 const domainSecurity = require('./domain-security');
+const publicSlug = require('./public-slug');
 
 let cache = []; // lista de links em memória
 // Domínios já validados nesta sessão (host → ISO). Permite validar ANTES de
 // salvar o link: o save() consulta aqui e já grava dominioValidado=true.
 const validatedDomains = new Map();
 
-function slugify(s) {
-  return String(s || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-}
+function slugify(s) { return publicSlug.normalize(s); }
 
 function validUrl(u) {
   return /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
@@ -148,57 +142,75 @@ function resolve(slug, preferredAccountId) {
 
 async function save(accountId, input) {
   input = input || {};
-  const slug = slugify(input.slug || input.nome);
-  if (!slug) throw new Error('nome é obrigatório');
-  const existing = get(accountId, slug);
-  // Criação explícita nunca vira edição silenciosa. Se a primeira resposta se
-  // perder (timeout/rede) e o cliente repetir o mesmo formulário, o registro
-  // já existente é preservado e a API devolve conflito em vez de sobrescrever.
   const createOnly = input._createOnly === true;
+  const originalSlug = slugify(input._originalSlug || input.slug || input.nome);
+  let slug = input.slug ? slugify(input.slug) : (createOnly ? '' : originalSlug);
+  if (createOnly && !slug) slug = publicSlug.generate();
+  const existing = get(accountId, originalSlug || slug);
+  const changingPublicAddress = createOnly || (existing && slug !== existing.slug);
+  if (changingPublicAddress) {
+    const checked = publicSlug.validate(slug);
+    if (!checked.ok) {
+      const err = new Error(checked.error);
+      err.code = checked.code;
+      throw err;
+    }
+    slug = checked.slug;
+  }
+
+  const targetExisting = get(accountId, slug);
   delete input._createOnly;
-  if (createOnly && existing) {
-    const err = new Error('Já existe um link com este endereço. Atualize a lista antes de tentar criar novamente.');
+  delete input._originalSlug;
+
+  // Criação explícita nunca vira edição silenciosa; rename também não pode
+  // ocupar a slug de outro Link.
+  if (createOnly && targetExisting) {
+    const err = new Error('Já existe um link com este endereço. Escolha outro endereço.');
     err.code = 'conflict';
     throw err;
   }
-  // Item 235: concorrência otimista — se o cliente informou o updatedAt que
-  // viu ao abrir o formulário e o registro mudou nesse meio-tempo (outra aba,
-  // outro usuário da conta), avisa em vez de sobrescrever silenciosamente.
-  if (existing && input._baseUpdatedAt && existing.updatedAt &&
-      input._baseUpdatedAt !== existing.updatedAt) {
+  if (existing && slug !== existing.slug && targetExisting) {
+    const err = new Error('Este endereço já está sendo usado por outro link.');
+    err.code = 'conflict';
+    throw err;
+  }
+  if (!createOnly && input._baseUpdatedAt && existing && existing.updatedAt && input._baseUpdatedAt !== existing.updatedAt) {
     const err = new Error('Este link foi alterado em outra aba ou por outro usuário. Recarregue a página para ver a versão atual antes de salvar.');
     err.code = 'conflict';
     throw err;
   }
-  delete input._baseUpdatedAt; // campo de controle: não persiste
+  delete input._baseUpdatedAt;
+
   const merged = normalize(slug, Object.assign({}, existing || {}, input, { slug, acc: accountId }));
   if (!merged.variantes.length) throw new Error('pelo menos 1 variante com URL https:// válida é obrigatória');
-  // preserva contadores existentes por id de variante (edição não zera stats)
   if (existing) {
     merged.criadoEm = existing.criadoEm;
     merged.variantes.forEach((v) => {
       const prev = existing.variantes.find((p) => p.id === v.id);
       if (prev) { v.clicks = prev.clicks; v.conversions = prev.conversions; v.revenue = prev.revenue; }
     });
-    // se o domínio mudou, a validação anterior deixa de valer
     if (existing.dominio !== merged.dominio) { merged.dominioValidado = false; merged.dominioValidadoEm = null; }
     else { merged.dominioValidado = existing.dominioValidado; merged.dominioValidadoEm = existing.dominioValidadoEm; }
   }
-  // domínio validado antes do save (fluxo normal do formulário)
   if (!merged.dominioValidado && merged.dominio && validatedDomains.has(merged.dominio)) {
     merged.dominioValidado = true;
     merged.dominioValidadoEm = validatedDomains.get(merged.dominio);
   }
-  // Persistência primeiro, cache depois. Antes a UI podia receber sucesso e o
-  // cache mudar mesmo quando o Neon falhava; após restart o link voltava para
-  // a versão antiga. Em modo sem banco, mantém o comportamento em memória.
+
   if (db.enabled) {
-    const durable = await db.upsertLink(accountId, slug, merged);
+    const durable = existing && existing.slug !== slug && typeof db.renameLink === 'function'
+      ? await db.renameLink(accountId, existing.slug, slug, merged)
+      : await db.upsertLink(accountId, slug, merged);
     if (!durable) {
-      const err = new Error('Não foi possível persistir o link agora. Nenhuma alteração foi aplicada.');
+      const err = new Error(existing && existing.slug !== slug
+        ? 'Não foi possível alterar o endereço deste link agora. O endereço anterior foi preservado.'
+        : 'Não foi possível persistir o link agora. Nenhuma alteração foi aplicada.');
       err.code = 'persistence_failed';
       throw err;
     }
+  }
+  if (existing && existing.slug !== slug) {
+    cache = cache.filter((l) => !(l.slug === existing.slug && l.acc === accountId));
   }
   const idx = cache.findIndex((l) => l.slug === slug && l.acc === accountId);
   if (idx >= 0) cache[idx] = merged; else cache.push(merged);

@@ -13,6 +13,7 @@
 //  - Dados legados (account_id IS NULL) são atribuídos ao PRIMEIRO usuário
 //    cadastrado (admin) via claimLegacyData().
 const crypto = require('crypto');
+const { DEFAULT_WINDOW_DAYS, normalizeHost, normalizeDurableCoverage } = require('./pixel-runtime-coverage');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const isPlaceholder = !URL || /USER:PASSWORD@HOST|HOST\/DATABASE|example\.com/i.test(URL);
@@ -289,6 +290,7 @@ async function init() {
     await sql`UPDATE events_archive SET account_id = (SELECT id FROM accounts ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1)
       WHERE (account_id IS NULL OR account_id = '') AND EXISTS (SELECT 1 FROM accounts)`;
     await sql`CREATE INDEX IF NOT EXISTS leads_account_idx ON leads (account_id, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS leads_account_ref_idx ON leads (account_id, (data->>'ref'))`;
     await sql`CREATE INDEX IF NOT EXISTS events_account_idx ON events (account_id, at DESC)`;
     // V16.12: sessões ao vivo precisam ser únicas POR CONTA. O schema legado
     // usava visitor_id como PK global, o que permitia uma conta sobrescrever a
@@ -1215,6 +1217,53 @@ async function loadState(accountId, limitLeads, limitEvents) {
 }
 
 
+// ── V16.15: ledger financeiro durável por conta ────────────────────────────
+// Retorna somente eventos monetários da janela absoluta e o lead/pedido que
+// originou cada um. A atribuição advertiser/campaign é feita em ads-finance.js
+// usando ownership durável, nunca no hot cache de stats.js.
+async function readAdsFinancialLedger(accountId, fromIso, toIso) {
+  if (!enabled || !accountId || !fromIso || !toIso) return [];
+  try {
+    const rows = await sql`
+      WITH event_src AS (
+        SELECT type, at, data FROM events
+        WHERE account_id = ${accountId}
+          AND type IN ('sale','refund','dispute')
+          AND at >= ${fromIso}::timestamptz AND at < ${toIso}::timestamptz
+        UNION ALL
+        SELECT type, at, data FROM events_archive
+        WHERE account_id = ${accountId}
+          AND type IN ('sale','refund','dispute')
+          AND at >= ${fromIso}::timestamptz AND at < ${toIso}::timestamptz
+      )
+      SELECT e.type, e.at, e.data, matched.data AS lead_data
+      FROM event_src e
+      LEFT JOIN LATERAL (
+        SELECT l.data
+        FROM leads l
+        WHERE l.account_id = ${accountId}
+          AND (
+            (e.type = 'sale' AND l.id = NULLIF(e.data->>'ref',''))
+            OR
+            (e.type IN ('refund','dispute') AND NULLIF(l.data->>'ref','') = NULLIF(e.data->>'ref',''))
+          )
+        ORDER BY l.updated_at DESC
+        LIMIT 1
+      ) matched ON true
+      ORDER BY e.at ASC`;
+    return (rows || []).map((row) => ({
+      type: row.type,
+      at: row.at,
+      data: row.data || {},
+      leadData: row.lead_data || null,
+    }));
+  } catch (err) {
+    console.error('[db] readAdsFinancialLedger:', err.message);
+    throw err;
+  }
+}
+
+
 // ── V16.12: agregados duráveis da Visão Geral ─────────────────────────────
 // A Home não pode depender do cache quente global (MAX_LEADS/MAX_EVENTS). Estas
 // consultas trabalham diretamente no Neon, sempre por conta + janela absoluta.
@@ -1876,6 +1925,23 @@ async function upsertLink(accountId, slug, data) {
   }
 }
 
+async function renameLink(accountId, oldSlug, newSlug, data) {
+  if (!enabled || !oldSlug || !newSlug) return !enabled;
+  try {
+    const oldKey = nsKey(accountId, oldSlug);
+    const newKey = nsKey(accountId, newSlug);
+    const rows = await sql`UPDATE links
+      SET slug = ${newKey}, account_id = ${accountId || null}, data = ${JSON.stringify(data)}::jsonb, updated_at = now()
+      WHERE slug = ${oldKey}
+        AND NOT EXISTS (SELECT 1 FROM links target WHERE target.slug = ${newKey})
+      RETURNING slug`;
+    return rows.length === 1;
+  } catch (err) {
+    console.error('[db] renameLink:', err.message);
+    return false;
+  }
+}
+
 async function deleteLink(accountId, slug) {
   if (!enabled || !slug) return !enabled;
   try {
@@ -1908,6 +1974,88 @@ async function loadLinks(accountId) {
     }
   }
   return { ok: false, data: null };
+}
+
+// ── Cobertura durável de runtime do Pixel (browser) ──────────────────────
+// Diagnóstico somente-leitura: agrega no Postgres para não trazer milhares de
+// leads ao Node. O Neon é a fonte autoritativa; callers podem usar cache quente
+// apenas como fallback positivo quando esta leitura estiver indisponível.
+async function readPixelRuntimeCoverage(accountId, options = {}) {
+  if (!enabled || !sql || !accountId) return { ok: false, data: [], error: 'database_unavailable' };
+  const requestedDays = Number(options.windowDays || DEFAULT_WINDOW_DAYS);
+  const windowDays = Math.max(1, Math.min(DEFAULT_WINDOW_DAYS,
+    Number.isFinite(requestedDays) ? Math.floor(requestedDays) : DEFAULT_WINDOW_DAYS));
+  const pixelSlug = options.pixelSlug ? String(options.pixelSlug).trim().slice(0, 80) : null;
+  const host = options.host ? normalizeHost(options.host) : null;
+
+  try {
+    const rows = await sql`
+      WITH candidate AS (
+        SELECT data, updated_at, created_at
+        FROM leads
+        WHERE account_id = ${accountId}
+          AND updated_at >= now() - (${windowDays} * interval '1 day')
+          AND (${pixelSlug}::text IS NULL OR data->>'pixelSlug' = ${pixelSlug})
+      ), expanded AS (
+        SELECT
+          COALESCE(data->>'pixelSlug', '') AS pixel_slug,
+          site.value AS site,
+          data,
+          updated_at,
+          created_at
+        FROM candidate
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN jsonb_typeof(data->'sites') = 'array' AND jsonb_array_length(data->'sites') > 0
+              THEN data->'sites'
+            WHEN btrim(COALESCE(data->>'site', '')) <> ''
+              THEN jsonb_build_array(jsonb_build_object('host', data->>'site', 'hits', 1))
+            ELSE '[]'::jsonb
+          END
+        ) AS site(value)
+      ), normalized AS (
+        SELECT
+          pixel_slug,
+          regexp_replace(regexp_replace(lower(btrim(COALESCE(site->>'host', ''))), '^www\\.', ''), '\\.+$', '') AS host,
+          CASE
+            WHEN COALESCE(site->>'hits', '') ~ '^[0-9]+([.][0-9]+)?$'
+              AND (site->>'hits')::numeric > 0
+              THEN GREATEST(1, FLOOR((site->>'hits')::numeric))::bigint
+            ELSE 1::bigint
+          END AS hits,
+          CASE
+            WHEN COALESCE(site->>'lastAt', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?Z$'
+              THEN (site->>'lastAt')::timestamptz
+            ELSE NULL
+          END AS site_last_at,
+          CASE
+            WHEN COALESCE(data->>'lastSeen', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?Z$'
+              THEN (data->>'lastSeen')::timestamptz
+            ELSE NULL
+          END AS last_seen_at,
+          updated_at,
+          created_at
+        FROM expanded
+      )
+      SELECT
+        pixel_slug,
+        host,
+        SUM(hits)::bigint AS visits,
+        MAX(site_last_at) AS site_last_at,
+        MAX(last_seen_at) AS last_seen_at,
+        MAX(updated_at) AS updated_at,
+        MAX(created_at) AS created_at
+      FROM normalized
+      WHERE pixel_slug <> ''
+        AND host <> ''
+        AND (${host}::text IS NULL OR host = ${host})
+      GROUP BY pixel_slug, host
+      ORDER BY MAX(updated_at) DESC NULLS LAST`;
+    return { ok: true, data: normalizeDurableCoverage(rows) };
+  } catch (err) {
+    console.error('[db] readPixelRuntimeCoverage:', err && err.message || err);
+    return { ok: false, data: [], error: 'neon_query_failed' };
+  }
 }
 
 // ── Log de disparos CAPI (por conta) ──────────────────────────────────────
@@ -2028,6 +2176,7 @@ module.exports = {
   deleteOtherAuthSessions,
   upsertVariant,
   loadState,
+  readAdsFinancialLedger,
   readOverviewPeriod,
   readOverviewHealthFacts,
   reset,
@@ -2053,10 +2202,12 @@ module.exports = {
   loadPixels,
   getPixelByToken,
   upsertLink,
+  renameLink,
   deleteLink,
   loadLinks,
   insertPixelEvent,
   loadPixelEvents,
+  readPixelRuntimeCoverage,
   prunePixelEvents,
   // domínios personalizados duráveis + moeda por conta (itens 241–252)
   claimCustomDomain,

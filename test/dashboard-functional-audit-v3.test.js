@@ -48,7 +48,7 @@ assert.match(server, /const accountDomains = config\.get\(req\.account\.id\)\.cu
   'salvar link valida domínio dentro da conta');
 assert.match(server, /link_domain_wrong_usage/,
   'domínio exclusivo do cloak não pode ser usado como domínio de checkout');
-const persistPos = linkStore.indexOf('const durable = await db.upsertLink(accountId, slug, merged)');
+const persistPos = linkStore.indexOf('const durable = existing && existing.slug !== slug');
 const cachePos = linkStore.indexOf("const idx = cache.findIndex((l) => l.slug === slug && l.acc === accountId)");
 assert(persistPos >= 0 && cachePos > persistPos, 'save de link deve persistir antes de alterar cache');
 const deletePersistPos = linkStore.indexOf('const durable = await db.deleteLink(accountId, slug)');

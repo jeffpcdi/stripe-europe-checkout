@@ -82,7 +82,7 @@ export function CloakEntriesPanel() {
 
   function urlFor(e: CloakEntry) {
     const base = e.dominio ? `https://${e.dominio}` : baseUrl
-    return `${base}/c/${e.slug}`
+    return `${base}/${e.slug}`
   }
 
   function effectiveSafeUrl(e: CloakEntry) {
@@ -569,7 +569,7 @@ export function CloakEntriesPanel() {
         appearance="quiet"
         tone="danger"
         title={`Remover ${selected.size} ${selected.size === 1 ? 'link protegido' : 'links protegidos'}?`}
-        description={<>As URLs <code>/c/...</code> selecionadas deixam de funcionar. Esta ação não pode ser desfeita.</>}
+        description={<>As URLs selecionadas deixam de funcionar. Esta ação não pode ser desfeita.</>}
         confirmLabel={selected.size === 1 ? 'Remover link' : 'Remover links'}
         busy={bulkBusy}
         onConfirm={bulkDelete}
@@ -585,10 +585,10 @@ export function CloakEntriesPanel() {
           deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? (
             <>
               Este link já tem <strong className="text-foreground">{statBySlug[deleting.slug].total} decisões registradas</strong>.
-              Ao remover, a URL /c/{deleting.slug} para de funcionar e os contadores desse link se perdem.
+              Ao remover, a URL /{deleting.slug} para de funcionar e os contadores desse link se perdem.
             </>
           ) : (
-            <>A URL /c/{deleting?.slug} deixa de funcionar imediatamente. Esta ação não pode ser desfeita.</>
+            <>A URL /{deleting?.slug} deixa de funcionar imediatamente. Esta ação não pode ser desfeita.</>
           )
         }
         confirmLabel="Remover"

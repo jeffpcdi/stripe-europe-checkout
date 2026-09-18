@@ -178,7 +178,7 @@ export function PixelCard({
         <div>
           <span className="block text-xs text-muted-foreground">Última visita</span>
           <p className="mt-1 text-[13px] font-medium text-foreground">
-            {coverage?.lastBrowserAt ? timeAgo(coverage.lastBrowserAt) : 'Aguardando visita'}
+            {coverage?.lastBrowserAt ? timeAgo(coverage.lastBrowserAt) : (coverage as (PixelCoverage & { runtimeCoverageComplete?: boolean }) | undefined)?.runtimeCoverageComplete === false ? 'Histórico indisponível' : 'Aguardando visita'}
           </p>
         </div>
         <div>

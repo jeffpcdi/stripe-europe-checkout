@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2, ExternalLink, ChevronDown } from 'lucide-react'
+import { X, Loader2, ExternalLink, ChevronDown, RefreshCw } from 'lucide-react'
 import { apiSend, useCloakConfig, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
+import { normalizePublicSlug, randomPublicSlug } from '@/lib/public-slug'
 import { GeoMultiSelect } from './geo-multi-select'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -51,6 +52,7 @@ interface Props {
 
 export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }: Props) {
   const [nome, setNome] = useState(entry?.nome ?? '')
+  const [slug, setSlug] = useState(entry?.slug ?? '')
   const [offerUrl, setOfferUrl] = useState(entry?.offerUrl ?? '')
   const [whitePageUrl, setWhitePageUrl] = useState(entry?.whitePageUrl ?? '')
   const [dominio, setDominio] = useState(entry?.dominio ?? initialDomain)
@@ -67,6 +69,9 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    if (!entry && !slug) setSlug(randomPublicSlug())
+  }, [entry, slug])
   const [segmentationOpen, setSegmentationOpen] = useState(() => Boolean(entry?.mobileOnly || (entry?.paises && entry.paises.length > 0) || (entry?.idiomas && entry.idiomas.length > 0)))
 
   const { data: domainsData } = useDomains()
@@ -92,7 +97,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
     if (!/^https:\/\//.test(offerUrl.trim())) return setError('O destino principal precisa ser uma URL https:// válida')
 
     const signature = JSON.stringify({
-      nome: nome.trim(), offerUrl: offerUrl.trim(), whitePageUrl: whitePageUrl.trim(),
+      nome: nome.trim(), slug: normalizePublicSlug(slug), offerUrl: offerUrl.trim(), whitePageUrl: whitePageUrl.trim(),
       dominio: dominio.trim(), enabled, shadowMode, mobileOnly, sensitivity, paises, idiomas,
     })
     if (!entry && (!createRequestRef.current || createRequestRef.current.signature !== signature)) {
@@ -103,7 +108,9 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
     setSaving(true)
     try {
       await apiSend('/api/cloak/entries', 'POST', {
-        slug: entry?.slug,
+        slug,
+        _originalSlug: entry?.slug,
+        _createOnly: !entry,
         _baseUpdatedAt: entry?.updatedAt,
         _createKey: entry ? undefined : createRequestRef.current?.key,
         nome: nome.trim(),
@@ -126,6 +133,10 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
       setSaving(false)
     }
   }
+
+  const previewSlug = normalizePublicSlug(slug) || 'seu-link'
+  const previewHost = dominio || domainsData?.appHost || 'seu-dominio.com'
+  const previewUrl = `https://${previewHost}/${previewSlug}`
 
   const inputCls =
     'h-11 w-full rounded-lg border border-border bg-secondary/35 px-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-[color:var(--brand-cyan)] focus:outline-none focus:ring-2 focus:ring-brand-cyan/10'
@@ -170,6 +181,34 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             <div>
               <label className={labelCls} htmlFor="ck-nome">Nome do link</label>
               <input id="ck-nome" className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Campanha BR - Oferta X" />
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-slug">Endereço do link</label>
+              <div className="flex gap-2">
+                <input
+                  id="ck-slug"
+                  className={inputCls}
+                  value={slug}
+                  onChange={(e) => setSlug(normalizePublicSlug(e.target.value))}
+                  placeholder="x78dfa7s"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSlug(randomPublicSlug())}
+                  className="grid size-11 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  aria-label="Gerar outro endereço"
+                  title="Gerar outro endereço"
+                >
+                  <RefreshCw className="size-4" />
+                </button>
+              </div>
+              <p className="mt-2 break-all text-xs font-medium text-[color:var(--brand-cyan)]">{previewUrl}</p>
+              {entry && previewSlug !== entry.slug && (
+                <p className="mt-2 text-xs leading-relaxed text-warning">
+                  Alterar o endereço pode fazer links já publicados pararem de funcionar. O endereço anterior não vira alias automaticamente.
+                </p>
+              )}
             </div>
 
             <div>
@@ -254,7 +293,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               )}
               {dominio && !currentInList && (
                 <p className="mt-2 text-xs leading-relaxed text-warning">
-                  Este domínio não está pronto. Para usar /c/{entry?.slug ?? '{slug}'} nele, conclua DNS/HTTPS em Domínios ou escolha o domínio principal.
+                  Este domínio não está pronto. Para usar /{previewSlug} nele, conclua DNS/HTTPS em Domínios ou escolha o domínio principal.
                 </p>
               )}
             </div>

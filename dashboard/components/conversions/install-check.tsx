@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { apiSend } from '@/lib/api'
-import type { Pixel } from '@/lib/types'
+import type { Pixel, PixelVerifyUrlResult } from '@/lib/types'
 
 export function InstallCheck({ pixel }: { pixel: Pixel }) {
   const [url, setUrl] = useState('')
@@ -13,10 +13,25 @@ export function InstallCheck({ pixel }: { pixel: Pixel }) {
     try {
       const parsed = new URL(url)
       if (parsed.protocol !== 'https:') throw new Error('Use o endereço HTTPS da página.')
-      const result = await apiSend<{ ok: boolean; error?: string; pixels?: { slug: string; scriptOk: boolean; runtimeSeen: boolean; lastSeenAt?: string }[] }>('/api/pixels/verify-url', 'POST', { url })
+      const result = await apiSend<PixelVerifyUrlResult>('/api/pixels/verify-url', 'POST', { url })
+      const runtimeResult = result as PixelVerifyUrlResult & {
+        runtimeCoverageComplete?: boolean
+        pixels?: Array<NonNullable<PixelVerifyUrlResult['pixels']>[number] & {
+          runtimeSeen?: boolean
+          runtimeState?: 'seen' | 'not_seen' | 'unknown'
+        }>
+      }
       if (!result.ok) throw new Error(result.error || 'Não foi possível verificar a página.')
-      const found = result.pixels?.find(p => p.slug === pixel.slug)
-      setMessage(found?.runtimeSeen ? 'Já recebemos visitas deste pixel neste site. Confira os envios recentes no Histórico.' : found?.scriptOk ? 'Código encontrado. Abra a página para confirmar o recebimento de uma visita.' : 'Código não encontrado no HTML. Se usa GTM, publique o contêiner e abra a página; a execução será confirmada pelos eventos recebidos.')
+      const found = runtimeResult.pixels?.find(p => p.slug === pixel.slug)
+      if (found?.runtimeSeen) {
+        setMessage('Já recebemos visitas deste pixel neste site. Confira os envios recentes no Histórico.')
+      } else if (found?.scriptOk || found?.nativeOk) {
+        setMessage('Código encontrado. Abra a página para confirmar o recebimento de uma visita.')
+      } else if (found?.runtimeState === 'unknown' || runtimeResult.runtimeCoverageComplete === false) {
+        setMessage('O código não apareceu no HTML e o histórico durável está indisponível agora. Se usa GTM, SPA ou consentimento, a verificação ficou inconclusiva; tente novamente em instantes.')
+      } else {
+        setMessage('Código não encontrado no HTML e não houve execução recente confirmada neste site.')
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Falha na verificação.')
     } finally {

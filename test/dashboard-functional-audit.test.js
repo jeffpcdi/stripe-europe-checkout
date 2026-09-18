@@ -48,8 +48,8 @@ assert.match(links, /setSelected\(new Set\(slugs\.slice\(completed\)\)\)/,
   'itens já concluídos não ficam selecionados para repetir a ação');
 
 console.log('Auditoria funcional — isolamento multi-tenant');
-assert.match(server, /const domainOwner = publicDomainOwner\(req\);[\s\S]*domainOwner\s*\? linkStore\.get\(domainOwner, req\.params\.slug\)\s*:\s*linkStore\.resolve/,
-  '/go em domínio personalizado não cai em link de outra conta');
+assert.match(server, /function resolveCheckoutLink\(req\)[\s\S]*?const domainOwner = publicDomainOwner\(req\);[\s\S]*?if \(!domainOwner\) return linkStore\.resolve[\s\S]*?linkStore\.get\(domainOwner, req\.params\.slug\)/,
+  '/go e URL limpa em domínio personalizado não caem em link de outra conta');
 assert.match(server, /if \(domainOwner\) \{[\s\S]*if \(!r\) return null;[\s\S]*return r;[\s\S]*\}/,
   '/c em domínio personalizado fica preso à conta dona do host');
 assert.match(server, /const indexedOwner = config\.accountForCloakSlug\(slug\);/,

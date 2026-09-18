@@ -1,20 +1,69 @@
-# V16.15 — Pixels: contrato profissional de configuração e concorrência
+# V16.20 — Cloudflare for SaaS e edge autenticada para domínios personalizados
 
-- A subaba ativa `Rastreamento → Conversões → Pixels` passa a diferenciar CREATE, UPDATE e DELETE com compare-and-swap durável no Neon; revisão velha não consegue mais sobrescrever ou excluir uma configuração mais nova, inclusive em cenário futuro com múltiplas réplicas Railway.
-- `db.js` substitui o `upsertPixel()` incondicional por `createPixel()`, `updatePixelVersioned()` e `deletePixelVersioned()`. O mesmo `updatedAt` lógico fica persistido no JSONB e na coluna `updated_at`; Pixels legados sem revisão são promovidos idempotentemente no boot.
-- Pixel Code ganha proteção durável por conta: advisory lock serializa writes concorrentes e, quando a base não contém duplicatas legadas, um índice único parcial `account_id + pixelCode` reforça a invariável. Duplicatas antigas são apenas diagnosticadas; nenhuma configuração é apagada ou alterada automaticamente.
-- `pixel-store.js` deixa de montar UPDATE sobre snapshot de cache: patches top-level são aplicados atomicamente ao JSONB vencedor no Neon e o cache só muda depois do commit confirmado. Toggle, vínculo de checkout e exclusão usam a mesma revisão durável.
-- Novos Pixels nascem com `gatewayBindingMode='explicit'`; Pixels legados permanecem `legacy` até existir uma decisão explícita de `gatewayIds`, evitando transformar uma simples edição de nome em confirmação silenciosa do roteamento monetário.
-- A tela ativa passa a enviar `_createOnly`/`_baseUpdatedAt`, bloquear duplo submit síncrono, preservar o formulário em conflitos 409 e revalidar a lista. O modal de checkouts e o toggle Ativo/Pausado também carregam revisão; DELETE envia a revisão confirmada pelo usuário.
-- Access Token ganha ação explícita `Remover token`; valor mascarado continua significando “preservar” e nunca é persistido como credencial. Backend valida tamanho/ASCII de credenciais, estrutura completa de eventos, limites de nome/Pixel Code e ownership dos gateways.
-- `dashboard/components/pixels/pixels-view.tsx` foi removido após confirmar zero consumidores de produção. Audits V2/V5/V8 agora verificam `ConversionsView` e componentes realmente montados, eliminando testes verdes sobre uma UI morta.
-- Adicionado `test/pixel-config-contract-v16-15.test.js` cobrindo criação concorrente, edição concorrente, patch parcial, binding explícito, remoção de token, delete CAS e o contrato da UI ativa. Health, Verify URL, EMQ, CAPI retry, `/api/px/event` e tracker browser permanecem fora desta leva.
+- Novos domínios deixam de consumir Custom Domains do Railway e passam a usar Cloudflare for SaaS; Railway permanece apenas como origem da aplicação e provider legado para registros já persistidos com `provider=railway`.
+- O provider Cloudflare passa a exigir saúde real antes do provisionamento: autenticação, SaaS disponível, capacidade, fallback ativo, edge habilitada e CNAME target configurado. Deploy parcial falha fechado e não cria Custom Hostname pelo endpoint nem pelo reconciliador.
+- Adicionados `edge-domain-auth.js`, `protected-domains.js` e `cloudflare/domain-edge-worker.mjs`: o Worker encaminha para origem fixa, assina hostname/path/método com HMAC-SHA256 e o backend só confia em host original quando assinatura e timestamp são válidos.
+- `roi-nados.top`, todos os seus subdomínios e hosts técnicos/origin ficam reservados ao SaaS e não podem ser cadastrados como domínios de clientes.
+- Cloudflare usa HTTP DCV, normaliza ownership/certificate validation, trata estruturalmente os códigos 1404/1405/1406 e 429, respeita `Retry-After`, reaproveita hostname duplicado com segurança e reinicia DCV por PATCH quando o CNAME passa a existir, com cooldown.
+- O reconciliador só promove domínio Cloudflare a `active` quando DNS aponta para o target SaaS, Custom Hostname + SSL estão ativos e a prova HTTPS assinada do ROI-NADOS responde corretamente; uma falha transitória continua sem derrubar imediatamente domínio ativo.
+- A validação e o diagnóstico permanecem provider-aware: domínios Railway legados continuam no Railway; domínios Cloudflare nunca aceitam o hostname público do Railway como DNS válido.
+- Removido o limite técnico fixo de 20 domínios herdado do Railway; `CUSTOM_DOMAIN_LIMIT` passa a ser limite de produto configurável, sem ultrapassar 50.000 nesta fase single-account.
+- Onboarding V16.19 é preservado, incluindo tutoriais DNS e alerta específico para domínio apex; a UI não expõe Railway, Worker ou Cloudflare for SaaS como infraestrutura ao usuário final.
+- Adicionados/atualizados testes de provider, edge, spoof/replay, protected hosts, Worker de origem fixa, provider routing, DCV, quota/rate-limit e regressões de Domínios. Também foi adicionado `DOMAIN-V16.20-OPERATIONS.md` com ativação segura, smoke test e rollback.
+
+# V16.19 — Domain Onboarding & Zero-Backend Experience
+
+- O domínio principal do ROI-NADOS é exclusivo da aplicação e nunca é usado como base de hostnames de clientes; a área aceita somente domínios adicionados pelo próprio usuário.
+
+- A subaba Domínios passa a guiar o usuário pelo fluxo completo sem expor infraestrutura: domínio próprio, registros DNS copiáveis, tutorial contextual por nameserver, acompanhamento de DNS/HTTPS e estado operacional em linguagem funcional.
+- Adicionado `domain-onboarding.js` com detecção read-only do provedor DNS por NS e tutorial universal de fallback. A detecção é somente UX e nunca concede ownership.
+- O tutorial DNS carrega sob demanda, reconhece Cloudflare, Hostinger, Registro.br, GoDaddy e Namecheap quando os NS permitem identificação confiável, e cai em instrução universal quando não permite.
+- Cards DNS ganharam `Copiar nome`, `Copiar valor` e `Copiar tudo`; o stepper agora separa cadastro, preparação, DNS, HTTPS e pronto para os domínios adicionados pelo usuário.
+- Removidas promessas de tempo fixo para propagação DNS/SSL. O reconciliador registra somente transições de estado, sem tokens/segredos.
+- Adicionado `test/domain-onboarding-v16-19.test.js`. URLs limpas V16.18, Links, Cloaker, Pixel, CAPI, Ads e Gateways permanecem fora desta leva.
+
+# V16.18 — URLs públicas limpas e slugs unificados
+
+- Links e Cloaker passam a expor URLs públicas limpas em `https://dominio/:slug`; `/go/:slug` e `/c/:slug` permanecem como rotas legadas para não quebrar campanhas existentes.
+- Novos Links e novos Cloakers recebem slugs curtas aleatórias geradas com fonte criptograficamente segura; o usuário pode personalizar ou gerar outro endereço antes de salvar.
+- Links e Cloaker compartilham um namespace público único por conta, com palavras reservadas, validação central e proteção contra colisões síncronas entre criações/renomes.
+- O resolver `/:slug` reutiliza os handlers atuais de Link e Cloaker, preservando tracking, atribuição, filtros do Cloaker e comportamento das rotas legadas sem criar um segundo pipeline.
+- Domínios personalizados aceitam as URLs limpas sem liberar rotas internas; o pageview genérico ignora o resolver limpo para evitar duplicação de tracking.
+- Renome de Link ganhou persistência atômica no Neon; o Cloaker preserva retry-safe de criação por chave idempotente mesmo com slug editável.
+- Dashboard, previews, copiar/abrir link, QR e textos operacionais passam a apresentar `dominio/slug`, sem `/go` ou `/c` como endereço principal.
+- Adicionado `test/clean-public-urls-v16-18.test.js` cobrindo geração segura, reservas, colisões Link↔Cloaker, resolver limpo, compatibilidade legada, domínio personalizado, tracking e contrato da UI.
+
+# V16.17 — Domínios gerenciados e confiabilidade de provisionamento
+
+- A subaba Domínios passa a apresentar a infraestrutura como serviço gerenciado pelo ROI-NADOS; Railway/Cloudflare continuam internos e não são exigidos do usuário.
+- Provider Railway passa a consultar `verificationDnsHost` + `verificationToken` e persiste o TXT obrigatório junto do CNAME, inclusive em refresh/status.
+- Railway agora normaliza `pending_dns` / `pending_ssl` / `active` / `error` e expõe health read-only sem credenciais.
+- `POST /api/domains/verify` e o diagnóstico respeitam o provider já persistido no domínio, evitando consultas cruzadas entre Railway e Cloudflare.
+- Diagnóstico saudável é consolidado pela operação oficial `/api/domains/verify`; a UI não fica mais saudável no diagnóstico e pendente na lista.
+- Feedback de verificação prioriza a falha real: DNS quando DNS ainda está incorreto; HTTPS/SSL quando o DNS já passou.
+- Quando a automação está indisponível, a UI oferece fallback DNS honesto e informa que a ativação será retomada pelo SaaS, sem pedir acesso ao painel da infraestrutura.
+- `normHost()` rejeita IP literal, localhost, TLD puramente numérico e mantém normalização de URL/hostname no backend.
+- Adicionado `test/domain-managed-v16-17.test.js` cobrindo TXT Railway, provider routing, preservação de DNS, fallback, lifecycle e hostname. Nenhuma alteração em Links, Cloaker, `/go`, `/c`, Pixels, CAPI ou TikTok Ads.
+
+# V16.15 — fonte financeira única por advertiser e cobertura durável
+
+- ROAS, profitability e regras financeiras das automações passam a compartilhar `ads-finance.js`; nenhuma dessas leituras usa mais `stats.getStats()` como fonte monetária.
+- Ledger first-party vem de `events` + `events_archive`, ligado ao lead/pedido durável; sale/refund/dispute seguem o ownership original e preservam o escopo do advertiser.
+- Campaign ownership passa a ser persistido em `ads_campaign_ownership`; campanhas históricas removidas da árvore continuam atribuíveis quando reaparecem nos insights do próprio advertiser.
+- `ads_metrics_cache` é reaproveitado para cobertura financeira de até 365 dias no nível campaign/day, sem criar uma tabela duplicada de spend. Linhas históricas recebem `finance_only`; leitores operacionais ignoram essas linhas e adgroup/ad continuam fisicamente limitados à janela operacional.
+- Backfill financeiro é progressivo (até 60 dias antigos por ciclo), reutiliza o campaign/day já obtido pelo sync e não amplia adgroup/ad além dos 90 dias operacionais.
+- `ads_sync_state` passa a registrar `finance_window_from/to`, `finance_last_synced_at` e `finance_last_error`; cobertura incompleta ou cold sync falho deixa o gasto indisponível em vez de produzir falso zero.
+- `adSpendExact` depende da cobertura real + freshness. Receita positiva com gasto confirmado em zero produz ROAS indefinido (`null`), nunca `0x` falso nem `Infinity`; zero/zero confirmado permanece `0x`.
+- A Home monta a janela de mídia no timezone do advertiser. O painel TikTok deixa de enviar os parâmetros legados `calendar`/`calendarTimeZone`, pois a API financeira agora usa calendário do advertiser como contrato único.
+- Removidos o pipeline financeiro legado `reporting-integrity.js`, `/api/ads/data-integrity`, `scripts/audit-overview-local.js` e seus testes de aceitação substituídos; a V16.15 adiciona `ads-finance-v16-15.test.js`.
+- Adicionado índice `(account_id, data->>'ref')` em leads para o vínculo de refund/dispute com o pedido sem full scan; migrations são idempotentes e não removem dados históricos.
+- Sync operacional, Smart+, Spark, Catálogo, filas, retries e demais áreas fechadas permanecem sem mudança de regra.
 
 # V16.14 — convergência de produção e deploy Railway
 
 - Consolida no GitHub/Railway a fonte de verdade construída nas V16.10–V16.13, sem introduzir nova regra financeira, automação ou mudança visual.
 - O release parte exclusivamente de `roi-nados-v16.13.zip`; o `main` anterior (V16.9) não é usado como base para reconstruir código.
-- `railway.json` troca o healthcheck legado `/login` pelo liveness dedicado `/healthz` e reduz a janela para 30s; builder/runtime/replicas/domínios permanecem fora do escopo.
+- `railway.json` troca o healthcheck legado `/login` pelo liveness dedicado `/healthz` e ajusta a janela para 60s após medir ~35s de boot real em produção; builder/runtime/replicas/domínios permanecem fora do escopo.
 - Runtime de produção passa a exigir Node `>=24`, compatível simultaneamente com Next.js 16, `@neondatabase/serverless` e `geoip-lite`; isso corrige a seleção automática de Node 18 pelo Railpack.
 - V16.12 entra em produção com analytics durável da Home e presença escopada por `accountId + visitorId`; migrations permanecem idempotentes e executadas pelo `db.init()`.
 - V16.13 entra em produção com elegibilidade do scheduler baseada em contas reais, isolamento de testes e telemetria do tick; resíduos órfãos permanecem auditáveis, sem cleanup destrutivo automático.

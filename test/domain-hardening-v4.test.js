@@ -66,7 +66,7 @@ ok(types.includes('shadowMode?: boolean'), 'contrato TypeScript expõe shadow mo
 ok(cloakUi.includes('Modo observação') && cloakUi.includes('classifica sem alterar o destino'), 'UI permite observação sem enforcement');
 
 // UX de domínio comunica automação em vez de exigir polling mental/manual.
-ok(domainsUi.includes('A verificação é automática'), 'UI informa verificação automática');
+ok(domainsUi.includes('acompanha o DNS') && domainsUi.includes('ativa o HTTPS'), 'UI comunica hospedagem gerenciada e acompanhamento automático');
 ok(types.includes('retryCount?: number') && types.includes('nextCheckAt?: string | null'), 'UI conhece estado de retry/reconciliação');
 
 console.log('\n[domain-hardening-v4] ' + pass + ' asserts OK');

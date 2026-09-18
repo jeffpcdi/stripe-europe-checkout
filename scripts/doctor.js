@@ -80,23 +80,24 @@ if (has('DOMAIN_PROOF_SECRET')) {
   w('DOMAIN_PROOF_SECRET ausente — produção recusa iniciar; desenvolvimento usa fallback local.');
 }
 
-// ── 7. Domínios (Cloudflare for SaaS / Railway) ─────────────────────────
+// ── 7. Domínios (Cloudflare for SaaS + Worker Edge) ─────────────────────
 console.log(`
 ${C.b}Domínios personalizados${C.x}`);
-const cfReady = has('CLOUDFLARE_API_TOKEN') && has('CLOUDFLARE_ZONE_ID') && has('CLOUDFLARE_FALLBACK_ORIGIN');
-const railwayReady = (has('RAILWAY_API_TOKEN') || has('RAILWAY_TOKEN'))
+const cfConfigured = has('CLOUDFLARE_API_TOKEN') && has('CLOUDFLARE_ZONE_ID')
+  && has('CLOUDFLARE_CNAME_TARGET') && has('CLOUDFLARE_FALLBACK_ORIGIN');
+const edgeConfigured = has('EDGE_DOMAIN_SECRET') && has('EDGE_ORIGIN_HOST')
+  && String(process.env.CLOUDFLARE_EDGE_READY || '') === 'true';
+const railwayLegacy = (has('RAILWAY_API_TOKEN') || has('RAILWAY_TOKEN'))
   && has('RAILWAY_PROJECT_ID') && has('RAILWAY_ENVIRONMENT_ID') && has('RAILWAY_SERVICE_ID');
-if (cfReady) {
-  ok('Cloudflare for SaaS configurada — provisionamento automático disponível.');
-  if (has('CLOUDFLARE_CNAME_TARGET')) ok('Managed CNAME target presente — instruções DNS não expõem a origem.');
-  else w('CLOUDFLARE_CNAME_TARGET ausente — provider opera em modo degradado.');
-} else if (railwayReady) {
-  ok('Railway configurada — provisionamento automático disponível como provider legado.');
-} else {
-  info('Sem provider automático completo — modo manual de domínios permanece disponível.');
-}
-if (has('PUBLIC_APP_HOST')) ok('PUBLIC_APP_HOST presente — reconciliador tem alvo explícito para comparar DNS.');
-else info('PUBLIC_APP_HOST ausente — o reconciliador depende dos registros DNS salvos/provider para comparar o destino.');
+if (cfConfigured) ok('Cloudflare for SaaS configurada para novos domínios.');
+else w('Cloudflare for SaaS incompleta — novos domínios ficam bloqueados até token/zona/CNAME target/fallback estarem configurados.');
+if (edgeConfigured) ok('Worker/Edge habilitada — secret e origin configurados.');
+else w('Worker/Edge ainda não está pronta — CLOUDFLARE_EDGE_READY deve permanecer false até fallback/Worker estarem ativos.');
+if (railwayLegacy) info('Railway provider presente somente para domínios legados já persistidos como provider=railway.');
+if (has('PRIMARY_SAAS_DOMAIN')) ok('PRIMARY_SAAS_DOMAIN explícito — domínio principal e subdomínios ficam reservados.');
+else info('PRIMARY_SAAS_DOMAIN ausente — usa padrão seguro roi-nados.top.');
+if (has('CUSTOM_DOMAIN_LIMIT')) info('Limite de produto CUSTOM_DOMAIN_LIMIT configurado.');
+else info('CUSTOM_DOMAIN_LIMIT ausente — padrão operacional: 5000 domínios por conta.');
 
 // ── 8. Sanidade de arquivos ──────────────────────────────────────────────
 console.log(`\n${C.b}Arquivos${C.x}`);

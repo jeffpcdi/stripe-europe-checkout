@@ -1,10 +1,11 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { X, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, Plus, Trash2, RefreshCw } from 'lucide-react'
 import { ApiError, apiSend } from '@/lib/api'
 import { Switch } from '@/components/switch'
 import type { CheckoutLink, CustomDomain } from '@/lib/types'
+import { normalizePublicSlug, randomPublicSlug } from '@/lib/public-slug'
 
 interface LinkEditorProps {
   link: CheckoutLink | null
@@ -15,18 +16,13 @@ interface LinkEditorProps {
   onSaved: () => void
 }
 
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 export function LinkEditor({ link, domains, appHost = '', presetDominio = null, onClose, onSaved }: LinkEditorProps) {
   const [nome, setNome] = useState(link?.nome ?? '')
   const [slug, setSlug] = useState(link?.slug ?? '')
+  useEffect(() => {
+    if (!link && !slug) setSlug(randomPublicSlug())
+  }, [link, slug])
   const [dominio, setDominio] = useState(link?.dominio ?? presetDominio ?? '')
   const [urlWhitePage, setUrlWhitePage] = useState(link?.urlWhitePage ?? '')
   
@@ -56,7 +52,8 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
     setError(null)
     try {
       await apiSend('/api/links', 'POST', {
-        slug: slug || nome,
+        slug,
+        _originalSlug: link?.slug || undefined,
         _createOnly: !link,
         _baseUpdatedAt: link?.updatedAt || undefined,
         nome,
@@ -101,9 +98,9 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
     }
   }
 
-  const previewSlug = slug.trim() || slugify(nome) || 'seu-link'
+  const previewSlug = normalizePublicSlug(slug) || 'seu-link'
   const previewHost = dominio || appHost || 'seu-dominio.com'
-  const previewUrl = `https://${previewHost}/go/${previewSlug}`
+  const previewUrl = `https://${previewHost}/${previewSlug}`
   const experimentAvailable = variantes.length >= 2
   const confidencePct = Math.round((link?.experiment?.confidence ?? 0.95) * 100)
   const winnerName = link?.experiment?.winnerId
@@ -142,16 +139,38 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                   {domains.map((d) => <option key={d.host} value={d.host}>{d.host}</option>)}
                 </select>
               </label>
-              <label className="flex flex-col gap-2">
-                <span className={labelCls}>Identificador da URL</span>
-                <input className={inputCls} value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={slugify(nome) || 'slug-aqui'} disabled={!!link} />
-              </label>
+              <div className="flex flex-col gap-2">
+                <span className={labelCls}>Endereço do link</span>
+                <div className="flex gap-2">
+                  <input
+                    className={inputCls}
+                    value={slug}
+                    onChange={(e) => setSlug(normalizePublicSlug(e.target.value))}
+                    placeholder="x78dfa7s"
+                    aria-label="Endereço público do link"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSlug(randomPublicSlug())}
+                    className="grid size-11 shrink-0 place-items-center rounded-lg border border-border/60 text-muted-foreground transition-colors hover:border-border hover:bg-secondary/50 hover:text-foreground"
+                    aria-label="Gerar outro endereço"
+                    title="Gerar outro endereço"
+                  >
+                    <RefreshCw className="size-4" />
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
               <span className={labelCls}>URL pública</span>
               <p className="break-all text-[13px] font-medium text-[color:var(--brand-cyan)]/90">{previewUrl}</p>
             </div>
+            {link && previewSlug !== link.slug && (
+              <p className="text-xs leading-relaxed text-warning">
+                Alterar o endereço pode fazer links já publicados pararem de funcionar. O endereço anterior não vira alias automaticamente.
+              </p>
+            )}
           </section>
 
           <section className="flex flex-col gap-4 border-t border-border/45 pt-5" aria-labelledby="link-destination-title">

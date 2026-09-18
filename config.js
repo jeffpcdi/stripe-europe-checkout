@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const redis = require('./redis');
+const { customDomainLimit } = require('./domain-limits');
 
 // ── Configuração editável pela dashboard — POR CONTA (multi-tenant) ────────
 // Cada conta tem sua própria config (pushcut, shortlinks, domínios, cloak,
@@ -393,7 +394,7 @@ function prepareSet(accountId, patch) {
     createdAt: s.createdAt || new Date().toISOString()
   })).filter((s) => s.slug && /^https?:\/\//i.test(s.url));
   if (!Array.isArray(next.customDomains)) next.customDomains = [];
-  next.customDomains = next.customDomains.slice(0, 20).map((d) => {
+  next.customDomains = next.customDomains.slice(0, customDomainLimit()).map((d) => {
     const out = {
       host: String(d.host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 253),
       verificado: d.verificado === true,
@@ -562,6 +563,7 @@ function prepareSet(accountId, patch) {
           .map((c) => String(c || '').trim().toLowerCase().split('-')[0])
           .filter((c) => /^[a-z]{2}$/.test(c)).filter((c, i, a) => a.indexOf(c) === i).slice(0, 20),
         criadoEm: l.criadoEm || new Date().toISOString(),
+        createKeyHash: /^[a-f0-9]{24}$/.test(String(l.createKeyHash || '')) ? String(l.createKeyHash) : '',
         updatedAt: l.updatedAt || new Date().toISOString()
       };
     }).filter((l) => {

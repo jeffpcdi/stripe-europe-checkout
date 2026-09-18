@@ -1,3 +1,13 @@
+## Domínios gerenciados — V16.17 (2026-09-17)
+- Escopo exclusivo de Domínios; Links, Cloaker, `/go`, `/c`, Pixel/CAPI e Ads permanecem inalterados.
+- Railway continua provider interno quando Cloudflare for SaaS não está habilitado, mas a UI não expõe infraestrutura. O cliente cadastra o domínio no ROI-NADOS e o backend registra/acompanha provider + SSL.
+- Railway Public API exige dois registros: CNAME em `status.dnsRecords` e TXT em `status.verificationDnsHost` + `status.verificationToken`; ambos são normalizados em `domain-provider.js` e persistidos no domínio.
+- Verificação e diagnóstico usam o provider persistido no próprio domínio; diagnóstico saudável chama o fluxo oficial `/api/domains/verify` para consolidar `active`.
+- Fallback sem automação mostra um apontamento DNS possível e mantém linguagem honesta: não promete ativação até o provider voltar.
+- `security-helpers.normHost` bloqueia IP literal/localhost/TLD numérico no backend.
+- Testes focados: `domain-managed-v16-17`, `domain-security`, `cloudflare-domain-provider`, `custom-domains-routes`, `domain-cloak-production-v5`, `security` e `dashboard-functional-audit-v3`. `domain-hardening-v4` ainda possui uma expectativa antiga de Cloaker fora do escopo desta versão; não alterar Cloaker para fazê-lo passar.
+- O ZIP não inclui `dashboard/node_modules`; `dashboard-ui-integrity` não inicia sem `dashboard/node_modules/typescript`. Sintaxe TS/TSX dos arquivos alterados foi validada via TypeScript global.
+
 # AGENTS.md — ROI-NADOS
 
 ## Navbar SaaS integrada sobre b7f09a3 — 14/09/2026

@@ -197,11 +197,8 @@ export function LinksView() {
   async function duplicateLink(l: CheckoutLink) {
     setBusySlug(l.slug)
     try {
-      const taken = new Set(links.map((x) => x.slug))
-      let newSlug = `${l.slug}-copia`
-      for (let n = 2; taken.has(newSlug); n++) newSlug = `${l.slug}-copia-${n}`
       await apiSend('/api/links', 'POST', {
-        slug: newSlug,
+        _createOnly: true,
         nome: `${l.nome} (cópia)`,
         dominio: l.dominio ?? null,
         urlWhitePage: l.urlWhitePage ?? null,
@@ -319,7 +316,7 @@ export function LinksView() {
     }
     const link = links.find((l) => l.slug === qrFor)
     if (!link) return
-    const url = `https://${link.dominio || appHost}/go/${link.slug}`
+    const url = `https://${link.dominio || appHost}/${link.slug}`
     let alive = true
     QRCodeLib.toDataURL(url, {
       width: 140,
@@ -339,7 +336,7 @@ export function LinksView() {
 
   function publicUrl(l: CheckoutLink) {
     const host = l.dominio || appHost
-    return `https://${host}/go/${l.slug}`
+    return `https://${host}/${l.slug}`
   }
 
   async function copyUrl(l: CheckoutLink) {
@@ -640,7 +637,7 @@ export function LinksView() {
                       </div>
 
                       <p className="mt-1 truncate text-[12px] text-muted-foreground">
-                        <span className="text-muted-foreground/60">https://{l.dominio || appHost}/go/</span>
+                        <span className="text-muted-foreground/60">https://{l.dominio || appHost}/</span>
                         <span className="text-brand-cyan/90">{l.slug}</span>
                       </p>
 
@@ -788,7 +785,7 @@ export function LinksView() {
             description={
               dl && (
                 <div className="space-y-3">
-                  <p>Essa ação é permanente e a URL <strong className="text-foreground">/go/{dl.slug}</strong> deixará de funcionar imediatamente.</p>
+                  <p>Essa ação é permanente e a URL <strong className="text-foreground">/{dl.slug}</strong> deixará de funcionar imediatamente.</p>
                   {dlTraffic && (
                     <div className="space-y-1.5">
                       <p className="text-xs font-medium text-destructive">Este link possui tráfego registrado.</p>

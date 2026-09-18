@@ -12,6 +12,7 @@
  *   personalizado (aceita colar URL completa; devolve host minúsculo ou null).
  */
 const dnsp = require('dns').promises;
+const net = require('net');
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -43,7 +44,12 @@ function normHost(input) {
   const s = String(input || '').trim().toLowerCase();
   if (!s) return null;
   try {
-    const h = new URL(s.includes('://') ? s : 'https://' + s).hostname;
+    const h = new URL(s.includes('://') ? s : 'https://' + s).hostname.toLowerCase().replace(/\.$/, '');
+    if (!h || h === 'localhost' || net.isIP(h)) return null;
+    if (h.length > 253) return null;
+    const labels = h.split('.');
+    if (labels.some((label) => !label || label.length > 63)) return null;
+    if (/^\d+$/.test(labels[labels.length - 1])) return null;
     return DOMAIN_RE.test(h) ? h : null;
   } catch (_) { return null; }
 }

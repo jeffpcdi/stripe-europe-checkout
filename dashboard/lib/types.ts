@@ -362,22 +362,37 @@ export interface DomainDiagnostics {
   healthy: boolean
   likelyCause?: string
   provider?: { enabled?: boolean; reason?: string; detail?: string; [key: string]: unknown }
+  providerState?: { status?: string | null; verified?: boolean; sslStatus?: string | null; verificationErrors?: unknown; sslErrors?: unknown; error?: string }
+  // Alias legado mantido somente para compatibilidade de clientes antigos.
   cloudflare?: { status?: string; sslStatus?: string; verificationErrors?: unknown; sslErrors?: unknown; error?: string }
   dns?: { cname?: string[]; a?: string[]; resolves?: boolean; error?: string }
   tls?: { ok?: boolean; subject?: string | null; san?: string | null; covers?: boolean; error?: string }
   http?: { status?: number; servedByThisApp?: boolean; error?: string }
 }
 
+export interface DomainDnsGuide {
+  host: string
+  provider: string
+  providerLabel: string
+  confidence: 'high' | 'low' | string
+  zone?: string | null
+  nameservers?: string[]
+  apex?: boolean
+  steps: string[]
+}
+
 export interface DomainsResponse {
   domains: CustomDomain[]
   configUpdatedAt?: string | null
-  appHost: string
+  appHost: string | null
   // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
   // exige adição manual no painel da hospedagem — a UI mostra um aviso.
   autoProvision?: boolean
   domainProvider?: string | null
-  // Modo degradado do provider Cloudflare (sem CLOUDFLARE_CNAME_TARGET)
+  // Modo degradado do provider de infraestrutura.
   providerDegraded?: boolean
+  manualDnsAllowed?: boolean
+  providerStatus?: { configured?: boolean; authenticated?: boolean; saasAvailable?: boolean; edgeReady?: boolean; fallbackReady?: boolean; capacityAvailable?: boolean; reason?: string | null } | null
 }
 
 export interface DomainAddResponse {
@@ -386,11 +401,12 @@ export interface DomainAddResponse {
   dnsRecords: DomainDnsRecords | null
   managed: boolean
   providerNote: string | null
+  mode?: 'auto' | 'pending' | 'manual'
 }
 
 export interface DomainVerifyResult {
   host: string
-  appHost: string
+  appHost: string | null
   dnsOk: boolean
   dnsDetail: string
   // Item 175: registro já visível nos resolvers públicos (DoH) mas não no
@@ -468,7 +484,7 @@ export interface PixelLogRow {
 
 export interface PixelLogResponse {
   log: PixelLogRow[]
-  source: 'redis' | 'neon'
+  source: 'merged' | 'neon' | 'volatile'
 }
 
 // ── /api/pixels/health — saúde da CAPI ──
@@ -489,7 +505,9 @@ export interface PixelHealthResponse {
   events: PixelEventHealth[]
   errors: { at: string; pixel: string; event: string; message: string }[]
   retryQueue: number
-  source?: 'memory' | 'neon' | 'memory+neon'
+  source?: 'merged' | 'neon' | 'volatile'
+  runtimeSource?: 'neon' | 'hot-cache-fallback'
+  runtimeCoverageComplete?: boolean
   coverage?: PixelCoverage[]
 }
 
@@ -497,8 +515,10 @@ export interface PixelCoverage {
   slug: string
   name: string
   active: boolean
-  status: 'saudavel' | 'atencao' | 'sem_dados' | 'pausado'
+  status: 'saudavel' | 'atencao' | 'sem_dados' | 'pausado' | 'indisponivel'
   lastBrowserAt: string | null
+  runtimeSource?: 'neon' | 'hot-cache-fallback'
+  runtimeCoverageComplete?: boolean
   lastCapiAt: string | null
   lastCapiStatus: string | null
   domains: { host: string; visits: number; lastAt: string | null }[]
@@ -727,7 +747,7 @@ export interface CloakStatsResponse {
   challenge?: { beacons: number; lastAt: number | null }
 }
 
-// ── /api/cloak/entries — links de cloaking dedicados (/c/:slug) ──
+// ── /api/cloak/entries — links de cloaking dedicados (URL pública /:slug; /c/:slug legado) ──
 export interface CloakEntry {
   slug: string
   nome: string
@@ -818,12 +838,25 @@ export interface PixelVerifyUrlPixel {
   scriptOk: boolean // script /px/<token>.js presente na página
   nativeOk: boolean // pixelCode nativo (ttq) presente
   trackerScoped?: boolean // /t.js?px=TOKEN aponta para este pixel
-  instalado: boolean // scriptOk || nativeOk
+  runtimeSeen?: boolean
+  runtimeState?: 'seen' | 'not_seen' | 'unknown'
+  runtimeVisits?: number
+  lastSeenAt?: string | null
+  runtimeSource?: 'neon' | 'hot-cache-fallback'
+  runtimeCoverageComplete?: boolean
+  instalado: boolean | null // null = verificação inconclusiva
 }
 export interface PixelVerifyUrlResult {
   ok: boolean
   url?: string // URL final após redirects
-  algumInstalado?: boolean
+  algumInstalado?: boolean | null
+  trackerOk?: boolean | null
+  trackerStaticOk?: boolean
+  runtimeSeen?: boolean
+  runtimeState?: 'seen' | 'not_seen' | 'unknown'
+  runtimeSource?: 'neon' | 'hot-cache-fallback'
+  runtimeCoverageComplete?: boolean
+  legacyTracker?: boolean
   pixels?: PixelVerifyUrlPixel[]
   error?: string
 }
@@ -1223,7 +1256,13 @@ export interface AdsRoasResponse {
   conversions: number
   revenueCents: number
   sales: number
-  roas: number | null // receita/gasto; 0 quando não há gasto, null só com moedas incompatíveis
+  unattributedRevenueCents?: number
+  unattributedSales?: number
+  unattributedByCurrency?: Record<string, { revenueCents: number; sales: number; currency?: string }>
+  freshness?: 'fresh' | 'stale' | 'refreshing' | 'error' | 'incomplete' | 'unavailable'
+  quality?: 'exact' | 'mixed'
+  coverage?: { coverageFrom?: string | null; coverageTo?: string | null; covers?: boolean; exact?: boolean; freshness?: string; lastSyncedAt?: string | null; lastFinanceAt?: string | null }
+  roas: number | null // receita/gasto; null quando cobertura/moeda não permitem comparação segura
   cpa: number | null // gasto/vendas — null sem vendas
   attribution?: 'tiktok_last_paid_click'
   daily: AdsRoasDaily[]
@@ -1254,14 +1293,21 @@ export interface AdsProfitabilityResponse {
   netRevenueCents: number
   netProfitCents: number
   netMarginPct: number
-  roas: number
+  roas: number | null
   coverage: {
     feeExactPct: number
     taxExactPct: number
     productCostExactPct: number
     adSpendExact: boolean
+    from?: string | null
+    to?: string | null
+    freshness?: string
   }
   quality: 'exact' | 'mixed'
+  unattributedRevenueCents?: number
+  unattributedSales?: number
+  unattributedByCurrency?: Record<string, { revenueCents: number; sales: number; currency?: string }>
+  freshness?: 'fresh' | 'stale' | 'refreshing' | 'error' | 'incomplete' | 'unavailable'
   fixedCostCurrency?: string
   fixedCostsApplied?: boolean
   fixedCostCurrencyMismatch?: boolean
@@ -1317,6 +1363,8 @@ export interface AdsAttributionEntry {
   currency?: string | null
   revenueCents: number
   sales: number
+  mixedCurrency?: boolean
+  revenueByCurrency?: Record<string, number>
 }
 
 export interface AdsAttributionResponse {
@@ -1324,6 +1372,7 @@ export interface AdsAttributionResponse {
   toDate: string
   byCampaign: Record<string, AdsAttributionEntry>
   unattributed: AdsAttributionEntry // veio do TikTok mas sem ID de campanha
+  unattributedByCurrency?: Record<string, { revenueCents: number; sales: number; currency?: string }>
 }
 
 
