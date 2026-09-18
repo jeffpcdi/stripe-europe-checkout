@@ -3863,23 +3863,59 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
 
-  // Junta os dois tipos de link protegido: checkout (/go/<slug>) e cloak (/c/<slug>)
-  const goLinks = linkStore.list(acc).map((l) => ({ tipo: 'go', slug: l.slug, nome: l.nome, key: l.slug }));
-  const ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({ tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug }));
-  const all = goLinks.concat(ckLinks);
+  const zero = () => ({ offer: 0, white: 0, total: 0, offerRate: 0, reasons: {}, daily: [] });
+  const mergeStats = (a, b) => {
+    const left = a || zero(), right = b || zero();
+    const reasons = { ...(left.reasons || {}) };
+    for (const [key, value] of Object.entries(right.reasons || {})) reasons[key] = (reasons[key] || 0) + Number(value || 0);
+    const days = new Map();
+    for (const row of [...(left.daily || []), ...(right.daily || [])]) {
+      const cur = days.get(row.day) || { day: row.day, offer: 0, white: 0 };
+      cur.offer += Number(row.offer || 0);
+      cur.white += Number(row.white || 0);
+      days.set(row.day, cur);
+    }
+    const offer = Number(left.offer || 0) + Number(right.offer || 0);
+    const white = Number(left.white || 0) + Number(right.white || 0);
+    const total = offer + white;
+    return { offer, white, total, offerRate: total ? offer / total : 0, reasons, daily: [...days.values()].sort((x, y) => x.day.localeCompare(y.day)) };
+  };
 
+  const goLinks = linkStore.list(acc).map((l) => ({
+    tipo: 'go', slug: l.slug, nome: l.nome, key: l.slug, legacyKey: null, campaignId: null,
+  }));
+
+  let ckLinks;
+  if (cloakCampaignStore.isReady()) {
+    ckLinks = cloakCampaignStore.list(acc).map((campaign) => ({
+      tipo: 'cloak',
+      slug: campaign.path,
+      nome: campaign.name || campaign.path,
+      key: 'campaign:' + campaign.id,
+      legacyKey: campaign.legacySlug ? 'cloak:' + campaign.legacySlug : null,
+      campaignId: campaign.id,
+    }));
+  } else {
+    ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({
+      tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug, legacyKey: null, campaignId: null,
+    }));
+  }
+
+  const all = goLinks.concat(ckLinks);
   const items = await Promise.all(all.map(async (l) => {
-    const s = await redis.getCloakStats(acc, l.key).catch(() => null);
-    const st = s || { offer: 0, white: 0, total: 0, offerRate: 0, reasons: {}, daily: [] };
+    const primary = await redis.getCloakStats(acc, l.key).catch(() => null);
+    const legacy = l.legacyKey && l.legacyKey !== l.key
+      ? await redis.getCloakStats(acc, l.legacyKey).catch(() => null)
+      : null;
+    const st = mergeStats(primary, legacy);
     return {
-      tipo: l.tipo, slug: l.slug, nome: l.nome,
+      tipo: l.tipo, slug: l.slug, nome: l.nome, campaignId: l.campaignId || undefined,
       offer: st.offer, white: st.white, total: st.total,
-      blockRate: st.total ? st.white / st.total : 0,   // taxa de bloqueio
-      reasons: st.reasons, daily: st.daily
+      blockRate: st.total ? st.white / st.total : 0,
+      reasons: st.reasons, daily: st.daily,
     };
   }));
 
-  // Agregado geral da conta
   const agg = items.reduce((a, it) => {
     a.offer += it.offer; a.white += it.white; a.total += it.total;
     Object.keys(it.reasons || {}).forEach((r) => { a.reasons[r] = (a.reasons[r] || 0) + it.reasons[r]; });
@@ -3887,8 +3923,6 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   }, { offer: 0, white: 0, total: 0, reasons: {} });
   agg.blockRate = agg.total ? agg.white / agg.total : 0;
 
-  // Item 201: quantos visitantes estão em cache como bot AGORA (sticky 6h).
-  // Item 203: quantos acessos foram barrados por replay de ttclid (30d).
   const [sticky, ttclidReplays] = await Promise.all([
     redis.countStickyBots().catch(() => ({ available: false, count: 0 })),
     redis.getTtclidReplayCount(acc).catch(() => 0)
@@ -3896,8 +3930,6 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
 
   res.json({
     ok: true, redis: redis.enabled, aggregate: agg, links: items, sticky, ttclidReplays,
-    // Item 209: se nunca chegou beacon do challenge, o snippet /t.js não está
-    // instalado nas páginas — as camadas D–H do julgamento ficam inertes.
     challenge: { beacons: _challengeBeacon.count, lastAt: _challengeBeacon.lastAt || null }
   });
 });
@@ -3944,13 +3976,25 @@ app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
 // Zera os contadores de um link (ou de todos, se slug ausente).
 app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
   const acc = req.account.id;
-  const key = req.body && req.body.key ? String(req.body.key).slice(0, 60) : null;
+  const key = req.body && req.body.key ? String(req.body.key).slice(0, 100) : null;
   if (key) {
-    await redis.resetCloakStats(acc, key).catch(() => {});
+    const keys = [key];
+    if (key.startsWith('campaign:') && cloakCampaignStore.isReady()) {
+      const campaign = cloakCampaignStore.get(acc, key.slice('campaign:'.length));
+      if (campaign && campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+    }
+    await Promise.all([...new Set(keys)].map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   } else {
-    const keys = linkStore.list(acc).map((l) => l.slug)
-      .concat((config.get(acc).cloakLinks || []).map((l) => 'cloak:' + l.slug));
-    await Promise.all(keys.map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
+    const keys = linkStore.list(acc).map((l) => l.slug);
+    if (cloakCampaignStore.isReady()) {
+      for (const campaign of cloakCampaignStore.list(acc)) {
+        keys.push('campaign:' + campaign.id);
+        if (campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+      }
+    } else {
+      keys.push(...(config.get(acc).cloakLinks || []).map((l) => 'cloak:' + l.slug));
+    }
+    await Promise.all([...new Set(keys)].map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   }
   res.json({ ok: true });
 });
@@ -3962,9 +4006,20 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
 app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
-  const key = req.query && req.query.key ? String(req.query.key).slice(0, 60) : '';
+  const key = req.query && req.query.key ? String(req.query.key).slice(0, 100) : '';
   if (!key) return res.status(400).json({ ok: false, error: 'informe key' });
-  const log = await redis.getCloakDecisionLog(acc, key).catch(() => []);
+
+  const keys = [key];
+  if (key.startsWith('campaign:') && cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.get(acc, key.slice('campaign:'.length));
+    if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+    if (campaign.legacySlug) keys.push('cloak:' + campaign.legacySlug);
+  }
+
+  const logs = await Promise.all([...new Set(keys)].map((item) =>
+    redis.getCloakDecisionLog(acc, item).catch(() => [])
+  ));
+  const log = logs.flat().sort((a, b) => Number(b.at || 0) - Number(a.at || 0)).slice(0, 50);
   res.json({ ok: true, key, log, source: redis.enabled ? 'redis' : 'memory' });
 });
 
