@@ -122,8 +122,12 @@ function put(campaign) {
   }
 
   const apk = accountPathKey(campaign.accountId, campaign.path);
-  if (!byAccountPath.has(apk)) byAccountPath.set(apk, campaign);
-  else if (byAccountPath.get(apk).id !== campaign.id) byAccountPath.set(apk, null);
+  if (!byAccountPath.has(apk)) {
+    byAccountPath.set(apk, campaign);
+  } else {
+    const currentPath = byAccountPath.get(apk);
+    if (!currentPath || currentPath.id !== campaign.id) byAccountPath.set(apk, null);
+  }
 
   const rows = byAccount.get(campaign.accountId) || [];
   rows.push(campaign);
