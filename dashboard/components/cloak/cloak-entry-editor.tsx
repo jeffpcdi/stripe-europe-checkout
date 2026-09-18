@@ -285,7 +285,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               <label className={labelCls} htmlFor="ck-dom">Domínio</label>
               {verifiedDomains.length === 0 && !dominio ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Nenhum domínio verificado ainda. O link usará o domínio principal do app. Você pode cadastrar um domínio próprio em <span className="font-medium text-foreground">Domínios</span>.
+                  Nenhum domínio dedicado ao Cloaker está pronto. Cadastre ou ajuste um domínio em <span className="font-medium text-foreground">Domínios</span> antes de criar a campanha.
                 </p>
               ) : (
                 <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
