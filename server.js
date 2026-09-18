@@ -40,6 +40,8 @@ const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const publicSlug = require('./public-slug');
+const cloakCampaignStore = require('./cloak-campaign-store');
+const cloakTrafficSources = require('./cloak-traffic-sources');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
 const domainSecurity = require('./domain-security');
@@ -1261,23 +1263,88 @@ app.get('/go/:slug', handleCheckoutPublic);
 // Roteia tráfego normal → destino principal; bots/automação → destino seguro. Usa a config
 // de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
 // sensibilidade e camadas de detecção.
+function campaignToCloakEntry(campaign) {
+  if (!campaign) return null;
+  const settings = campaign.settings || {};
+  return {
+    id: campaign.id,
+    campaignId: campaign.id,
+    revision: campaign.revision,
+    slug: campaign.path,
+    nome: campaign.name || campaign.path,
+    dominio: campaign.domainHost || '',
+    offerUrl: campaign.primaryUrl,
+    whitePageUrl: campaign.safeUrl || '',
+    trafficSource: campaign.trafficSource || 'tiktok_standard',
+    trafficToken: campaign.trafficToken || '',
+    legacySlug: campaign.legacySlug || '',
+    enabled: settings.enabled !== false,
+    shadowMode: settings.shadowMode === true,
+    mobileOnly: settings.mobileOnly === true,
+    requireAdClick: false,
+    sensitivity: settings.sensitivity || 'balanced',
+    threshold: settings.threshold,
+    deadlineMs: settings.deadlineMs,
+    paisPreset: settings.paisPreset || '',
+    paises: Array.isArray(settings.paises) ? settings.paises : [],
+    idiomas: Array.isArray(settings.idiomas) ? settings.idiomas : [],
+    blockDatacenter: settings.blockDatacenter,
+    blockHeadless: settings.blockHeadless,
+    checkHeaders: settings.checkHeaders,
+    requireJsChallenge: settings.requireJsChallenge,
+    checkWebgl: settings.checkWebgl,
+    checkTimezone: settings.checkTimezone,
+    checkBehavior: settings.checkBehavior,
+    blockZhLang: settings.blockZhLang,
+    checkWebview: settings.checkWebview,
+    checkCoherence: settings.checkCoherence,
+    checkEntropy: settings.checkEntropy,
+    criadoEm: campaign.createdAt,
+    updatedAt: campaign.updatedAt,
+    linkKit: cloakTrafficSources.buildLinkKit(campaign),
+  };
+}
+
 function resolveCloakEntry(req) {
   const slug = _ckSlugify(req.params.slug);
   if (!slug) return null;
+  const host = trustedRequestHost(req);
   const domainOwner = publicDomainOwner(req);
   const pref = domainOwner || publicAccountId(req);
+
+  // V16.21: campanhas profissionais usam host+path como chave pública e um ID
+  // permanente como identidade interna. O hot path é O(1) em memória.
+  if (cloakCampaignStore.isReady()) {
+    const exact = host ? cloakCampaignStore.resolve(host, slug) : null;
+    if (exact) {
+      if (domainOwner && exact.accountId !== domainOwner) return null;
+      if (exact.domainHost) {
+        const domain = (config.get(exact.accountId).customDomains || []).find((d) => d.host === exact.domainHost);
+        if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
+      }
+      return { acc: exact.accountId, entry: campaignToCloakEntry(exact), campaign: exact };
+    }
+
+    // Compatibilidade para campanhas migradas que ainda não tinham domínio.
+    // Novas campanhas V2 nunca entram aqui: a API exige domínio dedicado.
+    if (!domainOwner && pref) {
+      const shared = cloakCampaignStore.findByPath(pref, slug);
+      if (shared && !shared.domainHost) {
+        return { acc: shared.accountId, entry: campaignToCloakEntry(shared), campaign: shared };
+      }
+    }
+  }
+
+  // Fallback legado: config.cloakLinks continua somente para rollback e para
+  // instalações temporariamente sem Neon durante a migração.
   const tryAcc = (acc) => {
     const e = (config.get(acc).cloakLinks || []).find((l) => l.slug === slug);
-    return e ? { acc, entry: e } : null;
+    return e ? { acc, entry: e, campaign: null } : null;
   };
-  // Em host personalizado, o domínio já identifica a conta: não procure em
-  // nenhuma outra. Isso evita servir offer/white de outro tenant por colisão
-  // de slug. No host compartilhado, preserva o fallback global legado.
   if (pref) {
     const r = tryAcc(pref);
     if (domainOwner) {
       if (!r) return null;
-      const host = trustedRequestHost(req);
       const domain = (config.get(pref).customDomains || []).find((d) => d.host === host);
       if (!domain || !domain.verificado || (domain.status && domain.status !== 'active') || domain.uso === 'checkout') return null;
       if (r.entry.dominio && r.entry.dominio !== host) return null;
@@ -1293,7 +1360,8 @@ function resolveCloakEntry(req) {
 async function handleCloakPublic(req, res) {
   const found = resolveCloakEntry(req);
   if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
-  const { acc, entry } = found;
+  const { acc, entry, campaign = null } = found;
+  const decisionKey = campaign ? 'campaign:' + campaign.id : 'cloak:' + entry.slug;
   const offer = entry.offerUrl;
   // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
   const acctCloak = config.get(acc).cloak || {};
@@ -1308,9 +1376,9 @@ async function handleCloakPublic(req, res) {
   // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
   // sem PII. `score` é opcional (só o gate de score o conhece).
   const bumpDecision = (decision, reason, score, signals) => {
-    try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
+    try { redis.bumpCloakDecision(acc, decisionKey, decision, reason); } catch (_) {}
     try {
-      redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
+      redis.pushCloakDecision(acc, decisionKey, {
         decision, reason, score,
         signals, // Item 212: top sinais do judge nesta decisão (para calibrar camadas)
         ip: clientIp(req),
@@ -1320,16 +1388,17 @@ async function handleCloakPublic(req, res) {
     } catch (_) {}
   };
 
-  // preserva a query original (UTMs/ttclid) no destino final
+  // Preserva parâmetros de atribuição, mas nunca vaza parâmetros internos do
+  // ROI-NADOS (token rk, debug/challenge etc.) para a página de destino.
+  const outboundParams = () => cloakTrafficSources.stripInternalParams(
+    new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '')
+  );
   const go = (url) => {
-    const qs = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
+    const qs = outboundParams().toString();
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
-  // Igual ao go(), mas garante o vid na query do destino. O tracker (/t.js) dá
-  // preferência ao ?vid= da URL, então a página de destino (offer) amarra os
-  // sinais do browser a ESTE visitante mesmo em outro domínio (cookie não cruza).
   const goWithVid = (url, vid) => {
-    const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    const params = outboundParams();
     if (vid && !params.get('vid')) params.set('vid', vid);
     const qs = params.toString();
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
@@ -1408,7 +1477,7 @@ async function handleCloakPublic(req, res) {
       const vcfg = config.get(acc).cloak || {};
       const vLimit = vcfg.velocityLimit || 12;
       const vWin = vcfg.velocityWindowSec || 60;
-      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, vWin).catch(() => 0);
+      const vip = await redis.bumpVelocity('c:' + (campaign ? campaign.id : entry.slug) + ':ip', ip, vWin).catch(() => 0);
       if (vip > vLimit) {
         stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: 'cloak:' + entry.slug, ref: ip });
         bumpDecision('white', 'velocity');
@@ -3120,7 +3189,11 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   // Não cria referências órfãs. Um domínio usado por um link público ou por
   // uma entrada do Cloak precisa ser trocado antes de ser removido.
   const checkoutRefs = linkStore.list(req.account.id).filter((link) => link.dominio === host);
-  const cloakRefs = (config.get(req.account.id).cloakLinks || []).filter((link) => link.dominio === host);
+  const cloakRefsLegacy = (config.get(req.account.id).cloakLinks || []).filter((link) => link.dominio === host);
+  const cloakRefsV2 = cloakCampaignStore.isReady()
+    ? cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.domainHost === host)
+    : [];
+  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
   if (checkoutRefs.length || cloakRefs.length) {
     const refs = [];
     if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
