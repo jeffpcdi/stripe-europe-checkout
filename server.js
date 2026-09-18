@@ -3981,6 +3981,177 @@ const _ckHost = (input) => {
   try { return new URL(s.includes('://') ? s : 'https://' + s).hostname.toLowerCase(); } catch (_) { return ''; }
 };
 
+// ── V16.21: campanhas de Cloaker duráveis (ID permanente + domínio + path) ──
+function _ckCampaignSettings(body) {
+  const b = body || {};
+  const out = {};
+  [
+    'enabled', 'shadowMode', 'mobileOnly', 'blockDatacenter', 'blockHeadless',
+    'checkHeaders', 'requireJsChallenge', 'checkWebgl', 'checkTimezone',
+    'checkBehavior', 'blockZhLang', 'checkWebview', 'checkCoherence', 'checkEntropy'
+  ].forEach((key) => { if (typeof b[key] === 'boolean') out[key] = b[key]; });
+  out.requireAdClick = false;
+  if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) out.sensitivity = b.sensitivity;
+  if (b.threshold !== undefined && Number.isFinite(Number(b.threshold))) out.threshold = Number(b.threshold);
+  if (b.deadlineMs !== undefined && Number.isFinite(Number(b.deadlineMs))) out.deadlineMs = Number(b.deadlineMs);
+  if (b.paisPreset !== undefined) out.paisPreset = String(b.paisPreset || '');
+  if (Array.isArray(b.paises)) out.paises = b.paises;
+  if (Array.isArray(b.idiomas)) out.idiomas = b.idiomas;
+  return out;
+}
+
+function _ckCampaignDomain(accountId, requestedHost) {
+  const host = _ckHost(requestedHost);
+  if (!host) return { ok: false, code: 'cloak_domain_required', error: 'Escolha um domínio dedicado ao Cloaker.' };
+  const domain = (config.get(accountId).customDomains || []).find((d) => d.host === host);
+  if (!domain) return { ok: false, code: 'cloak_domain_not_found', error: 'Este domínio não pertence à sua conta.' };
+  if (!domain.verificado || (domain.status && domain.status !== 'active')) {
+    return { ok: false, code: 'cloak_domain_not_verified', error: 'Este domínio ainda não está pronto.' };
+  }
+  if (domain.uso === 'checkout') {
+    return { ok: false, code: 'cloak_domain_wrong_usage', error: 'Este domínio está reservado para Links.' };
+  }
+  return { ok: true, host, domain };
+}
+
+app.get('/api/cloak/campaigns', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = trustedRequestHost(req);
+  const campaigns = cloakCampaignStore.isReady() ? cloakCampaignStore.list(req.account.id) : [];
+  const entries = campaigns.length
+    ? campaigns.map(campaignToCloakEntry)
+    : (config.get(req.account.id).cloakLinks || []).map((item) => ({ ...item, legacy: true }));
+  res.json({ entries, baseUrl: 'https://' + host, durable: cloakCampaignStore.isReady() });
+});
+
+app.post('/api/cloak/campaigns', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!cloakCampaignStore.isReady()) {
+    return apiError(res, 503,
+      'A persistência durável do Cloaker está indisponível.',
+      'cloak_campaign_store_unavailable',
+      'Nenhuma alteração foi publicada. Tente novamente em instantes.');
+  }
+
+  const b = req.body || {};
+  const acc = req.account.id;
+  const requestedId = String(b.id || b.campaignId || '').trim().slice(0, 80);
+  const createOnly = b._createOnly === true || !requestedId;
+  let existing = requestedId ? cloakCampaignStore.get(acc, requestedId) : null;
+
+  // Compatibilidade para clientes que ainda identificam a edição pelo path.
+  if (!existing && !createOnly) {
+    const originalPath = _ckSlugify(b._originalSlug || b.slug || '');
+    const domainHost = _ckHost(b.dominio || '');
+    if (originalPath) existing = cloakCampaignStore.findByPath(acc, originalPath, domainHost || undefined);
+  }
+  if (!createOnly && !existing) {
+    return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found', 'Atualize a lista e tente novamente.');
+  }
+
+  const domainCheck = _ckCampaignDomain(acc, b.dominio !== undefined ? b.dominio : existing && existing.domainHost);
+  if (!domainCheck.ok) {
+    return apiError(res, 422, domainCheck.error, domainCheck.code, 'Cadastre e ative um domínio com uso Cloaker antes de salvar.');
+  }
+
+  // Novas campanhas e trocas de domínio usam namespace dedicado ao Cloaker.
+  // Campanhas migradas em domínio "ambos" continuam editáveis sem migração forçada.
+  const domainChanged = existing && existing.domainHost !== domainCheck.host;
+  if ((!existing || domainChanged) && domainCheck.domain.uso !== 'cloaker') {
+    return apiError(res, 422,
+      'Novas campanhas precisam de um domínio dedicado ao Cloaker.',
+      'cloak_domain_not_dedicated',
+      'Em Domínios, altere o uso para Cloaker e tente novamente.');
+  }
+
+  const name = String(b.nome !== undefined ? b.nome : existing && existing.name || '').trim();
+  const primaryUrl = String(b.offerUrl !== undefined ? b.offerUrl : existing && existing.primaryUrl || '').trim();
+  const safeUrl = String(b.whitePageUrl !== undefined ? b.whitePageUrl : existing && existing.safeUrl || '').trim();
+  if (!name) return apiError(res, 400, 'Dê um nome à campanha.', 'cloak_name_required');
+  if (!_ckValidHttps(primaryUrl)) return apiError(res, 400, 'O destino principal precisa ser uma URL https:// válida.', 'cloak_primary_url_invalid');
+  if (safeUrl && !_ckValidHttps(safeUrl)) return apiError(res, 400, 'O destino seguro precisa ser uma URL https:// válida.', 'cloak_safe_url_invalid');
+
+  const requestedPath = b.slug !== undefined ? _ckSlugify(b.slug) : (existing ? existing.path : '');
+  if (requestedPath) {
+    const checked = publicSlug.validate(requestedPath);
+    if (!checked.ok) return apiError(res, 422, checked.error, checked.code, 'Escolha outro endereço público.');
+  }
+
+  const createKey = String(b._createKey || '').trim().slice(0, 120);
+  const createKeyHash = createKey
+    ? crypto.createHash('sha256').update(acc + '|' + createKey).digest('hex').slice(0, 24)
+    : '';
+  const settings = _ckCampaignSettings(b);
+
+  try {
+    let campaign;
+    let replayed = false;
+    if (!existing) {
+      const created = await cloakCampaignStore.create(acc, {
+        domainHost: domainCheck.host,
+        path: requestedPath,
+        name,
+        primaryUrl,
+        safeUrl,
+        trafficSource: b.trafficSource || 'tiktok_standard',
+        createKeyHash,
+        settings,
+      });
+      campaign = created.campaign;
+      replayed = created.replayed === true;
+    } else {
+      campaign = await cloakCampaignStore.update(acc, existing.id, {
+        domainHost: domainCheck.host,
+        path: requestedPath || existing.path,
+        name,
+        primaryUrl,
+        safeUrl,
+        trafficSource: b.trafficSource !== undefined ? b.trafficSource : existing.trafficSource,
+        settings,
+      }, { expectedUpdatedAt: b._baseUpdatedAt || '' });
+    }
+    const entry = campaignToCloakEntry(campaign);
+    stats.logEvent('info', {
+      acc,
+      title: 'Campanha de Cloaker salva: ' + entry.nome,
+      ref: campaign.id,
+    });
+    return res.json({ ok: true, entry, replayed, linkKit: entry.linkKit });
+  } catch (err) {
+    const status = Number(err && err.status) || (err && err.code === 'conflict' ? 409 : 500);
+    return apiError(res, status,
+      err && err.message || 'Não foi possível salvar a campanha de Cloaker.',
+      err && err.code || 'cloak_campaign_save_failed',
+      status >= 500 ? 'Nenhuma alteração foi publicada. Tente novamente em instantes.' : undefined);
+  }
+});
+
+app.delete('/api/cloak/campaigns/:id', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!cloakCampaignStore.isReady()) {
+    return apiError(res, 503, 'A persistência durável do Cloaker está indisponível.', 'cloak_campaign_store_unavailable');
+  }
+  const id = String(req.params.id || '').slice(0, 80);
+  const campaign = cloakCampaignStore.get(req.account.id, id);
+  if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+  try {
+    await cloakCampaignStore.remove(req.account.id, id, {
+      expectedUpdatedAt: String((req.query && req.query.baseUpdatedAt) || ''),
+    });
+    stats.logEvent('info', { acc: req.account.id, title: 'Campanha de Cloaker removida', ref: id });
+    res.json({ ok: true });
+  } catch (err) {
+    return apiError(res, Number(err && err.status) || 500, err.message || 'Falha ao remover campanha.', err.code || 'cloak_campaign_delete_failed');
+  }
+});
+
+app.get('/api/cloak/campaigns/:id/link-kit', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const campaign = cloakCampaignStore.get(req.account.id, String(req.params.id || '').slice(0, 80));
+  if (!campaign) return apiError(res, 404, 'Campanha de Cloaker não encontrada.', 'cloak_campaign_not_found');
+  res.json({ ok: true, campaignId: campaign.id, ...cloakTrafficSources.buildLinkKit(campaign) });
+});
+
 app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = trustedRequestHost(req);
