@@ -2258,7 +2258,7 @@ app.get('/api/account/export', dashboardAuth, async (req, res) => {
   const auditRows = await db.listAudit(acc, 500).catch(() => []);
   const payload = {
     formato: 'pragmatic-flow-conta-completa',
-    versao: 1,
+    versao: 2,
     exportadoEm: new Date().toISOString(),
     conta: { id: acc, email: req.account.email, name: req.account.name, criadaEm: req.account.created_at || null },
     settings: cfg.settings || {},
@@ -2662,6 +2662,18 @@ app.get('/api/backup/export', dashboardAuth, (req, res) => {
       return rest;
     }),
     dominios: (cfg.customDomains || []).map((d) => ({ host: d.host, uso: d.uso || 'ambos' })),
+    cloakCampaigns: cloakCampaignStore.isReady() ? cloakCampaignStore.list(acc).map((campaign) => ({
+      id: campaign.id,
+      domainHost: campaign.domainHost,
+      path: campaign.path,
+      name: campaign.name,
+      primaryUrl: campaign.primaryUrl,
+      safeUrl: campaign.safeUrl,
+      trafficSource: campaign.trafficSource,
+      settings: campaign.settings,
+      createdAt: campaign.createdAt,
+      updatedAt: campaign.updatedAt,
+    })) : [],
     cloakLinks: cfg.cloakLinks || [],
     cloak: cfg.cloak || null
   };
@@ -2682,7 +2694,7 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
     return apiError(res, 400, 'Arquivo não reconhecido — exporte o backup pela própria dashboard.', 'bad_format');
   }
   const acc = req.account.id;
-  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, erros: [] };
+  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, cloakCampaigns: 0, erros: [] };
   try {
     for (const l of (Array.isArray(b.links) ? b.links : []).slice(0, 100)) {
       try { await linkStore.save(acc, l); report.links++; }
@@ -2703,6 +2715,34 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
     if (Object.keys(patch).length) {
       await config.setDurable(acc, patch);
       report.cloakLinks = (patch.cloakLinks || []).length;
+      if (patch.cloakLinks && cloakCampaignStore.enabled) {
+        await cloakCampaignStore.migrateLegacy(acc, patch.cloakLinks).catch((e) => {
+          report.erros.push('migração do Cloaker legado: ' + e.message);
+        });
+      }
+    }
+    if (Array.isArray(b.cloakCampaigns) && cloakCampaignStore.isReady()) {
+      const knownDomains = new Set((config.get(acc).customDomains || []).map((d) => d.host));
+      for (const campaign of b.cloakCampaigns.slice(0, 100)) {
+        try {
+          const domainHost = _ckHost(campaign && campaign.domainHost);
+          if (!domainHost || !knownDomains.has(domainHost)) {
+            throw new Error('domínio ' + (domainHost || 'ausente') + ' precisa estar cadastrado antes da restauração');
+          }
+          await cloakCampaignStore.create(acc, {
+            domainHost,
+            path: campaign.path,
+            name: campaign.name,
+            primaryUrl: campaign.primaryUrl,
+            safeUrl: campaign.safeUrl,
+            trafficSource: campaign.trafficSource,
+            settings: campaign.settings || {},
+          });
+          report.cloakCampaigns++;
+        } catch (e) {
+          report.erros.push('campanha Cloaker ' + String(campaign && (campaign.name || campaign.path) || '?') + ': ' + e.message);
+        }
+      }
     }
     stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
     audit(req, req.account.id, 'backup_importado', 'Backup restaurado no painel'); // item 417
@@ -3777,13 +3817,27 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   // Item 134: quando vem `slug`, simula o julgamento DAQUELE link /c/:slug —
   // usa a config do próprio entry no motor de score E reporta segmentações extras
   // (mobile, país, idioma) que decidem antes do score na rota real.
-  const slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
+  let slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
+  const campaignId = req.body && req.body.campaignId ? String(req.body.campaignId).slice(0, 80) : '';
   let cloakCfg = config.get(req.account.id).cloak || {};
   let entry = null;
-  if (slug) {
-    entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
+  if (campaignId && cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.get(req.account.id, campaignId);
+    if (!campaign) return res.status(404).json({ error: 'campanha de cloaking não encontrada' });
+    entry = campaignToCloakEntry(campaign);
+    slug = entry.slug;
+    cloakCfg = entry;
+  } else if (slug) {
+    if (cloakCampaignStore.isReady()) {
+      const candidates = cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.path === _ckSlugify(slug));
+      if (candidates.length === 1) entry = campaignToCloakEntry(candidates[0]);
+      else if (candidates.length > 1) {
+        return apiError(res, 409, 'Há mais de uma campanha com este path.', 'cloak_path_ambiguous', 'Envie o campaignId para testar a campanha correta.');
+      }
+    }
+    if (!entry) entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === _ckSlugify(slug)) || null;
     if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
-    cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
+    cloakCfg = entry;
   }
 
   // Modo simulação: monta um request sintético a partir do perfil escolhido.
@@ -6752,6 +6806,20 @@ botFilter.assertSecurityConfig();
 // no primeiro request pós-deploy.
 stats.hydrate()
   .then(() => config.hydrate())
+  .then(async () => {
+    if (!cloakCampaignStore.enabled) return;
+    try {
+      await cloakCampaignStore.ensureSchema();
+      const accountIds = await db.listAccountIds();
+      for (const accountId of accountIds) {
+        await cloakCampaignStore.migrateLegacy(accountId, config.get(accountId).cloakLinks || []);
+      }
+      await cloakCampaignStore.hydrate();
+      console.log('[cloak-campaign-store] campanhas hidratadas: ' + accountIds.reduce((n, accountId) => n + cloakCampaignStore.list(accountId).length, 0));
+    } catch (err) {
+      console.error('[cloak-campaign-store] boot degradado:', err && err.message || err);
+    }
+  })
   .then(() => pixelStore.init())
   .then(() => linkStore.init())
   .then(() => gatewayStore.init())
