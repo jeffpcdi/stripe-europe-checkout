@@ -88,6 +88,14 @@ function clearIndexes() {
   byAccount.clear();
 }
 
+function recomputeAccountPath(accountId, path) {
+  const key = accountPathKey(accountId, path);
+  const matches = [...byId.values()].filter((row) => row.accountId === String(accountId || '') && row.path === cleanPath(path));
+  if (!matches.length) byAccountPath.delete(key);
+  else if (matches.length === 1) byAccountPath.set(key, matches[0]);
+  else byAccountPath.set(key, null);
+}
+
 function removeFromIndexes(campaign) {
   if (!campaign) return;
   byId.delete(campaign.id);
@@ -97,9 +105,7 @@ function removeFromIndexes(campaign) {
     const ark = accountRouteKey(campaign.accountId, campaign.domainHost, campaign.path);
     if (byAccountRoute.get(ark) && byAccountRoute.get(ark).id === campaign.id) byAccountRoute.delete(ark);
   }
-  const apk = accountPathKey(campaign.accountId, campaign.path);
-  const pathValue = byAccountPath.get(apk);
-  if (pathValue && pathValue.id === campaign.id) byAccountPath.delete(apk);
+  recomputeAccountPath(campaign.accountId, campaign.path);
   const rows = byAccount.get(campaign.accountId) || [];
   byAccount.set(campaign.accountId, rows.filter((row) => row.id !== campaign.id));
 }
