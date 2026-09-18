@@ -69,9 +69,9 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     const earth = new THREE.MeshStandardMaterial({
       // Base com saturação e contraste vivos, sem esbranquiçar os oceanos e relevos.
       color: '#dce9f1',
-      roughness: 0.72,
-      metalness: 0.015,
-      envMapIntensity: 0.18,
+      roughness: 0.78,
+      metalness: 0.008,
+      envMapIntensity: 0.14,
       bumpScale: 0.27,
       emissive: '#000000',
       emissiveIntensity: 0,
@@ -649,16 +649,14 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
     }
 
     // Iluminação calibrada com profundidade, mantendo os continentes e oceanos nítidos e vivos.
-    const fill = new THREE.AmbientLight('#7397b9', 0.62)
-    const key = new THREE.DirectionalLight('#eef6f8', 1.62)
+    const fill = new THREE.AmbientLight('#7397b9', 0.48)
+    const key = new THREE.DirectionalLight('#eef6f8', 1.38)
     key.position.set(-162, 102, 214)
-    const coolFill = new THREE.DirectionalLight('#4aa8c7', 0.58)
+    const coolFill = new THREE.DirectionalLight('#4aa8c7', 0.48)
     coolFill.position.set(94, 38, 132)
-    const cyanRim = new THREE.DirectionalLight('#48bfd4', 0.38)
+    const cyanRim = new THREE.DirectionalLight('#48bfd4', 0.32)
     cyanRim.position.set(170, -42, -154)
-    const violetRim = new THREE.DirectionalLight('#6f6faa', 0.10)
-    violetRim.position.set(-146, -26, -142)
-    globe.lights([fill, key, coolFill, cyanRim, violetRim])
+    globe.lights([fill, key, coolFill, cyanRim])
     if (!cameraInitialized.current) {
       const coords = initialFocus.current ? COUNTRY_COORDS[initialFocus.current] : undefined
       globe.pointOfView({ lat: coords?.[0] ?? 8, lng: coords?.[1] ?? -48, altitude: fittedAltitude() }, 0)
@@ -820,7 +818,7 @@ export default function GlobePanel({ countries, embedded = false, online, focusC
           globeImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-blue-marble.jpg'}
           bumpImageUrl={textureFailed ? undefined : '/dashboard/textures/earth-topology.png'}
           showGraticules={textureFailed}
-          showAtmosphere atmosphereColor="#68b9c8" atmosphereAltitude={0.028}
+          showAtmosphere atmosphereColor="#5baccc" atmosphereAltitude={0.022}
           htmlElementsData={embedded && !isImmersive ? [] : htmlMarkers}
           htmlLat="lat"
           htmlLng="lng"

@@ -10,6 +10,11 @@
 
 # AGENTS.md — ROI-NADOS
 
+## Refino de responsividade do observatório — 18/09/2026
+- Responsividade de `dashboard-refinement.css` alinhada à arquitetura real dos rails V10 (`observatory-metric-rail--left`, `observatory-globe`, `observatory-metric-rail--right`), eliminando declarações legadas de `grid-template-areas`.
+- Suporte calibrado para 1440×1000 (desktop 3 colunas fluida), 844×390 (mobile paisagem cockpit horizontal compacto com barra e abas reduzidas), 390×844 (mobile retrato simétrico com 2 colunas topo, globo central sem vão morto e 3 colunas na base) e tablets (768px a 1199px).
+- Calibração de materiais e iluminação do globo WebGL em `globe.tsx` para integração contínua com o fundo espacial sem superexposição.
+
 ## Navbar SaaS integrada sobre b7f09a3 — 14/09/2026
 - `TopNav` usa `.premium-navbar`: 56px, sticky, vidro escuro, logo horizontal e abas Visão Geral/Rastreamento/Vendas/Alertas. Vendas abre `/activity`; Alertas abre a central existente. Rotas secundárias seguem nos menus de conta e mobile.
 - `WorkspaceMenu` reutiliza `/api/ads/accounts/select`, atualiza SWR somente após confirmação e preserva a reconciliação de advertiser da base. Trocas globais retornam a paginação de campanhas ao início.
