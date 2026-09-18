@@ -110,6 +110,10 @@ function publicSlugConflict(accountId, slug, ignore) {
   if (link && link.slug !== opts.linkSlug) return { type: 'link', item: link };
   const cloak = (config.get(accountId).cloakLinks || []).find((entry) => entry.slug === s);
   if (cloak && cloak.slug !== opts.cloakSlug) return { type: 'cloak', item: cloak };
+  if (cloakCampaignStore.isReady()) {
+    const campaign = cloakCampaignStore.list(accountId).find((entry) => entry.path === s);
+    if (campaign && campaign.path !== opts.campaignPath) return { type: 'cloak_campaign', item: campaign };
+  }
   return null;
 }
 
