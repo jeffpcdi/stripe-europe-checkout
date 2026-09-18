@@ -3945,7 +3945,8 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
 
   let ckLinks;
   if (cloakCampaignStore.isReady()) {
-    ckLinks = cloakCampaignStore.list(acc).map((campaign) => ({
+    const durable = cloakCampaignStore.list(acc);
+    ckLinks = durable.map((campaign) => ({
       tipo: 'cloak',
       slug: campaign.path,
       nome: campaign.name || campaign.path,
@@ -3953,6 +3954,18 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
       legacyKey: campaign.legacySlug ? 'cloak:' + campaign.legacySlug : null,
       campaignId: campaign.id,
     }));
+    // Migração é fail-soft: se uma entrada antiga não conseguiu virar campanha,
+    // ela continua visível/operável e mantém seus contadores pelo key legado.
+    const migratedLegacy = new Set(durable.map((campaign) => campaign.legacySlug).filter(Boolean));
+    const durableRoutes = new Set(durable.map((campaign) => (campaign.domainHost || '') + '\0' + campaign.path));
+    for (const legacy of (config.get(acc).cloakLinks || [])) {
+      const route = String(legacy.dominio || '') + '\0' + String(legacy.slug || '');
+      if (migratedLegacy.has(legacy.slug) || durableRoutes.has(route)) continue;
+      ckLinks.push({
+        tipo: 'cloak', slug: legacy.slug, nome: legacy.nome || legacy.slug,
+        key: 'cloak:' + legacy.slug, legacyKey: null, campaignId: null,
+      });
+    }
   } else {
     ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({
       tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug, legacyKey: null, campaignId: null,
@@ -4130,10 +4143,21 @@ function _ckCampaignDomain(accountId, requestedHost) {
 app.get('/api/cloak/campaigns', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = trustedRequestHost(req);
-  const campaigns = cloakCampaignStore.isReady() ? cloakCampaignStore.list(req.account.id) : [];
-  const entries = campaigns.length
-    ? campaigns.map(campaignToCloakEntry)
-    : (config.get(req.account.id).cloakLinks || []).map((item) => ({ ...item, legacy: true }));
+  const legacy = config.get(req.account.id).cloakLinks || [];
+  let entries;
+  if (cloakCampaignStore.isReady()) {
+    const campaigns = cloakCampaignStore.list(req.account.id);
+    entries = campaigns.map(campaignToCloakEntry);
+    const migratedLegacy = new Set(campaigns.map((campaign) => campaign.legacySlug).filter(Boolean));
+    const durableRoutes = new Set(campaigns.map((campaign) => (campaign.domainHost || '') + '\0' + campaign.path));
+    for (const item of legacy) {
+      const route = String(item.dominio || '') + '\0' + String(item.slug || '');
+      if (migratedLegacy.has(item.slug) || durableRoutes.has(route)) continue;
+      entries.push({ ...item, legacy: true });
+    }
+  } else {
+    entries = legacy.map((item) => ({ ...item, legacy: true }));
+  }
   res.json({ entries, baseUrl: 'https://' + host, durable: cloakCampaignStore.isReady() });
 });
 
@@ -4149,7 +4173,7 @@ app.post('/api/cloak/campaigns', dashboardAuth, async (req, res) => {
   const b = req.body || {};
   const acc = req.account.id;
   const requestedId = String(b.id || b.campaignId || '').trim().slice(0, 80);
-  const createOnly = b._createOnly === true || !requestedId;
+  const createOnly = b._createOnly === true || (!requestedId && b._createOnly !== false);
   let existing = requestedId ? cloakCampaignStore.get(acc, requestedId) : null;
 
   // Compatibilidade para clientes que ainda identificam a edição pelo path.
