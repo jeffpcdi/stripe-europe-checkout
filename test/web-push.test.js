@@ -120,13 +120,31 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true });
 });
 
-test('notificações nativas: briefing diário usa opt-in próprio e não é bloqueado pelos grupos', () => {
+test('notificações nativas: briefing diário respeita o opt-in próprio', () => {
   const notifications = require('../pushcut');
   const config = require('../config');
-  config.set('daily-native', {
+  config.set('daily-native-off', {
+    settings: { dailyReportEnabled: false },
     webPush: { preferences: { sales: false, risks: false, automation: false } },
   });
-  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native', 'daily'), true);
+  config.set('daily-native-on', {
+    settings: { dailyReportEnabled: true },
+    webPush: { preferences: { sales: false, risks: false, automation: false } },
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-off', 'daily'), false);
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-on', 'daily'), true);
+});
+
+test('notify-copy: briefing diário permanece executivo mesmo com tom descontraído', () => {
+  const payload = {
+    title: 'Ontem · R$ 12.450,00 em receita',
+    text: '32 vendas · Ticket R$ 389,06 · +14% vs. dia anterior\nTikTok R$ 2.100,00 · ROAS 5.93×\nLucro R$ 7.850,00',
+  };
+  const sober = notifyCopy.build({ name: 'Resumo diário', payload, meta: { event: 'daily' }, funMode: false, accountId: 'daily-copy' });
+  const fun = notifyCopy.build({ name: 'Resumo diário', payload, meta: { event: 'daily' }, funMode: true, accountId: 'daily-copy' });
+  assert.strictEqual(fun.title, sober.title);
+  assert.strictEqual(fun.body, sober.body);
+  assert.ok(!/resumão|spoiler|plantão|sem enrolação/i.test(fun.title + ' ' + fun.body));
 });
 
 test('notificações nativas: preferências são simples e independentes do Pushcut', () => {
