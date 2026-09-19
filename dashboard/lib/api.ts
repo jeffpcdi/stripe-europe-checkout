@@ -38,6 +38,7 @@ import type {
   AdsRoasResponse,
   AdsProfitabilityResponse,
   AdsLibraryResponse,
+  AdsCloudVideoResponse,
   AdsAlertsConfig,
   AdsAttributionResponse,
   AdsCampaignDecisionsResponse,
@@ -496,6 +497,15 @@ export function useAdsProfitability(active: boolean, adAccountId: string, range?
 export function useAdsLibrary(active: boolean) {
   return useSWR<AdsLibraryResponse>(active ? '/api/ads/library' : null, fetcher, {
     revalidateOnFocus: false,
+  })
+}
+
+export function useAdsCloudVideo(active: boolean) {
+  return useSWR<AdsCloudVideoResponse>(active ? '/api/ads/cloud-video' : null, fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 30_000,
+    keepPreviousData: true,
+    shouldRetryOnError: false,
   })
 }
 
