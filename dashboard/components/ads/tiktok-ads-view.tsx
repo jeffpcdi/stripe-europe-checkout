@@ -782,17 +782,6 @@ export function TikTokAdsView() {
                 </section>
               ) : null}
 
-              <NeedsYouInbox
-                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                currency={currency}
-                onOpenOps={() => openOps()}
-                onOpenHealth={() => setHealthOpen(true)}
-                onOpenAlerts={openPerformanceAlerts}
-                appearance="embedded"
-                showHealthAlarm={false}
-              />
               <CampaignTree
               key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
               tree={tree}
