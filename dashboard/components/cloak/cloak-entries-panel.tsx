@@ -328,13 +328,16 @@ export function CloakEntriesPanel() {
       total += link.total || 0
       white += link.white || 0
     }
+    const observing = entries.filter((entry) => entry.enabled && (entry.shadowMode === true || globalConfig?.shadowMode === true)).length
+    const active = entries.filter((entry) => entry.enabled && !(entry.shadowMode === true || globalConfig?.shadowMode === true)).length
     return {
-      active: entries.filter((entry) => entry.enabled).length,
+      active,
+      observing,
       total,
       blocked: white,
       blockRate: total > 0 ? (white / total) * 100 : 0,
     }
-  }, [entries, statsData])
+  }, [entries, statsData, globalConfig?.shadowMode])
 
   return (
     <section>
@@ -349,6 +352,7 @@ export function CloakEntriesPanel() {
           {entries.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span><strong className="font-semibold tabular-nums text-foreground">{summary.active}</strong> com proteção ativa</span>
+              {summary.observing > 0 ? <span><strong className="font-semibold tabular-nums text-brand-cyan">{summary.observing}</strong> em observação</span> : null}
               <span><strong className="font-semibold tabular-nums text-foreground">{summary.total}</strong> decisões</span>
               {summary.total > 0 && (
                 <span><strong className="font-semibold tabular-nums text-warning">{summary.blockRate.toFixed(0)}%</strong> no destino seguro</span>
@@ -439,7 +443,10 @@ export function CloakEntriesPanel() {
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nenhuma campanha corresponde à busca.</p>
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">Nenhuma campanha corresponde à busca.</p>
+          {query.trim() ? <button type="button" onClick={() => setQuery('')} className="mt-2 text-xs font-semibold text-brand-cyan hover:underline">Limpar busca</button> : null}
+        </div>
       ) : (
         <ul className="divide-y divide-border/60 border-y border-border/60">
           {visible.map((e) => {
@@ -475,14 +482,13 @@ export function CloakEntriesPanel() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className={`size-1.5 rounded-full ${e.enabled ? 'bg-success' : 'bg-muted-foreground'}`} aria-hidden="true" />
-                      <span>{e.enabled ? 'Proteção ativa' : 'Proteção desativada'}</span>
+                      <span className={`size-1.5 rounded-full ${!e.enabled ? 'bg-muted-foreground' : effectiveShadow ? 'bg-brand-cyan' : 'bg-success'}`} aria-hidden="true" />
+                      <span>{!e.enabled ? 'Proteção desativada' : effectiveShadow ? 'Somente observação' : 'Proteção ativa'}</span>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                     <span>{SENS_LABEL[sens] ?? SENS_LABEL.balanced} · limite {thresholdFor(e)}</span>
-                    {e.enabled && effectiveShadow && <><span aria-hidden="true">·</span><span>Somente observação</span></>}
                     {segmentMeta.map((item) => <span key={item}>· {item}</span>)}
                   </div>
 
