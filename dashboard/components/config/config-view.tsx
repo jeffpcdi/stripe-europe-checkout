@@ -360,6 +360,7 @@ function ActionFeedbackPreference() {
 
 function DailyReportCard() {
   const { data, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
+  const { data: pushStatus } = useSWR<{ ok: boolean; devices: number }>('/api/webpush/status', fetcher, { revalidateOnFocus: false })
   const [phone, setPhone] = useState('')
   const [hour, setHour] = useState(8)
   const [enabled, setEnabled] = useState(false)
@@ -404,7 +405,8 @@ function DailyReportCard() {
                 {enabled ? 'Ativo' : 'Desligado'}
               </span>
             </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Receba uma leitura curta de gasto, vendas e lucro no horário escolhido.</p>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ROAS, gasto TikTok, lucro, conversão e comparação com o dia anterior.</p>
+            <p className="mt-1 text-[11px] text-faint">{pushStatus?.devices ? `Push em ${pushStatus.devices} ${pushStatus.devices === 1 ? 'aparelho' : 'aparelhos'} · ` : 'Push nos aparelhos ativados · '}WhatsApp opcional</p>
           </div>
         </div>
         <Switch checked={enabled} onChange={(val) => { setEnabled(val); setDirty(true) }} label="Ativar resumo diário" />
@@ -413,7 +415,7 @@ function DailyReportCard() {
       <form onSubmit={save} className="mt-5">
         <fieldset disabled={!data || saving} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
           <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5 text-xs text-muted-foreground">
-            <span className="block text-[10px] font-medium uppercase tracking-[0.16em]">WhatsApp</span>
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em]">WhatsApp · opcional</span>
             <input className="input mt-2 w-full" type="tel" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '')); setDirty(true) }} placeholder="5511999999999" />
             <span className="mt-2 block text-[10px]">Número com DDI e DDD.</span>
           </label>
