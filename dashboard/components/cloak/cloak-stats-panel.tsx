@@ -160,15 +160,12 @@ export function CloakStatsPanel() {
           <p className="mt-1 text-sm text-muted-foreground">
             Acompanhe somente o tráfego das campanhas do Cloaker, separado dos links de checkout.
           </p>
-          {data && (
-            <p
-              className={`mt-2 flex items-center gap-1.5 text-xs ${data.redis ? 'text-success' : 'text-warning'}`}
-              title={data.redis ? 'Contadores duráveis (Redis)' : 'Contadores em memória — zeram se o servidor reiniciar'}
-            >
+          {data && !data.redis ? (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-warning" title="Os contadores atuais não possuem armazenamento durável.">
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-              {data.redis ? 'Contadores duráveis' : 'Contadores em memória'}
+              Histórico temporário · os contadores podem reiniciar junto com o servidor
             </p>
-          )}
+          ) : null}
         </div>
 
         {agg && agg.total > 0 && (
@@ -256,10 +253,10 @@ export function CloakStatsPanel() {
 
       {/* Itens 201/202/203: ferramentas avançadas continuam recolhidas para não
           competir com os resultados operacionais. */}
-      {(data?.sticky?.available || (data?.ttclidReplays ?? 0) > 0) && (
+      {agg && agg.total > 0 && (
         <details className="group mt-6 border-y border-border/60">
           <summary className="flex cursor-pointer select-none items-center justify-between gap-4 py-3 text-[13px] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20 [&::-webkit-details-marker]:hidden">
-            <span className="font-medium text-foreground">Diagnóstico avançado</span>
+            <span className="font-medium text-foreground">Diagnóstico e falsos positivos</span>
             <span className="flex min-w-0 items-center gap-2 text-right text-xs text-muted-foreground">
               <span className="hidden flex-wrap justify-end gap-x-3 gap-y-1 sm:flex">
                 {data?.sticky?.available && (
@@ -273,6 +270,9 @@ export function CloakStatsPanel() {
           </summary>
 
           <div className="border-t border-border/50 py-4">
+            <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+              Use estas ações somente quando um visitante legítimo tiver sido classificado incorretamente ou quando precisar repetir uma identificação técnica.
+            </p>
             <div className="grid gap-5 lg:grid-cols-3">
               {data?.sticky?.available && (
                 <section className="min-w-0">
