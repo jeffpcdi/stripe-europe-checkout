@@ -4882,7 +4882,21 @@ app.get('/api/companion/status', dashboardAuth, (req, res) => {
       updatedAt: device.updatedAt,
     })),
     apnsConfigured: require('./ios-push').configured(),
+    preferNativeIOS: companion.preferNativeIOS === true,
   });
+});
+
+app.post('/api/companion/preferences', dashboardAuth, async (req, res) => {
+  const preferNativeIOS = (req.body || {}).preferNativeIOS === true;
+  try {
+    const saved = await config.setDurable(req.account.id, (latest) => ({
+      companion: Object.assign({}, latest.companion || {}, { preferNativeIOS }),
+    }));
+    res.json({
+      ok: true,
+      preferNativeIOS: (saved.companion || {}).preferNativeIOS === true,
+    });
+  } catch (error) { return configMutationError(res, error); }
 });
 
 app.get('/api/companion/token', dashboardAuth, async (req, res) => {
