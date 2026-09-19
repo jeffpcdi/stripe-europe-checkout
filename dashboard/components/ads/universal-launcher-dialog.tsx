@@ -505,6 +505,7 @@ export function UniversalLauncherDialog({
                       onChange={(value) => { setLinkUrl(value); setLaunchError(null) }}
                       disabled={submitting || localUploadBusy}
                       label="Página de vendas"
+                      cloakTrafficSource="tiktok_standard"
                     />
                     {destinationInvalid && <span className="-mt-2 block text-xs text-error">Use uma URL HTTPS válida.</span>}
                     <MarketSelector appearance="creation" value={market} onChange={setMarket} disabled={submitting} />
