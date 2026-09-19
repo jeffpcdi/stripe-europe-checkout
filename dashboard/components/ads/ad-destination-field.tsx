@@ -19,6 +19,7 @@ export function AdDestinationField({
   disabled = false,
   label = 'Página de destino',
   compact = false,
+  cloakTrafficSource,
 }: {
   id: string
   value: string
@@ -26,6 +27,7 @@ export function AdDestinationField({
   disabled?: boolean
   label?: string
   compact?: boolean
+  cloakTrafficSource?: 'tiktok_standard' | 'tiktok_smart_plus'
 }) {
   const { data: linksData } = useLinks()
   const { data: cloakData } = useCloakEntries()
@@ -50,6 +52,8 @@ export function AdDestinationField({
 
     for (const campaign of cloakData?.entries ?? []) {
       if (!campaign.enabled) continue
+      const source = campaign.trafficSource || 'tiktok_standard'
+      if (cloakTrafficSource && source !== cloakTrafficSource) continue
       const publicUrl = campaign.linkKit?.url
         || (campaign.dominio ? `https://${campaign.dominio}/${campaign.slug}` : '')
       const url = campaign.linkKit?.combinedUrl || publicUrl
@@ -64,7 +68,7 @@ export function AdDestinationField({
     }
 
     return rows
-  }, [cloakData?.entries, linksData?.baseUrl, linksData?.links])
+  }, [cloakData?.entries, cloakTrafficSource, linksData?.baseUrl, linksData?.links])
 
   const matched = options.find((option) => option.url === value.trim())
   const selectValue = matched?.key || 'custom'
