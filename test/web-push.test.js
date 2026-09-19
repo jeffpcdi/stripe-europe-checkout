@@ -70,6 +70,22 @@ test('notify-copy: venda preserva título personalizado e resume corpo', () => {
   assert.strictEqual(note.body, 'Pagamento confirmado.');
 });
 
+test('notify-copy: venda pode trazer contexto agregado do dia sem PII', () => {
+  const note = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Venda aprovada · R$ 197,00', text: 'ignorado' },
+    meta: {
+      event: 'sale', valor: 'R$ 197,00', produto: 'Curso X', gateway: 'Kiwify',
+      dailySales: 8, dailyRevenue: 'R$ 1.576,00',
+      cliente: 'Ana', email: 'ana@example.com', orderId: 'secret-123',
+    },
+    funMode: false,
+    accountId: 'acc1',
+  });
+  assert.strictEqual(note.body, 'Curso X · Kiwify · 8 vendas hoje · R$ 1.576,00 no dia');
+  assert.ok(!/Ana|example\.com|secret-123/.test(note.body));
+});
+
 test('notify-copy: evento desconhecido passa payload intacto', () => {
   const note = notifyCopy.build({
     name: 'Qualquer',
@@ -175,6 +191,8 @@ test('notificações nativas: rotina e simulação não poluem o sino', () => {
   assert.strictEqual(notifications._shouldRecord('ads_briefing'), false);
   assert.strictEqual(notifications._shouldRecord('checkout'), false);
   assert.strictEqual(notifications._shouldRecord('test'), false);
+  assert.strictEqual(notifications._shouldRecord('daily'), true, 'brief diário deve permanecer consultável na central');
+  assert.strictEqual(notifications._shouldBadge('daily'), false, 'brief diário não deve criar badge de atenção');
 });
 
 test('central nativa: preserva prioridade e deduplica alertas repetidos', async () => {
