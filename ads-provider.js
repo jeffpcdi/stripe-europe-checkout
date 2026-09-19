@@ -1340,6 +1340,71 @@ async function listTikTokPixels(advertiserId) {
   return out;
 }
 
+
+async function createTikTokPixel(advertiserId, input = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(input.name || input.pixelName || 'ROI-NADOS — Vendas').trim().slice(0, 128);
+  if (!name) throw badRequest('Nome do Pixel é obrigatório');
+
+  // Repetição segura da ação principal da UI: se um Pixel com o mesmo nome já
+  // existe na conta, reutiliza e vincula em vez de criar uma cópia.
+  const existing = (await listTikTokPixels(adv)).find(
+    (pixel) => String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+  );
+  if (existing) return { pixel: existing, reused: true, raw: null };
+
+  const raw = await pipeboard.callTool('create_tiktok_pixel', {
+    advertiser_id: adv,
+    pixel_name: name,
+  });
+
+  cacheBust('pixels:' + adv);
+
+  const rawId = textField(
+    deepPluck(raw, 'pixel_id'),
+    deepPluck(raw, 'id'),
+  );
+  const rawCode = textField(
+    deepPluck(raw, 'pixel_code'),
+    deepPluck(raw, 'code'),
+  );
+  const rawStatus = textField(
+    deepPluck(raw, 'pixel_status'),
+    deepPluck(raw, 'status'),
+  );
+
+  if (/^\d{5,30}$/.test(rawId)) {
+    return {
+      reused: false,
+      raw,
+      pixel: {
+        id: rawId,
+        code: rawCode,
+        name,
+        status: rawStatus || 'UNKNOWN',
+        purchaseCount: 0,
+      },
+    };
+  }
+
+  // Algumas versões do conector confirmam a criação sem devolver o id no
+  // payload. Reconsulta a lista depois de invalidar o cache e confirma pelo
+  // mesmo nome antes de permitir outra tentativa.
+  const confirmed = (await listTikTokPixels(adv)).find(
+    (pixel) => String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+  );
+  if (confirmed) return { pixel: confirmed, reused: false, raw };
+
+  const err = badRequest(
+    'O TikTok recebeu a criação do Pixel, mas ainda não confirmou o identificador.',
+    502,
+  );
+  err.code = 'PIXEL_CREATE_NOT_CONFIRMED';
+  err.userMessage = 'A criação ainda está sendo confirmada pelo TikTok. Atualize a tela antes de tentar novamente para evitar duplicidade.';
+  throw err;
+}
+
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
 // de get_tiktok_identities. Para criação automática regular/Smart+/catálogo,
 // só BC_AUTH_TT é elegível: o schema atual do conector marca CUSTOMIZED_USER
@@ -4772,6 +4837,7 @@ module.exports = {
   // direcionamento (leitura p/ a criação)
   listInterestCategories,
   listTikTokPixels,
+  createTikTokPixel,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAdGroups,
