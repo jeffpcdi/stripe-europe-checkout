@@ -44,11 +44,9 @@ export function Sidebar() {
                     ? group.id === 'ads'
                     : item.id === 'config'
                       ? group.id === 'config'
-                      : item.id === 'config-alerts' || item.id === 'config-security'
-                        ? false
-                        : item.href === '/conversions'
-                          ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
-                          : pathname.startsWith(item.href)
+                      : item.href === '/conversions'
+                        ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+                        : pathname.startsWith(item.href)
                 const delay = itemIndex++ * 35
                 return (
                   <li key={item.id}>
