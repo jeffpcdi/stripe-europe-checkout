@@ -202,6 +202,12 @@ async function invoke(key, body = {}, query = {}) {
   assert.equal(customerFileArgs.args.retention_in_days,180);
   assert.ok(!customerFileArgs.args.file_content.includes('buyer@example.com'));
 
+  // Retenção: fallback usa created_at; uma edição tardia não rejuvenesce um comprador antigo.
+  const dbSource=fs.readFileSync(require.resolve('../db'),'utf8');
+  const buyerBlock=dbSource.slice(dbSource.indexOf('function purchasedAtSqlWindow'),dbSource.indexOf('async function insertEvent',dbSource.indexOf('function purchasedAtSqlWindow')));
+  assert.match(buyerBlock,/ELSE created_at/);
+  assert.doesNotMatch(buyerBlock,/ELSE updated_at/);
+
   // UI: recurso só aparece com canCreate e exige confirmação.
   const ui=fs.readFileSync(require.resolve('../dashboard/components/ads/audiences-dialog.tsx'),'utf8');
   assert.match(ui,/buyerPreview\?\.canCreate/);
