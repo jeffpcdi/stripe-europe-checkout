@@ -30,26 +30,37 @@ In the iPhone app, configure:
 
 The token is stored in shared Keychain, while the server URL is stored in the App Group container. The Widget extension can then fetch aggregate data without using dashboard session cookies.
 
-## Widget
+## Widgets
 
 The WidgetKit extension calls GET /api/v1/widget using Authorization: Bearer.
 
+The companion ships two widget experiences:
+- **ROI-NADOS Executive** — small, medium and large Home Screen layouts plus Lock Screen formats with revenue, sales, TikTok spend, ROAS, net profit, conversion, trend and factual attention.
+- **Vendas ROI-NADOS** — a focused sales widget for Home Screen and Lock Screen showing today’s sales/revenue and the last sale.
+
 The response contains aggregate business information only:
-- revenue;
-- sales;
+- revenue and sales;
 - leads/conversion;
-- TikTok spend;
-- ROAS;
+- TikTok spend and ROAS;
 - net profit;
+- previous-day trend;
+- last-sale amount/time;
 - factual attention flags.
 
-It does not expose customer email, phone, order IDs, access tokens or checkout secrets.
+It does not expose customer email, phone, order IDs, access tokens or checkout secrets. A last-good snapshot is cached in the shared App Group so widgets can keep useful data during transient network failures.
 
-WidgetKit may defer refreshes even though the timeline requests a 15-minute cadence; iOS controls the actual refresh budget.
+WidgetKit may defer refreshes even though the timeline requests a 15-minute cadence; iOS controls the actual refresh budget. Sale pushes also ask the app to reload WidgetKit timelines, but the final refresh timing remains under iOS control.
 
 ## Native sale sound
 
 On first launch, SaleSoundInstaller generates Library/Sounds/roi-sale.wav directly on the device. Sale pushes sent through APNs reference this file.
+
+The chime is a short three-note ROI-NADOS motif shared conceptually with the foreground dashboard sound. Daily reports remain passive and silent; operational failures use the system sound. This keeps the sale cue recognizable without making every notification noisy.
+
+The native notifications also register contextual actions:
+- sale: **Ver vendas**;
+- daily brief: **Abrir resumo**;
+- automation: **Revisar**.
 
 This gives the native companion a recognizable ROI-NADOS sale sound while avoiding a binary audio asset in the repository.
 
