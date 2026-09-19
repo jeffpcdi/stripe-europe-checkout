@@ -316,6 +316,8 @@ export interface CheckoutLink {
 
 export interface LinksResponse {
   links: CheckoutLink[]
+  /** Base pública real do app para links sem domínio próprio. Nunca é o CNAME técnico de DNS. */
+  baseUrl?: string
 }
 
 // ── /api/domains — domínios personalizados (server.js) ──
