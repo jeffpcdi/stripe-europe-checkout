@@ -6,18 +6,18 @@ import { useCloakEntries, useCloakStats, apiSend } from '@/lib/api'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 
-// Rótulos amigáveis para os motivos de bloqueio do motor
+// Rótulos amigáveis para os motivos que levaram ao destino seguro
 const REASON_LABELS: Record<string, string> = {
   'bot-ua': 'Robô conhecido',
-  pais: 'País bloqueado',
-  idioma: 'Idioma bloqueado',
+  pais: 'Regra de país',
+  idioma: 'Regra de idioma',
   score: 'Comportamento suspeito',
   'rate-limit': 'Muitas requisições',
   datacenter: 'Servidor de Nuvem',
   headless: 'Navegador invisível',
   webview: 'Navegador interno',
   'ttclid-replay': 'Clique repetido (anúncio)',
-  sticky: 'Visitante já bloqueado',
+  sticky: 'Decisão segura já registrada',
   velocity: 'Automação detectada',
   mobile: 'Exigia celular',
   anuncio: 'Exigia anúncio',
@@ -438,7 +438,7 @@ export function CloakStatsPanel() {
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:text-[13px]">
                     <span><span className="font-medium tabular-nums text-foreground">{link.offer.toLocaleString('pt-BR')}</span> principal</span>
                     <span><span className="font-medium tabular-nums text-foreground">{link.white.toLocaleString('pt-BR')}</span> seguro</span>
-                    <span className="sm:ml-auto"><span className="font-medium tabular-nums text-foreground">{pct}%</span> bloqueado</span>
+                    <span className="sm:ml-auto"><span className="font-medium tabular-nums text-foreground">{pct}%</span> no seguro</span>
                   </div>
 
                   <div className="mt-2 flex h-0.5 overflow-hidden rounded-full bg-muted">
