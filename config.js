@@ -69,12 +69,19 @@ function defaults() {
     api: { token: '', scope: 'stats' },
     // Notificações Web Push nativas (canal principal no iPhone/PWA).
     // subs: aparelhos inscritos [{id, endpoint, keys:{p256dh,auth}, ua, createdAt}]
-    // preferences: três escolhas claras em vez de uma matriz por evento.
+    // preferences: grupos claros em vez de uma matriz por evento.
     // funMode é opt-in; o padrão direto reduz ruído nas mensagens.
     webPush: {
       subs: [],
       funMode: false,
-      preferences: { sales: true, risks: true, automation: true }
+      preferences: { sales: true, risks: true, automation: true, reports: true }
+    },
+    // Companion iOS nativo: token separado do token público/BI e dispositivos
+    // APNs registrados. O token pode ser rotacionado sem afetar planilhas.
+    companion: {
+      token: '',
+      devices: [],
+      preferNativeIOS: false
     },
     // Custos usados pelo cálculo de lucro líquido. Valores exatos recebidos
     // no webhook sempre têm prioridade; estes defaults cobrem gateways que não
@@ -131,6 +138,7 @@ function mergeDefaults(stored) {
   out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
   out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
   out.webPush = Object.assign({}, base.webPush, (stored && stored.webPush) || {});
+  out.companion = Object.assign({}, base.companion, (stored && stored.companion) || {});
   out.profitability = Object.assign({}, base.profitability, (stored && stored.profitability) || {});
   out.cloudVideo = {
     googleDrive: Object.assign({}, base.cloudVideo.googleDrive, stored && stored.cloudVideo && stored.cloudVideo.googleDrive || {}),
@@ -324,13 +332,32 @@ function prepareSet(accountId, patch) {
       createdAt: (s && s.createdAt) || new Date().toISOString()
     })).filter((s) => /^https:\/\//i.test(s.endpoint) && s.keys.p256dh && s.keys.auth);
     wp.funMode = wp.funMode === true;
-    const pref = Object.assign({ sales: true, risks: true, automation: true }, wp.preferences || {});
+    const pref = Object.assign({ sales: true, risks: true, automation: true, reports: true }, wp.preferences || {});
     wp.preferences = {
       sales: pref.sales !== false,
       risks: pref.risks !== false,
-      automation: pref.automation !== false
+      automation: pref.automation !== false,
+      reports: pref.reports !== false
     };
     next.webPush = wp;
+  }
+
+  // Companion iOS: token dedicado + poucos dispositivos APNs por conta.
+  {
+    const source = next.companion && typeof next.companion === 'object' ? next.companion : {};
+    const token = String(source.token || '').replace(/[^a-f0-9]/gi, '').slice(0, 96);
+    const devices = Array.isArray(source.devices) ? source.devices : [];
+    next.companion = {
+      token,
+      preferNativeIOS: source.preferNativeIOS === true,
+      devices: devices.slice(0, 6).map((device) => ({
+        id: String(device && device.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
+        token: String(device && device.token || '').replace(/[^a-f0-9]/gi, '').slice(0, 200),
+        name: String(device && device.name || 'iPhone').slice(0, 60),
+        createdAt: String(device && device.createdAt || new Date().toISOString()).slice(0, 40),
+        updatedAt: String(device && device.updatedAt || new Date().toISOString()).slice(0, 40),
+      })).filter((device) => device.id && /^[a-f0-9]{64,200}$/i.test(device.token)),
+    };
   }
 
   // Custos do lucro líquido. Percentuais são sempre números positivos e os

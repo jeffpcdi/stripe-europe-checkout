@@ -121,7 +121,32 @@ function buildOverviewHealth(input) {
     );
   }
   if (gateways.length === 0) {
-    addAction('gateway', 'critical', 'Conecte um gateway', 'Vendas só são confirmadas por webhook do gateway.', '/conversions?tab=gateways');
+    addAction('gateway', 'critical', 'Conecte um checkout', 'Vendas só são confirmadas por webhook do checkout.', '/conversions?tab=gateways');
+  } else {
+    const gatewayEvents = gateways
+      .filter((gateway) => gateway && gateway.lastEventAt)
+      .sort((a, b) => (validTime(b.lastEventAt) || 0) - (validTime(a.lastEventAt) || 0));
+    const latestGateway = gatewayEvents[0] || null;
+    const latestStatus = String(latestGateway && latestGateway.lastEventStatus || '');
+    const latestGatewayFailed = /erro|error|falh|inválid|invalid|rejeitad/i.test(latestStatus);
+    const gatewayValidated = saleEventCount > 0 || gateways.some((gateway) => /^ok\b/i.test(String(gateway && gateway.lastEventStatus || '')));
+    if (latestGatewayFailed) {
+      addAction(
+        'gateway-validation',
+        'warning',
+        'Revise o último webhook do checkout',
+        'O checkout recebeu um evento com falha e precisa de diagnóstico.',
+        '/conversions?tab=gateways'
+      );
+    } else if (!gatewayValidated) {
+      addAction(
+        'gateway-validation',
+        'warning',
+        'Valide o primeiro webhook do checkout',
+        'O checkout está cadastrado, mas ainda não há uma confirmação real de pagamento processada com sucesso.',
+        '/conversions?tab=gateways'
+      );
+    }
   }
   if (orphanPurchases > 0) {
     addAction(
@@ -174,10 +199,18 @@ function buildOverviewHealth(input) {
     setup: {
       links: { total: links.length, active: activeLinks.length },
       pixels: { total: pixels.length, active: activePixels.length, ready: readyPixels.length, incomplete: incompletePixels.length },
-      gateways: {
-        total: gateways.length,
-        lastEventAt: latest(gateways.map((gateway) => gateway.lastEventAt))
-      }
+      gateways: (() => {
+        const withEvents = gateways
+          .filter((gateway) => gateway && gateway.lastEventAt)
+          .sort((a, b) => (validTime(b.lastEventAt) || 0) - (validTime(a.lastEventAt) || 0));
+        const latestGateway = withEvents[0] || null;
+        return {
+          total: gateways.length,
+          lastEventAt: latestGateway ? latestGateway.lastEventAt : null,
+          lastEventStatus: latestGateway ? String(latestGateway.lastEventStatus || '') : null,
+          validated: saleEventCount > 0 || gateways.some((gateway) => /^ok\b/i.test(String(gateway && gateway.lastEventStatus || '')))
+        };
+      })()
     },
     coverage: {
       purchases: {

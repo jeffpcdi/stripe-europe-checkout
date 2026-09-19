@@ -34,7 +34,7 @@ export default function DashboardLayout({
       <Toaster />
       {/* Item 561: erros de front reportados ao backend (senão são invisíveis) */}
       <ClientErrorReporter />
-      {/* Som de dinheiro (cha-ching) quando push de venda chega com o painel aberto */}
+      {/* Feedback sonoro curto de venda quando o painel está visível */}
       <PushSound />
       <TopNav><Header /></TopNav>
       <SubNav />

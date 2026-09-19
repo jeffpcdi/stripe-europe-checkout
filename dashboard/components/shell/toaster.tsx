@@ -15,7 +15,7 @@ const ICON: Record<ToastKind, typeof CheckCircle2> = {
 
 const TONE: Record<ToastKind, string> = {
   success: 'border-success/50 text-success shadow-[0_0_15px_rgba(34,197,94,0.4)]',
-  error: 'border-destructive/60 text-destructive shadow-[0_0_15px_rgba(239,68,68,0.4)] anim-shake',
+  error: 'border-destructive/60 text-destructive shadow-[0_0_15px_rgba(239,68,68,0.4)]',
   info: 'border-brand-cyan/50 text-brand-cyan shadow-[0_0_15px_rgba(37,244,238,0.4)]',
 }
 
@@ -33,13 +33,12 @@ export function Toaster() {
         {toasts.map((t) => {
           const Icon = ICON[t.kind]
           return (
-            /* V2-75: toast entra com spring (pop) + V2-76: barra de vida no
-               rodapé indicando o tempo restante antes de sumir */
+            /* Entrada curta + barra de vida sincronizada com a duração real. */
             <li
               key={t.id}
               // erro = assertivo (interrompe); sucesso/info = polido
               role={t.kind === 'error' ? 'alert' : 'status'}
-              className={`anim-pop-spring pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl border bg-card/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur ${TONE[t.kind]}`}
+              className={`roi-toast-in pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl border bg-card/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur ${TONE[t.kind]}`}
             >
               <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <div className="min-w-0 flex-1">
@@ -54,7 +53,7 @@ export function Toaster() {
               >
                 <X className="size-4" />
               </button>
-              <span className="toast-life" aria-hidden="true" />
+              {t.duration > 0 ? <span className="toast-life" style={{ animationDuration: `${t.duration}ms` }} aria-hidden="true" /> : null}
             </li>
           )
         })}

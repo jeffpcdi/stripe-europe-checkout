@@ -14,10 +14,15 @@ function compactSale(payload, meta) {
   const p = payload || {};
   const data = meta || {};
   const valor = compactText(data.valor, 32);
-  const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' — ' + valor : ''));
-  const produto = compactText(data.produto, 48);
-  const gateway = compactText(data.gateway, 24);
-  const body = [produto, gateway].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
+  const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' · ' + valor : ''));
+  const produto = compactText(data.produto, 42);
+  const gateway = compactText(data.gateway, 22);
+  const dailySales = Math.max(0, Number(data.dailySales) || 0);
+  const dailyRevenue = compactText(data.dailyRevenue, 32);
+  const dayContext = dailySales > 0
+    ? dailySales + (dailySales === 1 ? ' venda hoje' : ' vendas hoje') + (dailyRevenue ? ' · ' + dailyRevenue + ' no dia' : '')
+    : '';
+  const body = [produto, gateway, dayContext].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
   return { title, body };
 }
 
@@ -81,13 +86,6 @@ const POOLS = {
     { t: 'Login detectado', b: 'Acesso novo ao painel. Só confirmando que é você mesmo.' },
     { t: 'Toc toc — foi você?', b: 'Novo acesso ao painel. Se não foi, a senha nova te espera nas Configurações.' }
   ],
-  daily: [
-    { t: 'O resumão do dia chegou', b: '' },
-    { t: 'Fechamento de caixa (spoiler abaixo)', b: '' },
-    { t: 'Relatório diário: sem enrolação', b: '' },
-    { t: 'Plantão ROI-NADOS: como foi o dia', b: '' },
-    { t: 'Números do dia na área', b: '' }
-  ],
   watchdog: [
     { t: 'Silêncio suspeito no caixa', b: '' },
     { t: 'Cadê as vendas?', b: '' },
@@ -115,9 +113,10 @@ const POOLS = {
 };
 
 // Som por evento — tocado pelo painel ABERTO via WebAudio (sale-alerts.ts).
-// Com o PWA fechado o iOS/Android tocam o som padrão do sistema (silent:false
-// no sw.js); som customizado em background exigiria app nativo.
-//   cash  = cha-ching (dinheiro entrando)
+// Em background o service worker pede uma notificação não silenciosa, mas o
+// som efetivo depende do navegador, do sistema, do Foco e das preferências do
+// aparelho. Sons próprios ficam restritos ao painel visível.
+//   cash  = confirmação curta de venda
 //   alert = dois tons graves descendentes (recusa/reembolso/disputa/watchdog)
 //   tick  = click sutil agudo (checkout iniciado)
 //   ping  = nota única limpa (login)
@@ -138,7 +137,7 @@ const SOUNDS = {
   ads_rejected: 'alert',
   ads_proposal: 'ping',
   ads_failure: 'alert',
-  ads_breaker: 'info',
+  ads_breaker: 'alert',
   ads_cap: 'info',
   ads_briefing: 'info',
   ads_routine: 'info'
@@ -163,21 +162,21 @@ const URLS = {
   refund: '/dashboard/activity',
   dispute: '/dashboard/activity',
   checkout: '/dashboard/activity',
-  login: '/dashboard/config',
+  login: '/dashboard/config?tab=security',
   daily: '/dashboard',
   watchdog: '/dashboard',
   ads: '/dashboard/ads/tiktok',
   ads_attention: '/dashboard/ads/tiktok',
-  ads_rejected: '/dashboard/ads/tiktok',
+  ads_rejected: '/dashboard/ads/tiktok?tab=automation',
   // A dashboard usa `tab=automation` (não o alias legado `view`). Esses
   // alertas são acionáveis; o deep link precisa abrir a superfície certa.
   ads_proposal: '/dashboard/ads/tiktok?tab=automation',
   ads_failure: '/dashboard/ads/tiktok?tab=automation',
-  ads_breaker: '/dashboard/ads/tiktok',
-  ads_cap: '/dashboard/ads/tiktok',
+  ads_breaker: '/dashboard/ads/tiktok?tab=automation',
+  ads_cap: '/dashboard/ads/tiktok?tab=automation',
   ads_briefing: '/dashboard/ads/tiktok',
   ads_routine: '/dashboard/ads/tiktok?tab=automation',
-  test: '/dashboard/config'
+  test: '/dashboard/config?tab=notifications'
 };
 
 // Classificação sem meta: prefixos estáveis dos títulos existentes.
@@ -222,12 +221,25 @@ function build(opts) {
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
   const tag = tagFor(event);
-  // Som distinto por evento (mapa SOUNDS acima) — tocado pelo painel aberto
-  // via WebAudio; no push fechado o sistema toca o som padrão.
+  // Som distinto por evento (mapa SOUNDS acima) — usado apenas como feedback
+  // local com o painel visível; em background o aparelho decide o alerta.
   const sound = SOUNDS[event] || '';
 
   if (event === 'sale') {
     return { ...compactSale(p, meta), url, tag, sound, event };
+  }
+
+  // Relatório executivo preserva a copy factual produzida pelo backend.
+  // Mesmo com "tom descontraído" ativo, números e exceções não mudam.
+  if (event === 'daily') {
+    return {
+      title: compactText(p.title || 'Resumo diário', 72),
+      body: compactText(p.text || '', 220),
+      url,
+      tag,
+      sound,
+      event,
+    };
   }
 
   // Modo sóbrio ou evento desconhecido: título/texto originais.

@@ -30,6 +30,9 @@ function nativePreferencesFor(accountId) {
     automation: typeof saved.automation === 'boolean'
       ? saved.automation
       : (typeof legacy.ads === 'boolean' ? legacy.ads : true),
+    reports: typeof saved.reports === 'boolean'
+      ? saved.reports
+      : (typeof legacy.daily === 'boolean' ? legacy.daily : true),
   };
 }
 
@@ -37,23 +40,33 @@ function nativeGroup(event) {
   if (event === 'sale' || event === 'pix_pending' || event === 'test') return 'sales';
   if (['failed', 'refund', 'dispute', 'login', 'watchdog'].includes(event)) return 'risks';
   if (String(event || '').startsWith('ads_') || event === 'ads') return 'automation';
+  if (event === 'daily') return 'reports';
   return null;
 }
 
 function nativePreferenceEnabled(accountId, event) {
   if (event === 'test') return true;
+  if (event === 'daily') {
+    const cfg = accountConfig(accountId);
+    const scheduled = cfg.settings?.dailyReportEnabled === true || cfg.pushcut?.events?.daily === true;
+    return scheduled && nativePreferencesFor(accountId).reports !== false;
+  }
   const group = nativeGroup(event);
   return group ? nativePreferencesFor(accountId)[group] !== false : false;
 }
 
-// Só eventos úteis entram no sino. Simulações, checkouts, relatórios e
-// execuções automáticas bem-sucedidas continuam nos seus painéis próprios.
+// Só eventos úteis entram no sino. O brief diário fica consultável, mas não
+// vira badge de atenção; simulações, checkouts e rotinas continuam fora.
 function shouldRecord(event) {
   return [
-    'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog',
+    'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog', 'daily',
     'ads_attention', 'ads_rejected', 'ads_proposal', 'ads_failure',
     'ads_breaker', 'ads_cap',
   ].includes(event);
+}
+
+function shouldBadge(event) {
+  return shouldRecord(event) && event !== 'daily';
 }
 
 function pushcutEventEnabled(accountId, event) {
@@ -62,6 +75,7 @@ function pushcutEventEnabled(accountId, event) {
     pix_pending: 'sale', sale: 'sale', failed: 'failed', refund: 'refund', dispute: 'dispute',
     checkout: 'checkout', daily: 'daily', login: 'login', watchdog: 'watchdog',
   }[event];
+  if (event === 'daily' && accountConfig(accountId).settings?.dailyReportEnabled === true) return true;
   if (!key) return true; // integrações antigas de Ads não tinham toggles próprios
   const defaults = {
     sale: true, failed: true, refund: true, dispute: true,
@@ -80,7 +94,7 @@ function logFailure(accountId, channel, notificationName, reason) {
   } catch (_) {}
 }
 
-async function sendViaWebPush(notificationName, payload, accountId, meta) {
+async function sendViaWebPush(notificationName, payload, accountId, meta, options = {}) {
   try {
     const cfg = accountConfig(accountId).webPush || {};
     const note = require('./notify-copy').build({
@@ -94,7 +108,15 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
     note.dedupeKey = meta && meta.dedupeKey ? String(meta.dedupeKey).slice(0, 160) : '';
 
-    if (shouldRecord(event)) {
+    const recordInCenter = options.recordInCenter !== false && shouldRecord(event);
+    note.badge = shouldBadge(event);
+    const companion = accountConfig(accountId).companion || {};
+    const nativeReady = companion.preferNativeIOS === true
+      && (companion.devices || []).length > 0
+      && require('./ios-push').configured();
+    note.skipIOSWebPush = options.onlyIOS !== true && nativeReady;
+    note.onlyIOSWebPush = options.onlyIOS === true;
+    if (recordInCenter) {
       try { await require('./redis').pushNotifLog(accountId, note); } catch (_) {}
     }
 
@@ -104,6 +126,46 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     return await webPushNotify.sendWebPush(accountId, note);
   } catch (err) {
     console.error('[webpush] Erro no envio:', err.message);
+    return false;
+  }
+}
+
+async function sendViaIOS(notificationName, payload, accountId, meta) {
+  try {
+    const cfg = accountConfig(accountId);
+    const companion = cfg.companion || {};
+    const devices = Array.isArray(companion.devices) ? companion.devices : [];
+    if (!devices.length || companion.preferNativeIOS !== true) return false;
+
+    const note = require('./notify-copy').build({
+      name: notificationName,
+      payload,
+      meta,
+      funMode: (cfg.webPush || {}).funMode === true,
+      accountId,
+    });
+    const event = note.event || '';
+    if (!nativePreferenceEnabled(accountId, event)) return false;
+    note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
+    note.badge = shouldBadge(event);
+
+    const iosPush = require('./ios-push');
+    const result = await iosPush.sendToDevices(devices, note);
+    if (result.invalidTokens && result.invalidTokens.length) {
+      const invalid = new Set(result.invalidTokens);
+      const config = require('./config');
+      await config.setDurable(accountId, (latest) => {
+        const current = latest.companion || {};
+        return {
+          companion: Object.assign({}, current, {
+            devices: (current.devices || []).filter((device) => !invalid.has(device.token)),
+          }),
+        };
+      }).catch(() => {});
+    }
+    return result.ok === true;
+  } catch (err) {
+    console.error('[ios-push] Erro no envio:', err.message);
     return false;
   }
 }
@@ -150,11 +212,29 @@ async function sendNotification(notificationName, payload, accountId, meta) {
     const compact = require('./notify-copy').compactSale(payload, meta);
     payload = Object.assign({}, payload, { title: compact.title, text: compact.body });
   }
-  const [nativeOk, legacyOk] = await Promise.all([
+  const cfg = accountConfig(accountId);
+  const companion = cfg.companion || {};
+  const nativePreferred = companion.preferNativeIOS === true
+    && (companion.devices || []).length > 0
+    && require('./ios-push').configured();
+
+  const [webOk, iosOk, legacyOk] = await Promise.all([
     sendViaWebPush(notificationName, payload || {}, accountId, meta || {}),
+    sendViaIOS(notificationName, payload || {}, accountId, meta || {}),
     sendViaPushcut(notificationName, payload || {}, accountId, meta || {}),
   ]);
-  return nativeOk || legacyOk;
+
+  // Falha transitória do APNs não pode virar silêncio no iPhone. Reenvia
+  // somente às inscrições Web Push de iOS para não duplicar desktop/Android.
+  let iosFallbackOk = false;
+  if (nativePreferred && !iosOk) {
+    iosFallbackOk = await sendViaWebPush(notificationName, payload || {}, accountId, meta || {}, {
+      onlyIOS: true,
+      recordInCenter: false,
+    });
+  }
+
+  return webOk || iosOk || iosFallbackOk || legacyOk;
 }
 
 const sendPushcut = sendNotification;
@@ -166,4 +246,5 @@ module.exports = {
   nativePreferenceEnabled,
   _nativeGroup: nativeGroup,
   _shouldRecord: shouldRecord,
+  _shouldBadge: shouldBadge,
 };

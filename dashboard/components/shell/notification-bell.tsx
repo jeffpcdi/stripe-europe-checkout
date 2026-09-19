@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, Info } from 'lucide-react'
+import { ArrowRight, Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, FileText, Info } from 'lucide-react'
 import { fetcher } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -66,6 +66,8 @@ function EventIcon({ event }: { event: string }) {
       return <Gavel className={cn(cls, 'text-error')} aria-hidden="true" />
     case 'login':
       return <LogIn className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
+    case 'daily':
+      return <FileText className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
     case 'ads':
     case 'ads_attention':
     case 'ads_rejected':
@@ -101,7 +103,7 @@ function toHref(url: string): string {
 }
 
 export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab' }) {
-  const { data } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
+  const { data, mutate } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
     refreshInterval: 30_000,
     revalidateOnFocus: true,
     keepPreviousData: true,
@@ -112,6 +114,12 @@ export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab
   useEffect(() => {
     setSeenAt(lastSeen())
   }, [])
+
+  useEffect(() => {
+    const refresh = () => { void mutate() }
+    window.addEventListener('roi:foreground-notification', refresh)
+    return () => window.removeEventListener('roi:foreground-notification', refresh)
+  }, [mutate])
 
   useEffect(() => {
     function syncSeen(event: Event) {
@@ -134,8 +142,13 @@ export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab
   function onOpenChange(open: boolean) {
     if (open) {
       const now = markSeen()
-      // badge some ao abrir; a lista continua mostrando tudo
+      // Badge interno e badge do ícone PWA somem quando o usuário realmente
+      // abre a central; a lista continua preservando o histórico.
       setSeenAt(now)
+      const badgeNavigator = navigator as Navigator & { clearAppBadge?: () => Promise<void> }
+      if (typeof badgeNavigator.clearAppBadge === 'function') {
+        badgeNavigator.clearAppBadge().catch(() => {})
+      }
     }
   }
 

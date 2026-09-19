@@ -45,7 +45,6 @@ import { UniversalLauncherDialog } from './universal-launcher-dialog'
 import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 import { useOverviewPeriod } from '@/lib/overview-period'
 import { PERIODS } from '@/components/overview/period-picker'
-import { cn } from '@/lib/utils'
 
 type CatalogLocalWorkState = { uploading: boolean; pending: number }
 
@@ -372,59 +371,22 @@ export function TikTokAdsView() {
 
   const adsOperationalSummary = useMemo(() => {
     const campaigns = tree?.campaigns ?? []
-    let active = 0
-    let spend = 0
-    let sales = 0
-    let revenue = 0
-    let comparable = true
     let noSalesWithSpend = 0
-    let highRoas = 0
     let pendingProposals = 0
-    let bestRoas: { id: string; name: string; value: number } | null = null
 
     for (const campaign of campaigns) {
-      if (campaign.status === 'active') active += 1
       const campaignSpend = Number(campaign.metrics?.spend) || 0
-      spend += campaignSpend
       const decision = campaignDecisions?.byCampaign[campaign.platformCampaignId]
       const campaignSales = Number(decision?.sales) || 0
-      sales += campaignSales
-      const cents = Number(decision?.revenueCents) || 0
-      const campaignCurrency = campaign.currency || currency
-      const sameCurrency = !decision?.currency || decision.currency === campaignCurrency
-      if (cents > 0 && sameCurrency) revenue += cents / 100
-      else if (cents > 0 && !sameCurrency) comparable = false
       if (campaignSpend > 0 && campaignSales === 0) noSalesWithSpend += 1
-      const campaignRoas = campaignSpend > 0 && cents > 0 && sameCurrency ? (cents / 100) / campaignSpend : null
-      if (campaignRoas !== null && campaignRoas >= 2) {
-        highRoas += 1
-        if (!bestRoas || campaignRoas > bestRoas.value) {
-          bestRoas = { id: campaign.platformCampaignId, name: campaign.campaignName || campaign.platformCampaignId, value: campaignRoas }
-        }
-      }
       if (decision?.automation.pendingProposal) pendingProposals += 1
     }
 
     return {
-      total: campaigns.length,
-      active,
-      spend,
-      sales,
-      roas: campaignDecisions && spend > 0 && comparable ? revenue / spend : null,
       noSalesWithSpend,
-      highRoas,
       pendingProposals,
-      bestRoas,
     }
-  }, [tree, campaignDecisions, currency])
-
-  function formatAdsMoney(value: number) {
-    try {
-      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
-    } catch {
-      return `${currency} ${value.toFixed(0)}`
-    }
-  }
+  }, [tree, campaignDecisions])
 
   function applyCampaignShortcut(query: string) {
     changeTab('campaigns')
@@ -598,15 +560,6 @@ export function TikTokAdsView() {
         <div className="text-xs text-muted-foreground">Período · {periodLabel}</div>
       ) : null}
 
-      {effectiveAdvertiser && tab === 'campaigns' ? (
-        <section className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-border/60 pb-4 lg:grid-cols-4" aria-label="Resumo das campanhas">
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : adsOperationalSummary.active.toLocaleString('pt-BR')}</p><p className="mt-1 text-xs text-muted-foreground">Campanhas ativas</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : formatAdsMoney(adsOperationalSummary.spend)}</p><p className="mt-1 text-xs text-muted-foreground">Gasto TikTok</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-success">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p><p className="mt-1 text-xs text-muted-foreground">Vendas reais</p></div>
-          <div><p className={cn('text-xl font-semibold tabular-nums', adsOperationalSummary.roas !== null && adsOperationalSummary.roas >= 2 ? 'text-success' : 'text-foreground')}>{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p><p className="mt-1 text-xs text-muted-foreground">ROAS real</p></div>
-        </section>
-      ) : null}
-
       {hasAccountAlert ? (
         <section className="space-y-2 border-b border-border/60 pb-4" aria-label="Alertas da conta">
           {killSwitchActive ? (
@@ -644,7 +597,7 @@ export function TikTokAdsView() {
             <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="flex min-w-0 gap-6 overflow-x-auto">
               {SUBTABS.map((item) => {
                 const attentionCount = item.value === 'automation'
-                  ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
+                  ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0) + adsOperationalSummary.pendingProposals
                   : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                 return (
                   <Tabs.Trigger
@@ -773,7 +726,7 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" data-tour="ads-campaigns" className="space-y-4 outline-none">
-              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0) ? (
+              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0 || adsOperationalSummary.pendingProposals > 0) ? (
                 <section className="border-b border-border/60 pb-4">
                   <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
                   <div className="mt-2 divide-y divide-border/50">
@@ -789,30 +742,16 @@ export function TikTokAdsView() {
                         <span className="shrink-0 font-medium">Revisar</span>
                       </button>
                     ) : null}
+                    {adsOperationalSummary.pendingProposals > 0 ? (
+                      <button type="button" onClick={() => changeTab('automation')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-warning hover:text-foreground">
+                        <span>{adsOperationalSummary.pendingProposals} proposta{adsOperationalSummary.pendingProposals === 1 ? '' : 's'} da automação aguardando decisão</span>
+                        <span className="shrink-0 font-medium">Revisar</span>
+                      </button>
+                    ) : null}
                   </div>
                 </section>
               ) : null}
 
-              {adsOperationalSummary.highRoas > 0 ? (
-                <section className="border-b border-border/60 pb-4">
-                  <h2 className="text-sm font-semibold text-foreground">Oportunidades</h2>
-                  <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="mt-2 flex w-full items-center justify-between gap-3 py-2 text-left text-xs text-success hover:text-foreground">
-                    <span>{adsOperationalSummary.highRoas} campanha{adsOperationalSummary.highRoas === 1 ? '' : 's'} com ROAS acima de 2×</span>
-                    <span className="shrink-0 font-medium">Ver campanhas</span>
-                  </button>
-                </section>
-              ) : null}
-              <NeedsYouInbox
-                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                currency={currency}
-                onOpenOps={() => openOps()}
-                onOpenHealth={() => setHealthOpen(true)}
-                onOpenAlerts={openPerformanceAlerts}
-                appearance="embedded"
-                showHealthAlarm={false}
-              />
               <CampaignTree
               key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
               tree={tree}
@@ -869,7 +808,10 @@ export function TikTokAdsView() {
               focusAlertsRequest={alertsFocusRequest}
             />
             <details className="rounded-xl border border-border p-4" onToggle={event => { const open = event.currentTarget.open; setToolsExpanded(open); if (open) setToolsMounted(true) }}>
-              <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
+              <summary className="cursor-pointer list-none">
+                <span className="block text-sm font-medium text-foreground">Custos, análise, vídeos e proteção</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Abra apenas quando precisar ajustar custos, fontes de criativo ou controles operacionais.</span>
+              </summary>
               {toolsMounted ? <div className="mt-4"><MagicOpsPanel key={`MagicOpsPanel:${concreteAdvertiser}`} active={automationActive && toolsExpanded} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} advertiserTimeZone={advertiserContextTimeZone} onDirtyChange={setMagicOpsDirty} externalDirty={automationDirty} /></div> : null}
             </details>
           </Tabs.Content>

@@ -17,6 +17,7 @@ import {
   Smartphone,
   ChevronRight,
   PlugZap,
+  Eye,
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -25,6 +26,7 @@ import { fetcher, apiSend, useAccount, useAccountSettings } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 import { WebPushCard } from '@/components/config/web-push-card'
+import { IPhoneCompanionCard } from '@/components/config/iphone-companion-card'
 import { Switch } from '@/components/ui/switch'
 import { usePrefs } from '@/lib/prefs'
 import { formatDateTime } from '@/lib/format'
@@ -32,6 +34,7 @@ import { ErrorState } from '@/components/error-state'
 import { Modal } from '@/components/ui/modal'
 import type { AccountSettings } from '@/lib/types'
 import { toast } from '@/lib/toast'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 export function ConfigView() {
   const { prefs, update } = usePrefs()
@@ -69,7 +72,7 @@ export function ConfigView() {
         </div>
       </div>
 
-      <SettingsOverview />
+      <SettingsOverview onSelect={selectTab} />
 
       <Tabs.Root value={activeTab} onValueChange={selectTab} className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
         <Tabs.List
@@ -109,6 +112,7 @@ export function ConfigView() {
                                       </span>
                   <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo privacidade" />
                 </label>
+                <ActionFeedbackPreference />
               </div>
             </GlassCard>
 
@@ -132,6 +136,7 @@ export function ConfigView() {
             />
             <DailyReportCard />
             <WebPushCard />
+            <IPhoneCompanionCard />
           </Tabs.Content>
 
           <Tabs.Content value="security" className="focus:outline-none outline-none flex flex-col gap-4">
@@ -204,7 +209,7 @@ function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title:
   )
 }
 
-function SettingsOverview() {
+function SettingsOverview({ onSelect }: { onSelect: (tab: string) => void }) {
   const { data: account } = useAccount()
   const { data: settings } = useAccountSettings()
   const { data: twofa } = useSWR<{ ok: boolean; enabled: boolean }>('/api/account/2fa', fetcher, { revalidateOnFocus: false })
@@ -217,6 +222,7 @@ function SettingsOverview() {
       hint: settings?.defaultCurrency ? `Moeda padrão · ${settings.defaultCurrency}` : 'Carregando preferências',
       icon: UserRound,
       tone: 'default',
+      tab: 'prefs',
     },
     {
       label: 'Fuso da operação',
@@ -224,6 +230,7 @@ function SettingsOverview() {
       hint: 'Usado nos cortes de dia e relatórios',
       icon: Globe2,
       tone: 'default',
+      tab: 'prefs',
     },
     {
       label: 'Segurança',
@@ -231,6 +238,7 @@ function SettingsOverview() {
       hint: !twofa ? 'Carregando estado de segurança' : twofa.enabled ? 'Camada adicional protegendo o login' : 'Ative 2FA para proteger o acesso',
       icon: ShieldCheck,
       tone: !twofa ? 'default' : twofa.enabled ? 'success' : 'warning',
+      tab: 'security',
     },
     {
       label: 'Alertas push',
@@ -238,14 +246,15 @@ function SettingsOverview() {
       hint: push?.devices ? 'Dispositivos prontos para receber alertas' : 'Nenhum dispositivo conectado',
       icon: Smartphone,
       tone: push?.devices ? 'success' : 'default',
+      tab: 'notifications',
     },
   ] as const
 
   return (
     <GlassCard className="p-3 sm:p-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, hint, icon: Icon, tone }) => (
-          <div key={label} className={`rounded-2xl border p-3.5 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
+        {cards.map(({ label, value, hint, icon: Icon, tone, tab }) => (
+          <button type="button" key={label} onClick={() => onSelect(tab)} className={`rounded-2xl border p-3.5 text-left transition-colors hover:border-border hover:bg-secondary/25 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
@@ -256,7 +265,7 @@ function SettingsOverview() {
                 <Icon className="size-3.5" />
               </span>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </GlassCard>
@@ -291,10 +300,7 @@ function AuditCard() {
 
   return (
     <>
-      <GlassCard 
-        className="p-5 flex items-center justify-between cursor-pointer transition-colors hover:bg-secondary/40" 
-
-      >
+      <GlassCard className="p-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-secondary border border-border">
              <Fingerprint className="size-4 text-muted-foreground" />
@@ -334,16 +340,38 @@ function AuditCard() {
   )
 }
 
+function ActionFeedbackPreference() {
+  const [enabled, setEnabled] = useState(true)
+  useEffect(() => { setEnabled(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-border/55 bg-secondary/15 p-4 transition-colors hover:border-border hover:bg-secondary/25">
+      <span>
+        <span className="block text-sm font-medium text-foreground">Feedback ao salvar</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">Som curto e, quando suportado, vibração após alterações importantes. Não muda o som das notificações.</span>
+      </span>
+      <Switch
+        checked={enabled}
+        onChange={(next) => {
+          setEnabled(next)
+          localStorage.setItem('roi_action_feedback', next ? 'on' : 'off')
+        }}
+        label="Feedback ao salvar"
+      />
+    </label>
+  )
+}
+
 function DailyReportCard() {
   const { data, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
+  const { data: pushStatus } = useSWR<{ ok: boolean; devices: number }>('/api/webpush/status', fetcher, { revalidateOnFocus: false })
   const [phone, setPhone] = useState('')
   const [hour, setHour] = useState(8)
   const [enabled, setEnabled] = useState(false)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [preview, setPreview] = useState<{ day: string; title: string; body: string } | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState(true)
-  useEffect(() => { setFeedback(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
   useEffect(() => {
     if (!data || dirty) return
     setPhone(data.whatsappTo || '')
@@ -368,6 +396,21 @@ function DailyReportCard() {
       setSaving(false)
     }
   }
+  async function loadPreview() {
+    setPreviewing(true)
+    setStatus(null)
+    try {
+      const result = await fetcher('/api/reports/daily/preview') as { ok: boolean; day: string; title: string; body: string }
+      setPreview({ day: result.day, title: result.title, body: result.body })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Tente novamente'
+      setStatus(msg)
+      toast.error?.('Não foi possível montar a prévia', { hint: msg })
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
   return (
     <GlassCard className="p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -382,7 +425,8 @@ function DailyReportCard() {
                 {enabled ? 'Ativo' : 'Desligado'}
               </span>
             </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Receba uma leitura curta de gasto, vendas e lucro no horário escolhido.</p>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ticket, gasto TikTok, ROAS, lucro, comparação, produto líder e exceções que pedem ação.</p>
+            <p className="mt-1 text-[11px] text-faint">{pushStatus?.devices ? `Push em ${pushStatus.devices} ${pushStatus.devices === 1 ? 'aparelho' : 'aparelhos'} · ` : 'Push nos aparelhos ativados · '}fica salvo na central · WhatsApp opcional</p>
           </div>
         </div>
         <Switch checked={enabled} onChange={(val) => { setEnabled(val); setDirty(true) }} label="Ativar resumo diário" />
@@ -391,7 +435,7 @@ function DailyReportCard() {
       <form onSubmit={save} className="mt-5">
         <fieldset disabled={!data || saving} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
           <label className="rounded-2xl border border-border/55 bg-secondary/15 p-3.5 text-xs text-muted-foreground">
-            <span className="block text-[10px] font-medium uppercase tracking-[0.16em]">WhatsApp</span>
+            <span className="block text-[10px] font-medium uppercase tracking-[0.16em]">WhatsApp · opcional</span>
             <input className="input mt-2 w-full" type="tel" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/\D/g, '')); setDirty(true) }} placeholder="5511999999999" />
             <span className="mt-2 block text-[10px]">Número com DDI e DDD.</span>
           </label>
@@ -407,13 +451,30 @@ function DailyReportCard() {
         {status && <div role="status" className="mt-2 text-xs text-error">{status}</div>}
       </form>
 
-      <label className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-border/50 bg-secondary/10 px-4 py-3 text-xs">
-        <span>
-          <b className="block font-medium text-foreground">Confirmação de ações</b>
-          <small className="mt-0.5 block text-muted-foreground">Som e vibração quando uma alteração importante é salva.</small>
-        </span>
-        <Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" />
-      </label>
+      <div className="mt-4 border-t border-border/50 pt-4">
+        <button
+          type="button"
+          onClick={() => void loadPreview()}
+          disabled={previewing}
+          className="btn-ghost min-h-9 text-xs"
+        >
+          {previewing ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+          {preview ? 'Atualizar prévia' : 'Ver prévia real'}
+        </button>
+        {preview ? (
+          <div className="mt-3 rounded-xl border border-border/55 bg-secondary/10 p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-foreground">{preview.title}</p>
+              <span className="text-[10px] text-faint">{preview.day.split('-').reverse().join('/')}</span>
+            </div>
+            <div className="mt-2 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+              {preview.body.split('\n').filter(Boolean).map((line) => <p key={line}>{line}</p>)}
+            </div>
+            <p className="mt-3 text-[10px] leading-relaxed text-faint">Esta é a mesma composição usada pelo envio automático; nenhum dado fictício é adicionado à prévia.</p>
+          </div>
+        ) : null}
+      </div>
+
     </GlassCard>
   )
 }
@@ -436,9 +497,15 @@ function DangerCard() {
       // e indicadores de saúde. Revalida imediatamente para nenhuma tela
       // continuar mostrando o snapshot anterior até o próximo polling.
       await Promise.all([
-        mutateCache('/api/stats'),
-        mutateCache('/api/overview/health'),
-        mutateCache('/api/live'),
+        mutateCache((key) => apiCacheKeyMatches(key, [
+          '/api/stats',
+          '/api/live',
+          '/api/overview/health',
+          '/api/overview/analytics',
+          '/api/ads/roas',
+          '/api/ads/profitability',
+          '/api/ads/campaign-decisions',
+        ])),
       ])
       setDone(true)
       toast.success('Estatísticas zeradas com sucesso.')

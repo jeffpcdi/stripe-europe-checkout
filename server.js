@@ -1787,17 +1787,33 @@ app.get('/api/public-token', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ token });
 });
+function publicApiAccount(req) {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+([^\s]+)$/i);
+  const provided = String((bearer && bearer[1]) || req.query.token || '');
+  if (!provided) return null;
+  for (const accId of config.accountIds()) {
+    const t = (config.get(accId).api || {}).token;
+    if (t && safeEqual(provided, t)) return accId;
+  }
+  return null;
+}
+
+function companionApiAccount(req) {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+([^\s]+)$/i);
+  const provided = String((bearer && bearer[1]) || '');
+  if (!provided) return null;
+  for (const accId of config.accountIds()) {
+    const token = (config.get(accId).companion || {}).token;
+    if (token && safeEqual(provided, token)) return accId;
+  }
+  return null;
+}
+
 app.get('/api/v1/summary', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  // token → conta dona: procura em todas as contas (token é único por conta)
-  const provided = String(req.query.token || '');
-  let tokenAcc = null;
-  if (provided) {
-    for (const accId of config.accountIds()) {
-      const t = (config.get(accId).api || {}).token;
-      if (t && safeEqual(provided, t)) { tokenAcc = accId; break; }
-    }
-  }
+  const tokenAcc = publicApiAccount(req);
   if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
   if (rateLimited(clientIp(req), 'pubapi', 30)) return res.status(429).json({ error: 'rate limit' });
   const s = stats.getStats(tokenAcc);
@@ -1831,6 +1847,153 @@ app.get('/api/v1/summary', (req, res) => {
   res.json(out);
 });
 
+// Snapshot compacto para WidgetKit/companion mobile. Usa EXCLUSIVAMENTE o
+// token dedicado do Companion para não ampliar o escopo do token público de BI.
+app.get('/api/v1/widget', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const tokenAcc = companionApiAccount(req);
+  if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
+  if (rateLimited(clientIp(req), 'pubwidget', 60)) return res.status(429).json({ error: 'rate limit' });
+
+  try {
+    const cfg = config.get(tokenAcc);
+    const s = stats.getStats(tokenAcc);
+    const timeZone = accountTz(tokenAcc);
+    const dayKey = accDay(tokenAcc, new Date());
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(tokenAcc, l.at) === dayKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(tokenAcc, e.at) === dayKey);
+    const revenueCents = sales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
+    const currency = (sales[0] && sales[0].currency) || accountCurrency(tokenAcc);
+    const previousDayKey = accDay(tokenAcc, new Date(Date.now() - 86400e3));
+    const previousSales = (s.events || []).filter((e) => e.type === 'sale' && accDay(tokenAcc, e.at) === previousDayKey);
+    const previousRevenueCents = previousSales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
+    const revenueDeltaPct = previousRevenueCents > 0
+      ? Math.round((revenueCents - previousRevenueCents) / previousRevenueCents * 1000) / 10
+      : null;
+    const latestSale = sales.slice().sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())[0] || null;
+    const conversion = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
+
+    const adsCache = require('./ads-cache-store');
+    let spend = 0;
+    let adCurrency = null;
+    for (const state of await adsCache.listSyncStates(tokenAcc).catch(() => [])) {
+      const daily = await adsCache.readAdvertiserDaily(tokenAcc, state.advertiser_id, dayKey, dayKey).catch(() => null);
+      if (!daily || !daily.currency) continue;
+      if (adCurrency && daily.currency !== adCurrency) continue;
+      adCurrency = daily.currency;
+      spend += Number(daily.spend) || 0;
+    }
+    const sameCurrency = !adCurrency || adCurrency === currency;
+    const roas = sameCurrency && spend > 0 ? (revenueCents / 100) / spend : null;
+    const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
+      currency,
+      fromDate: dayKey,
+      toDate: dayKey,
+      timeZone,
+      config: cfg.profitability || {},
+      adSpendExact: sameCurrency && !!adCurrency,
+    });
+
+    const attention = [];
+    if (sameCurrency && spend > 0 && sales.length === 0) attention.push('spend_without_sales');
+    if (profit.netProfitCents < 0) attention.push('negative_profit');
+
+    res.json({
+      ok: true,
+      version: 2,
+      generatedAt: new Date().toISOString(),
+      timeZone,
+      currency,
+      today: {
+        sales: sales.length,
+        revenueCents,
+        leads: dayLeads.length,
+        conversion,
+      },
+      media: {
+        tiktokSpend: sameCurrency ? spend : null,
+        currency: sameCurrency ? currency : adCurrency,
+        roas,
+      },
+      profitability: {
+        netProfitCents: profit.netProfitCents,
+        quality: profit.quality,
+      },
+      trend: {
+        previousSales: previousSales.length,
+        previousRevenueCents,
+        salesDelta: sales.length - previousSales.length,
+        revenueDeltaPct,
+      },
+      lastSale: latestSale ? {
+        at: latestSale.at,
+        amountCents: Number(latestSale.amount) || 0,
+        currency: latestSale.currency || currency,
+      } : null,
+      attention,
+    });
+  } catch (error) {
+    console.warn('[widget] snapshot falhou:', error && error.message);
+    res.status(503).json({ error: 'snapshot indisponível' });
+  }
+});
+
+app.post('/api/v1/companion/register', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const accId = companionApiAccount(req);
+  if (!accId) return res.status(401).json({ ok: false, error: 'token do companion inválido' });
+  if (rateLimited(clientIp(req), 'companionreg', 12)) return res.status(429).json({ ok: false, error: 'rate limit' });
+
+  const rawToken = String((req.body || {}).deviceToken || '').replace(/[^a-f0-9]/gi, '');
+  const name = String((req.body || {}).name || 'iPhone').trim().slice(0, 60) || 'iPhone';
+  if (!/^[a-f0-9]{64,200}$/i.test(rawToken)) {
+    return res.status(400).json({ ok: false, error: 'deviceToken APNs inválido' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const id = crypto.createHash('sha256').update(rawToken).digest('hex').slice(0, 24);
+  try {
+    const saved = await config.setDurable(accId, (latest) => {
+      const companion = latest.companion || {};
+      const current = Array.isArray(companion.devices) ? companion.devices : [];
+      const existing = current.find((device) => device.token === rawToken);
+      const next = current.filter((device) => device.token !== rawToken);
+      next.push({
+        id,
+        token: rawToken,
+        name,
+        createdAt: existing?.createdAt || nowIso,
+        updatedAt: nowIso,
+      });
+      return { companion: Object.assign({}, companion, { devices: next.slice(-6) }) };
+    });
+    stats.logEvent('info', { acc: accId, title: '[companion] iPhone pareado: ' + name });
+    res.json({ ok: true, deviceId: id, devices: ((saved.companion || {}).devices || []).length });
+  } catch (_) {
+    res.status(503).json({ ok: false, error: 'Não foi possível registrar o iPhone.' });
+  }
+});
+
+app.delete('/api/v1/companion/device/:id', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const accId = companionApiAccount(req);
+  if (!accId) return res.status(401).json({ ok: false, error: 'token do companion inválido' });
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  try {
+    const saved = await config.setDurable(accId, (latest) => {
+      const companion = latest.companion || {};
+      return {
+        companion: Object.assign({}, companion, {
+          devices: (companion.devices || []).filter((device) => device.id !== id),
+        }),
+      };
+    });
+    res.json({ ok: true, devices: ((saved.companion || {}).devices || []).length });
+  } catch (_) {
+    res.status(503).json({ ok: false, error: 'Não foi possível remover o aparelho.' });
+  }
+});
+
 // Item 419: alternar o escopo do token público (stats | stats+leads).
 app.post('/api/public-token/scope', dashboardAuth, async (req, res) => {
   const scope = String((req.body || {}).scope || '');
@@ -1844,10 +2007,10 @@ app.post('/api/public-token/scope', dashboardAuth, async (req, res) => {
   res.json({ ok: true, scope });
 });
 
-// ── Relatório diário via Pushcut ──────────────�������─────────────────────
-// Sem cron confiável em serverless: verificação barata "pegando carona"
-// no tráfego (track/conversão). Na primeira request após a virada do dia
-// (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
+// ── Briefing diário ───────────────────────────────────────────────────────
+// Em produção Railway o processo é persistente: um sweep periódico garante o
+// horário mesmo sem tráfego. Chamadas em track/conversão permanecem como
+// fallback; lastDailyReport torna ambos idempotentes por conta/dia.
 let dailyCheckBusy = false;
 async function checkDailyReport() {
   if (dailyCheckBusy) return;
@@ -1857,6 +2020,8 @@ async function checkDailyReport() {
     await Promise.all(config.accountIds().map((accId) => checkDailyReportFor(accId)));
   } finally { dailyCheckBusy = false; }
 }
+
+const DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000;
 
 // Item 464: watchdog de anomalia — "zero vendas em X horas" quando o histórico
 // diz que deveria haver. Detecta gateway quebrado/webhook caído ANTES do dono
@@ -1982,17 +2147,125 @@ function accHour(accId) {
     return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: accountTz(accId), hour: '2-digit', hour12: false }).format(new Date()), 10);
   } catch (_) { return new Date().getUTCHours(); }
 }
+async function buildDailyExecutiveBrief(accId) {
+  const cfg = config.get(accId);
+  // Item 422: o corte de "ontem" também respeita o fuso da conta.
+  const yKey = accDay(accId, new Date(Date.now() - 86400e3));
+  const s = stats.getStats(accId);
+  const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
+  const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
+  const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
+  const productStats = new Map();
+  for (const sale of sales) {
+    const raw = sale && sale.raw && typeof sale.raw === 'object' ? sale.raw : {};
+    const product = String(raw.product || '').replace(/\s+/g, ' ').trim().slice(0, 56);
+    if (!product) continue;
+    const current = productStats.get(product) || { count: 0, revenue: 0 };
+    current.count += 1;
+    current.revenue += Number(sale.amount) || 0;
+    productStats.set(product, current);
+  }
+  const topProduct = [...productStats.entries()]
+    .sort((a, b) => b[1].count - a[1].count || b[1].revenue - a[1].revenue)[0] || null;
+  const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
+  // anteontem, para comparação
+  const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
+  const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
+  const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
+  const cur = (sales[0] && sales[0].currency) || accountCurrency(accId);
+  const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
+  // Gasto oficial do TikTok vem do espelho de todos os advertisers desta
+  // conta e da mesma data civil. Nunca mistura moeda silenciosamente.
+  const adsCache = require('./ads-cache-store');
+  let spend = 0;
+  let adCurrency = null;
+  const syncStates = await adsCache.listSyncStates(accId).catch(() => []);
+  for (const state of syncStates) {
+    const daily = await adsCache.readAdvertiserDaily(accId, state.advertiser_id, yKey, yKey).catch(() => null);
+    if (!daily || !daily.currency) continue;
+    if (adCurrency && daily.currency !== adCurrency) continue;
+    adCurrency = daily.currency;
+    spend += Number(daily.spend) || 0;
+  }
+  const sameCurrency = !adCurrency || adCurrency === cur;
+  const roas = sameCurrency && spend > 0 ? rev / 100 / spend : 0;
+  const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
+    currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
+    config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
+  });
+  const briefMoney = (value) => new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: cur,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+  const revenueText = briefMoney(rev / 100);
+  const spendText = sameCurrency ? briefMoney(spend) : 'moeda divergente';
+  const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
+  const profitText = briefMoney(profit.netProfitCents / 100);
+  const aovText = sales.length ? briefMoney(rev / 100 / sales.length) : '—';
+  const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
+  const topProductText = topProduct
+    ? topProduct[0] + ' · ' + topProduct[1].count + (topProduct[1].count === 1 ? ' venda' : ' vendas')
+    : null;
+  const exception = sameCurrency && spend > 0 && sales.length === 0
+    ? 'Gasto no TikTok sem venda registrada.'
+    : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
+  const nextAction = sameCurrency && spend > 0 && sales.length === 0
+    ? 'Confira tracking, checkout e campanhas antes de aumentar orçamento.'
+    : (profit.netProfitCents < 0 ? 'Revise custos e campanhas antes de escalar.' : null);
+  
+  // Push executivo: resultado primeiro, contexto depois, exceção por último.
+  // O usuário entende a manhã em poucos segundos sem abrir a dashboard.
+  const pushText = 'ROAS ' + roasText + ' · Lucro ' + profitText + ' · Ticket ' + aovText
+    + '\nTikTok ' + spendText + ' · Conversão ' + conv + '%'
+    + (deltaText ? '\nReceita ' + deltaText : '')
+    + (topProductText ? '\nMais vendido: ' + topProductText : '')
+    + (exception ? '\nAtenção: ' + exception : '')
+    + (nextAction ? '\nPróximo passo: ' + nextAction : '');
+  
+  // Canais longos preservam contexto operacional adicional.
+  const reportText = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
+    + ' · Ticket ' + aovText
+    + (deltaText ? '\nReceita ' + deltaText : '')
+    + '\nTikTok ' + spendText + ' · ROAS ' + roasText
+    + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
+    + (topProductText ? '\nMais vendido: ' + topProductText : '')
+    + (exception ? '\nAtenção: ' + exception : '')
+    + (nextAction ? '\nPróximo passo: ' + nextAction : '')
+    + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
+  
+  const title = 'Ontem · ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas');
+  
+  return {
+    yKey,
+    title,
+    pushText,
+    reportText,
+    revenueCents: rev,
+    salesCount: sales.length,
+    currency: cur,
+    spend,
+    sameCurrency,
+    roas,
+    profit,
+  };
+}
+
 async function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
   const settings = cfg.settings || {};
   const whatsapp = require('./whatsapp');
-  const webPushNotify = require('./web-push-notify');
   const reportEnabled = settings.dailyReportEnabled === true || (pc.events || {}).daily === true;
   const pushcutEnabled = reportEnabled && !!pc.url;
   const whatsappEnabled = reportEnabled && !!settings.whatsappTo;
-  const webPushEnabled = reportEnabled && ((cfg.webPush || {}).subs || []).length > 0;
-  if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled) return;
+  const nativeReportEnabled = reportEnabled && nativePreferenceEnabled(accId, 'daily');
+  const webPushEnabled = nativeReportEnabled && ((cfg.webPush || {}).subs || []).length > 0;
+  const companion = cfg.companion || {};
+  const iosPushEnabled = nativeReportEnabled
+    && companion.preferNativeIOS === true
+    && (companion.devices || []).length > 0;
+  if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled && !iosPushEnabled) return;
   const today = accDay(accId, new Date());
   if (cfg.lastDailyReport === today) return;
   // Default de produto: 08h no fuso da conta.
@@ -2000,59 +2273,22 @@ async function checkDailyReportFor(accId) {
   const minHour = Math.max(0, Math.min(23, Number.isFinite(configuredHour) ? configuredHour : 8));
   if (accHour(accId) < minHour) return;
   try {
-    // Item 422: o corte de "ontem" também respeita o fuso da conta.
-    const yKey = accDay(accId, new Date(Date.now() - 86400e3));
-    const s = stats.getStats(accId);
-    const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
-    const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
-    const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
-    const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
-    // anteontem, para comparação
-    const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
-    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
-    const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
-    const cur = (sales[0] && sales[0].currency) || accountCurrency(accId);
-    const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
-    // Gasto oficial do TikTok vem do espelho de todos os advertisers desta
-    // conta e da mesma data civil. Nunca mistura moeda silenciosamente.
-    const adsCache = require('./ads-cache-store');
-    let spend = 0;
-    let adCurrency = null;
-    const syncStates = await adsCache.listSyncStates(accId).catch(() => []);
-    for (const state of syncStates) {
-      const daily = await adsCache.readAdvertiserDaily(accId, state.advertiser_id, yKey, yKey).catch(() => null);
-      if (!daily || !daily.currency) continue;
-      if (adCurrency && daily.currency !== adCurrency) continue;
-      adCurrency = daily.currency;
-      spend += Number(daily.spend) || 0;
-    }
-    const sameCurrency = !adCurrency || adCurrency === cur;
-    const roas = sameCurrency && spend > 0 ? rev / 100 / spend : 0;
-    const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
-      currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
-      config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
-    });
-    const text = 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur
-      + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '')
-      + '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%'
-      + '\nGasto TikTok: ' + (sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente')
-      + ' · ROAS: ' + (sameCurrency ? roas.toFixed(2) : '—')
-      + '\nLucro líquido: ' + (profit.netProfitCents / 100).toFixed(2) + ' ' + cur
-      + (profit.quality === 'exact' ? '' : ' (custos estimados onde o webhook não informou)');
-    const title = 'Resumo de ' + yKey.split('-').reverse().join('/');
+    const report = await buildDailyExecutiveBrief(accId);
+    const { yKey, title, pushText, reportText, revenueCents: rev, salesCount, currency: cur, spend, sameCurrency, roas, profit } = report;
     const deliveries = [];
-    if (pushcutEnabled) deliveries.push(sendPushcut('Aprovada', {
+    // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
+    // Uma única chamada evita duplicar a mesma notificação no iPhone.
+    if (pushcutEnabled || webPushEnabled || iosPushEnabled) deliveries.push(sendPushcut('Resumo diário', {
       title,
-      text,
+      text: pushText,
       sound: 'system'
-    }, accId).catch(() => false));
-    if (webPushEnabled) deliveries.push(webPushNotify.sendWebPush(accId, {
-      title, body: text, url: '/dashboard', tag: 'daily-report-' + yKey,
-      sound: 'info', event: 'ads', priority: 'normal',
+    }, accId, {
+      event: 'daily',
+      dedupeKey: 'daily-report:' + yKey,
     }).catch(() => false));
-    if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + text, [
+    if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + reportText, [
       yKey.split('-').reverse().join('/'), (rev / 100).toFixed(2) + ' ' + cur,
-      String(sales.length), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
+      String(salesCount), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
       sameCurrency ? roas.toFixed(2) : '—', (profit.netProfitCents / 100).toFixed(2) + ' ' + cur,
     ]).then((result) => result.ok).catch(() => false));
     const delivered = (await Promise.all(deliveries)).some(Boolean);
@@ -2066,6 +2302,23 @@ async function checkDailyReportFor(accId) {
     console.warn('[relatório-diário] falhou para a conta ' + accId + ': ' + String(error && error.message || error).slice(0, 180));
   }
 }
+
+app.get('/api/reports/daily/preview', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const report = await buildDailyExecutiveBrief(req.account.id);
+    res.json({
+      ok: true,
+      day: report.yKey,
+      title: report.title,
+      body: report.pushText,
+      detail: report.reportText,
+    });
+  } catch (error) {
+    console.warn('[relatório-diário] prévia falhou:', error && error.message);
+    res.status(503).json({ ok: false, error: 'Não foi possível montar a prévia do relatório.' });
+  }
+});
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
 // Comparação em tempo constante (crypto.timingSafeEqual) — evita timing
@@ -3385,7 +3638,9 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const cloakRefsV2 = cloakCampaignStore.isReady()
     ? cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.domainHost === host)
     : [];
-  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
+  // Durante a migração, V1 e V2 podem coexistir. A remoção deve falhar se
+  // QUALQUER geração ainda referenciar o domínio.
+  const cloakRefs = [...cloakRefsV2, ...cloakRefsLegacy];
   if (checkoutRefs.length || cloakRefs.length) {
     const refs = [];
     if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
@@ -4698,6 +4953,144 @@ app.get('/api/webpush/status', dashboardAuth, (req, res) => {
   });
 });
 
+app.get('/api/companion/status', dashboardAuth, (req, res) => {
+  const companion = config.get(req.account.id).companion || { devices: [] };
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    paired: Boolean(companion.token),
+    devices: (companion.devices || []).map((device) => ({
+      id: device.id,
+      name: device.name,
+      createdAt: device.createdAt,
+      updatedAt: device.updatedAt,
+    })),
+    apnsConfigured: require('./ios-push').configured(),
+    preferNativeIOS: companion.preferNativeIOS === true,
+    capabilities: {
+      nativePush: true,
+      customSaleSound: true,
+      homeScreenWidget: true,
+      lockScreenWidget: true,
+      largeExecutiveWidget: true,
+      salesWidget: true,
+      liveActivities: false,
+      widgetSnapshotVersion: 2,
+    },
+  });
+});
+
+app.delete('/api/companion/device/:id', dashboardAuth, async (req, res) => {
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  if (!id) return res.status(400).json({ ok: false, error: 'aparelho inválido' });
+  try {
+    const saved = await config.setDurable(req.account.id, (latest) => {
+      const companion = latest.companion || {};
+      return {
+        companion: Object.assign({}, companion, {
+          devices: (companion.devices || []).filter((device) => device.id !== id),
+        }),
+      };
+    });
+    audit(req, req.account.id, 'companion_device_removido', 'iPhone Companion removido: ' + id);
+    res.json({ ok: true, devices: ((saved.companion || {}).devices || []).length });
+  } catch (err) { return configMutationError(res, err); }
+});
+
+app.post('/api/companion/preferences', dashboardAuth, async (req, res) => {
+  const preferNativeIOS = (req.body || {}).preferNativeIOS === true;
+  const current = config.get(req.account.id).companion || { devices: [] };
+
+  // Nunca troca o iPhone para APNs se o canal nativo ainda não puder receber.
+  // Desligar continua sempre permitido para recuperar imediatamente o Web Push.
+  if (preferNativeIOS) {
+    if (!(current.devices || []).length) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Pareie pelo menos um iPhone Companion antes de preferir o canal nativo.',
+        code: 'companion_device_required',
+      });
+    }
+    if (!require('./ios-push').configured()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'APNs ainda não está configurado no servidor. O Web Push do iPhone continua ativo.',
+        code: 'apns_not_configured',
+      });
+    }
+  }
+
+  try {
+    const saved = await config.setDurable(req.account.id, (latest) => ({
+      companion: Object.assign({}, latest.companion || {}, { preferNativeIOS }),
+    }));
+    res.json({
+      ok: true,
+      preferNativeIOS: (saved.companion || {}).preferNativeIOS === true,
+    });
+  } catch (error) { return configMutationError(res, error); }
+});
+
+app.post('/api/companion/test', dashboardAuth, async (req, res) => {
+  const companion = config.get(req.account.id).companion || {};
+  const devices = Array.isArray(companion.devices) ? companion.devices : [];
+  if (!devices.length) return res.json({ ok: false, error: 'Nenhum iPhone Companion pareado.' });
+
+  const note = require('./notify-copy').build({
+    name: 'Teste',
+    payload: {
+      title: 'Venda de teste · ROI-NADOS',
+      text: 'Som nativo e APNs funcionando neste iPhone.',
+    },
+    meta: { event: 'test' },
+    funMode: false,
+    accountId: req.account.id,
+  });
+  note.badge = false;
+  note.priority = 'normal';
+
+  try {
+    const result = await require('./ios-push').sendToDevices(devices, note);
+    if (!result.ok) {
+      return res.json({ ok: false, error: result.reason || 'Nenhum iPhone recebeu o teste.' });
+    }
+    res.json({ ok: true, delivered: result.delivered || 0 });
+  } catch (error) {
+    res.status(503).json({ ok: false, error: 'Falha ao testar APNs: ' + String(error && error.message || error).slice(0, 120) });
+  }
+});
+
+app.get('/api/companion/token', dashboardAuth, async (req, res) => {
+  let companion = config.get(req.account.id).companion || {};
+  let token = companion.token;
+  if (!token) {
+    token = crypto.randomBytes(32).toString('hex');
+    try {
+      const saved = await config.setDurable(req.account.id, (latest) => ({
+        companion: Object.assign({}, latest.companion || {}, { token }),
+      }));
+      token = (saved.companion || {}).token || token;
+      audit(req, req.account.id, 'companion_token_criado', 'Token do companion iOS criado');
+    } catch (error) { return configMutationError(res, error); }
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, token });
+});
+
+app.post('/api/companion/token/rotate', dashboardAuth, async (req, res) => {
+  if (rateLimited('companionrot|' + req.account.id, 'companionrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas rotações. Aguarde um minuto.' });
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  try {
+    await config.setDurable(req.account.id, (latest) => ({
+      companion: Object.assign({}, latest.companion || {}, { token, devices: [] }),
+    }));
+    audit(req, req.account.id, 'companion_token_rotacionado', 'Token do companion iOS rotacionado; aparelhos revogados');
+    res.json({ ok: true, token, devices: 0 });
+  } catch (error) { return configMutationError(res, error); }
+});
+
 // Tom descontraído é opcional; o padrão é curto e direto.
 app.post('/api/webpush/funmode', dashboardAuth, async (req, res) => {
   const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
@@ -4707,7 +5100,7 @@ app.post('/api/webpush/funmode', dashboardAuth, async (req, res) => {
   res.json({ ok: true, funMode });
 });
 
-const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation'];
+const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation', 'reports'];
 
 app.post('/api/webpush/preferences', dashboardAuth, async (req, res) => {
   const body = (req.body || {}).preferences || {};
@@ -4722,13 +5115,13 @@ app.post('/api/webpush/preferences', dashboardAuth, async (req, res) => {
 });
 
 // Compatibilidade temporária para clientes antigos da dashboard. O backend já
-// opera com os três grupos simples acima.
+// opera com os quatro grupos simples acima.
 app.get('/api/webpush/events', dashboardAuth, (req, res) => {
   const p = nativePreferencesFor(req.account.id);
   res.set('Cache-Control', 'no-store');
   res.json({ ok: true, events: {
     sale: p.sales, failed: p.risks, refund: p.risks, dispute: p.risks,
-    checkout: false, login: p.risks, ads: p.automation, system: p.risks,
+    checkout: false, login: p.risks, ads: p.automation, system: p.risks, daily: p.reports,
   } });
 });
 
@@ -4741,6 +5134,7 @@ app.post('/api/webpush/events', dashboardAuth, async (req, res) => {
     preferences.risks = [body.failed, body.refund, body.dispute, body.login, body.system].some((v) => v === true);
   }
   if (typeof body.ads === 'boolean') preferences.automation = body.ads;
+  if (typeof body.daily === 'boolean') preferences.reports = body.daily;
   try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { preferences }) }); }
   catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
@@ -5047,13 +5441,30 @@ async function notifyPushcut(event, n) {
     if (seen) return;
   }
   const valor = fmtMoney(n.amountCents, n.currency);
+  let dailySales = 0;
+  let dailyRevenue = '';
+  if (map.key === 'sale' && n.acc) {
+    try {
+      const todayKey = accDay(n.acc, new Date());
+      const saleCurrency = String(n.currency || '').toUpperCase();
+      const todaySales = (stats.getStats(n.acc).events || []).filter((event) =>
+        event.type === 'sale'
+        && accDay(n.acc, event.at) === todayKey
+        && (!saleCurrency || String(event.currency || '').toUpperCase() === saleCurrency)
+      );
+      dailySales = todaySales.length;
+      dailyRevenue = fmtMoney(todaySales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0), n.currency);
+    } catch (_) {
+      // Contexto diário é enriquecimento; a venda nunca deixa de notificar por isso.
+    }
+  }
   // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
   // contas existentes, mas o recurso agora pertence à notificação nativa.
   const settings = config.get(n.acc).settings || {};
   const tpl = settings.notificationTemplate || settings.pushcutTemplate;
   const eventKey = isPendingPix ? 'pix_pending' : map.key;
   const titles = {
-    sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
+    sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada · ${valor}`) : `Venda aprovada · ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
     refund: `Reembolso — ${valor}`,
     dispute: `Disputa aberta — ${valor}`,
@@ -5078,7 +5489,9 @@ async function notifyPushcut(event, n) {
     valor,
     produto: n.product || '',
     cliente: n.customer || '',
-    gateway: n.gateway || ''
+    gateway: n.gateway || '',
+    dailySales,
+    dailyRevenue
   }).catch(() => {});
 }
 
@@ -7091,9 +7504,14 @@ stats.hydrate()
     // Relatório das 08h é um worker real: continua funcionando mesmo sem
     // visitas, tracking ou dashboard aberta. O marcador por conta garante no
     // máximo um envio confirmado por dia.
-    const dailyReportTimer = setInterval(() => { checkDailyReport().catch(() => {}); }, 5 * 60 * 1000);
+    const dailyReportTimer = setInterval(() => {
+      checkDailyReport().catch((error) => {
+        console.warn('[relatório-diário] sweep falhou:', String(error && error.message || error).slice(0, 180));
+      });
+    }, DAILY_REPORT_SWEEP_MS);
     if (dailyReportTimer.unref) dailyReportTimer.unref();
-    setTimeout(() => { checkDailyReport().catch(() => {}); }, 10 * 1000).unref();
+    const dailyReportBootCheck = setTimeout(() => { checkDailyReport().catch(() => {}); }, 10 * 1000);
+    if (dailyReportBootCheck.unref) dailyReportBootCheck.unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
     //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
     setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 24 * 60 * 60 * 1000).unref();

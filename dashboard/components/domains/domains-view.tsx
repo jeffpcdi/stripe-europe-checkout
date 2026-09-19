@@ -340,7 +340,6 @@ export function DomainsView() {
               { label: 'Cadastrado', done: true },
               { label: 'Preparado', done: infrastructureReady },
               { label: 'DNS', done: dnsReady },
-              { label: 'HTTPS', done: ready },
               { label: 'Pronto', done: ready },
             ]
             return (

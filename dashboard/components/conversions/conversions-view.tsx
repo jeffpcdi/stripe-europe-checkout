@@ -8,33 +8,19 @@ import {
   Plus,
   Copy,
   Check,
-  Trash2,
-  Pencil,
-  Zap,
   Eye,
   EyeOff,
   CircleX,
   Loader2,
   RefreshCw,
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
   ChevronDown,
-  ChevronUp,
-  HelpCircle,
-  ExternalLink,
-  Info,
-  ArrowRight,
   Search,
-  Filter,
-  Link as LinkIcon,
-  SlidersHorizontal,
 } from 'lucide-react'
 import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend, ApiError } from '@/lib/api'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
-import { timeAgo, fmtCurrency } from '@/lib/format'
+import { timeAgo } from '@/lib/format'
 import { conversionStatus, conversionAmount, conversionEvent } from '@/lib/conversion-status'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import type { Pixel, Gateway, GatewayProvider, ConversionLogRow } from '@/lib/types'
@@ -171,6 +157,7 @@ export function ConversionsView() {
   // Validação de sincronização
   const syncValidation = useMemo(() => {
     let lastSuccessDate: Date | null = null
+    let lastFailureDate: Date | null = null
     let failedGateway: Gateway | null = null
     let failedLogRow: ConversionLogRow | null = null
 
@@ -187,18 +174,21 @@ export function ConversionsView() {
 
     const logs = convLog?.log ?? []
     for (const row of logs) {
-      const isErr = conversionStatus(row).kind === 'error'
-
-      if (isErr && !failedLogRow) failedLogRow = row
-      if (conversionStatus(row).kind === 'success' && row.at) {
-        const d = new Date(row.at)
-        if (!isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
-          lastSuccessDate = d
-        }
+      const status = conversionStatus(row).kind
+      const rowAt = row.at ?? row.createdAt
+      const d = rowAt ? new Date(String(rowAt)) : null
+      if (status === 'error' && d && !isNaN(d.getTime()) && (!lastFailureDate || d > lastFailureDate)) {
+        lastFailureDate = d
+        failedLogRow = row
+      }
+      if (status === 'success' && d && !isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
+        lastSuccessDate = d
       }
     }
 
-    const hasFailure = Boolean(failedGateway || failedLogRow)
+    const unresolvedLogFailure = Boolean(failedLogRow && lastFailureDate && (!lastSuccessDate || lastFailureDate >= lastSuccessDate))
+    const hasFailure = Boolean(failedGateway || unresolvedLogFailure)
+    if (!unresolvedLogFailure) failedLogRow = null
     let failureDescription = ''
     if (failedGateway) {
       failureDescription = `O checkout "${failedGateway.name}" reportou falha na última notificação.`
@@ -402,6 +392,13 @@ export function ConversionsView() {
     return { label: 'Iniciar', tone: 'default' as const, hint: 'Cadastre o primeiro pixel e conecte um checkout.' }
   }, [activePixels, gateways.length, logSummary.success, syncValidation.hasFailure])
 
+  const trackingNextAction = useMemo(() => {
+    if (activePixels === 0) return { label: 'Crie ou ative um Pixel', detail: 'Sem um Pixel ativo, o ROI-NADOS não consegue distribuir eventos para o TikTok.', action: 'pixel' as const }
+    if (gateways.length === 0) return { label: 'Conecte um checkout', detail: 'O checkout envia as vendas que alimentam atribuição, ROAS real e automações.', action: 'gateway' as const }
+    if (logSummary.success === 0) return { label: 'Valide a primeira entrega', detail: 'A estrutura está configurada, mas ainda não há uma conversão confirmada neste histórico.', action: 'logs' as const }
+    return null
+  }, [activePixels, gateways.length, logSummary.success])
+
   if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
 
   return (
@@ -460,6 +457,26 @@ export function ConversionsView() {
             </p>
           </div>
         </div>
+
+        {trackingNextAction ? (
+          <div className="flex flex-col gap-2 border-b border-border/45 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">{trackingNextAction.label}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{trackingNextAction.detail}</p>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs font-semibold text-brand-cyan hover:underline"
+              onClick={() => {
+                if (trackingNextAction.action === 'pixel') { selectTab('pixels'); setEditingPixel('new'); return }
+                if (trackingNextAction.action === 'gateway') { selectTab('gateways'); setEditingGateway('new'); return }
+                selectTab('logs')
+              }}
+            >
+              {trackingNextAction.action === 'pixel' ? 'Novo Pixel' : trackingNextAction.action === 'gateway' ? 'Conectar checkout' : 'Ver entregas'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {syncValidation.hasFailure ? (
@@ -761,7 +778,9 @@ export function ConversionsView() {
                   : 'Não há registros correspondentes no momento.'}
               </p>
               {logSummary.total === 0 ? (
-                <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar integração” em um checkout para validar o fluxo.</p>
+                <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar recebimento” em um checkout para validar o processamento do webhook.</p>
+              ) : logFilter !== 'all' ? (
+                <button type="button" onClick={() => setLogFilter('all')} className="mt-3 text-xs font-semibold text-brand-cyan hover:underline">Limpar filtro</button>
               ) : null}
             </div>
           ) : (
@@ -915,7 +934,6 @@ export function ConversionsView() {
         <DirectGatewayModal
           gateway={editingGateway === 'new' ? null : editingGateway}
           providers={providers}
-          pixels={pixels}
           onClose={() => setEditingGateway(null)}
           onSaved={() => {
             setEditingGateway(null)
@@ -1369,18 +1387,16 @@ function PixelEditorWithGatewaySync({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MODAL DE CONEXÃO DE CHECKOUT COM SELEÇÃO DIRETA DE PIXELS
+// MODAL DE CONEXÃO DE CHECKOUT
 // ─────────────────────────────────────────────────────────────────────────────
 function DirectGatewayModal({
   gateway,
   providers,
-  pixels,
   onClose,
   onSaved,
 }: {
   gateway: Gateway | null
   providers: GatewayProvider[]
-  pixels: Pixel[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -1412,7 +1428,9 @@ function DirectGatewayModal({
     }
   }
 
-  const selectedProviderLabel = providers.find(item => item.id === provider)?.label || 'a plataforma'
+  const selectedProvider = providers.find(item => item.id === provider)
+  const selectedProviderLabel = selectedProvider?.label || 'a plataforma'
+  const secretLabel = selectedProvider?.secretLabel || ''
   const helpText = PROVIDER_HELP[provider] || PROVIDER_HELP.generic
   const inputCls =
     'h-11 w-full rounded-lg border border-border/70 bg-input/70 px-3.5 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-brand-cyan/60 focus:outline-none focus:ring-1 focus:ring-brand-cyan/25'
@@ -1474,8 +1492,49 @@ function DirectGatewayModal({
           <p className="text-xs leading-5 text-muted-foreground">Use um nome para diferenciar este checkout.</p>
         </div>
 
+        {secretLabel ? (
+          <section className="border-t border-border/50 pt-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setShowAdvanced((value) => !value)}
+              aria-expanded={showAdvanced}
+            >
+              <span>
+                <span className="block text-[13px] font-medium text-foreground">Assinatura do webhook</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{gateway?.hasSecret ? 'Há uma credencial salva. Deixe em branco para mantê-la.' : 'Opcional na maioria dos provedores; adiciona uma validação extra ao webhook.'}</span>
+              </span>
+              <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${showAdvanced ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </button>
+            {showAdvanced ? (
+              <div className="mt-3">
+                <label htmlFor="gateway-secret" className="text-[13px] font-medium text-foreground">{secretLabel}</label>
+                <div className="relative mt-2">
+                  <input
+                    id="gateway-secret"
+                    type={showSecret ? 'text' : 'password'}
+                    className={`${inputCls} pr-11 font-mono`}
+                    value={secret}
+                    onChange={(event) => setSecret(event.target.value)}
+                    placeholder={gateway?.hasSecret ? 'Credencial salva · informe apenas para substituir' : secretLabel}
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret((value) => !value)}
+                    className="absolute inset-y-0 right-2 flex items-center px-1 text-muted-foreground hover:text-foreground"
+                    aria-label={showSecret ? 'Ocultar credencial' : 'Mostrar credencial'}
+                  >
+                    {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <p className="text-[13px] leading-5 text-muted-foreground">
-          Depois de conectar, você pode vincular este checkout aos Pixels que devem receber as vendas.
+          Depois de conectar, vincule este checkout aos Pixels que devem receber as vendas.
         </p>
 
         {error && (

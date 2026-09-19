@@ -1898,6 +1898,33 @@ html[data-anim='off'] .stagger-fade > * {
   animation: rowSlideIn var(--dur) var(--ease) both;
 }
 
+/* Venda que acabou de chegar: destaque único e curto, sem loop. */
+@keyframes roiSaleArrival {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.activity-sale-arrival {
+  position: relative;
+  isolation: isolate;
+}
+.activity-sale-arrival::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-left: 2px solid color-mix(in srgb, var(--success) 78%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 10%, transparent), transparent 52%);
+  opacity: 0;
+  animation: roiSaleArrival 900ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-sale-arrival::after { animation: none !important; }
+}
+html[data-anim='off'] .activity-sale-arrival::after { animation: none !important; }
+
 /* ============================================================
    View Transitions
    ============================================================ */
@@ -2342,6 +2369,67 @@ kbd {
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
 }
 
+/* ROI-NADOS — micro motion operacional
+   Entradas curtas, compositor-friendly e sem loops decorativos. */
+@keyframes roiToastIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.roi-toast-in {
+  animation: roiToastIn 180ms var(--ease) both;
+}
+
+@keyframes roiAttentionIn {
+  from { opacity: 0; transform: scale(0.72); }
+  to { opacity: 1; transform: scale(1); }
+}
+.premium-navbar__notification-dot {
+  animation: roiAttentionIn 180ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roi-toast-in,
+  .premium-navbar__notification-dot,
+  .anim-shake,
+  .toast-life,
+  html[data-roi-sale-pulse='on'] .dashboard-main::after,
+  ::view-transition-old(.vt-fade-out),
+  ::view-transition-new(.vt-fade-in) {
+    animation: none !important;
+  }
+}
+html[data-anim='off'] .roi-toast-in,
+html[data-anim='off'] .premium-navbar__notification-dot,
+html[data-anim='off'] .anim-shake,
+html[data-anim='off'] .toast-life,
+html[data-anim='off'][data-roi-sale-pulse='on'] .dashboard-main::after {
+  animation: none !important;
+}
+
+/* Venda recebida com a dashboard aberta: um único pulso de confirmação.
+   Sem confete, sem loop e sem deslocar conteúdo. */
+@keyframes roiSalePulse {
+  0% { opacity: 0; transform: scaleX(.18); }
+  24% { opacity: .9; }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+.dashboard-main::after {
+  content: '';
+  position: fixed;
+  z-index: 54;
+  inset-inline: 0;
+  top: max(env(safe-area-inset-top), 0px);
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleX(.18);
+  transform-origin: center;
+  background: linear-gradient(90deg, transparent, var(--success), var(--accent), transparent);
+}
+html[data-roi-sale-pulse='on'] .dashboard-main::after {
+  animation: roiSalePulse 760ms var(--ease) both;
+}
+
 /* V2-39: toast com barra de vida no rodapé */
 @keyframes toastLife {
   from { transform: scaleX(1); }
@@ -2355,7 +2443,7 @@ kbd {
   height: 2px;
   transform-origin: left;
   background: linear-gradient(90deg, var(--accent), var(--pink));
-  animation: toastLife 4s linear both;
+  animation: toastLife 3500ms linear both;
 }
 
 /* V2-40: número que rola verticalmente ao trocar (odometer leve) */
@@ -3191,7 +3279,7 @@ html[data-anim='off'] .overview-metric, html[data-anim='off'] .overview-metric *
   .overview-section-heading h2 { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .presence-stage *, .recent-visit-row, .journey-step-track > span { animation: none !important; transition: none !important; }
+  .presence-stage *, .recent-visit-row, .activity-event-row, .journey-step-track > span { animation: none !important; transition: none !important; }
 }
 
 /* TikTok Ads: ações persistentes e indicadores comparáveis por campanha. */
@@ -3529,6 +3617,20 @@ body { isolation: isolate; }
 .recent-visits .overview-section-heading { margin-bottom: 20px; }
 .recent-visit-row, .recent-visit-row:last-child { padding: 14px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-inset); gap: 12px; }
 .recent-visit-row[data-purchased='true'] { border-color: color-mix(in srgb, var(--money) 35%, transparent); background: color-mix(in srgb, var(--money) 4%, var(--surface-inset)); }
+@keyframes roiSaleRowIn {
+  0% { opacity: 0; transform: translateY(8px) scale(.99); }
+  70% { opacity: 1; transform: translateY(0) scale(1.008); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.activity-event-row[data-event-type='sale'] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--money) 55%, transparent);
+}
+.activity-event-row.activity-sale-arrival {
+  animation: roiSaleRowIn 360ms var(--ease) both;
+}
+.activity-event-row.activity-sale-arrival [data-sensitive].text-success {
+  animation: roiAttentionIn 220ms var(--ease) both;
+}
 .recent-visit-place { width: 36px; height: 36px; background: var(--surface-raised); border: 1px solid var(--surface-border); border-radius: 10px; }
 .recent-visit-description { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .recent-visit-detail strong { max-width: 100%; font-size: 13px; font-weight: 550; }

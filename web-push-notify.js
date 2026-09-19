@@ -91,8 +91,12 @@ function logFailure(accountId, reason) {
  * @returns {boolean} true se pelo menos um aparelho recebeu
  */
 async function sendWebPush(accountId, note) {
-  const subs = subsFor(accountId);
-  if (!subs.length) return false; // sem aparelhos = silenciosamente off
+  const allSubs = subsFor(accountId);
+  const isIOSSub = (sub) => /(iPhone|iPad|iPod|Macintosh.*Mobile)/i.test(String(sub.ua || ''));
+  const subs = note && note.onlyIOSWebPush
+    ? allSubs.filter(isIOSSub)
+    : (note && note.skipIOSWebPush ? allSubs.filter((sub) => !isIOSSub(sub)) : allSubs);
+  if (!subs.length) return false; // sem aparelhos elegíveis = silenciosamente off
   try { await ensureVapid(); } catch (err) {
     logFailure(accountId, 'VAPID indisponível: ' + err.message);
     return false;
@@ -108,7 +112,8 @@ async function sendWebPush(accountId, note) {
     // evento original (sale, failed, checkout…) — usado pelas preferências
     // de som por evento no painel (notify-prefs)
     event: String(note.event || '').slice(0, 30),
-    priority: note.priority === 'critical' ? 'critical' : 'normal'
+    priority: note.priority === 'critical' ? 'critical' : 'normal',
+    badge: note.badge === true
   });
   let delivered = 0;
   await Promise.all(subs.map(async (sub) => {
@@ -119,9 +124,13 @@ async function sendWebPush(accountId, note) {
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
         {
-          TTL: note.priority === 'critical' ? 86400 : 3600,
+          TTL: note.priority === 'critical' ? 86400 : (note.event === 'daily' ? 21600 : 3600),
           timeout: 8000,
-          headers: { Urgency: note.priority === 'critical' ? 'high' : 'normal' }
+          headers: {
+            Urgency: note.priority === 'critical'
+              ? 'high'
+              : (note.event === 'daily' ? 'low' : 'normal')
+          }
         }
       );
       delivered++;

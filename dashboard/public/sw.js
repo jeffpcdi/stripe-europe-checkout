@@ -18,49 +18,70 @@ self.addEventListener("push", (event) => {
     data = { title: "ROI-NADOS", body: event.data ? event.data.text() : "" }
   }
 
-  const title = data.title || "ROI-NADOS"
-  // Haptics/Vibração distinta por tipo de som (Android/desktop; iOS ignora):
-  // cash = ritmo de caixa registradora; alert = longa e insistente;
-  // tick/ping = toque único curto; info = padrão suave.
-  const VIBRATE = {
-    cash: [200, 100, 200, 100, 400],
-    alert: [400, 150, 400, 150, 600],
-    tick: [80],
-    ping: [120],
-    info: [150, 80, 150],
-  }
-  const options = {
-    body: data.body || "",
-    icon: "/dashboard/icon-192.png",
-    badge: "/dashboard/badge-96.png",
-    tag: data.tag || undefined, // agrupa notificações do mesmo evento
-    data: { url: data.url || "/dashboard" },
-    // silent:false garante o som padrão do sistema (iOS/Android/desktop).
-    // Som customizado em push fechado não é permitido pela Apple — os sons
-    // por evento tocam nas abas abertas via postMessage abaixo.
-    silent: false,
-    vibrate: data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [150]),
-    renotify: data.priority === "critical" && Boolean(data.tag),
-    // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
-    actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
-  }
+  event.waitUntil((async () => {
+    const title = data.title || "ROI-NADOS"
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+    const visibleClients = clients.filter((client) => client.visibilityState === "visible")
+    const hasVisibleClient = visibleClients.length > 0
 
-  event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, options),
-      // Avisa as abas abertas do painel para tocar o som do evento
-      // (ex.: 'cash' = cha-ching de dinheiro quando cai venda).
-      data.sound
-        ? self.clients
-            .matchAll({ type: "window", includeUncontrolled: true })
-            .then((clients) => {
-              for (const client of clients) {
-                client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
-              }
-            })
-        : Promise.resolve(),
-    ]),
-  )
+    // Haptics são best-effort fora do iOS. O iPhone controla o feedback físico
+    // e pode ignorar totalmente a opção vibrate de Web Notifications.
+    const VIBRATE = {
+      cash: [90, 50, 120],
+      alert: [160, 80, 160],
+      tick: [50],
+      ping: [80],
+      info: [70],
+    }
+
+    const options = {
+      body: data.body || "",
+      icon: "/dashboard/icon-192.png",
+      badge: "/dashboard/badge-96.png",
+      lang: "pt-BR",
+      tag: data.tag || undefined,
+      data: { url: data.url || "/dashboard" },
+      // Dashboard visível: o feedback sonoro é local e curto. Em background,
+      // omitimos `silent` para respeitar o padrão do aparelho/Foco.
+      // "critical" é prioridade interna do ROI-NADOS e NÃO equivale ao
+      // entitlement Apple Critical Alerts.
+      renotify: !hasVisibleClient && data.priority === "critical" && Boolean(data.tag),
+      actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
+    }
+    if (hasVisibleClient || data.event === "daily") {
+      options.silent = true
+    } else {
+      options.vibrate = data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [70])
+    }
+
+    const promises = []
+
+    if (hasVisibleClient) {
+      // Produto aberto: feedback acontece dentro da dashboard. Evita duplicar
+      // a mesma venda em toast + banner do sistema + som.
+      const client = visibleClients[0]
+      promises.push(Promise.resolve().then(() => {
+        client.postMessage({
+          type: "roi-notification",
+          sound: data.sound || "",
+          event: data.event || "",
+          title,
+          body: data.body || "",
+          url: data.url || "/dashboard",
+          priority: data.priority || "normal",
+        })
+      }))
+    } else {
+      promises.push(self.registration.showNotification(title, options))
+
+      // Fora da dashboard, badge representa algo novo que ainda não foi visto.
+      if (data.badge === true && "setAppBadge" in self.navigator) {
+        promises.push(self.navigator.setAppBadge().catch(() => {}))
+      }
+    }
+
+    await Promise.all(promises)
+  })())
 })
 
 self.addEventListener("notificationclick", (event) => {
@@ -71,7 +92,11 @@ self.addEventListener("notificationclick", (event) => {
     ? (event.notification.actions || []).find((a) => a.action === event.action)?.action || action
     : action
 
-  event.waitUntil(
+  const tasks = []
+  if ("clearAppBadge" in self.navigator) {
+    tasks.push(self.navigator.clearAppBadge().catch(() => {}))
+  }
+  tasks.push(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       // Se o painel já está aberto, foca e navega; senão abre janela nova
       for (const client of clients) {
@@ -84,4 +109,5 @@ self.addEventListener("notificationclick", (event) => {
       return self.clients.openWindow(url)
     }),
   )
+  event.waitUntil(Promise.all(tasks))
 })

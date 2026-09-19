@@ -14,7 +14,6 @@ import {
   TriangleAlert,
   Search,
   CopyPlus,
-  ExternalLink,
   Power,
   Download,
   Archive,
@@ -26,7 +25,6 @@ import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
 import type { CheckoutLink, CustomDomain } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { Skeleton } from '@/components/skeleton'
-import { SectionTitle } from '@/components/section-title'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { CountUp } from '@/components/count-up'
@@ -66,6 +64,7 @@ export function LinksView() {
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   // Item 531: alternar entre lista padrão e arquivados
   const [showArchived, setShowArchived] = useState(false)
+  const [attentionOnly, setAttentionOnly] = useState(false)
   // Item 71: QR code em popover glass por link — gerado LOCALMENTE (a URL do
   // link nunca sai para um serviço de terceiros)
   const [qrFor, setQrFor] = useState<string | null>(null)
@@ -101,7 +100,7 @@ export function LinksView() {
     const q = query.trim().toLowerCase()
     // Item 531: arquivados ficam fora da lista padrão (histórico preservado)
     const pool = showArchived ? links.filter((l) => l.arquivado) : links.filter((l) => !l.arquivado)
-    const filtered = q
+    const searched = q
       ? pool.filter(
           (l) =>
             l.nome.toLowerCase().includes(q) ||
@@ -109,6 +108,14 @@ export function LinksView() {
             (l.dominio ?? '').toLowerCase().includes(q),
         )
       : pool
+    const readyHosts = new Set((domainsData?.domains ?? []).filter((domain) => domain.verificado && (!domain.status || domain.status === 'active')).map((domain) => domain.host))
+    const pixelsMap = new Map((pixelsData?.pixels ?? []).map((pixel) => [pixel.slug, pixel]))
+    const filtered = attentionOnly && !showArchived
+      ? searched.filter((link) => {
+          const boundPixel = link.pixelSlug ? pixelsMap.get(link.pixelSlug) : undefined
+          return Boolean((link.dominio && !readyHosts.has(link.dominio)) || (link.pixelSlug && (!boundPixel || !boundPixel.active)))
+        })
+      : searched
     const clicksOf = (l: CheckoutLink) => l.variantes.reduce((s, v) => s + v.clicks, 0)
     const convsOf = (l: CheckoutLink) => l.variantes.reduce((s, v) => s + v.conversions, 0)
     return [...filtered].sort((a, b) => {
@@ -117,7 +124,7 @@ export function LinksView() {
       if (sortBy === 'conversoes') return convsOf(b) - convsOf(a)
       return (b.criadoEm || '').localeCompare(a.criadoEm || '') // recentes
     })
-  }, [links, query, sortBy, showArchived])
+  }, [links, query, sortBy, showArchived, attentionOnly, domainsData, pixelsData])
 
   // Mantém a seleção em massa coerente quando outra ação/aba remove links ou
   // quando o SWR revalida com uma lista mais nova.
@@ -156,7 +163,7 @@ export function LinksView() {
 
   const linkSummary = useMemo(() => {
     const current = links.filter((link) => !link.arquivado)
-    const verified = new Set((domainsData?.domains ?? []).filter((domain) => domain.verificado).map((domain) => domain.host))
+    const verified = new Set((domainsData?.domains ?? []).filter((domain) => domain.verificado && (!domain.status || domain.status === 'active')).map((domain) => domain.host))
     const pixelsMap = new Map((pixelsData?.pixels ?? []).map((pixel) => [pixel.slug, pixel]))
     let clicks = 0
     let conversions = 0
@@ -447,10 +454,21 @@ export function LinksView() {
             <p className="text-xs font-medium text-muted-foreground">Conversão</p>
             <p className="mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] text-foreground tabular-nums">{linkSummary.conversionRate.toFixed(1).replace('.', ',')}%</p>
           </div>
-          <div className="min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              if (!linkSummary.attention) return
+              setShowArchived(false)
+              setAttentionOnly((value) => !value)
+            }}
+            aria-pressed={attentionOnly}
+            disabled={!linkSummary.attention}
+            className="min-w-0 text-left disabled:cursor-default"
+            title={linkSummary.attention ? 'Mostrar apenas links que precisam de atenção' : 'Nenhum link precisa de atenção'}
+          >
             <p className="text-xs font-medium text-muted-foreground">Atenção</p>
             <p className={`mt-1 text-[21px] font-semibold leading-none tracking-[-0.02em] tabular-nums ${linkSummary.attention ? 'text-warning' : 'text-foreground'}`}>{linkSummary.attention}</p>
-          </div>
+          </button>
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -483,7 +501,7 @@ export function LinksView() {
             {archivedCount > 0 ? (
               <button
                 type="button"
-                onClick={() => setShowArchived((v) => !v)}
+                onClick={() => { setAttentionOnly(false); setShowArchived((v) => !v) }}
                 aria-pressed={showArchived}
                 className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30 ${showArchived ? 'border-brand-cyan/35 bg-brand-cyan/10 text-brand-cyan' : 'border-border/80 bg-transparent text-muted-foreground hover:bg-secondary/40 hover:text-foreground'}`}
               >
@@ -496,7 +514,8 @@ export function LinksView() {
 
         <div className="flex min-h-5 items-center gap-2 text-xs text-muted-foreground">
           <span>{showArchived ? `${archivedCount} arquivado${archivedCount === 1 ? '' : 's'}` : `${visibleLinks.length} link${visibleLinks.length === 1 ? '' : 's'} na lista`}</span>
-          {query.trim() ? <span className="text-foreground/80">· filtro ativo</span> : null}
+          {query.trim() ? <span className="text-foreground/80">· busca ativa</span> : null}
+          {attentionOnly && !showArchived ? <button type="button" onClick={() => setAttentionOnly(false)} className="font-medium text-warning hover:underline">· apenas atenção</button> : null}
         </div>
       </div>
 
@@ -575,8 +594,9 @@ export function LinksView() {
           {visibleLinks.length === 0 && (
             <div className="py-8 text-center">
               <p className="text-sm text-muted-foreground">
-                Nenhum link corresponde a &quot;{query}&quot;.
+                {attentionOnly ? 'Nenhum link com atenção corresponde aos filtros atuais.' : query.trim() ? <>Nenhum link corresponde a &quot;{query}&quot;.</> : showArchived ? 'Nenhum link arquivado.' : 'Nenhum link disponível nesta visualização.'}
               </p>
+              {(attentionOnly || query.trim()) ? <button type="button" onClick={() => { setAttentionOnly(false); setQuery('') }} className="mt-2 text-xs font-semibold text-brand-cyan hover:underline">Limpar filtros</button> : null}
             </div>
           )}
           {visibleLinks.map((l, index) => {

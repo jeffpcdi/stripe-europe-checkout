@@ -40,8 +40,10 @@ export function GatewayCard({
   onEditGateway,
   onDeleteGateway,
 }: GatewayCardProps) {
-  const isGwError = gateway.lastEventStatus === 'error' || gateway.lastEventStatus === 'falhou'
-  const isGwOk = !isGwError && Boolean(gateway.lastEventAt)
+  const lastStatus = String(gateway.lastEventStatus || '')
+  const isGwError = /erro|error|falh|inválid|invalid|rejeitad/i.test(lastStatus)
+  const isGwOk = /^ok\b/i.test(lastStatus)
+  const hasGatewayEvent = Boolean(gateway.lastEventAt)
   const isTesting = testingGwId === gateway.id
   const providerName = PROVIDER_LABELS[gateway.provider] ?? gateway.provider
 
@@ -129,6 +131,11 @@ export function GatewayCard({
               <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true" />
               <span className="truncate text-muted-foreground">Venda {timeAgo(gateway.lastEventAt!)}</span>
             </>
+          ) : hasGatewayEvent ? (
+            <>
+              <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true" />
+              <span className="truncate text-muted-foreground" title={lastStatus || undefined}>Webhook {timeAgo(gateway.lastEventAt!)}</span>
+            </>
           ) : (
             <>
               <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/55" aria-hidden="true" />
@@ -142,9 +149,9 @@ export function GatewayCard({
           onClick={() => onTestGateway(gateway)}
           disabled={isTesting}
           className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-transparent px-3 text-xs font-medium text-foreground transition-colors hover:border-border hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan/40"
-          title="Valida o processamento interno, sem enviar ao TikTok e sem registrar receita."
+          title="Simula o recebimento de um webhook neste checkout; não envia ao TikTok nem registra receita."
         >
-          {isTesting ? 'Testando…' : 'Testar integração'}
+          {isTesting ? 'Testando…' : 'Testar recebimento'}
         </button>
       </div>
     </article>

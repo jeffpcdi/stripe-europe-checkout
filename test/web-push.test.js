@@ -51,7 +51,7 @@ test('notify-copy: eventos de status substituem (tag fixa)', () => {
 test('notify-copy: som distinto por evento', () => {
   const cases = [
     ['sale', 'cash'], ['failed', 'alert'], ['refund', 'alert'],
-    ['dispute', 'alert'], ['checkout', 'tick'], ['login', 'ping'], ['daily', 'info']
+    ['dispute', 'alert'], ['checkout', 'tick'], ['login', 'ping'], ['daily', 'info'], ['ads_breaker', 'alert']
   ];
   for (const [event, sound] of cases) {
     const n = notifyCopy.build({ name: 'X', payload: { title: 't', text: 'b' }, meta: { event }, funMode: false, accountId: 'acc1' });
@@ -68,6 +68,22 @@ test('notify-copy: venda preserva título personalizado e resume corpo', () => {
   });
   assert.strictEqual(note.title, 'Título original');
   assert.strictEqual(note.body, 'Pagamento confirmado.');
+});
+
+test('notify-copy: venda pode trazer contexto agregado do dia sem PII', () => {
+  const note = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Venda aprovada · R$ 197,00', text: 'ignorado' },
+    meta: {
+      event: 'sale', valor: 'R$ 197,00', produto: 'Curso X', gateway: 'Kiwify',
+      dailySales: 8, dailyRevenue: 'R$ 1.576,00',
+      cliente: 'Ana', email: 'ana@example.com', orderId: 'secret-123',
+    },
+    funMode: false,
+    accountId: 'acc1',
+  });
+  assert.strictEqual(note.body, 'Curso X · Kiwify · 8 vendas hoje · R$ 1.576,00 no dia');
+  assert.ok(!/Ana|example\.com|secret-123/.test(note.body));
 });
 
 test('notify-copy: evento desconhecido passa payload intacto', () => {
@@ -105,7 +121,7 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   config.set('wp-test', {
     webPush: {
       funMode: false,
-      preferences: { sales: true, risks: false, automation: true },
+      preferences: { sales: true, risks: false, automation: true, reports: true },
       subs: [
         { id: 'a', endpoint: 'https://push.example/ok', keys: { p256dh: 'k1', auth: 'a1' } },
         { id: 'b', endpoint: 'http://inseguro.example', keys: { p256dh: 'k2', auth: 'a2' } }, // http → fora
@@ -117,7 +133,39 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   assert.strictEqual(wp.subs.length, 1, 'só a inscrição válida sobrevive');
   assert.strictEqual(wp.subs[0].endpoint, 'https://push.example/ok');
   assert.strictEqual(wp.funMode, false, 'funMode persiste');
-  assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true });
+  assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true, reports: true });
+});
+
+test('notificações nativas: briefing diário respeita o opt-in próprio', () => {
+  const notifications = require('../pushcut');
+  const config = require('../config');
+  config.set('daily-native-off', {
+    settings: { dailyReportEnabled: false },
+    webPush: { preferences: { sales: false, risks: false, automation: false, reports: true } },
+  });
+  config.set('daily-native-on', {
+    settings: { dailyReportEnabled: true },
+    webPush: { preferences: { sales: false, risks: false, automation: false } },
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-off', 'daily'), false);
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-on', 'daily'), true);
+  config.set('daily-push-off', {
+    settings: { dailyReportEnabled: true },
+    webPush: { preferences: { sales: true, risks: true, automation: true, reports: false } },
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-push-off', 'daily'), false);
+});
+
+test('notify-copy: briefing diário permanece executivo mesmo com tom descontraído', () => {
+  const payload = {
+    title: 'Ontem · R$ 12.450,00 em receita',
+    text: '32 vendas · Ticket R$ 389,06 · +14% vs. dia anterior\nTikTok R$ 2.100,00 · ROAS 5.93×\nLucro R$ 7.850,00',
+  };
+  const sober = notifyCopy.build({ name: 'Resumo diário', payload, meta: { event: 'daily' }, funMode: false, accountId: 'daily-copy' });
+  const fun = notifyCopy.build({ name: 'Resumo diário', payload, meta: { event: 'daily' }, funMode: true, accountId: 'daily-copy' });
+  assert.strictEqual(fun.title, sober.title);
+  assert.strictEqual(fun.body, sober.body);
+  assert.ok(!/resumão|spoiler|plantão|sem enrolação/i.test(fun.title + ' ' + fun.body));
 });
 
 test('notificações nativas: preferências são simples e independentes do Pushcut', () => {
@@ -125,10 +173,10 @@ test('notificações nativas: preferências são simples e independentes do Push
   const notifications = require('../pushcut');
   config.set('native-only', {
     pushcut: { url: '', events: { sale: false } },
-    webPush: { preferences: { sales: true, risks: false, automation: true } },
+    webPush: { preferences: { sales: true, risks: false, automation: true, reports: true } },
   });
   assert.deepStrictEqual(notifications.nativePreferencesFor('native-only'), {
-    sales: true, risks: false, automation: true,
+    sales: true, risks: false, automation: true, reports: true,
   });
   assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'sale'), true);
   assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'dispute'), false);
@@ -143,6 +191,8 @@ test('notificações nativas: rotina e simulação não poluem o sino', () => {
   assert.strictEqual(notifications._shouldRecord('ads_briefing'), false);
   assert.strictEqual(notifications._shouldRecord('checkout'), false);
   assert.strictEqual(notifications._shouldRecord('test'), false);
+  assert.strictEqual(notifications._shouldRecord('daily'), true, 'brief diário deve permanecer consultável na central');
+  assert.strictEqual(notifications._shouldBadge('daily'), false, 'brief diário não deve criar badge de atenção');
 });
 
 test('central nativa: preserva prioridade e deduplica alertas repetidos', async () => {
@@ -172,6 +222,24 @@ test('notify-copy: automações abrem diretamente a área de automação', () =>
     assert.strictEqual(note.event, event);
     assert.strictEqual(note.url, '/dashboard/ads/tiktok?tab=automation');
   }
+});
+
+test('notify-copy: alertas acionáveis usam deep links específicos', () => {
+  const login = notifyCopy.build({ name: 'Login', payload: { title: 'Login', text: 'b' }, meta: { event: 'login' }, funMode: false, accountId: 'acc1' });
+  const rejected = notifyCopy.build({ name: 'Ads', payload: { title: 'Reprovação', text: 'b' }, meta: { event: 'ads_rejected' }, funMode: false, accountId: 'acc1' });
+  const breaker = notifyCopy.build({ name: 'Ads', payload: { title: 'Freio', text: 'b' }, meta: { event: 'ads_breaker' }, funMode: false, accountId: 'acc1' });
+  const cap = notifyCopy.build({ name: 'Ads', payload: { title: 'Limite', text: 'b' }, meta: { event: 'ads_cap' }, funMode: false, accountId: 'acc1' });
+  const testNote = notifyCopy.build({ name: 'Teste', payload: { title: 'Teste', text: 'b' }, meta: { event: 'test' }, funMode: false, accountId: 'acc1' });
+  assert.strictEqual(login.url, '/dashboard/config?tab=security');
+  assert.strictEqual(rejected.url, '/dashboard/ads/tiktok?tab=automation');
+  assert.strictEqual(breaker.url, '/dashboard/ads/tiktok?tab=automation');
+  assert.strictEqual(cap.url, '/dashboard/ads/tiktok?tab=automation');
+  assert.strictEqual(testNote.url, '/dashboard/config?tab=notifications');
+});
+test('web-push-notify: brief diário usa entrega de baixa urgência', () => {
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', 'web-push-notify.js'), 'utf8');
+  assert.ok(source.includes("note.event === 'daily' ? 21600 : 3600"), 'brief diário deve sobreviver mais tempo offline');
+  assert.ok(source.includes("note.event === 'daily' ? 'low' : 'normal'"), 'brief diário deve usar baixa urgência');
 });
 
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {
@@ -209,6 +277,26 @@ test('venda compacta: limita texto e não expõe cliente, e-mail ou pedido', () 
   assert.strictEqual(Array.from(long.title).length, 60);
 });
 
+test('venda compacta: adiciona contexto do dia sem dados pessoais', () => {
+  const note = notifyCopy.build({
+    payload: { title: 'Venda aprovada · R$ 197,00', text: 'Cliente: Ana' },
+    meta: {
+      event: 'sale',
+      valor: 'R$ 197,00',
+      produto: 'Oferta Principal',
+      gateway: 'Kiwify',
+      dailySales: 7,
+      dailyRevenue: 'R$ 2.431,00',
+      cliente: 'Ana',
+    },
+    funMode: false,
+  });
+  assert.strictEqual(note.title, 'Venda aprovada · R$ 197,00');
+  assert.ok(note.body.includes('7 vendas hoje'));
+  assert.ok(note.body.includes('R$ 2.431,00 no dia'));
+  assert.ok(!note.body.includes('Ana'));
+});
+
 test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload original', async () => {
   const notifications = require('../pushcut');
   const config = require('../config');
@@ -228,6 +316,7 @@ test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload ori
       event: 'sale', produto: 'Curso X', gateway: 'Kiwify', valor: 'R$ 197,00',
     }), true);
     assert.strictEqual(webNote.title, legacyNote.title);
+    assert.strictEqual(webNote.badge, true, 'venda entra na central e deve marcar o app instalado');
     assert.strictEqual(webNote.body, 'Curso X · Kiwify');
     assert.strictEqual(legacyNote.text, webNote.body);
     assert.strictEqual(legacyNote.sound, 'system');

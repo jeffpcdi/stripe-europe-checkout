@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, CircleDollarSign, Loader2, Send, ShieldAlert, Smartphone } from 'lucide-react'
+import { Bot, CircleDollarSign, FileText, Loader2, Send, ShieldAlert, Smartphone, Volume2 } from 'lucide-react'
 import useSWR from 'swr'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
@@ -13,8 +13,10 @@ import {
   isThisDeviceSubscribed,
   type WebPushSupport,
 } from '@/lib/web-push'
+import { getSoundMasterEnabled, setSoundMasterEnabled } from '@/lib/notify-prefs'
+import { playSaleSound } from '@/lib/sale-alerts'
 
-type PreferenceGroup = 'sales' | 'risks' | 'automation'
+type PreferenceGroup = 'sales' | 'risks' | 'automation' | 'reports'
 type Status = {
   ok: boolean
   devices: number
@@ -46,6 +48,12 @@ const PREFERENCES: {
     hint: 'Somente propostas, bloqueios, reprovações e falhas',
     icon: Bot,
   },
+  {
+    key: 'reports',
+    label: 'Relatórios executivos',
+    hint: 'Resumo diário com receita, vendas, ROAS, lucro e exceções',
+    icon: FileText,
+  },
 ]
 
 export function WebPushCard() {
@@ -56,10 +64,12 @@ export function WebPushCard() {
   const [thisDevice, setThisDevice] = useState(false)
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(true)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
     setSupport(checkSupport())
+    setSoundEnabled(getSoundMasterEnabled())
     isThisDeviceSubscribed().then(setThisDevice).catch(() => setThisDevice(false))
   }, [])
 
@@ -74,12 +84,14 @@ export function WebPushCard() {
       } else {
         await subscribeDevice()
         setThisDevice(true)
+        setSupport(checkSupport())
         setMsg({ ok: true, text: 'Este aparelho está pronto para receber alertas.' })
       }
       await mutate()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível ativar' })
     } finally {
+      setSupport(checkSupport())
       setBusy(false)
     }
   }
@@ -116,7 +128,7 @@ export function WebPushCard() {
     try {
       const res = await apiSend<{ ok: boolean; error?: string }>('/api/webpush/test', 'POST', {})
       setMsg(res.ok
-        ? { ok: true, text: 'Teste enviado. Confira o iPhone.' }
+        ? { ok: true, text: support?.platform === 'ios' ? 'Teste enviado. No iPhone, som, Foco e apresentação seguem os Ajustes do iOS.' : 'Teste enviado. Confira este aparelho.' }
         : { ok: false, text: res.error || 'Nenhum aparelho recebeu o teste.' })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Falha no teste' })
@@ -127,6 +139,8 @@ export function WebPushCard() {
 
   const devices = data?.devices ?? 0
   const needsInstall = support && !support.supported && support.needsInstall
+  const permissionDenied = Boolean(support?.supported && support.permission === 'denied')
+  const isIOS = support?.platform === 'ios'
 
   return (
     <GlassCard className="overflow-hidden p-0 border-border/60">
@@ -158,7 +172,7 @@ export function WebPushCard() {
         <button
           type="button"
           onClick={handleToggleDevice}
-          disabled={busy || !support?.supported}
+          disabled={busy || !support?.supported || permissionDenied}
           className={`flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             thisDevice
               ? 'border border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
@@ -183,6 +197,16 @@ export function WebPushCard() {
       {support && !support.supported && !support.needsInstall && (
         <p className="mx-5 mb-5 rounded-lg bg-secondary/50 p-3 text-xs text-muted-foreground">
           {support.reason}
+        </p>
+      )}
+      {permissionDenied && (
+        <p className="mx-5 mb-5 rounded-lg border border-warning/20 bg-warning/5 p-3 text-xs leading-relaxed text-warning">
+          A permissão está bloqueada neste aparelho. {isIOS ? 'Abra Ajustes → Notificações → ROI-NADOS para permitir novamente.' : 'Reative as notificações nas permissões do navegador.'}
+        </p>
+      )}
+      {isIOS && support?.supported && !permissionDenied && (
+        <p className="mx-5 mb-5 text-[11px] leading-relaxed text-muted-foreground">
+          No iPhone, o ROI-NADOS usa Web Push da Tela de Início. O iOS controla som, Foco e estilo do alerta. Para o som próprio de venda com a tela bloqueada, use o Companion iPhone abaixo.
         </p>
       )}
 
@@ -219,6 +243,23 @@ export function WebPushCard() {
         </summary>
         <div className="mt-3 flex flex-col gap-3 border-t border-border/50 pt-3">
           <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="flex min-w-0 items-start gap-2.5">
+              <Volume2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span>
+                <span className="block text-xs font-medium text-foreground">Sons no painel aberto</span>
+                <span className="block text-[11px] leading-relaxed text-muted-foreground">Sons curtos por evento apenas enquanto a dashboard estiver visível. Em segundo plano, o sistema controla o alerta.</span>
+              </span>
+            </span>
+            <Switch
+              checked={soundEnabled}
+              onChange={(enabled) => {
+                setSoundEnabled(enabled)
+                setSoundMasterEnabled(enabled)
+              }}
+              label="Sons no painel aberto"
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
             <span>
               <span className="block text-xs font-medium text-foreground">Tom descontraído</span>
               <span className="block text-[11px] text-muted-foreground">Desligado usa mensagens curtas e diretas</span>
@@ -229,7 +270,16 @@ export function WebPushCard() {
               label="Tom descontraído"
             />
           </label>
-          <button
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => playSaleSound()}
+              className="flex min-h-9 w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              <Volume2 className="size-3.5" aria-hidden="true" />
+              Ouvir som de venda
+            </button>
+            <button
             type="button"
             onClick={handleTest}
             disabled={testing || devices === 0}
@@ -237,7 +287,8 @@ export function WebPushCard() {
           >
             {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
             Enviar teste
-          </button>
+            </button>
+          </div>
         </div>
       </details>
 

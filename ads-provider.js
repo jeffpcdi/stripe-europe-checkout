@@ -754,6 +754,38 @@ async function insightsById(advertiserId, level, dimKey, startDate, endDate) {
 
 const EMPTY_METRICS = { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0, cpc: 0, conversions: 0, reach: 0 };
 
+async function resolveVideoCreativeAssets(advertiserId, ads) {
+  const ids = [...new Set((Array.isArray(ads) ? ads : []).map((ad) => String(ad && ad.videoId || '').trim()).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const resolved = new Map();
+  // O conector aceita video_ids em lote. Mantemos chunks conservadores para
+  // evitar N chamadas por anúncio e não bloquear a árvore por falha de preview.
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const chunk = ids.slice(offset, offset + 50);
+    try {
+      const out = await pipeboard.callTool('get_tiktok_video_info', {
+        advertiser_id: String(advertiserId),
+        video_ids: chunk,
+        page: 1,
+        page_size: 50,
+      });
+      const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
+      for (const row of rows) {
+        const id = String(row && (row.video_id || row.id) || '').trim();
+        if (!id || !chunk.includes(id)) continue;
+        resolved.set(id, {
+          displayable: row.displayable === true,
+          coverUrl: normalizeTikTokCoverUrl(String(row.video_cover_url || row.cover_url || row.thumbnail_url || '').trim()),
+          previewUrl: normalizePublicImageUrl(String(row.preview_url || row.video_url || row.play_url || '').trim()),
+        });
+      }
+    } catch (_) {
+      // Preview é enriquecimento best-effort: métricas e gestão continuam úteis.
+    }
+  }
+  return resolved;
+}
+
 async function getDashboardTree(accountId, opts = {}) {
   const advertiserId = String(opts.advertiserId || (await resolveAdvertiserId(accountId)));
   if (!advertiserId) return { campaigns: [], pagination: { page: 1, limit: 100, total: 0, pages: 0 } };
@@ -779,6 +811,7 @@ async function getDashboardTree(accountId, opts = {}) {
     ]);
     const currency = (advInfo && advInfo.currency) || 'USD';
 
+    const videoAssets = await resolveVideoCreativeAssets(advertiserId, ads);
     const adsByGroup = new Map();
     for (const ad of ads) {
       const node = {
@@ -798,8 +831,14 @@ async function getDashboardTree(accountId, opts = {}) {
         creative: {
           body: ad.adText || '',
           linkUrl: ad.landingPageUrl || '',
-          videoUrl: ad.videoId ? ('tiktok:video:' + ad.videoId) : '',
-          imageUrl: (ad.imageIds && ad.imageIds[0]) ? ('tiktok:image:' + ad.imageIds[0]) : '',
+          // Preserve os IDs reais do asset. O prefixo tiktok:* nunca foi uma URL
+          // reproduzível e fazia a UI esconder o criativo por não começar em https.
+          // A camada visual pode agora distinguir "asset conhecido, preview pendente"
+          // de "anúncio sem criativo" sem inventar uma URL.
+          videoId: ad.videoId || '',
+          imageIds: Array.isArray(ad.imageIds) ? ad.imageIds : [],
+          videoUrl: ad.videoId ? (videoAssets.get(ad.videoId)?.previewUrl || '') : '',
+          imageUrl: ad.videoId ? (videoAssets.get(ad.videoId)?.coverUrl || '') : '',
         },
         rejectionReason: tiktokStatusToNode(ad.status, ad.secondaryStatus) === 'rejected' ? ad.secondaryStatus : undefined,
         createdAt: ad.createTime || undefined,
@@ -3873,6 +3912,12 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
     listSmartPlusAdGroups(adv),
     listSmartPlusAds(adv),
   ]);
+  const smartVideoIds = ads.map((ad) => {
+    const firstCreative = ad.creativeList[0] || {};
+    const info = firstCreative.creative_info && typeof firstCreative.creative_info === 'object' ? firstCreative.creative_info : {};
+    return { videoId: String(info.video_id || info.videoId || '') };
+  });
+  const videoAssets = await resolveVideoCreativeAssets(adv, smartVideoIds);
   const adsByGroup = new Map();
   for (const ad of ads) {
     const firstText = ad.adTextList[0] || {};
@@ -3896,8 +3941,12 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
       creative: {
         body: String(firstText.ad_text || firstText.text || ''),
         linkUrl: String(firstUrl.landing_page_url || firstUrl.url || ''),
-        videoUrl: String(creativeInfo.video_id || creativeInfo.videoId || ''),
-        imageUrl: String(creativeInfo.image_id || creativeInfo.imageId || ''),
+        videoId: String(creativeInfo.video_id || creativeInfo.videoId || ''),
+        imageIds: [String(creativeInfo.image_id || creativeInfo.imageId || '')].filter(Boolean),
+        // Smart+ também devolve IDs; o resolver em lote transforma somente
+        // URLs públicas reais em src e preserva o ID canônico separadamente.
+        videoUrl: String(creativeInfo.video_id || creativeInfo.videoId || '') ? (videoAssets.get(String(creativeInfo.video_id || creativeInfo.videoId))?.previewUrl || '') : '',
+        imageUrl: String(creativeInfo.video_id || creativeInfo.videoId || '') ? (videoAssets.get(String(creativeInfo.video_id || creativeInfo.videoId))?.coverUrl || '') : '',
       },
       rejectionReason: ad.rejectionReason,
       createdAt: ad.createTime || undefined,
@@ -4791,5 +4840,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, resolveVideoCreativeAssets, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
 };

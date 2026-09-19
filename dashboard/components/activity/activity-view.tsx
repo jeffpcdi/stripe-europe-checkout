@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertCircle,
@@ -115,10 +115,31 @@ export function ActivityView() {
   const searchParams = useSearchParams()
   const requestedFilter = activityFilterFromQuery(searchParams.get('f'))
   const [filter, setFilter] = useState<ActivityFilter>(requestedFilter)
+  const seenEventIdsRef = useRef<Set<string> | null>(null)
+  const [freshSaleIds, setFreshSaleIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     setFilter((current) => current === requestedFilter ? current : requestedFilter)
   }, [requestedFilter])
+
+  useEffect(() => {
+    const rows = data?.events ?? []
+    const currentIds = new Set(rows.map((event) => String(event.id)))
+    const previousIds = seenEventIdsRef.current
+    seenEventIdsRef.current = currentIds
+
+    // Primeira carga apenas estabelece a base; histórico não deve parecer novo.
+    if (!previousIds) return
+
+    const fresh = rows
+      .filter((event) => event.type === 'sale' && !previousIds.has(String(event.id)))
+      .map((event) => String(event.id))
+
+    if (!fresh.length) return
+    setFreshSaleIds(new Set(fresh))
+    const timer = window.setTimeout(() => setFreshSaleIds(new Set()), 1200)
+    return () => window.clearTimeout(timer)
+  }, [data?.events])
 
   function selectFilter(next: ActivityFilter) {
     setFilter(next)
@@ -226,8 +247,9 @@ export function ActivityView() {
             {events.map((event, idx) => (
               <li
                 key={event.id}
-                className="anim-row-in flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between sm:px-5"
-                style={{ animationDelay: `${Math.min(idx * 20, 400)}ms` }}
+                className={`activity-event-row anim-row-in flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between sm:px-5 ${freshSaleIds.has(String(event.id)) ? 'activity-sale-arrival' : ''}`}
+                data-event-type={event.type}
+                style={{ animationDelay: `${Math.min(idx * 20, 240)}ms` }}
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <EventIcon type={event.type} />

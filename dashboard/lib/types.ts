@@ -192,7 +192,7 @@ export interface OverviewHealthResponse {
   setup: {
     links: { total: number; active: number }
     pixels: { total: number; active: number; ready: number; incomplete: number }
-    gateways: { total: number; lastEventAt: string | null }
+    gateways: { total: number; lastEventAt: string | null; lastEventStatus?: string | null; validated?: boolean }
   }
   coverage: {
     purchases: { total: number; tracked: number; orphan: number; rate: number | null }
@@ -1132,7 +1132,16 @@ export interface AdsTreeAd {
   isExternal?: boolean
   budget?: AdsBudget | null
   metrics?: AdsMetrics
-  creative?: { body?: string; linkUrl?: string; videoUrl?: string; imageUrl?: string } | null
+  creative?: {
+    body?: string
+    linkUrl?: string
+    /** IDs canônicos do TikTok; permanecem disponíveis mesmo sem URL pública de preview. */
+    videoId?: string
+    imageIds?: string[]
+    /** URLs públicas resolvidas. Nunca contêm pseudo-URLs tiktok:* ou IDs crus. */
+    videoUrl?: string
+    imageUrl?: string
+  } | null
   rejectionReason?: string
   createdAt?: string
 }

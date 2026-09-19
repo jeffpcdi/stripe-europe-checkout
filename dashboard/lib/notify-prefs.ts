@@ -6,6 +6,7 @@
    sale, failed, refund, dispute, checkout, login, ads, system.            */
 
 const KEY = 'roi-sound-prefs'
+const MASTER_KEY = 'roi-sound-enabled'
 
 /** Grupos de evento com som configurável (mesma taxonomia do servidor). */
 export const SOUND_GROUPS = [
@@ -84,7 +85,25 @@ export function setSoundPref(group: SoundGroup, enabled: boolean) {
   }
 }
 
+export function getSoundMasterEnabled(): boolean {
+  if (typeof window === 'undefined') return true
+  try {
+    return window.localStorage.getItem(MASTER_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export function setSoundMasterEnabled(enabled: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(MASTER_KEY, enabled ? 'on' : 'off')
+  } catch {
+    // preferência local; indisponibilidade do storage não bloqueia a operação
+  }
+}
+
 /** true se o som deste evento está habilitado neste aparelho. */
 export function isSoundEnabled(event: string): boolean {
-  return getSoundPrefs()[eventToGroup(event)]
+  return getSoundMasterEnabled() && getSoundPrefs()[eventToGroup(event)]
 }

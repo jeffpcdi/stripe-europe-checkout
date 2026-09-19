@@ -3,13 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Search, CornerDownLeft, PauseCircle, Filter, BarChart3, Loader2 } from 'lucide-react'
+import { Search, CornerDownLeft, Filter, BarChart3 } from 'lucide-react'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
-import { apiSend, fetcher } from '@/lib/api'
-import type { AdsAccountsResponse } from '@/lib/types'
-import { toast } from '@/lib/toast'
-import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type PaletteItem = {
   id: string
@@ -18,7 +14,7 @@ type PaletteItem = {
   href: string
   section: string
   icon: typeof Search
-  kind: 'navigate' | 'filter_ads' | 'pause_bad'
+  kind: 'navigate' | 'filter_ads'
 }
 
 /**
@@ -30,9 +26,6 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
-  const [running, setRunning] = useState(false)
-  const [confirmPauseBad, setConfirmPauseBad] = useState(false)
-  const [pauseTarget, setPauseTarget] = useState<{ id: string; name: string; currency: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
@@ -58,13 +51,7 @@ export function CommandPalette() {
         i.label.toLowerCase().includes(q) ||
         i.description.toLowerCase().includes(q),
     )
-    if (/pausar?.*(ruins?|sem venda)|campanhas?.*(ruins?|sem venda)/i.test(q)) {
-      matches.unshift({
-        id: 'command-pause-bad', label: 'Pausar campanhas ruins agora',
-        description: 'Pausa ativas com gasto de hoje ≥ 100 na moeda da conta e nenhuma venda atribuída.',
-        href: '/ads/tiktok', section: 'Ação', icon: PauseCircle, kind: 'pause_bad' as const,
-      })
-    } else if (/campanhas?|gast|venderam|roas|ctr/i.test(q)) {
+    if (/campanhas?|gast|venderam|roas|ctr|pausar?.*(ruins?|sem venda)/i.test(q)) {
       matches.unshift({
         id: 'command-filter-ads', label: 'Filtrar campanhas com esta frase',
         description: 'Converte gasto, vendas, ROAS e status em filtros locais.',
@@ -104,46 +91,8 @@ export function CommandPalette() {
       go(item.href)
       return
     }
-    if (item.kind === 'pause_bad') {
-      setRunning(true)
-      try {
-        const accounts = await fetcher<AdsAccountsResponse>('/api/ads/accounts')
-        const selectedId = String(accounts.selected || '').trim()
-        const selected = accounts.accounts.find((account) => String(account.id) === selectedId)
-        if (!selectedId || !selected) {
-          toast.info('Selecione uma conta de anúncios no TikTok Ads antes de executar este comando.')
-          return
-        }
-        setPauseTarget({ id: selectedId, name: selected.name || selectedId, currency: String(selected.currency || '').toUpperCase() })
-        setOpen(false)
-        setConfirmPauseBad(true)
-      } catch (error) {
-        toast.error('Não foi possível confirmar a conta de anúncios', { hint: error instanceof Error ? error.message : undefined })
-      } finally {
-        setRunning(false)
-      }
-      return
-    }
     go(item.href)
   }, [go, query])
-
-  async function executePauseBad() {
-    setRunning(true)
-    try {
-      if (!pauseTarget?.id) throw new Error('Conta de anúncios não confirmada')
-      const result = await apiSend<{ paused: number; matched: number; dryRun?: boolean }>('/api/ads/commands', 'POST', {
-        command: 'pause_bad_campaigns', minimumSpend: 100, adAccountId: pauseTarget.id,
-      })
-      setConfirmPauseBad(false)
-      toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
-        hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : `Critério: gasto de hoje ≥ 100${pauseTarget?.currency ? ' ' + pauseTarget.currency : ' na moeda da conta'} e zero vendas atribuídas.`,
-      })
-    } catch (error) {
-      toast.error('Não foi possível executar o comando', { hint: error instanceof Error ? error.message : undefined })
-    } finally {
-      setRunning(false)
-    }
-  }
 
   function onInputKey(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown') {
@@ -208,16 +157,15 @@ export function CommandPalette() {
                     data-active={i === active}
                     onMouseEnter={() => setActive(i)}
                     onClick={() => void runItem(item)}
-                    disabled={running}
                     className="cmdk-item flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left"
                   >
-                    {running && i === active ? <Loader2 className="size-4 shrink-0 animate-spin text-brand-cyan" aria-hidden="true" /> : <item.icon
+                    <item.icon
                       className={cn(
                         'size-4 shrink-0',
                         i === active ? 'text-brand-cyan' : 'text-muted-foreground',
                       )}
                       aria-hidden="true"
-                    />}
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm text-foreground">{item.label}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">
@@ -238,17 +186,6 @@ export function CommandPalette() {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-    <ConfirmDialog
-      open={confirmPauseBad}
-      title="Pausar campanhas sem venda?"
-      description={pauseTarget
-        ? <>Conta: <strong>{pauseTarget.name}</strong>. Serão pausadas as campanhas ativas que gastaram pelo menos <strong>100{pauseTarget.currency ? ` ${pauseTarget.currency}` : ' na moeda da conta'}</strong> hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria.</>
-        : 'Confirme a conta de anúncios antes de executar esta ação.'}
-      confirmLabel="Pausar campanhas"
-      busy={running}
-      onConfirm={executePauseBad}
-      onClose={() => { setConfirmPauseBad(false); setPauseTarget(null) }}
-    />
     </>
   )
 }

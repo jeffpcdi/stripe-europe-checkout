@@ -20,7 +20,8 @@
 // Escrita:
 //   POST   /api/ads/create               → campanha completa (vídeo)
 //   POST   /api/ads/boost                → Spark Ads
-//   POST   /api/ads/campaigns/bulk-status→ pausa/ativa em lote
+//   POST   /api/ads/campaigns/bulk-status→ pausa/ativa campanhas em lote
+//   POST   /api/ads/entities/bulk-status → pausa/ativa campanha/conjunto/anúncio em lote
 //   POST   /api/ads/campaigns/bulk-budget→ orçamento em lote, validado no servidor
 //   POST   /api/ads/duplicate            → duplicação durável (1–50 cópias)
 //   PUT    /api/ads/:adId                → status/budget/creative
@@ -1428,6 +1429,117 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Pausar/ativar entidades em lote (campanha, conjunto ou anúncio) ───────
+  app.post('/api/ads/entities/bulk-status', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const body = req.body || {};
+      const status = body.status === 'paused' ? 'paused' : body.status === 'active' ? 'active' : '';
+      if (!status) return res.status(400).json({ error: 'status deve ser active ou paused' });
+
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : [])
+        .map((id) => String(id || '').trim().slice(0, 80))
+        .filter(Boolean))].slice(0, 50);
+      if (!ids.length) return res.status(400).json({ error: 'Nenhuma entidade informada' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const advertiserHint = String(body.adAccountId || '').trim();
+      const advertiserId = advertiserHint
+        ? (await requireAdvertiser(req.account.id, null, advertiserHint, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'entity_status_bulk',
+          targetType: 'bulk_job',
+          advertiserId,
+          metadata: { status, count: ids.length, entityIds: ids },
+          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + ids.length + ' entidade(s) TikTok'
+        });
+        return res.json({
+          ok: true,
+          dryRun: true,
+          simulated: ids.length,
+          totals: { updated: 0, skipped: ids.length, failed: 0 },
+          skippedIds: ids,
+          failures: [],
+        });
+      }
+
+      const classifiedMap = await adsCache.classifyEntities(req.account.id, advertiserId, ids);
+      const groups = new Map();
+      const skippedIds = [];
+      for (const id of ids) {
+        const entity = classifiedMap.get(id);
+        if (!entity || !['campaign', 'adgroup', 'ad'].includes(entity.type)) {
+          skippedIds.push(id);
+          continue;
+        }
+        const kind = entity.campaignKind === 'smart_plus' ? 'smart' : 'auction';
+        const key = entity.type + ':' + kind;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(id);
+      }
+
+      const updatedIds = [];
+      const failures = [];
+      const runGroup = async (key, groupIds) => {
+        const [type, kind] = key.split(':');
+        try {
+          if (type === 'campaign') {
+            if (kind === 'smart') await pipeboard.setSmartPlusCampaignStatus(advertiserId, groupIds, status);
+            else await pipeboard.setCampaignStatus(advertiserId, groupIds, status);
+          } else if (type === 'adgroup') {
+            if (kind === 'smart') await pipeboard.setSmartPlusAdGroupStatus(advertiserId, groupIds, status);
+            else await pipeboard.setAdGroupStatus(advertiserId, groupIds, status);
+          } else {
+            if (kind === 'smart') await pipeboard.setSmartPlusAdStatus(advertiserId, groupIds, status);
+            else await pipeboard.setAdStatus(advertiserId, groupIds, status);
+          }
+          updatedIds.push(...groupIds);
+        } catch (error) {
+          const message = String(error && error.message || error || 'Falha ao atualizar').slice(0, 220);
+          failures.push(...groupIds.map((id) => ({ id, error: message })));
+        }
+      };
+
+      for (const [key, groupIds] of groups) await runGroup(key, groupIds);
+      if (updatedIds.length) adsSync.syncAfterWrite(req.account.id, advertiserId);
+
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user',
+        actorId: req.account.id,
+        action: 'entity_status.bulk_updated',
+        targetType: 'bulk_job',
+        targetId: 'entity-status:' + Date.now(),
+        advertiserId,
+        reason: (status === 'paused' ? 'Pausar' : 'Ativar') + ' entidades em lote',
+        metadata: {
+          status,
+          requested: ids.length,
+          updated: updatedIds.length,
+          skipped: skippedIds.length,
+          failed: failures.length,
+          entityIds: ids,
+        },
+      }).catch(() => {});
+
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: 'Entidades TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + updatedIds.length,
+      });
+
+      res.json({
+        ok: failures.length === 0,
+        totals: { updated: updatedIds.length, skipped: skippedIds.length, failed: failures.length },
+        updatedIds,
+        skippedIds,
+        failures,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Atualizar orçamento de campanhas em lote ──────────────────────────────
   // O front calcula o novo valor (percentual/fixo), mas a validação real fica
   // no servidor: escopo do advertiser, tipo da entidade, dono do orçamento,
@@ -2250,52 +2362,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return id;
   }
 
-  // Comandos globais do Cmd+K. A linguagem natural é mapeada para uma
-  // whitelist pequena; nenhuma frase livre vira chamada arbitrária. O comando
-  // destrutivo usa a definição visível ao operador: gasto >= valor e zero
-  // vendas atribuídas hoje, com guardrails e auditoria por campanha.
-  app.post('/api/ads/commands', dashboardAuth, async (req, res) => {
-    try {
-      const command = String((req.body || {}).command || '').trim().toLowerCase();
-      if (command !== 'pause_bad_campaigns') return res.status(400).json({ error: 'Comando não reconhecido', code: 'COMMAND_NOT_ALLOWED' });
-      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
-      const safety = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(req.account.id));
-      if (safety.killSwitch) return res.status(423).json(KILL_SWITCH_BODY);
-      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
-      const today = adsDay(new Date(), timeZone);
-      const minimumSpend = Math.max(1, Math.min(100000, Number((req.body || {}).minimumSpend) || 100));
-      const [tree, attribution] = await Promise.all([
-        adsCache.readTree(req.account.id, advertiserId, { fromDate: today, toDate: today, status: 'active', timeZone }),
-        Promise.resolve(automation.computeAttribution(req.account.id, today, today, timeZone)),
-      ]);
-      const targets = ((tree && tree.campaigns) || []).filter((campaign) => {
-        const spend = Number(campaign.metrics && campaign.metrics.spend) || 0;
-        const sales = Number(attribution.byCampaign && attribution.byCampaign[campaign.platformCampaignId] && attribution.byCampaign[campaign.platformCampaignId].sales) || 0;
-        return spend >= minimumSpend && sales === 0;
-      }).slice(0, 50);
-      if (safety.dryRun) return res.json({ ok: true, dryRun: true, matched: targets.length, campaigns: targets.map((item) => ({ id: item.platformCampaignId, name: item.campaignName })) });
-      const results = [];
-      for (const campaign of targets) {
-        const entity = await adsCache.classifyEntity(req.account.id, advertiserId, campaign.platformCampaignId);
-        if (!entity) continue;
-        try {
-          await setEntityStatus(entity, 'paused');
-          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: true });
-          await adsOps.appendAuditEvent(req.account.id, {
-            actorType: 'user', actorId: req.account.id, action: 'command.pause_bad_campaigns',
-            targetType: 'campaign', targetId: campaign.platformCampaignId, advertiserId,
-            beforeState: { kind: 'status', id: campaign.platformCampaignId, value: 'active', campaignKind: entity.campaignKind },
-            afterState: { kind: 'status', id: campaign.platformCampaignId, value: 'paused', campaignKind: entity.campaignKind },
-            reason: 'Cmd+K: gasto de hoje acima de ' + minimumSpend + ' sem venda atribuída',
-          });
-        } catch (error) {
-          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: false, error: String(error.message || error) });
-        }
-      }
-      if (results.some((item) => item.ok)) await adsSync.syncAfterWrite(req.account.id, advertiserId);
-      res.json({ ok: true, matched: targets.length, paused: results.filter((item) => item.ok).length, failed: results.filter((item) => !item.ok).length, results });
-    } catch (err) { fail(res, err); }
-  });
+  // O Cmd+K permanece deliberadamente não destrutivo: navegação e filtros.
+  // Ações que alteram campanhas passam pelos mesmos fluxos visíveis da área
+  // TikTok Ads, preservando regras, confirmações, limites e contexto operacional.
 
   // Chat do copiloto — resposta em SSE (text/event-stream).
   app.post('/api/ads/copilot', dashboardAuth, async (req, res) => {
