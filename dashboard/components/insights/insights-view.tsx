@@ -105,14 +105,14 @@ export function InsightsView() {
   const creativesActive = adsConnected && tab === 'creatives'
   const { data: roas, error: roasError } = useAdsRoas(adsOverviewActive, adAccountId, adsRange)
   const { data: profitability, error: profitabilityError } = useAdsProfitability(adsOverviewActive, adAccountId, adsRange)
-  const { data: adsTree, error: adsTreeError, isLoading: adsTreeLoading } = useAdsTree(campaignsActive, {
+  const { data: adsTree, error: adsTreeError, isLoading: adsTreeLoading, mutate: mutateAdsTree } = useAdsTree(campaignsActive, {
     adAccountId,
     fromDate: adsRange.fromDate,
     toDate: adsRange.toDate,
     sort: 'conversions',
   })
-  const { data: campaignDecisions, error: decisionsError } = useAdsCampaignDecisions(campaignsActive, adAccountId, adsRange)
-  const { data: pacingTree, error: pacingTreeError } = useAdsTree(campaignsActive, {
+  const { data: campaignDecisions, error: decisionsError, mutate: mutateCampaignDecisions } = useAdsCampaignDecisions(campaignsActive, adAccountId, adsRange)
+  const { data: pacingTree, error: pacingTreeError, mutate: mutatePacingTree } = useAdsTree(campaignsActive, {
     adAccountId,
     fromDate: todayAdsRange.fromDate,
     toDate: todayAdsRange.toDate,
@@ -300,6 +300,11 @@ export function InsightsView() {
           fromDate={adsRange.fromDate}
           toDate={adsRange.toDate}
           loading={adsTreeLoading}
+          onChanged={() => Promise.all([
+            mutateAdsTree(),
+            mutatePacingTree(),
+            mutateCampaignDecisions(),
+          ]).then(() => undefined)}
         />
       ) : null}
 
