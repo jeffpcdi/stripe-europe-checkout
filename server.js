@@ -6890,7 +6890,7 @@ function proxyDashboardUpgrade(req, socket, head) {
   proxyReq.end();
 }
 
-// ── Integração TikTok Ads (via Zernio) ─────────────────────────────���──────
+// ── Integração TikTok Ads (via Pipeboard MCP) ─────────────────────���──────
 // Rotas /api/ads/* — escopadas à conta logada pelo mesmo dashboardAuth.
 require('./ads-routes')(app, dashboardAuth, { stats });
 
