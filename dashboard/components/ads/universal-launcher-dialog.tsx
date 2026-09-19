@@ -89,6 +89,8 @@ export function UniversalLauncherDialog({
   const [jobDryRun, setJobDryRun] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
+  const [guardian, setGuardian] = useState<{ ready: boolean; recommendations: number; checks: { id: string; label: string; status: 'ready' | 'recommended'; detail: string }[] } | null>(null)
+  const [guardianLoading, setGuardianLoading] = useState(false)
   const retryingRef = useRef(false)
 
   // Polling para lote
@@ -111,6 +113,8 @@ export function UniversalLauncherDialog({
       setJobId(null)
       setJobDryRun(false)
       setLaunchError(null)
+      setGuardian(null)
+      setGuardianLoading(false)
       idempotencyRef.current = null
       notifiedRef.current = false
     }
@@ -162,6 +166,62 @@ export function UniversalLauncherDialog({
     }
     return null
   }, [pixelLoading, pixelError, pixelReady, items, uploadingCount, linkUrl, budget, currency, isBulk])
+
+  const singleDraft = useMemo(() => {
+    if (isBulk || items.length !== 1 || validationError) return null
+    const item = items[0]
+    const name = campaignPrefix
+      ? `${campaignPrefix.trim()} - ${item.name}`
+      : item.name
+    return {
+      adAccountId: advertiserId,
+      goal: 'conversions',
+      name,
+      budgetAmount: Number(budget),
+      budgetType: 'daily',
+      budgetOptimization: 'campaign',
+      bidStrategy: 'lowest_cost',
+      countries: market.countries,
+      languages: market.languages,
+      videoUrl: item.videoUrl,
+      videoId: item.videoId,
+      body: bodyText.trim() || undefined,
+      linkUrl: linkUrl.trim(),
+      callToAction: cta === 'AUTO' ? undefined : cta,
+      dynamicCallToAction: cta === 'AUTO',
+    }
+  }, [advertiserId, bodyText, budget, campaignPrefix, cta, isBulk, items, linkUrl, market.countries, market.languages, validationError])
+
+  useEffect(() => {
+    if (!open || !singleDraft) {
+      setGuardian(null)
+      setGuardianLoading(false)
+      return
+    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      setGuardianLoading(true)
+      apiSend<{ guardian?: { ready: boolean; recommendations: number; checks: { id: string; label: string; status: 'ready' | 'recommended'; detail: string }[] } }>(
+        '/api/ads/create/preflight',
+        'POST',
+        singleDraft,
+      ).then((result) => {
+        if (!active) return
+        setGuardian(result.guardian || null)
+        setLaunchError(null)
+      }).catch((error) => {
+        if (!active) return
+        setGuardian(null)
+        setLaunchError(error instanceof Error ? error.message : 'Falha no preflight')
+      }).finally(() => {
+        if (active) setGuardianLoading(false)
+      })
+    }, 550)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [open, singleDraft])
 
   // Reserva o lote inteiro antes do primeiro envio e mantém o arquivo em falha.
   async function uploadItems(batch: VideoItem[]) {
@@ -269,7 +329,7 @@ export function UniversalLauncherDialog({
         : singleItem.name
 
       // Caso 3: 1 Vídeo - Campanha Rápida Otimizada (CBO / Conversão)
-      const payload = {
+      const payload = singleDraft || {
         adAccountId: advertiserId,
         goal: 'conversions',
         name: campaignName,
@@ -278,7 +338,7 @@ export function UniversalLauncherDialog({
         budgetOptimization: 'campaign',
         bidStrategy: 'lowest_cost',
         countries: market.countries,
-            languages: market.languages,
+        languages: market.languages,
         videoUrl: singleItem.videoUrl,
         videoId: singleItem.videoId,
         body: cleanBody,
@@ -557,7 +617,7 @@ export function UniversalLauncherDialog({
                   <strong>{budgetTotal > 0 ? fmtSpend(budgetTotal, currency) : '—'}</strong>
                   <p className="mt-1 text-xs text-muted-foreground">{items.length || 0} campanha(s) × {Number(budget) > 0 ? `${fmtSpend(Number(budget), currency)}/dia` : '—'}</p>
                 </div>
-                {launchError ? <div className="launch-review-error"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span>{launchError}</span></div> : validationError ? <div className="launch-review-warning"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span>{validationError}</span></div> : <div className="launch-review-ready"><CheckCircle2 className="mt-0.5 size-4 shrink-0" /><span>Tudo pronto. O ROINADOS fará o preflight e enviará a estrutura pausada ao TikTok.</span></div>}
+                {launchError ? <div className="launch-review-error"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span>{launchError}</span></div> : validationError ? <div className="launch-review-warning"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span>{validationError}</span></div> : guardianLoading ? <div className="launch-review-ready"><Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" /><span>Verificando campanha…</span></div> : guardian ? <div className={guardian.recommendations ? "launch-review-warning" : "launch-review-ready"}>{guardian.recommendations ? <AlertCircle className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}<span>{guardian.recommendations ? `Pronto para lançar · ${guardian.recommendations} recomendação${guardian.recommendations === 1 ? '' : 'ões'}` : 'Launch Guardian · pronto para lançar'}</span></div> : <div className="launch-review-ready"><CheckCircle2 className="mt-0.5 size-4 shrink-0" /><span>Pronto para verificação final.</span></div>}
               </aside>
             </div>
           </div>
