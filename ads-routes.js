@@ -1469,21 +1469,43 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.json({
           dryRun: true,
           simulated: eligible.length,
-          totals: { updated: 0, skipped: ids.length, failed: 0 },
+          totals: { updated: 0, skipped: skippedIds.length, failed: 0 },
           skippedIds,
         });
       }
 
-      const results = [];
+      const buckets = {
+        auctionAdgroups: [],
+        smartAdgroups: [],
+        auctionAds: [],
+        smartAds: [],
+      };
       for (const entity of eligible) {
-        const id = entity.type === 'adgroup' ? entity.adGroupId : entity.adId;
-        try {
-          await setEntityStatus(entity, status);
-          results.push({ id, type: entity.type, ok: true });
-        } catch (error) {
-          results.push({ id, type: entity.type, ok: false, error: String(error && error.message || error) });
+        const smart = entity.campaignKind === 'smart_plus';
+        if (entity.type === 'adgroup') {
+          (smart ? buckets.smartAdgroups : buckets.auctionAdgroups).push(entity.adGroupId);
+        } else {
+          (smart ? buckets.smartAds : buckets.auctionAds).push(entity.adId);
         }
       }
+
+      const batches = [
+        { type: 'adgroup', ids: buckets.auctionAdgroups, run: () => pipeboard.setAdGroupStatus(advertiserId, buckets.auctionAdgroups, status) },
+        { type: 'adgroup', ids: buckets.smartAdgroups, run: () => pipeboard.setSmartPlusAdGroupStatus(advertiserId, buckets.smartAdgroups, status) },
+        { type: 'ad', ids: buckets.auctionAds, run: () => pipeboard.setAdStatus(advertiserId, buckets.auctionAds, status) },
+        { type: 'ad', ids: buckets.smartAds, run: () => pipeboard.setSmartPlusAdStatus(advertiserId, buckets.smartAds, status) },
+      ].filter((batch) => batch.ids.length);
+
+      const settled = await Promise.all(batches.map(async (batch) => {
+        try {
+          await batch.run();
+          return batch.ids.map((id) => ({ id, type: batch.type, ok: true }));
+        } catch (error) {
+          const message = String(error && error.message || error);
+          return batch.ids.map((id) => ({ id, type: batch.type, ok: false, error: message }));
+        }
+      }));
+      const results = settled.flat();
 
       const updated = results.filter((item) => item.ok).length;
       const failed = results.length - updated;
