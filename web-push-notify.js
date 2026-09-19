@@ -92,9 +92,10 @@ function logFailure(accountId, reason) {
  */
 async function sendWebPush(accountId, note) {
   const allSubs = subsFor(accountId);
-  const subs = note && note.skipIOSWebPush
-    ? allSubs.filter((sub) => !/(iPhone|iPad|iPod|Macintosh.*Mobile)/i.test(String(sub.ua || '')))
-    : allSubs;
+  const isIOSSub = (sub) => /(iPhone|iPad|iPod|Macintosh.*Mobile)/i.test(String(sub.ua || ''));
+  const subs = note && note.onlyIOSWebPush
+    ? allSubs.filter(isIOSSub)
+    : (note && note.skipIOSWebPush ? allSubs.filter((sub) => !isIOSSub(sub)) : allSubs);
   if (!subs.length) return false; // sem aparelhos elegíveis = silenciosamente off
   try { await ensureVapid(); } catch (err) {
     logFailure(accountId, 'VAPID indisponível: ' + err.message);
