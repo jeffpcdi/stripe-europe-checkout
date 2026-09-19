@@ -19,6 +19,7 @@ struct CompanionSetupView: View {
     @State private var status = ""
     @State private var saving = false
     @State private var notificationNeedsSettings = false
+    @State private var notificationNeedsSettings = false
 
     var body: some View {
         NavigationStack {
