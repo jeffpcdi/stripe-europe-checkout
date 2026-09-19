@@ -460,7 +460,7 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Dados */}
-        <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
+        <GlassCard variant="thick" data-tour="confidence" className="overview-insight-card flex flex-col justify-between p-5">
           <div className="overview-insight-heading overview-data-heading">
             <span className="text-sm font-semibold text-foreground">Dados</span>
             {overviewHealth ? (
