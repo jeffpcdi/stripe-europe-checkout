@@ -6,7 +6,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Search, CornerDownLeft, PauseCircle, Filter, BarChart3, Loader2 } from 'lucide-react'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
-import { apiSend } from '@/lib/api'
+import { apiSend, fetcher } from '@/lib/api'
+import type { AdsAccountsResponse } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
@@ -31,6 +32,7 @@ export function CommandPalette() {
   const [active, setActive] = useState(0)
   const [running, setRunning] = useState(false)
   const [confirmPauseBad, setConfirmPauseBad] = useState(false)
+  const [pauseTarget, setPauseTarget] = useState<{ id: string; name: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
@@ -103,8 +105,23 @@ export function CommandPalette() {
       return
     }
     if (item.kind === 'pause_bad') {
-      setOpen(false)
-      setConfirmPauseBad(true)
+      setRunning(true)
+      try {
+        const accounts = await fetcher<AdsAccountsResponse>('/api/ads/accounts')
+        const selectedId = String(accounts.selected || '').trim()
+        const selected = accounts.accounts.find((account) => String(account.id) === selectedId)
+        if (!selectedId || !selected) {
+          toast.info('Selecione uma conta de anúncios no TikTok Ads antes de executar este comando.')
+          return
+        }
+        setPauseTarget({ id: selectedId, name: selected.name || selectedId })
+        setOpen(false)
+        setConfirmPauseBad(true)
+      } catch (error) {
+        toast.error('Não foi possível confirmar a conta de anúncios', { hint: error instanceof Error ? error.message : undefined })
+      } finally {
+        setRunning(false)
+      }
       return
     }
     go(item.href)
@@ -113,8 +130,9 @@ export function CommandPalette() {
   async function executePauseBad() {
     setRunning(true)
     try {
+      if (!pauseTarget?.id) throw new Error('Conta de anúncios não confirmada')
       const result = await apiSend<{ paused: number; matched: number; dryRun?: boolean }>('/api/ads/commands', 'POST', {
-        command: 'pause_bad_campaigns', minimumSpend: 100,
+        command: 'pause_bad_campaigns', minimumSpend: 100, adAccountId: pauseTarget.id,
       })
       setConfirmPauseBad(false)
       toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
@@ -223,11 +241,13 @@ export function CommandPalette() {
     <ConfirmDialog
       open={confirmPauseBad}
       title="Pausar campanhas sem venda?"
-      description="Serão pausadas as campanhas ativas que gastaram pelo menos 100 hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria."
+      description={pauseTarget
+        ? <>Conta: <strong>{pauseTarget.name}</strong>. Serão pausadas as campanhas ativas que gastaram pelo menos 100 hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria.</>
+        : 'Confirme a conta de anúncios antes de executar esta ação.'}
       confirmLabel="Pausar campanhas"
       busy={running}
       onConfirm={executePauseBad}
-      onClose={() => setConfirmPauseBad(false)}
+      onClose={() => { setConfirmPauseBad(false); setPauseTarget(null) }}
     />
     </>
   )
