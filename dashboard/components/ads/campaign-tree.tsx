@@ -293,12 +293,14 @@ export function CampaignActivationToggle({
   disabled,
   onToggle,
   name,
+  entityLabel = 'campanha',
 }: {
   status?: AdsNodeStatus
   busy?: boolean
   disabled?: boolean
   onToggle: () => void
   name?: string
+  entityLabel?: string
 }) {
   const isActive = status === 'active'
   const isPaused = status === 'paused'
@@ -318,8 +320,8 @@ export function CampaignActivationToggle({
         e.stopPropagation()
         onToggle()
       }}
-      title={isActive ? 'Campanha ativa — Clique para pausar' : 'Campanha pausada — Clique para ativar'}
-      aria-label={`${isActive ? 'Pausar' : 'Ativar'} campanha ${name || ''}`}
+      title={isActive ? `${entityLabel} ativo — Clique para pausar` : `${entityLabel} pausado — Clique para ativar`}
+      aria-label={`${isActive ? 'Pausar' : 'Ativar'} ${entityLabel} ${name || ''}`}
       className={`group relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
         isActive
           ? 'bg-emerald-500'
@@ -699,6 +701,8 @@ export function CampaignTree({
   const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set())
+  const [creativeInspect, setCreativeInspect] = useState<{ campaign: AdsTreeCampaign; group: AdsTreeCampaign['adSets'][number]; ad: AdsTreeAd } | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
   
@@ -897,6 +901,41 @@ export function CampaignTree({
     }
   }
 
+  async function applyEntityBulkStatus(status: 'active' | 'paused') {
+    if (!selectedEntities.size || bulkBusy) return
+    setBulkBusy(true)
+    let updated = 0
+    let simulated = 0
+    let failed = 0
+    for (const id of selectedEntities) {
+      try {
+        const result = await apiSend<{ dryRun?: boolean; simulated?: boolean }>(`/api/ads/${encodeURIComponent(id)}`, 'PUT', { status })
+        if (result.dryRun || result.simulated) simulated++
+        else updated++
+      } catch {
+        failed++
+      }
+    }
+    setBulkBusy(false)
+    if (updated) {
+      toast.success(`${updated} ${entityLevel === 'ad' ? 'anúncio(s)' : 'conjunto(s)'} atualizado(s)`, { hint: 'Aguardando sincronização do TikTok.' })
+      actionFeedback()
+      onMutate()
+    }
+    if (simulated) toast.info(`${simulated} alteração(ões) simulada(s)`, { hint: 'Modo teste: nada foi publicado.' })
+    if (failed) toast.error(`${failed} alteração(ões) falharam`)
+    if (!failed) setSelectedEntities(new Set())
+  }
+
+  function toggleEntitySelection(id: string) {
+    setSelectedEntities((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   async function handleDeleteAd() {
     const ad = deleteAd?.ad
     const adId = ad?.platformAdId || ad?._id
@@ -929,6 +968,7 @@ export function CampaignTree({
   const statusCounts = useMemo(() => campaignStatusCounts(campaigns), [campaigns])
   const adGroupCount = useMemo(() => campaigns.reduce((total, campaign) => total + (campaign.adSets?.length || 0), 0), [campaigns])
   const adCount = useMemo(() => campaigns.reduce((total, campaign) => total + (campaign.adSets || []).reduce((sum, group) => sum + (group.ads?.length || 0), 0), 0), [campaigns])
+  useEffect(() => { setSelectedEntities(new Set()) }, [entityLevel])
 
   // Aplica busca + "só com gasto" sobre a lista carregada
   const q = normalizeSearch(query.trim())
@@ -1558,24 +1598,35 @@ export function CampaignTree({
   }
 
   function EntityWorkspace() {
+    const bulkBar = selectedEntities.size ? <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-primary/20 bg-background/95 px-3 py-2.5 shadow-sm backdrop-blur">
+      <span className="text-xs font-semibold text-foreground">{selectedEntities.size} selecionado{selectedEntities.size === 1 ? '' : 's'}</span>
+      <button type="button" disabled={bulkBusy} onClick={() => void applyEntityBulkStatus('active')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-success/30 bg-success/10 px-2.5 text-xs font-medium text-success disabled:opacity-50"><Play className="size-3" />Ativar</button>
+      <button type="button" disabled={bulkBusy} onClick={() => void applyEntityBulkStatus('paused')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-warning/30 bg-warning/10 px-2.5 text-xs font-medium text-warning disabled:opacity-50"><Pause className="size-3" />Pausar</button>
+      <button type="button" disabled={bulkBusy} onClick={() => setSelectedEntities(new Set())} className="ml-auto text-xs text-muted-foreground hover:text-foreground">Limpar seleção</button>
+    </div> : null
+
     if (entityLevel === 'campaign') return null
     if (entityLevel === 'adgroup') {
       const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group })))
-      return <div className="overflow-x-auto border-b border-border/60"><div className="min-w-[920px]">
-        <div className="grid grid-cols-[minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
-        {rows.map(({ campaign, group }) => <div key={group.platformAdSetId} className="grid grid-cols-[minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] gap-3 border-b border-border/40 px-3 py-3 text-xs hover:bg-muted/20">
-          <div className="min-w-0"><p className="truncate font-semibold text-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="mt-0.5 text-muted-foreground">{group.ads?.length || 0} anúncio{(group.ads?.length || 0) === 1 ? '' : 's'}</p></div>
-          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle status={group.status} busy={busyId === group.platformAdSetId} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(group.platformAdSetId, group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
+      const all = rows.length > 0 && rows.every(({ group }) => selectedEntities.has(group.platformAdSetId))
+      return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[980px]">
+        <div className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ group }) => group.platformAdSetId)))} aria-label="Selecionar todos os conjuntos" className="size-3.5 accent-primary" /><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
+        {rows.map(({ campaign, group }) => <div key={group.platformAdSetId} className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/40 px-3 py-3 text-xs hover:bg-muted/20">
+          <input type="checkbox" checked={selectedEntities.has(group.platformAdSetId)} onChange={() => toggleEntitySelection(group.platformAdSetId)} aria-label={`Selecionar conjunto ${group.adSetName || group.platformAdSetId}`} className="size-3.5 accent-primary" />
+          <div className="min-w-0"><p className="truncate font-semibold text-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="mt-0.5 text-muted-foreground">{group.ads?.length || 0} anúncio{(group.ads?.length || 0) === 1 ? '' : 's'} · controle independente</p></div>
+          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="conjunto" status={group.status} busy={busyId === group.platformAdSetId} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(group.platformAdSetId, group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
           <p className="text-right tabular-nums text-foreground">{group.budget?.amount != null ? fmtMoney(Number(group.budget.amount), campaign.currency || currency) : '—'}</p><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(group.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
         </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
       </div></div>
     }
     const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad }))))
-    return <div className="overflow-x-auto border-b border-border/60"><div className="min-w-[1080px]">
-      <div className="grid grid-cols-[96px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><span>Criativo</span><span>Anúncio</span><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
-      {rows.map(({ campaign, group, ad }) => { const videoUrl = /^https:\/\//i.test(ad.creative?.videoUrl || '') ? ad.creative?.videoUrl : ''; const imageUrl = /^https:\/\//i.test(ad.creative?.imageUrl || '') ? ad.creative?.imageUrl : ''; const hasAsset = Boolean(videoUrl || imageUrl || ad.creative?.videoId || ad.creative?.imageIds?.length); return <div key={ad.platformAdId || ad._id} className="grid grid-cols-[96px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-xs hover:bg-muted/20">
-        <div className="flex h-14 w-10 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-black">{videoUrl ? <video src={videoUrl} poster={imageUrl || undefined} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : imageUrl ? <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" /> : hasAsset ? <Play className="size-4 text-white/70" aria-label="Asset TikTok identificado; prévia pendente" /> : <span className="text-[9px] text-white/45">—</span>}</div>
-        <div className="min-w-0"><p className="truncate font-semibold text-foreground">{ad.name || ad.platformAdId}</p><p className="mt-0.5 truncate text-muted-foreground">{ad.creative?.body || (hasAsset ? 'Asset TikTok identificado' : 'Sem criativo informado')}</p></div><p className="truncate text-muted-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle status={ad.status} busy={busyId === (ad.platformAdId || ad._id)} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(String(ad.platformAdId || ad._id), ad.status === 'active' ? 'paused' : 'active', 'Anúncio')} name={ad.name || ad.platformAdId} /><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(ad.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
+    const all = rows.length > 0 && rows.every(({ ad }) => selectedEntities.has(String(ad.platformAdId || ad._id)))
+    return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[1160px]">
+      <div className="grid grid-cols-[36px_86px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ ad }) => String(ad.platformAdId || ad._id))))} aria-label="Selecionar todos os anúncios" className="size-3.5 accent-primary" /><span>Criativo</span><span>Anúncio</span><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
+      {rows.map(({ campaign, group, ad }) => { const id = String(ad.platformAdId || ad._id); const videoUrl = /^https:\/\//i.test(ad.creative?.videoUrl || '') ? ad.creative?.videoUrl : ''; const imageUrl = /^https:\/\//i.test(ad.creative?.imageUrl || '') ? ad.creative?.imageUrl : ''; const hasAsset = Boolean(videoUrl || imageUrl || ad.creative?.videoId || ad.creative?.imageIds?.length); return <div key={id} className="grid grid-cols-[36px_86px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-xs hover:bg-muted/20">
+        <input type="checkbox" checked={selectedEntities.has(id)} onChange={() => toggleEntitySelection(id)} aria-label={`Selecionar anúncio ${ad.name || id}`} className="size-3.5 accent-primary" />
+        <button type="button" onClick={() => setCreativeInspect({ campaign, group, ad })} className="group relative flex h-16 w-11 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-black focus-visible:ring-2 focus-visible:ring-primary" title="Abrir central do criativo">{videoUrl ? <video src={videoUrl} poster={imageUrl || undefined} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : imageUrl ? <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" /> : hasAsset ? <Play className="size-4 text-white/70" aria-label="Asset TikTok identificado; prévia pendente" /> : <span className="text-[9px] text-white/45">—</span>}<span className="absolute inset-0 hidden items-center justify-center bg-black/35 group-hover:flex"><Play className="size-4 fill-white text-white" /></span></button>
+        <button type="button" onClick={() => setCreativeInspect({ campaign, group, ad })} className="min-w-0 text-left"><p className="truncate font-semibold text-foreground hover:text-primary">{ad.name || ad.platformAdId}</p><p className="mt-0.5 truncate text-muted-foreground">{ad.creative?.body || (hasAsset ? 'Asset TikTok identificado' : 'Sem criativo informado')}</p></button><p className="truncate text-muted-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="anúncio" status={ad.status} busy={busyId === id} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(id, ad.status === 'active' ? 'paused' : 'active', 'Anúncio')} name={ad.name || ad.platformAdId} /><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(ad.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
       </div>})}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum anúncio disponível nesta conta.</p> : null}
     </div></div>
   }
@@ -1729,6 +1780,20 @@ export function CampaignTree({
           </div>
         </div>
       ))}
+
+      {creativeInspect ? <Modal open onClose={() => setCreativeInspect(null)} title="Central do criativo" description="Preview, contexto e performance do anúncio em um só lugar.">
+        <div className="grid gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="mx-auto w-full max-w-[220px] overflow-hidden rounded-xl border border-border bg-black aspect-[9/16]">
+            {/^(https:\/\/)/i.test(creativeInspect.ad.creative?.videoUrl || '') ? <video src={creativeInspect.ad.creative?.videoUrl} poster={creativeInspect.ad.creative?.imageUrl || undefined} controls playsInline preload="metadata" className="h-full w-full object-contain" /> : /^(https:\/\/)/i.test(creativeInspect.ad.creative?.imageUrl || '') ? <img src={creativeInspect.ad.creative?.imageUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-white/60"><Play className="size-7" /><span>Asset identificado<br />preview público indisponível</span></div>}
+          </div>
+          <div className="min-w-0 space-y-4">
+            <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Anúncio</p><p className="mt-1 text-base font-semibold text-foreground">{creativeInspect.ad.name || creativeInspect.ad.platformAdId}</p><p className="mt-1 text-sm text-muted-foreground">{creativeInspect.ad.creative?.body || 'Sem texto informado'}</p></div>
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/60 bg-secondary/10 p-3"><div><p className="text-[11px] text-muted-foreground">Gasto</p><p className="mt-1 text-sm font-semibold">{fmtMoney(Number(creativeInspect.ad.metrics?.spend || 0), creativeInspect.campaign.currency || currency)}</p></div><div><p className="text-[11px] text-muted-foreground">CTR</p><p className="mt-1 text-sm font-semibold">{Number(creativeInspect.ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p></div><div><p className="text-[11px] text-muted-foreground">Conversões</p><p className="mt-1 text-sm font-semibold">{Number(creativeInspect.ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p></div></div>
+            <div className="space-y-2 text-xs"><p><span className="text-muted-foreground">Campanha:</span> {cleanCampaignName(creativeInspect.campaign.campaignName || creativeInspect.campaign.platformCampaignId)}</p><p><span className="text-muted-foreground">Conjunto:</span> {creativeInspect.group.adSetName || creativeInspect.group.name || creativeInspect.group.platformAdSetId}</p><p className="break-all"><span className="text-muted-foreground">Ad ID:</span> {creativeInspect.ad.platformAdId || creativeInspect.ad._id}</p>{creativeInspect.ad.creative?.videoId ? <p className="break-all"><span className="text-muted-foreground">Video ID:</span> {creativeInspect.ad.creative.videoId}</p> : null}{creativeInspect.ad.creative?.linkUrl ? <p className="break-all"><span className="text-muted-foreground">Destino:</span> {creativeInspect.ad.creative.linkUrl}</p> : null}</div>
+            <div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary text-xs" onClick={() => { setEditAd({ ad: creativeInspect.ad, adAccountId: creativeInspect.campaign.platformAdAccountId }); setCreativeInspect(null) }}><Pencil className="size-3.5" />Editar anúncio</button><button type="button" className="btn-ghost text-xs" onClick={() => void navigator.clipboard.writeText(String(creativeInspect.ad.platformAdId || creativeInspect.ad._id))}><Copy className="size-3.5" />Copiar ID</button></div>
+          </div>
+        </div>
+      </Modal> : null}
 
       {/* Confirmação de exclusão de anúncio */}
       <ConfirmDialog
