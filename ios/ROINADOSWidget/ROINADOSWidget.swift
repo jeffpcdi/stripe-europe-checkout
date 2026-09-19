@@ -53,7 +53,7 @@ struct ROIWidgetView: View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(CompanionConfig.dashboardURL())
+        .widgetURL(primaryURL(entry.snapshot))
     }
 
     private func small(_ snapshot: WidgetSnapshot) -> some View {
@@ -194,6 +194,23 @@ struct ROIWidgetView: View {
             }
 
             Spacer(minLength: 0)
+
+            HStack(spacing: 14) {
+                if let salesURL = CompanionConfig.dashboardURL(path: "/dashboard/activity") {
+                    Link(destination: salesURL) {
+                        Label("Vendas", systemImage: "cart.fill")
+                            .font(.caption2.weight(.semibold))
+                    }
+                }
+                if let adsURL = CompanionConfig.dashboardURL(path: "/dashboard/ads/tiktok") {
+                    Link(destination: adsURL) {
+                        Label("TikTok Ads", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.caption2.weight(.semibold))
+                    }
+                }
+            }
+            .tint(.accentColor)
+
             Text(freshness(snapshot))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -232,6 +249,14 @@ struct ROIWidgetView: View {
                 .font(.headline.weight(.bold))
         }
         .gaugeStyle(.accessoryCircular)
+    }
+
+    private func primaryURL(_ snapshot: WidgetSnapshot?) -> URL? {
+        guard let snapshot else { return CompanionConfig.dashboardURL() }
+        if snapshot.attention.contains("spend_without_sales") {
+            return CompanionConfig.dashboardURL(path: "/dashboard/ads/tiktok")
+        }
+        return CompanionConfig.dashboardURL()
     }
 
     private func freshness(_ snapshot: WidgetSnapshot) -> String {
