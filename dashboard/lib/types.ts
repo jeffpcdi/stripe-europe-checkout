@@ -1029,10 +1029,20 @@ export interface AdsMetrics {
   cpm?: number
   cpc?: number
   conversions?: number
-  videoViews?: number
   reach?: number
+  frequency?: number
   roas?: number
   cpa?: number
+  /** Métricas de vídeo retornadas pelo reporting TikTok quando disponíveis. */
+  videoViews?: number
+  videoPlayActions?: number
+  videoWatched2s?: number
+  videoWatched6s?: number
+  videoViewsP25?: number
+  videoViewsP50?: number
+  videoViewsP75?: number
+  videoViewsP100?: number
+  averageVideoPlay?: number
 }
 
 export type AdsNodeStatus =

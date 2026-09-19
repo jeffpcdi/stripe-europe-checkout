@@ -1,4 +1,18 @@
 ## Coerência global da dashboard — V16.23 (2026-09-19)
+
+## TikTok Campaign Operations Workspace — V16.24 (2026-09-19)
+- A aba Campanhas é um workspace TikTok-first com níveis internos: Operação, Campanhas, Conjuntos, Anúncios, Criativos, Oportunidades, Aprovações e Playbooks.
+- A hierarquia real é campanha → conjunto → anúncio. Conjuntos e anúncios usam IDs reais do TikTok e podem ser ativados/pausados individualmente ou em lote; nunca simular ações que o backend não suporta.
+- `CampaignWorkspace` é a camada principal de operação; `CampaignTree` permanece como visualização hierárquica do nível Campanhas.
+- O backend `POST /api/ads/entities/bulk-status` opera ad groups/ads com validação de advertiser, dry-run, kill switch, auditoria e sync pós-escrita.
+- Vídeos usam preview/capa do TikTok via `get_tiktok_video_info` como enriquecimento best-effort. Falha visual nunca deve bloquear a árvore.
+- Métricas de vídeo (2s, 6s, quartis, conclusão e tempo médio) são opcionais; ausência deve aparecer como indisponível, nunca como score/zero inventado.
+- Playbooks atuais são regras centradas em campanha e entram em modo proposta por padrão. Automação realmente multi-nível (campanha/conjunto/anúncio) requer evolução do motor e não deve ser representada como pronta antes disso.
+- A Operação prioriza first-party sales/ROAS, gasto, saúde criativa, aprovações e estado da automação.
+- Pesquisa de produto: preservar os princípios de TikTok Ads/Smart+ + SaaS profissional — hierarquia no mesmo workspace, bulk, guardrails, recomendações acionáveis, creative intelligence e automação controlável.
+- Regressão principal: `test/tiktok-campaign-workspace-v16-24.test.js`.
+- PR #147 é empilhado sobre V16.23; não retarget/merge em main antes da base e de um build real passarem.
+
 - Escopo ampliado para a dashboard inteira: Visão Geral, Rastreamento, Atividade, TikTok Ads, Conta e navegação global.
 - `NAV_GROUPS` é a fonte de verdade do TopNav/SubNav; `/activity`, `/funnel`, `/geo` e `/live` permanecem sob Visão Geral.
 - Domínios novos exigem uso explícito (`checkout` ou `cloaker`). Troca de uso é persistida por `POST /api/domains/:host/usage` e é bloqueada enquanto o host ainda tiver Links ou campanhas do outro escopo.

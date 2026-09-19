@@ -42,6 +42,7 @@ import type {
   AdsAttributionResponse,
   AdsCampaignDecisionsResponse,
   AdsRulesResponse,
+  AdsRule,
   AdsProposalsResponse,
   AdsTemplatesResponse,
   AdsOpsJobsResponse,
@@ -552,6 +553,13 @@ export function useAdsRules(active: boolean, adAccountId = '') {
   return useSWR<AdsRulesResponse>(key, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: true,
+  })
+}
+
+export function useAdsRulePresets(active: boolean) {
+  return useSWR<{ presets: AdsRule[] }>(active ? '/api/ads/rules/presets' : null, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 300_000,
   })
 }
 

@@ -615,6 +615,10 @@ function mapInsightRow(row) {
   const impressions = num(m.impressions);
   const clicks = num(m.clicks);
   const conversions = num(m.conversion ?? m.conversions);
+  const maybe = (...keys) => {
+    for (const key of keys) if (m[key] != null && m[key] !== '') return num(m[key]);
+    return undefined;
+  };
   return {
     dimensions: d,
     spend,
@@ -622,6 +626,18 @@ function mapInsightRow(row) {
     clicks,
     conversions,
     reach: num(m.reach),
+    frequency: maybe('frequency'),
+    // O reporting do TikTok expõe estas métricas quando o nível/conta suporta.
+    // São best-effort: ausência não vira zero visual nem score inventado.
+    videoViews: maybe('video_play_actions', 'video_views'),
+    videoPlayActions: maybe('video_play_actions'),
+    videoWatched2s: maybe('video_watched_2s'),
+    videoWatched6s: maybe('video_watched_6s'),
+    videoViewsP25: maybe('video_views_p25'),
+    videoViewsP50: maybe('video_views_p50'),
+    videoViewsP75: maybe('video_views_p75'),
+    videoViewsP100: maybe('video_views_p100'),
+    averageVideoPlay: maybe('average_video_play', 'average_video_play_per_user'),
     // preferimos as métricas derivadas que o TikTok já entrega (evita divisão
     // por zero e bate com o painel do TikTok); caímos no cálculo se ausentes.
     ctr: m.ctr != null ? num(m.ctr) : (impressions ? clicks / impressions : 0),
@@ -747,12 +763,75 @@ async function insightsById(advertiserId, level, dimKey, startDate, endDate) {
       cpc: r.cpc,
       conversions: r.conversions,
       reach: r.reach,
+      frequency: r.frequency,
+      videoViews: r.videoViews,
+      videoPlayActions: r.videoPlayActions,
+      videoWatched2s: r.videoWatched2s,
+      videoWatched6s: r.videoWatched6s,
+      videoViewsP25: r.videoViewsP25,
+      videoViewsP50: r.videoViewsP50,
+      videoViewsP75: r.videoViewsP75,
+      videoViewsP100: r.videoViewsP100,
+      averageVideoPlay: r.averageVideoPlay,
     });
   }
   return map;
 }
 
 const EMPTY_METRICS = { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0, cpc: 0, conversions: 0, reach: 0 };
+
+function normalizeTikTokPreviewVideoUrl(value) {
+  const raw = String(value || '').trim();
+  return /^https:\/\/[^\s]+$/i.test(raw) ? raw : '';
+}
+
+// Resolve mídia visual do TikTok fora do hot-path da dashboard. A árvore
+// sincronizada continua funcionando mesmo se o endpoint de mídia falhar.
+// get_tiktok_video_info normalmente expõe uma capa pública; quando o
+// conector também devolve um preview HTTPS, a UI consegue tocar o vídeo.
+async function resolveVideoPreviewMap(advertiserId, ads) {
+  const ids = [...new Set((Array.isArray(ads) ? ads : [])
+    .map((ad) => String(ad && ad.videoId || '').trim())
+    .filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const cacheKey = 'videopreviews:' + String(advertiserId) + ':' + ids.slice().sort().join(',');
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const outMap = new Map();
+  for (let start = 0; start < ids.length; start += 50) {
+    const batch = ids.slice(start, start + 50);
+    try {
+      const out = await pipeboard.callTool('get_tiktok_video_info', {
+        advertiser_id: String(advertiserId),
+        video_ids: batch,
+        page: 1,
+        page_size: Math.max(10, batch.length),
+      });
+      const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
+      for (const row of rows) {
+        const id = String(row && (row.video_id || row.id) || '').trim();
+        if (!id || !batch.includes(id)) continue;
+        const coverUrl = normalizeTikTokCoverUrl(
+          String(row.video_cover_url || row.cover_url || row.thumbnail_url || '').trim(),
+        );
+        const videoUrl = normalizeTikTokPreviewVideoUrl(
+          row.video_url || row.preview_url || row.play_url || row.video_play_url,
+        );
+        outMap.set(id, {
+          displayable: row.displayable === true,
+          coverUrl,
+          videoUrl,
+        });
+      }
+    } catch (_) {
+      // Preview é enriquecimento visual best-effort. Nunca derruba sync/árvore.
+    }
+  }
+
+  return cacheSet(cacheKey, outMap, 10 * 60 * 1000);
+}
 
 async function getDashboardTree(accountId, opts = {}) {
   const advertiserId = String(opts.advertiserId || (await resolveAdvertiserId(accountId)));
@@ -778,9 +857,11 @@ async function getDashboardTree(accountId, opts = {}) {
       getAdvertiserInfo(advertiserId).catch(() => null),
     ]);
     const currency = (advInfo && advInfo.currency) || 'USD';
+    const videoPreviews = await resolveVideoPreviewMap(advertiserId, ads).catch(() => new Map());
 
     const adsByGroup = new Map();
     for (const ad of ads) {
+      const videoPreview = ad.videoId ? videoPreviews.get(String(ad.videoId)) : null;
       const node = {
         platformAdId: ad.id,
         name: ad.name,
@@ -798,8 +879,10 @@ async function getDashboardTree(accountId, opts = {}) {
         creative: {
           body: ad.adText || '',
           linkUrl: ad.landingPageUrl || '',
-          videoUrl: ad.videoId ? ('tiktok:video:' + ad.videoId) : '',
-          imageUrl: (ad.imageIds && ad.imageIds[0]) ? ('tiktok:image:' + ad.imageIds[0]) : '',
+          videoUrl: (videoPreview && videoPreview.videoUrl)
+            || (ad.videoId ? ('tiktok:video:' + ad.videoId) : ''),
+          imageUrl: (videoPreview && videoPreview.coverUrl)
+            || ((ad.imageIds && ad.imageIds[0]) ? ('tiktok:image:' + ad.imageIds[0]) : ''),
         },
         rejectionReason: tiktokStatusToNode(ad.status, ad.secondaryStatus) === 'rejected' ? ad.secondaryStatus : undefined,
         createdAt: ad.createTime || undefined,
@@ -4791,5 +4874,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, resolveVideoPreviewMap, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
 };
