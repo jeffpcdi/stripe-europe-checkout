@@ -33,6 +33,10 @@ targets:
         CFBundleDisplayName: ROI-NADOS
         UILaunchScreen: {}
         ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.roinados.companion
+            CFBundleURLSchemes:
+              - roinados
     entitlements:
       path: ROINADOSCompanion/ROINADOSCompanion.entitlements
     dependencies:
