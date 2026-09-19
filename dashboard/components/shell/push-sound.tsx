@@ -23,6 +23,7 @@ export function PushSound() {
 
     // 2. Escuta os eventos do Service Worker
     if (!('serviceWorker' in navigator)) return
+    let salePulseTimer: number | null = null
     const onMessage = (event: MessageEvent) => {
       const msg = event.data
       if (!msg || !['roi-notification', 'roi-sound'].includes(msg.type)) return
@@ -36,6 +37,12 @@ export function PushSound() {
       if (msg.type === 'roi-notification') {
         if (eventName === 'sale') {
           toast.success(title || 'Venda aprovada', { hint: body || undefined, duration })
+          document.documentElement.dataset.roiSalePulse = 'on'
+          if (salePulseTimer !== null) window.clearTimeout(salePulseTimer)
+          salePulseTimer = window.setTimeout(() => {
+            delete document.documentElement.dataset.roiSalePulse
+            salePulseTimer = null
+          }, 900)
         } else if (['failed', 'refund', 'dispute', 'ads_failure', 'ads_breaker'].includes(eventName)) {
           toast.error(title || 'Atenção necessária', { hint: body || undefined, duration: 6500 })
         } else if (['daily', 'ads_proposal', 'ads_rejected', 'ads_cap'].includes(eventName)) {
@@ -58,6 +65,8 @@ export function PushSound() {
       window.removeEventListener('click', unlockAudio)
       window.removeEventListener('touchstart', unlockAudio)
       navigator.serviceWorker.removeEventListener('message', onMessage)
+      if (salePulseTimer !== null) window.clearTimeout(salePulseTimer)
+      delete document.documentElement.dataset.roiSalePulse
     }
   }, [])
 
