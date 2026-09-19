@@ -19,9 +19,14 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.roinados.companion
-        INFOPLIST_KEY_CFBundleDisplayName: ROI-NADOS
-        INFOPLIST_KEY_UILaunchScreen_Generation: true
-        INFOPLIST_KEY_ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
+        MARKETING_VERSION: 1.0
+        CURRENT_PROJECT_VERSION: 1
+    info:
+      path: ROINADOSCompanion/Info.plist
+      properties:
+        CFBundleDisplayName: ROI-NADOS
+        UILaunchScreen: {}
+        ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
     entitlements:
       path: ROINADOSCompanion/ROINADOSCompanion.entitlements
     dependencies:
@@ -36,8 +41,14 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.roinados.companion.widget
-        INFOPLIST_KEY_CFBundleDisplayName: ROI-NADOS
-        INFOPLIST_KEY_NSExtension_NSExtensionPointIdentifier: com.apple.widgetkit-extension
-        INFOPLIST_KEY_ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
+        MARKETING_VERSION: 1.0
+        CURRENT_PROJECT_VERSION: 1
+    info:
+      path: ROINADOSWidget/Info.plist
+      properties:
+        CFBundleDisplayName: ROI-NADOS
+        ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
       path: ROINADOSWidget/ROINADOSWidget.entitlements
