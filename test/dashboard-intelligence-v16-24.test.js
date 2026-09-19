@@ -77,7 +77,7 @@ assert.match(campaigns, /Abaixo do ritmo/)
 assert.match(campaigns, /Redistribuir/)
 assert.match(campaigns, /Profit Allocator/)
 assert.match(campaigns, /\/api\/ads\/budget\/proposal\/apply/)
-assert.match(campaigns, /Aprendizado protegido/)
+assert.match(campaigns, /Learning Guardian · fase inicial/)
 
 assert.match(creatives, /Possível desgaste/)
 assert.match(creatives, /Ganhando eficiência/)
