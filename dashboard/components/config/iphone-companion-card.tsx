@@ -22,6 +22,7 @@ export function IPhoneCompanionCard() {
   })
   const [token, setToken] = useState('')
   const [loadingToken, setLoadingToken] = useState(false)
+  const [testingNative, setTestingNative] = useState(false)
 
   async function revealToken() {
     setLoadingToken(true)
@@ -48,6 +49,21 @@ export function IPhoneCompanionCard() {
       })
     } finally {
       await mutate()
+    }
+  }
+
+  async function testNativeSaleSound() {
+    setTestingNative(true)
+    try {
+      const response = await apiSend<{ ok: boolean; delivered?: number; error?: string }>('/api/companion/test', 'POST', {})
+      if (!response.ok) throw new Error(response.error || 'Nenhum iPhone recebeu o teste.')
+      toast.success(`Teste nativo enviado para ${response.delivered || 1} iPhone${(response.delivered || 1) === 1 ? '' : 's'}.`)
+    } catch (error) {
+      toast.error?.('Teste nativo falhou', {
+        hint: error instanceof Error ? error.message : 'Confira APNs e o pareamento.',
+      })
+    } finally {
+      setTestingNative(false)
     }
   }
 
@@ -136,6 +152,15 @@ export function IPhoneCompanionCard() {
               label="Preferir Companion no iPhone"
             />
           </div>
+          <button
+            type="button"
+            onClick={testNativeSaleSound}
+            disabled={testingNative || !data?.apnsConfigured}
+            className="btn-secondary mt-3 min-h-10 text-xs disabled:opacity-50"
+          >
+            {testingNative ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Volume2 className="size-3.5" aria-hidden="true" />}
+            Testar som nativo de venda
+          </button>
           <p className="mt-4 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Aparelhos nativos</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {devices.map((device) => (
