@@ -55,8 +55,8 @@ function nativePreferenceEnabled(accountId, event) {
   return group ? nativePreferencesFor(accountId)[group] !== false : false;
 }
 
-// Só eventos úteis entram no sino. Simulações, checkouts, relatórios e
-// execuções automáticas bem-sucedidas continuam nos seus painéis próprios.
+// Só eventos úteis entram no sino. O brief diário fica consultável, mas não
+// vira badge de atenção; simulações, checkouts e rotinas continuam fora.
 function shouldRecord(event) {
   return [
     'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog', 'daily',
@@ -109,7 +109,7 @@ async function sendViaWebPush(notificationName, payload, accountId, meta, option
     note.dedupeKey = meta && meta.dedupeKey ? String(meta.dedupeKey).slice(0, 160) : '';
 
     const recordInCenter = shouldRecord(event);
-    note.badge = recordInCenter;
+    note.badge = shouldBadge(event);
     const companion = accountConfig(accountId).companion || {};
     const nativeReady = companion.preferNativeIOS === true
       && (companion.devices || []).length > 0
