@@ -16,7 +16,7 @@ import {
 } from '@/lib/api'
 import { adsDateRange } from '@/lib/ads-time'
 import { useOverviewPeriod } from '@/lib/overview-period'
-import { fmtDelta, fmtInt, fmtPercent, fmtSpend, formatMoney } from '@/lib/format'
+import { fmtDelta, fmtInt, fmtPercent, formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
@@ -214,7 +214,7 @@ export function InsightsView() {
             />
             <KpiCell
               label="Investimento"
-              value={roas ? fmtSpend(roas.spend, spendCurrency) : '—'}
+              value={roas ? formatMoney(Math.round(roas.spend * 100), spendCurrency) : '—'}
               detail={adsConnected ? null : 'TikTok não conectado'}
               privateValue
             />
@@ -231,7 +231,7 @@ export function InsightsView() {
             />
             <KpiCell
               label="CPA"
-              value={roas?.cpa == null ? '—' : fmtSpend(roas.cpa, spendCurrency)}
+              value={roas?.cpa == null ? '—' : formatMoney(Math.round(roas.cpa * 100), spendCurrency)}
             />
           </GlassCard>
 
