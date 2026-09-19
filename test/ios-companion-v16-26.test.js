@@ -67,6 +67,7 @@ assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve exp
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
 assert(companionCard.includes('Preferir Companion no iPhone'), 'usuário deve controlar a troca de Web Push para APNs nativo')
 assert(companionCard.includes('Testar som nativo de venda') && companionCard.includes('/api/companion/test'), 'pareamento deve oferecer teste real do chime APNs')
+assert(companionCard.includes('Confirmar renovação') && companionCard.includes('/api/companion/token/rotate'), 'rotação do token deve existir na UI com confirmação antes de desconectar iPhones')
 assert(widgetSwift.includes('Receita, vendas, ROAS e lucro do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])'), 'widget deve cobrir Tela de Início e uma superfície enxuta da Tela Bloqueada')
 assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
