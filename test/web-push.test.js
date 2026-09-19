@@ -51,7 +51,7 @@ test('notify-copy: eventos de status substituem (tag fixa)', () => {
 test('notify-copy: som distinto por evento', () => {
   const cases = [
     ['sale', 'cash'], ['failed', 'alert'], ['refund', 'alert'],
-    ['dispute', 'alert'], ['checkout', 'tick'], ['login', 'ping'], ['daily', 'info']
+    ['dispute', 'alert'], ['checkout', 'tick'], ['login', 'ping'], ['daily', 'info'], ['ads_breaker', 'alert']
   ];
   for (const [event, sound] of cases) {
     const n = notifyCopy.build({ name: 'X', payload: { title: 't', text: 'b' }, meta: { event }, funMode: false, accountId: 'acc1' });
