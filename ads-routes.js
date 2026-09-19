@@ -2805,7 +2805,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   function csvCell(value) {
     const text = value == null ? '' : String(value);
-    return '"' + text.replace(/"/g, '""') + '"';
+    // Evita CSV/Formula Injection em Excel/Sheets sem alterar a informação
+    // exibida: células potencialmente executáveis viram texto literal.
+    const safe = /^\s*[=+\-@]/.test(text) || /^[\t\r]/.test(text) ? "'" + text : text;
+    return '"' + safe.replace(/"/g, '""') + '"';
   }
 
   app.get('/api/ads/reports/export', dashboardAuth, async (req, res) => {
