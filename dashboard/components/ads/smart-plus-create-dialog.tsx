@@ -202,6 +202,7 @@ export function SmartPlusCreateDialog({
                   onChange={(value) => { setLinkUrl(value); setSubmitError(null) }}
                   disabled={submitting || uploading || coverUploading}
                   label="Link de destino"
+                  cloakTrafficSource="tiktok_smart_plus"
                 />
                 {destinationInvalid && <span className="-mt-2 block text-xs text-error">Use uma URL HTTPS válida.</span>}
 
