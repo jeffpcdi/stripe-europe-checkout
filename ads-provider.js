@@ -2117,7 +2117,7 @@ async function findCampaignIdByName(advertiserId, name) {
 }
 
 // Orquestração completa. spec (já validado pela rota):
-//   { name, goal, videoUrl, budgetAmount, budgetType, endDate?, body?, linkUrl?,
+//   { name, goal, videoUrl?|videoId?, budgetAmount, budgetType, endDate?, body?, linkUrl?,
 //     callToAction?, countries?, languages?, ageMin?, ageMax?,
 //     promotedObject? { pixelId, customEventType }, status? 'paused'|'active' }
 // SEMPRE cria o anúncio PAUSED e só liga no fim se spec.status==='active' —
@@ -2196,6 +2196,11 @@ async function createFullAd(advertiserId, spec, opts) {
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
   const o = opts || {};
+  const requestedVideoUrl = String(s.videoUrl || '').trim();
+  const requestedVideoId = String(s.videoId || '').trim();
+  if (!requestedVideoId && !/^https:\/\/[^\s]+/.test(requestedVideoUrl)) {
+    throw badRequest('A criação exige videoUrl HTTPS ou videoId já existente no TikTok');
+  }
   const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const goal = GOAL_MAP[s.goal];
@@ -2228,7 +2233,6 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 
   // Pré-requisitos ANTES de criar qualquer coisa (falha barata, zero órfãos):
-  const requestedVideoId = String(s.videoId || '').trim();
   const reusableVideoIdPromise = requestedVideoId
     ? verifyReusableVideoAsset(adv, requestedVideoId)
     : Promise.resolve('');
