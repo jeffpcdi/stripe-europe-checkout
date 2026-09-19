@@ -184,5 +184,8 @@ assert.match(allocatorRoute, /BUDGET_ALLOCATOR_IN_PROGRESS/)
 assert.match(campaigns, /allocatorAttemptRef/)
 assert.match(campaigns, /signature/)
 assert.match(campaigns, /idempotencyKey: allocatorAttemptRef\.current\.key/)
+assert.match(campaigns, /BUDGET_ALLOCATOR_ROLLED_BACK/)
+assert.match(campaigns, /error\.retryable === true/)
+assert.match(campaigns, /allocatorAttemptRef\.current = null/)
 
 console.log('dashboard insights v16.24: ok')
