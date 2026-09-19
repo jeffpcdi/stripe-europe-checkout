@@ -2791,7 +2791,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const q = req.query || {};
       const advertiserId = await resolveAdv(req, String(q.adAccountId || '').trim());
       const days = Math.max(1, Math.min(30, parseInt(q.days, 10) || 1));
-      const out = await adsAi.budgetProposal(req.account.id, advertiserId, String(q.currency || 'USD').slice(0, 5), days);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const out = await adsAi.budgetProposal(
+        req.account.id,
+        advertiserId,
+        String(q.currency || 'USD').slice(0, 5),
+        days,
+        policy.maxBudgetChangePct,
+      );
       res.json(out);
     } catch (err) { fail(res, err); }
   });
@@ -2807,14 +2814,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const days = Math.max(3, Math.min(30, parseInt(body.days, 10) || 7));
       const currency = String(body.currency || 'USD').slice(0, 5);
       const idempotencyKey = String(body.idempotencyKey || '').trim().slice(0, 200);
-      const proposal = await adsAi.budgetProposal(req.account.id, advertiserId, currency, days);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const proposal = await adsAi.budgetProposal(
+        req.account.id,
+        advertiserId,
+        currency,
+        days,
+        policy.maxBudgetChangePct,
+      );
       const changes = Array.isArray(proposal && proposal.changes) ? proposal.changes : [];
       if (!changes.length) {
         return res.status(409).json({ error: proposal && proposal.message || 'Nenhuma realocação relevante agora.', code: 'BUDGET_PLAN_EMPTY' });
       }
 
       const maxDeltaPct = Math.max(...changes.map((item) => Math.abs(Number(item.deltaPct) || 0)));
-      const policy = await adsOps.getSafetyPolicy(req.account.id);
       const guard = adsOps.assertMutationAllowed(policy, {
         advertiserId,
         idempotencyKey,
