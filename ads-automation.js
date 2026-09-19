@@ -877,6 +877,29 @@ function indexRuleWindowGroups(groups) {
 // Uma campanha recebe no máximo uma decisão por ciclo. Se várias regras
 // dispararem, vence a ação mais conservadora:
 // pausar > reduzir orçamento > aumentar orçamento > ativar.
+function campaignLearningState(campaign, now = new Date()) {
+  const createdRaw = campaign && (campaign.createdAt || campaign.createTime || campaign.created_at);
+  const createdAt = createdRaw ? new Date(createdRaw) : null;
+  const createdMs = createdAt && Number.isFinite(createdAt.getTime()) ? createdAt.getTime() : null;
+  const ageDays = createdMs == null ? null : Math.max(0, (now.getTime() - createdMs) / 86400000);
+  const metrics = campaign && campaign.metrics || {};
+  const results = Math.max(0, Number(metrics.conversions) || 0);
+
+  // TikTok informa que a volatilidade normalmente começa a diminuir após
+  // ~25 resultados OU ~7 dias. A guarda é deliberadamente conservadora:
+  // só protege automaticamente quando conhecemos a idade e AMBOS os sinais
+  // ainda estão abaixo desses marcos.
+  const protectedLearning = ageDays != null && ageDays < 7 && results < 25;
+  return {
+    protected: protectedLearning,
+    ageDays: ageDays == null ? null : +ageDays.toFixed(2),
+    results,
+    reason: protectedLearning
+      ? 'aprendizado protegido: ' + results + ' resultado(s), ' + ageDays.toFixed(1) + ' dia(s)'
+      : '',
+  };
+}
+
 function evaluateCampaignCandidates(campaign, rules, groupByRule) {
   const campaignId = String(campaign.platformCampaignId || '');
   const candidates = [];
@@ -1547,7 +1570,13 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
         continue;
       }
 
-      const mode = r.mode === 'execute' ? 'execute' : 'proposal';
+      const learning = campaignLearningState(c);
+      // Learning Guardian: durante o início da entrega, ações automáticas que
+      // pausariam ou alterariam orçamento viram propostas. O gestor continua
+      // vendo a evidência e pode aprovar conscientemente, mas o motor não
+      // interrompe o aprendizado sozinho.
+      const requestedMode = r.mode === 'execute' ? 'execute' : 'proposal';
+      const mode = learning.protected && requestedMode === 'execute' ? 'proposal' : requestedMode;
       // Confirma a posse distribuída ANTES de consumir o cooldown. Se o lease
       // expirou, o próximo worker ainda poderá reavaliar sem esperar 12/24h.
       if (!dryRun && mode === 'execute' && typeof leaseGuard === 'function') {
@@ -1567,7 +1596,8 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
         const states = computeActionStates(r.action, c, plan);
         const created = await adsOps.createRuleProposal(accId, {
           ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
-          campaignId: c.platformCampaignId, campaignName: name, detail,
+          campaignId: c.platformCampaignId, campaignName: name,
+          detail: learning.protected ? detail + ' · ' + learning.reason : detail,
           plan: {
             ...(plan || {}),
             campaignKind: c.campaignKind || 'auction',
@@ -1578,7 +1608,9 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
           at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
           action: r.action, campaignId: c.platformCampaignId, campaignName: name,
           detail, ok: true, proposed: true,
-          result: created ? 'proposta criada — aguardando aprovação' : 'proposta já pendente para esta campanha',
+          result: created
+            ? (learning.protected ? 'Learning Guardian: ação convertida em proposta' : 'proposta criada — aguardando aprovação')
+            : 'proposta já pendente para esta campanha',
           ...(created ? { proposalId: created.id } : {}),
         };
         executed.push(pEntry);
@@ -1588,7 +1620,7 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
           await auditReal(accId, {
             action: 'rule_proposal.created', targetType: 'campaign', targetId: c.platformCampaignId, advertiserId,
             reason: 'Proposta: ' + detail,
-            metadata: { proposalId: created.id, ruleId: r.id, metric: r.metric, action: r.action },
+            metadata: { proposalId: created.id, ruleId: r.id, metric: r.metric, action: r.action, learningGuardian: learning.protected, learning },
           });
         }
         continue;
