@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { RotateCcw, SlidersHorizontal } from 'lucide-react'
-import { fmtDelta, fmtInt, fmtSpend, formatMoney } from '@/lib/format'
+import { fmtDelta, fmtInt, formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 
 export function ScenarioSimulator({
@@ -98,18 +98,18 @@ export function ScenarioSimulator({
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
                 <span className="text-muted-foreground">Gasto base</span>
-                <p className="mt-1 font-semibold text-foreground">{fmtSpend(baselineSpend, currency)}</p>
+                <p className="mt-1 font-semibold text-foreground">{formatMoney(Math.round((baselineSpend || 0) * 100), currency)}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">CPA base</span>
-                <p className="mt-1 font-semibold text-foreground">{fmtSpend(baselineCpa, currency)}</p>
+                <p className="mt-1 font-semibold text-foreground">{formatMoney(Math.round((baselineCpa || 0) * 100), currency)}</p>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4">
             {[
-              ['Investimento', fmtSpend(model.projectedSpend, currency)],
+              ['Investimento', formatMoney(Math.round(model.projectedSpend * 100), currency)],
               ['Compras', fmtInt(model.projectedSales)],
               ['Receita', formatMoney(model.projectedRevenue, currency)],
               ['ROAS', model.projectedRoas == null ? '—' : `${model.projectedRoas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`],
