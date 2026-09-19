@@ -4928,6 +4928,27 @@ app.get('/api/companion/status', dashboardAuth, (req, res) => {
 
 app.post('/api/companion/preferences', dashboardAuth, async (req, res) => {
   const preferNativeIOS = (req.body || {}).preferNativeIOS === true;
+  const current = config.get(req.account.id).companion || { devices: [] };
+
+  // Nunca troca o iPhone para APNs se o canal nativo ainda não puder receber.
+  // Desligar continua sempre permitido para recuperar imediatamente o Web Push.
+  if (preferNativeIOS) {
+    if (!(current.devices || []).length) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Pareie pelo menos um iPhone Companion antes de preferir o canal nativo.',
+        code: 'companion_device_required',
+      });
+    }
+    if (!require('./ios-push').configured()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'APNs ainda não está configurado no servidor. O Web Push do iPhone continua ativo.',
+        code: 'apns_not_configured',
+      });
+    }
+  }
+
   try {
     const saved = await config.setDurable(req.account.id, (latest) => ({
       companion: Object.assign({}, latest.companion || {}, { preferNativeIOS }),
