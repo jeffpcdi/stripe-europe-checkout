@@ -78,6 +78,7 @@ assert.match(campaigns, /Redistribuir/)
 assert.match(campaigns, /Profit Allocator/)
 assert.match(campaigns, /\/api\/ads\/budget\/proposal\/apply/)
 assert.match(campaigns, /Learning Guardian · fase inicial/)
+assert.match(campaigns, /sem aumentar o total/)
 
 assert.match(creatives, /Possível desgaste/)
 assert.match(creatives, /Ganhando eficiência/)
@@ -91,6 +92,8 @@ assert.match(creatives, /Refresh assistido/)
 assert.match(creatives, /Preparar refresh/)
 assert.match(creatives, /roi:ads:creative-draft/)
 assert.match(creatives, /tiktok:video:/)
+assert.match(creatives, /usedVideoUrls/)
+assert.match(creatives, /usedVideoUrls\.has\(item\.url\)/)
 
 assert.match(diagnosis, /Tudo/)
 assert.match(diagnosis, /Atenção/)
@@ -124,6 +127,11 @@ assert.match(page, /<InsightsView \/>/)
 assert.match(layout, /<Suspense fallback=\{null\}><SubNav \/><\/Suspense>/)
 
 assert.match(api, /useAdsDestinationHealth/)
+const destinationHook = api.slice(
+  api.indexOf('export function useAdsDestinationHealth'),
+  api.indexOf('// Política de segurança', api.indexOf('export function useAdsDestinationHealth')),
+)
+assert.match(destinationHook, /keepPreviousData: false/, 'troca de advertiser não pode exibir diagnóstico do anterior')
 assert.match(launcher, /Launch Guardian/)
 assert.match(launcher, /guardianDraft/)
 assert.match(launcher, /900/)
@@ -158,6 +166,7 @@ const destinationProbe = routes.slice(
 assert.doesNotMatch(destinationProbe, /\bfetch\s*\(/, 'Sentinel não pode resolver o host novamente via fetch após validar DNS')
 assert.match(destinationProbe, /resolvePublicHost/)
 assert.match(destinationProbe, /httpsProbe/)
+assert.match(destinationProbe, /status === 429/, 'rate limit do probe comprova reachability e não vira falso outage')
 assert.ok(
   destinationProbe.indexOf('resolvePublicHost') < destinationProbe.indexOf('httpsProbe'),
   'Sentinel resolve e valida IPs antes de abrir a conexão pinada',
