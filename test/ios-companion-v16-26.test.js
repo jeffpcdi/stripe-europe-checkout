@@ -29,7 +29,7 @@ const salePayload = JSON.parse(iosPush._payloadFor({
   badge: true,
   priority: 'normal',
 }))
-assert.strictEqual(salePayload.aps.sound, 'roi-sale.wav', 'venda nativa deve usar o som ROI-NADOS')
+assert.strictEqual(salePayload.aps.sound, 'roi-sale-v2.wav', 'venda nativa deve usar o som ROI-NADOS')
 assert.strictEqual(salePayload.aps['interruption-level'], 'active', 'venda comum não deve fingir alerta crítico Apple')
 assert.strictEqual(salePayload.aps.badge, 1, 'venda acionável deve marcar o app')
 assert.strictEqual(salePayload.aps['content-available'], 1, 'venda deve solicitar atualização de dados do widget em background')
@@ -111,7 +111,7 @@ assert(widgetSwift.includes('WidgetSnapshotCache.load()'), 'widget deve cair par
 assert(widgetSnapshotSwift.includes('UserDefaults(suiteName: CompanionConfig.appGroup)') && widgetSnapshotSwift.includes('roi.widget.snapshot.v2'), 'cache do widget deve ficar no App Group compartilhado')
 assert(apiClientSwift.includes('WidgetSnapshotCache.save(snapshot)'), 'refresh bem-sucedido deve atualizar o cache compartilhado')
 assert(widgetSwift.includes('.widgetURL(CompanionConfig.dashboardURL())'), 'toque no widget deve voltar ao ROI-NADOS')
-assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
+assert(soundSwift.includes('static let fileName = "roi-sale-v2.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
 assert(soundSwift.includes('880') && soundSwift.includes('1320') && soundSwift.includes('1760'), 'som nativo deve usar a mesma assinatura tonal da dashboard')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
