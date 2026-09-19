@@ -43,6 +43,7 @@ assert(server.includes("app.post('/api/v1/companion/register'"), 'companion deve
 assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar token dedicado de pareamento')
 assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
 assert(server.includes("const title = 'Ontem · ' + revenueText + ' em receita'"), 'relatório diário deve usar título executivo curto e factual')
+assert(server.includes('DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000') && server.includes('dailyReportBootCheck'), 'brief diário deve rodar por scheduler e não depender de tráfego')
 assert(server.includes("' · Ticket ' + aovText") && server.includes("'Atenção: ' + exception"), 'brief diário deve incluir ticket médio e exceção factual útil')
 assert(server.includes("new Intl.NumberFormat('pt-BR'"), 'brief diário deve formatar moeda para leitura humana')
 
@@ -53,6 +54,7 @@ assert(widgetBlock.includes('revenueCents') && widgetBlock.includes('netProfitCe
 assert(config.includes("companion: {") && config.includes("devices: devices.slice(0, 6)"), 'config deve limitar e sanitizar aparelhos nativos')
 assert(webPush.includes('note && note.skipIOSWebPush'), 'Web Push deve ceder iPhone ao companion nativo para evitar duplicação')
 assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaIOS(notificationName'), 'fan-out deve incluir APNs nativo')
+assert(fanout.includes("event === 'test' || event === 'daily'"), 'brief diário opt-in deve atravessar Web Push/APNs mesmo com grupos desligados')
 assert(fanout.includes('note.skipIOSWebPush'), 'fan-out deve sinalizar supressão do Web Push no iPhone pareado')
 
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
