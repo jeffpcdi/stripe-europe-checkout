@@ -19,6 +19,7 @@ const bell = fs.readFileSync(path.join(root, 'dashboard/components/shell/notific
 
 assert(globals.includes('.roi-toast-in') && globals.includes('roiAttentionIn'), 'micro motion deve ficar restrito a feedback e atenção')
 assert(globals.includes('@media (prefers-reduced-motion: reduce)') && globals.includes("html[data-anim='off'] .roi-toast-in"), 'novos efeitos devem respeitar redução de movimento do SO e da conta')
+assert(globals.includes('.anim-shake') && globals.includes('.toast-life'), 'feedback transitório também deve respeitar redução de movimento')
 assert(refinement.includes('navbar-popover-in 140ms') && !refinement.includes('translateY(-4px) scale(.985)'), 'popover deve entrar curto sem escalar texto')
 assert(toaster.includes('roi-toast-in') && !toaster.includes('anim-pop-spring pointer-events-auto'), 'toast deve usar uma única entrada curta')
 assert(toaster.includes('animationDuration: `${t.duration}ms`'), 'barra de vida do toast deve acompanhar a duração real')
@@ -34,6 +35,7 @@ assert(pushSound.includes("document.visibilityState !== 'visible'"), 'WebAudio n
 const saleAlerts = fs.readFileSync(path.join(root, 'dashboard/lib/sale-alerts.ts'), 'utf8')
 assert(!saleAlerts.includes('Math.random() * 2 - 1'), 'som de venda não deve usar ruído branco mecânico')
 assert(saleAlerts.includes("freq: 880") && saleAlerts.includes("freq: 1320"), 'som de venda deve ser curto e tonal')
+assert(!fs.existsSync(path.join(root, 'dashboard/public/cash.mp3')), 'asset legado de áudio não utilizado deve permanecer removido')
 
 assert(sw.includes('data.badge === true') && sw.includes('self.navigator.setAppBadge()'), 'push relevante deve atualizar badge do app instalado')
 assert(sw.includes('self.navigator.clearAppBadge()'), 'toque na notificação deve limpar badge do app')
@@ -43,6 +45,7 @@ assert(bell.includes('clearAppBadge') && bell.includes('abre a central'), 'centr
 assert(copy.includes("login: '/dashboard/config?tab=security'"), 'login deve abrir Segurança')
 assert(copy.includes("ads_rejected: '/dashboard/ads/tiktok?tab=automation'"), 'reprovação deve abrir Automações')
 assert(copy.includes("ads_breaker: '/dashboard/ads/tiktok?tab=automation'"), 'circuit breaker deve abrir Automações')
+assert(copy.includes("ads_breaker: 'alert'"), 'circuit breaker deve usar feedback sonoro compatível com severidade')
 assert(copy.includes("ads_cap: '/dashboard/ads/tiktok?tab=automation'"), 'limite de automação deve abrir Automações')
 assert(copy.includes("test: '/dashboard/config?tab=notifications'"), 'teste deve voltar à configuração de Alertas')
 
