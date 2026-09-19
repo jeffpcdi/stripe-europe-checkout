@@ -133,6 +133,7 @@ const destinationHook = api.slice(
 )
 assert.match(destinationHook, /keepPreviousData: false/, 'troca de advertiser não pode exibir diagnóstico do anterior')
 assert.match(launcher, /Launch Guardian/)
+assert.match(launcher, /guardian\.checks\.find\(check => check\.status === 'recommended'\)/)
 assert.match(launcher, /guardianDraft/)
 assert.match(launcher, /900/)
 assert.match(launcher, /initialVideoId/)
