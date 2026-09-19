@@ -3313,7 +3313,10 @@ app.post('/api/domains/:host/usage', dashboardAuth, async (req, res) => {
   const cloakRefsV2 = cloakCampaignStore.isReady()
     ? cloakCampaignStore.list(acc).filter((campaign) => campaign.domainHost === host)
     : [];
-  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
+  // Durante a migração V1→V2 as duas fontes podem coexistir. A segurança do
+  // domínio precisa considerar ambas; escolher apenas uma poderia liberar um
+  // host ainda referenciado por uma entrada legada.
+  const cloakRefs = [...cloakRefsV2, ...cloakRefsLegacy];
 
   if (uso === 'cloaker' && checkoutRefs.length) {
     return apiError(res, 409,
