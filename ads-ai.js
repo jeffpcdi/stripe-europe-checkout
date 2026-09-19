@@ -388,7 +388,7 @@ function getSession(id) {
 }
 
 // Ações propostas: schema de validação COMPARTILHADO com o execute (rota).
-// Clamps espelham os das regras: budget 5–10000, pct implícito no execute.
+// Clamps espelham os das rotas de escrita: budget 50–10000; variações de orçamento respeitam a policy da conta.
 // 'duplicate' fora: o backend responde 501 (sem tool nativa na Pipeboard).
 const ACTION_TYPES = ['pause', 'activate', 'budget', 'create_rule'];
 function validateProposedAction(action, knownCampaignIds) {
@@ -727,7 +727,7 @@ async function creativeInsights(accId, advertiserId, { force } = {}) {
 // Realocação de orçamento — proposta DETERMINÍSTICA (guardas no código);
 // a IA só escreve a justificativa. Aplicação via /copilot/execute (aprovada).
 // Guardas: teto global = soma atual (realocar ≠ aumentar), mín. 2 vendas para
-// receber verba, ajuste máx. ±30% por campanha, sem orçamento diário = fora.
+// receber verba, variação limitada pela policy (máx. absoluto 30%), sem orçamento diário = fora.
 // ═══════════════════════════════════════════════════════════════════════════
 // `days`: janela de atribuição configurável (1–30, default 1 — padrão diário).
 // Janelas < 3 dias são ruidosas para decisões de dinheiro; a UI exibe aviso
