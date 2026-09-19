@@ -115,8 +115,9 @@ const POOLS = {
 };
 
 // Som por evento — tocado pelo painel ABERTO via WebAudio (sale-alerts.ts).
-// Com o PWA fechado o iOS/Android tocam o som padrão do sistema (silent:false
-// no sw.js); som customizado em background exigiria app nativo.
+// Em background o service worker pede uma notificação não silenciosa, mas o
+// som efetivo depende do navegador, do sistema, do Foco e das preferências do
+// aparelho. Sons próprios ficam restritos ao painel visível.
 //   cash  = cha-ching (dinheiro entrando)
 //   alert = dois tons graves descendentes (recusa/reembolso/disputa/watchdog)
 //   tick  = click sutil agudo (checkout iniciado)
@@ -163,21 +164,21 @@ const URLS = {
   refund: '/dashboard/activity',
   dispute: '/dashboard/activity',
   checkout: '/dashboard/activity',
-  login: '/dashboard/config',
+  login: '/dashboard/config?tab=security',
   daily: '/dashboard',
   watchdog: '/dashboard',
   ads: '/dashboard/ads/tiktok',
   ads_attention: '/dashboard/ads/tiktok',
-  ads_rejected: '/dashboard/ads/tiktok',
+  ads_rejected: '/dashboard/ads/tiktok?tab=automation',
   // A dashboard usa `tab=automation` (não o alias legado `view`). Esses
   // alertas são acionáveis; o deep link precisa abrir a superfície certa.
   ads_proposal: '/dashboard/ads/tiktok?tab=automation',
   ads_failure: '/dashboard/ads/tiktok?tab=automation',
-  ads_breaker: '/dashboard/ads/tiktok',
-  ads_cap: '/dashboard/ads/tiktok',
+  ads_breaker: '/dashboard/ads/tiktok?tab=automation',
+  ads_cap: '/dashboard/ads/tiktok?tab=automation',
   ads_briefing: '/dashboard/ads/tiktok',
   ads_routine: '/dashboard/ads/tiktok?tab=automation',
-  test: '/dashboard/config'
+  test: '/dashboard/config?tab=notifications'
 };
 
 // Classificação sem meta: prefixos estáveis dos títulos existentes.
