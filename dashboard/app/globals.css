@@ -1898,6 +1898,33 @@ html[data-anim='off'] .stagger-fade > * {
   animation: rowSlideIn var(--dur) var(--ease) both;
 }
 
+/* Venda que acabou de chegar: destaque único e curto, sem loop. */
+@keyframes roiSaleArrival {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.activity-sale-arrival {
+  position: relative;
+  isolation: isolate;
+}
+.activity-sale-arrival::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-left: 2px solid color-mix(in srgb, var(--success) 78%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 10%, transparent), transparent 52%);
+  opacity: 0;
+  animation: roiSaleArrival 900ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-sale-arrival::after { animation: none !important; }
+}
+html[data-anim='off'] .activity-sale-arrival::after { animation: none !important; }
+
 /* ============================================================
    View Transitions
    ============================================================ */
