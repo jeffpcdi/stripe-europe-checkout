@@ -2147,6 +2147,110 @@ function accHour(accId) {
     return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: accountTz(accId), hour: '2-digit', hour12: false }).format(new Date()), 10);
   } catch (_) { return new Date().getUTCHours(); }
 }
+async function buildDailyExecutiveBrief(accId) {
+  const cfg = config.get(accId);
+  // Item 422: o corte de "ontem" também respeita o fuso da conta.
+  const yKey = accDay(accId, new Date(Date.now() - 86400e3));
+  const s = stats.getStats(accId);
+  const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
+  const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
+  const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
+  const productStats = new Map();
+  for (const sale of sales) {
+    const raw = sale && sale.raw && typeof sale.raw === 'object' ? sale.raw : {};
+    const product = String(raw.product || '').replace(/\s+/g, ' ').trim().slice(0, 56);
+    if (!product) continue;
+    const current = productStats.get(product) || { count: 0, revenue: 0 };
+    current.count += 1;
+    current.revenue += Number(sale.amount) || 0;
+    productStats.set(product, current);
+  }
+  const topProduct = [...productStats.entries()]
+    .sort((a, b) => b[1].count - a[1].count || b[1].revenue - a[1].revenue)[0] || null;
+  const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
+  // anteontem, para comparação
+  const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
+  const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
+  const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
+  const cur = (sales[0] && sales[0].currency) || accountCurrency(accId);
+  const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
+  // Gasto oficial do TikTok vem do espelho de todos os advertisers desta
+  // conta e da mesma data civil. Nunca mistura moeda silenciosamente.
+  const adsCache = require('./ads-cache-store');
+  let spend = 0;
+  let adCurrency = null;
+  const syncStates = await adsCache.listSyncStates(accId).catch(() => []);
+  for (const state of syncStates) {
+    const daily = await adsCache.readAdvertiserDaily(accId, state.advertiser_id, yKey, yKey).catch(() => null);
+    if (!daily || !daily.currency) continue;
+    if (adCurrency && daily.currency !== adCurrency) continue;
+    adCurrency = daily.currency;
+    spend += Number(daily.spend) || 0;
+  }
+  const sameCurrency = !adCurrency || adCurrency === cur;
+  const roas = sameCurrency && spend > 0 ? rev / 100 / spend : 0;
+  const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
+    currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
+    config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
+  });
+  const briefMoney = (value) => new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: cur,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+  const revenueText = briefMoney(rev / 100);
+  const spendText = sameCurrency ? briefMoney(spend) : 'moeda divergente';
+  const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
+  const profitText = briefMoney(profit.netProfitCents / 100);
+  const aovText = sales.length ? briefMoney(rev / 100 / sales.length) : '—';
+  const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
+  const topProductText = topProduct
+    ? topProduct[0] + ' · ' + topProduct[1].count + (topProduct[1].count === 1 ? ' venda' : ' vendas')
+    : null;
+  const exception = sameCurrency && spend > 0 && sales.length === 0
+    ? 'Gasto no TikTok sem venda registrada.'
+    : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
+  const nextAction = sameCurrency && spend > 0 && sales.length === 0
+    ? 'Confira tracking, checkout e campanhas antes de aumentar orçamento.'
+    : (profit.netProfitCents < 0 ? 'Revise custos e campanhas antes de escalar.' : null);
+  
+  // Push executivo: resultado primeiro, contexto depois, exceção por último.
+  // O usuário entende a manhã em poucos segundos sem abrir a dashboard.
+  const pushText = 'ROAS ' + roasText + ' · Lucro ' + profitText + ' · Ticket ' + aovText
+    + '\nTikTok ' + spendText + ' · Conversão ' + conv + '%'
+    + (deltaText ? '\nReceita ' + deltaText : '')
+    + (topProductText ? '\nMais vendido: ' + topProductText : '')
+    + (exception ? '\nAtenção: ' + exception : '')
+    + (nextAction ? '\nPróximo passo: ' + nextAction : '');
+  
+  // Canais longos preservam contexto operacional adicional.
+  const reportText = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
+    + ' · Ticket ' + aovText
+    + (deltaText ? '\nReceita ' + deltaText : '')
+    + '\nTikTok ' + spendText + ' · ROAS ' + roasText
+    + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
+    + (topProductText ? '\nMais vendido: ' + topProductText : '')
+    + (exception ? '\nAtenção: ' + exception : '')
+    + (nextAction ? '\nPróximo passo: ' + nextAction : '')
+    + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
+  
+  const title = 'Ontem · ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas');
+  
+  return {
+    yKey,
+    title,
+    pushText,
+    reportText,
+    revenueCents: rev,
+    salesCount: sales.length,
+    currency: cur,
+    spend,
+    sameCurrency,
+    roas,
+    profit,
+  };
+}
+
 async function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
@@ -2169,92 +2273,8 @@ async function checkDailyReportFor(accId) {
   const minHour = Math.max(0, Math.min(23, Number.isFinite(configuredHour) ? configuredHour : 8));
   if (accHour(accId) < minHour) return;
   try {
-    // Item 422: o corte de "ontem" também respeita o fuso da conta.
-    const yKey = accDay(accId, new Date(Date.now() - 86400e3));
-    const s = stats.getStats(accId);
-    const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
-    const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
-    const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
-    const productStats = new Map();
-    for (const sale of sales) {
-      const raw = sale && sale.raw && typeof sale.raw === 'object' ? sale.raw : {};
-      const product = String(raw.product || '').replace(/\s+/g, ' ').trim().slice(0, 56);
-      if (!product) continue;
-      const current = productStats.get(product) || { count: 0, revenue: 0 };
-      current.count += 1;
-      current.revenue += Number(sale.amount) || 0;
-      productStats.set(product, current);
-    }
-    const topProduct = [...productStats.entries()]
-      .sort((a, b) => b[1].count - a[1].count || b[1].revenue - a[1].revenue)[0] || null;
-    const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
-    // anteontem, para comparação
-    const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
-    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
-    const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
-    const cur = (sales[0] && sales[0].currency) || accountCurrency(accId);
-    const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
-    // Gasto oficial do TikTok vem do espelho de todos os advertisers desta
-    // conta e da mesma data civil. Nunca mistura moeda silenciosamente.
-    const adsCache = require('./ads-cache-store');
-    let spend = 0;
-    let adCurrency = null;
-    const syncStates = await adsCache.listSyncStates(accId).catch(() => []);
-    for (const state of syncStates) {
-      const daily = await adsCache.readAdvertiserDaily(accId, state.advertiser_id, yKey, yKey).catch(() => null);
-      if (!daily || !daily.currency) continue;
-      if (adCurrency && daily.currency !== adCurrency) continue;
-      adCurrency = daily.currency;
-      spend += Number(daily.spend) || 0;
-    }
-    const sameCurrency = !adCurrency || adCurrency === cur;
-    const roas = sameCurrency && spend > 0 ? rev / 100 / spend : 0;
-    const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
-      currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
-      config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
-    });
-    const briefMoney = (value) => new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: cur,
-      maximumFractionDigits: 2,
-    }).format(Number(value) || 0);
-    const revenueText = briefMoney(rev / 100);
-    const spendText = sameCurrency ? briefMoney(spend) : 'moeda divergente';
-    const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
-    const profitText = briefMoney(profit.netProfitCents / 100);
-    const aovText = sales.length ? briefMoney(rev / 100 / sales.length) : '—';
-    const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
-    const topProductText = topProduct
-      ? topProduct[0] + ' · ' + topProduct[1].count + (topProduct[1].count === 1 ? ' venda' : ' vendas')
-      : null;
-    const exception = sameCurrency && spend > 0 && sales.length === 0
-      ? 'Gasto no TikTok sem venda registrada.'
-      : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
-    const nextAction = sameCurrency && spend > 0 && sales.length === 0
-      ? 'Confira tracking, checkout e campanhas antes de aumentar orçamento.'
-      : (profit.netProfitCents < 0 ? 'Revise custos e campanhas antes de escalar.' : null);
-
-    // Push executivo: resultado primeiro, contexto depois, exceção por último.
-    // O usuário entende a manhã em poucos segundos sem abrir a dashboard.
-    const pushText = 'ROAS ' + roasText + ' · Lucro ' + profitText + ' · Ticket ' + aovText
-      + '\nTikTok ' + spendText + ' · Conversão ' + conv + '%'
-      + (deltaText ? '\nReceita ' + deltaText : '')
-      + (topProductText ? '\nMais vendido: ' + topProductText : '')
-      + (exception ? '\nAtenção: ' + exception : '')
-      + (nextAction ? '\nPróximo passo: ' + nextAction : '');
-
-    // Canais longos preservam contexto operacional adicional.
-    const reportText = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
-      + ' · Ticket ' + aovText
-      + (deltaText ? '\nReceita ' + deltaText : '')
-      + '\nTikTok ' + spendText + ' · ROAS ' + roasText
-      + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
-      + (topProductText ? '\nMais vendido: ' + topProductText : '')
-      + (exception ? '\nAtenção: ' + exception : '')
-      + (nextAction ? '\nPróximo passo: ' + nextAction : '')
-      + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
-
-    const title = 'Ontem · ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas');
+    const report = await buildDailyExecutiveBrief(accId);
+    const { yKey, title, pushText, reportText, revenueCents: rev, salesCount, currency: cur, spend, sameCurrency, roas, profit } = report;
     const deliveries = [];
     // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
     // Uma única chamada evita duplicar a mesma notificação no iPhone.
@@ -2268,7 +2288,7 @@ async function checkDailyReportFor(accId) {
     }).catch(() => false));
     if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + reportText, [
       yKey.split('-').reverse().join('/'), (rev / 100).toFixed(2) + ' ' + cur,
-      String(sales.length), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
+      String(salesCount), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
       sameCurrency ? roas.toFixed(2) : '—', (profit.netProfitCents / 100).toFixed(2) + ' ' + cur,
     ]).then((result) => result.ok).catch(() => false));
     const delivered = (await Promise.all(deliveries)).some(Boolean);
@@ -2282,6 +2302,23 @@ async function checkDailyReportFor(accId) {
     console.warn('[relatório-diário] falhou para a conta ' + accId + ': ' + String(error && error.message || error).slice(0, 180));
   }
 }
+
+app.get('/api/reports/daily/preview', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const report = await buildDailyExecutiveBrief(req.account.id);
+    res.json({
+      ok: true,
+      day: report.yKey,
+      title: report.title,
+      body: report.pushText,
+      detail: report.reportText,
+    });
+  } catch (error) {
+    console.warn('[relatório-diário] prévia falhou:', error && error.message);
+    res.status(503).json({ ok: false, error: 'Não foi possível montar a prévia do relatório.' });
+  }
+});
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
 // Comparação em tempo constante (crypto.timingSafeEqual) — evita timing
