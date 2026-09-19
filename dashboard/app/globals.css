@@ -2392,6 +2392,7 @@ kbd {
   .premium-navbar__notification-dot,
   .anim-shake,
   .toast-life,
+  html[data-roi-sale-pulse='on'] .dashboard-main::after,
   ::view-transition-old(.vt-fade-out),
   ::view-transition-new(.vt-fade-in) {
     animation: none !important;
@@ -2400,8 +2401,33 @@ kbd {
 html[data-anim='off'] .roi-toast-in,
 html[data-anim='off'] .premium-navbar__notification-dot,
 html[data-anim='off'] .anim-shake,
-html[data-anim='off'] .toast-life {
+html[data-anim='off'] .toast-life,
+html[data-anim='off'][data-roi-sale-pulse='on'] .dashboard-main::after {
   animation: none !important;
+}
+
+/* Venda recebida com a dashboard aberta: um único pulso de confirmação.
+   Sem confete, sem loop e sem deslocar conteúdo. */
+@keyframes roiSalePulse {
+  0% { opacity: 0; transform: scaleX(.18); }
+  24% { opacity: .9; }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+.dashboard-main::after {
+  content: '';
+  position: fixed;
+  z-index: 54;
+  inset-inline: 0;
+  top: max(env(safe-area-inset-top), 0px);
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleX(.18);
+  transform-origin: center;
+  background: linear-gradient(90deg, transparent, var(--success), var(--accent), transparent);
+}
+html[data-roi-sale-pulse='on'] .dashboard-main::after {
+  animation: roiSalePulse 760ms var(--ease) both;
 }
 
 /* V2-39: toast com barra de vida no rodapé */
