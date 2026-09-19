@@ -109,6 +109,7 @@ export function ConfigView() {
                                       </span>
                   <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo privacidade" />
                 </label>
+                <ActionFeedbackPreference />
               </div>
             </GlassCard>
 
@@ -291,10 +292,7 @@ function AuditCard() {
 
   return (
     <>
-      <GlassCard 
-        className="p-5 flex items-center justify-between cursor-pointer transition-colors hover:bg-secondary/40" 
-
-      >
+      <GlassCard className="p-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-secondary border border-border">
              <Fingerprint className="size-4 text-muted-foreground" />
@@ -334,6 +332,27 @@ function AuditCard() {
   )
 }
 
+function ActionFeedbackPreference() {
+  const [enabled, setEnabled] = useState(true)
+  useEffect(() => { setEnabled(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-border/55 bg-secondary/15 p-4 transition-colors hover:border-border hover:bg-secondary/25">
+      <span>
+        <span className="block text-sm font-medium text-foreground">Confirmação de ações</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">Som e vibração quando uma alteração importante é salva.</span>
+      </span>
+      <Switch
+        checked={enabled}
+        onChange={(next) => {
+          setEnabled(next)
+          localStorage.setItem('roi_action_feedback', next ? 'on' : 'off')
+        }}
+        label="Feedback sonoro e tátil"
+      />
+    </label>
+  )
+}
+
 function DailyReportCard() {
   const { data, mutate } = useSWR<AccountSettings>('/api/settings', fetcher, { revalidateOnFocus: false })
   const [phone, setPhone] = useState('')
@@ -342,8 +361,6 @@ function DailyReportCard() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState(true)
-  useEffect(() => { setFeedback(localStorage.getItem('roi_action_feedback') !== 'off') }, [])
   useEffect(() => {
     if (!data || dirty) return
     setPhone(data.whatsappTo || '')
@@ -407,13 +424,6 @@ function DailyReportCard() {
         {status && <div role="status" className="mt-2 text-xs text-error">{status}</div>}
       </form>
 
-      <label className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-border/50 bg-secondary/10 px-4 py-3 text-xs">
-        <span>
-          <b className="block font-medium text-foreground">Confirmação de ações</b>
-          <small className="mt-0.5 block text-muted-foreground">Som e vibração quando uma alteração importante é salva.</small>
-        </span>
-        <Switch checked={feedback} onChange={(next) => { setFeedback(next); localStorage.setItem('roi_action_feedback', next ? 'on' : 'off') }} label="Feedback sonoro e tátil" />
-      </label>
     </GlassCard>
   )
 }
