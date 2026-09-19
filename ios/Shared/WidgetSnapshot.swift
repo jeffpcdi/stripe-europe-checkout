@@ -40,7 +40,7 @@ struct WidgetSnapshot: Codable {
     let today: Today
     let media: Media
     let profitability: Profitability
-    let trend: Trend
+    let trend: Trend?
     let lastSale: LastSale?
     let attention: [String]
 }
