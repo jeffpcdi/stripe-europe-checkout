@@ -82,7 +82,7 @@ function decide(input = {}) {
   const ua = String(request.ua || headers['user-agent'] || '');
   const reasons = [];
   let score = 0;
-  let policyNeedsChallenge = false;
+  let needsChallenge = false;
 
   // Estado já confirmado por camadas externas é determinístico.
   if (state.denied === true) {
@@ -106,7 +106,7 @@ function decide(input = {}) {
       }
     } else {
       score += 14; reasons.push('network:country-unverified');
-      policyNeedsChallenge = true;
+      needsChallenge = true;
     }
   }
   const lang = String(request.language || primaryLanguage(headers));
@@ -115,7 +115,7 @@ function decide(input = {}) {
       if (!policy.idiomas.includes(lang)) return finish(DECISIONS.SAFE, 100, ['policy:language'], 'high', started);
     } else {
       score += 12; reasons.push('request:language-missing');
-      policyNeedsChallenge = true;
+      needsChallenge = true;
     }
   }
 
@@ -125,6 +125,7 @@ function decide(input = {}) {
     score -= 4;
     if (policy.blockDatacenter && isDatacenterAsn(network.asn)) {
       score += 40; reasons.push('asn:datacenter');
+      needsChallenge = true;
     } else if (Number(network.asn) > 0) {
       score -= 5; reasons.push('asn:network');
     }
@@ -164,6 +165,7 @@ function decide(input = {}) {
     const ratio = velocity / velocityLimit;
     score += ratio >= 2 ? 42 : 24;
     reasons.push(ratio >= 2 ? 'velocity:burst-strong' : 'velocity:burst');
+    needsChallenge = true;
   }
 
   if (state.engineError === true) {
@@ -181,7 +183,7 @@ function decide(input = {}) {
   if (score >= safeThreshold) {
     return finish(DECISIONS.SAFE, score, reasons, score >= safeThreshold + 15 ? 'high' : 'medium', started, policy);
   }
-  if (policyNeedsChallenge) {
+  if (needsChallenge) {
     return finish(DECISIONS.CHALLENGE, score, reasons, 'medium', started, policy);
   }
   if (score >= challengeThreshold) {
