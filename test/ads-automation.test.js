@@ -272,6 +272,18 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
       '25 resultados libera a proteção mesmo antes de 7 dias',
     );
     assert.strictEqual(
+      automation.campaignLearningState(
+        campaign({
+          createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+          metrics: { spend: 20, conversions: 25, impressions: 2000, clicks: 40 },
+        }),
+        new Date(),
+        { resultsReliable: false },
+      ).protected,
+      true,
+      '25 conversões de uma janela parcial não fingem saída do aprendizado',
+    );
+    assert.strictEqual(
       automation.campaignLearningState(campaign({
         createdAt: new Date(Date.now() - 8 * 864e5).toISOString(),
         metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
