@@ -1359,7 +1359,9 @@ function campaignBudgetTargets(campaign) {
 }
 
 function planSelfHealing(campaigns, attribution, rule, maxBudgetChangePct) {
-  const entries = (campaigns || []).filter((campaign) => campaign.status === 'active').map((campaign) => {
+  const entries = (campaigns || []).filter((campaign) => (
+    campaign.status === 'active' && !campaignLearningState(campaign).protected
+  )).map((campaign) => {
     const ctx = metricsContext(campaign, attribution || { byCampaign: {} });
     const targets = campaignBudgetTargets(campaign).filter((target) => target.budget.type !== 'lifetime' && Number(target.budget.amount) > 0);
     const budget = targets.reduce((sum, target) => sum + Number(target.budget.amount || 0), 0);
