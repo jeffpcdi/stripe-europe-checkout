@@ -407,8 +407,8 @@ function DailyReportCard() {
                 {enabled ? 'Ativo' : 'Desligado'}
               </span>
             </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ticket médio, gasto TikTok, ROAS, lucro e comparação com o dia anterior.</p>
-            <p className="mt-1 text-[11px] text-faint">{pushStatus?.devices ? `Push em ${pushStatus.devices} ${pushStatus.devices === 1 ? 'aparelho' : 'aparelhos'} · ` : 'Push nos aparelhos ativados · '}WhatsApp opcional</p>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ticket, gasto TikTok, ROAS, lucro, comparação, produto líder e exceções que pedem ação.</p>
+            <p className="mt-1 text-[11px] text-faint">{pushStatus?.devices ? `Push em ${pushStatus.devices} ${pushStatus.devices === 1 ? 'aparelho' : 'aparelhos'} · ` : 'Push nos aparelhos ativados · '}fica salvo na central · WhatsApp opcional</p>
           </div>
         </div>
         <Switch checked={enabled} onChange={(val) => { setEnabled(val); setDirty(true) }} label="Ativar resumo diário" />
