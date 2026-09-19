@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
-import { Copy, ExternalLink, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw } from 'lucide-react'
+import { Copy, ExternalLink, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw, X } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Switch } from '@/components/ui/switch'
@@ -35,6 +35,7 @@ export function IPhoneCompanionCard() {
   const [loadingToken, setLoadingToken] = useState(false)
   const [testingNative, setTestingNative] = useState(false)
   const [rotatingToken, setRotatingToken] = useState(false)
+  const [removingDevice, setRemovingDevice] = useState<string | null>(null)
   const [confirmRotate, setConfirmRotate] = useState(false)
   const [pairingQR, setPairingQR] = useState('')
 
@@ -78,6 +79,21 @@ export function IPhoneCompanionCard() {
       })
     } finally {
       setTestingNative(false)
+    }
+  }
+
+  async function removeDevice(id: string) {
+    setRemovingDevice(id)
+    try {
+      await apiSend(`/api/companion/device/${encodeURIComponent(id)}`, 'DELETE', {})
+      await mutate()
+      toast.success('iPhone removido do Companion.')
+    } catch (error) {
+      toast.error?.('Não foi possível remover o iPhone', {
+        hint: error instanceof Error ? error.message : 'Tente novamente.',
+      })
+    } finally {
+      setRemovingDevice(null)
     }
   }
 
@@ -249,8 +265,18 @@ export function IPhoneCompanionCard() {
           <p className="mt-4 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Aparelhos nativos</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {devices.map((device) => (
-              <span key={device.id} className="rounded-full border border-border/60 bg-secondary/20 px-2.5 py-1 text-[11px] text-muted-foreground">
-                {device.name || 'iPhone'}
+              <span key={device.id} className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/20 py-1 pl-2.5 pr-1 text-[11px] text-muted-foreground">
+                <span>{device.name || 'iPhone'}</span>
+                <button
+                  type="button"
+                  onClick={() => void removeDevice(device.id)}
+                  disabled={removingDevice !== null}
+                  className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  aria-label={`Remover ${device.name || 'iPhone'} do Companion`}
+                  title="Remover aparelho"
+                >
+                  {removingDevice === device.id ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <X className="size-3" aria-hidden="true" />}
+                </button>
               </span>
             ))}
           </div>
