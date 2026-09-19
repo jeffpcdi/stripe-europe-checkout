@@ -95,7 +95,7 @@ export function OverviewMetrics({
   const conversionContext = `${integer(purchased)} ${purchased === 1 ? 'compra' : 'compras'} · ${integer(visits)} ${visits === 1 ? 'visita' : 'visitas'}`
   const roasContext = cpa !== null ? `CPA ${adsMoney(cpa)}` : hasAds && !adsError ? 'CPA indisponível no período' : 'Aguardando dados de mídia'
 
-  return <div className="observatory-metrics" role="group" aria-label="Indicadores principais e presença ao vivo">
+  return <div className="observatory-metrics" data-tour="kpis" role="group" aria-label="Indicadores principais e presença ao vivo">
     <div className="observatory-metric-rail observatory-metric-rail--left">
       <Metric
         title="Faturamento"
