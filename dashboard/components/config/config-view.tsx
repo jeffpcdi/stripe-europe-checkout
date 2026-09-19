@@ -135,6 +135,7 @@ export function ConfigView() {
             />
             <DailyReportCard />
             <WebPushCard />
+            <IPhoneCompanionCard />
           </Tabs.Content>
 
           <Tabs.Content value="security" className="focus:outline-none outline-none flex flex-col gap-4">
@@ -406,7 +407,7 @@ function DailyReportCard() {
                 {enabled ? 'Ativo' : 'Desligado'}
               </span>
             </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ROAS, gasto TikTok, lucro, conversão e comparação com o dia anterior.</p>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Brief executivo de ontem: receita, vendas, ticket médio, gasto TikTok, ROAS, lucro e comparação com o dia anterior.</p>
             <p className="mt-1 text-[11px] text-faint">{pushStatus?.devices ? `Push em ${pushStatus.devices} ${pushStatus.devices === 1 ? 'aparelho' : 'aparelhos'} · ` : 'Push nos aparelhos ativados · '}WhatsApp opcional</p>
           </div>
         </div>
