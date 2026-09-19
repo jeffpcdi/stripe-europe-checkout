@@ -72,8 +72,10 @@ assert.match(linkEditor, /pixelSlug: link\?\.pixelSlug \?\? ''/,
   'editor deve preservar pixel oculto em edição');
 assert.match(linkEditor, /urlWhitePage: variant\.urlWhitePage \|\| null/,
   'editor deve preservar white page por variante quando não há campo visual para ela');
-assert.match(links, /checkoutDomains = .*domain\.uso.*!== 'cloaker'/,
-  'editor deve listar só domínios compatíveis com checkout');
+assert.match(links, /const checkoutDomains = \(domainsData\?\.domains \?\? \[\]\)\.filter\(\(domain\) =>[\s\S]{0,180}\(domain\.uso \?\? 'ambos'\) !== 'cloaker'/,
+  'editor deve excluir domínios dedicados ao Cloaker');
+assert.match(links, /domainReady\(domain\) \|\| domain\.host === editing\?\.dominio/,
+  'editor deve exigir domínio pronto sem apagar o domínio existente durante edição');
 assert.match(links, /window\.location\.host/,
   'URL pública deve ter fallback real enquanto /api/domains carrega');
 assert.match(links, /\[qrFor, appHost, links\]/,
