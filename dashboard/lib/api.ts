@@ -860,6 +860,8 @@ export function useAdsTikTokPixels(active: boolean, adAccountId: string) {
     pixels: AdsTikTokPixel[]
     binding: import('./types').AdsPixelBinding | null
     ready: boolean
+    capiReady: boolean
+    localPixelSlug: string | null
     needsChoice: boolean
   }>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/pixels', adAccountId) : null,
