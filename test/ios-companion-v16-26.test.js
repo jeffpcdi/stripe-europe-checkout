@@ -86,7 +86,8 @@ assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaI
 assert(fanout.includes("event === 'daily'") && fanout.includes('dailyReportEnabled === true') && fanout.includes('nativePreferencesFor(accountId).reports !== false'), 'brief diário deve respeitar agendamento e preferência do canal')
 assert(fanout.includes('companion.preferNativeIOS === true') && fanout.includes('note.skipIOSWebPush'), 'Web Push do iPhone só deve ser suprimido por preferência explícita')
 assert(fanout.includes("require('./ios-push').configured()"), 'handoff nativo deve exigir APNs configurado antes de suprimir Web Push')
-assert(fanout.includes('{ onlyIOS: true }') && fanout.includes('nativePreferred && !iosOk'), 'falha APNs deve cair para Web Push apenas no iPhone')
+assert(fanout.includes('onlyIOS: true') && fanout.includes('nativePreferred && !iosOk'), 'falha APNs deve cair para Web Push apenas no iPhone')
+assert(fanout.includes('recordInCenter: false') && fanout.includes('options.recordInCenter !== false'), 'fallback APNs não deve duplicar a mesma venda na central')
 assert(fanout.includes("companion.preferNativeIOS !== true) return false"), 'APNs de produção também deve depender da preferência explícita para evitar duplicação')
 
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
