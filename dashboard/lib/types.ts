@@ -2147,6 +2147,16 @@ export interface AdsCustomAudience {
   createTime: string | null
 }
 
+
+export interface AdsCustomerAudiencePreview {
+  available: boolean
+  canCreate: boolean
+  eligibleCount: number
+  minimumRequired: number
+  retentionDays: number
+  advertiserId: string
+}
+
 export interface AdsCatalogSyncRun {
   id: string
   catalogId: string
