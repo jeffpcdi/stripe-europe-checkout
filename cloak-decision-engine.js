@@ -82,6 +82,7 @@ function decide(input = {}) {
   const ua = String(request.ua || headers['user-agent'] || '');
   const reasons = [];
   let score = 0;
+  let policyNeedsChallenge = false;
 
   // Estado já confirmado por camadas externas é determinístico.
   if (state.denied === true) {
@@ -105,6 +106,7 @@ function decide(input = {}) {
       }
     } else {
       score += 14; reasons.push('network:country-unverified');
+      policyNeedsChallenge = true;
     }
   }
   const lang = String(request.language || primaryLanguage(headers));
@@ -113,6 +115,7 @@ function decide(input = {}) {
       if (!policy.idiomas.includes(lang)) return finish(DECISIONS.SAFE, 100, ['policy:language'], 'high', started);
     } else {
       score += 12; reasons.push('request:language-missing');
+      policyNeedsChallenge = true;
     }
   }
 
@@ -177,6 +180,9 @@ function decide(input = {}) {
 
   if (score >= safeThreshold) {
     return finish(DECISIONS.SAFE, score, reasons, score >= safeThreshold + 15 ? 'high' : 'medium', started, policy);
+  }
+  if (policyNeedsChallenge) {
+    return finish(DECISIONS.CHALLENGE, score, reasons, 'medium', started, policy);
   }
   if (score >= challengeThreshold) {
     return finish(DECISIONS.CHALLENGE, score, reasons, 'medium', started, policy);
