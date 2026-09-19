@@ -177,6 +177,22 @@ function day(d, spend, impressions, clicks, conversions) {
     const pPolicy = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7, 20);
     ok((pPolicy.changes || []).every((change) => Math.abs(change.deltaPct) <= 20.01), 'allocator respeita maxBudgetChangePct da política');
 
+    // Doador já no piso: o filtro de microajustes nunca pode deixar um
+    // aumento sem corte correspondente. Antes, 100/50 podia retornar apenas
+    // o vencedor em +5,9%, transformando "realocação" em aumento líquido.
+    treeCampaigns = [
+      camp('1111111111', 'Vencedora no limite', 100, 100),
+      camp('2222222222', 'Doadora no mínimo', 50, 100),
+    ];
+    leadsByCampaign = {
+      1111111111: { revenueCents: 20000, sales: 2 }, // ROAS 2
+      2222222222: { revenueCents: 5000, sales: 2 },  // ROAS 0,5
+    };
+    const pFloor = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7, 30);
+    const appliedNet = (pFloor.changes || []).reduce((sum, change) => sum + (change.proposed - change.current), 0);
+    ok(appliedNet <= 0.01, 'allocator nunca aumenta o total aplicado quando doadores não têm verba cedível');
+    ok(pFloor.noChange || (pFloor.changes || []).some((change) => change.deltaPct < 0), 'aumento só existe quando há corte significativo correspondente');
+
     // Menos de 2 elegíveis → insufficient
     treeCampaigns = [camp('1111111111', 'Única', 100, 200)];
     const p2 = await adsAi.budgetProposal('acc1', 'adv1', 'USD');
