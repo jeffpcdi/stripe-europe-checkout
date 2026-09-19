@@ -230,7 +230,8 @@ export function UniversalLauncherDialog({
             countries: market.countries,
             languages: market.languages,
             body: cleanBody,
-            callToAction: cta,
+            callToAction: cta === 'AUTO' ? undefined : cta,
+            dynamicCallToAction: cta === 'AUTO',
           },
           items: items.map((it) => ({
             name: campaignPrefix ? `${campaignPrefix.trim()} - ${it.name}` : it.name,
@@ -279,7 +280,8 @@ export function UniversalLauncherDialog({
         videoUrl: singleItem.videoUrl,
         body: cleanBody,
         linkUrl: cleanLink,
-        callToAction: cta,
+        callToAction: cta === 'AUTO' ? undefined : cta,
+        dynamicCallToAction: cta === 'AUTO',
       }
 
       const signature = JSON.stringify(payload)
@@ -527,7 +529,7 @@ export function UniversalLauncherDialog({
                   {showAdvanced && <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
                     <label className="block"><span className="mb-1.5 block text-xs font-medium text-foreground">Prefixo do nome</span><input type="text" value={campaignPrefix} onChange={e => setCampaignPrefix(e.target.value)} placeholder="Ex.: [Escala BR]" className="launch-input" /></label>
                     <label className="block"><span className="mb-1.5 block text-xs font-medium text-foreground">Texto do anúncio</span><input type="text" value={bodyText} onChange={e => setBodyText(e.target.value)} placeholder="Ex.: Frete grátis apenas hoje." className="launch-input" /></label>
-                    <label className="block"><span className="mb-1.5 block text-xs font-medium text-foreground">Botão</span><select value={cta} onChange={e => setCta(e.target.value)} className="launch-input"><option value="SHOP_NOW">Comprar agora</option><option value="LEARN_MORE">Saiba mais</option><option value="ORDER_NOW">Pedir agora</option></select></label>
+                    <label className="block"><span className="mb-1.5 block text-xs font-medium text-foreground">Botão</span><select value={cta} onChange={e => setCta(e.target.value)} className="launch-input"><option value="AUTO">Automático · TikTok otimiza</option><option value="SHOP_NOW">Comprar agora</option><option value="LEARN_MORE">Saiba mais</option><option value="ORDER_NOW">Pedir agora</option></select></label>
                   </div>}
                 </section>
               </fieldset>
