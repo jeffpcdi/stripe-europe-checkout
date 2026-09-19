@@ -65,7 +65,7 @@ assert.match(read('dashboard/components/ads/bulk-upload-dialog.tsx'), /cloakTraf
 
 const header = read('dashboard/components/shell/header.tsx');
 assert.match(header, /pathname\.startsWith\('\/ads'\)/);
-assert.doesNotMatch(header, /<OverviewCalendar \/>[\s\S]*<NotificationBell/);
+assert.match(header, /\{showPeriod \? <OverviewCalendar \/> : null\}/);
 
 const bulk = read('dashboard/components/ads/bulk-upload-dialog.tsx');
 assert.match(bulk, /href="\/conversions\?tab=pixels"/);
