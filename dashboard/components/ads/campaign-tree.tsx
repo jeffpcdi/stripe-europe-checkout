@@ -1649,13 +1649,22 @@ export function CampaignTree({
     })
   }
 
+  function resetEntityFilters() {
+    setEntityStatusFilter('all')
+    setEntitySort('spend_desc')
+    setOnlyWithSpend(false)
+    setQuery('')
+  }
+
   function EntityToolbar({ visibleCount, totalCount }: { visibleCount: number; totalCount: number }) {
+    const hasFilters = entityStatusFilter !== 'all' || entitySort !== 'spend_desc' || onlyWithSpend || Boolean(query)
     return <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-secondary/5 px-3 py-2.5">
       <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-background p-1">
         {([['all', 'Todos'], ['active', 'Ativos'], ['paused', 'Pausados'], ['issues', 'Atenção']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setEntityStatusFilter(value)} className={cn('h-7 rounded-md px-2.5 text-xs font-medium transition-colors', entityStatusFilter === value ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>{label}</button>)}
       </div>
       <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 text-xs text-muted-foreground"><ArrowUpDown className="size-3.5" /><select value={entitySort} onChange={(e) => setEntitySort(e.target.value as typeof entitySort)} className="bg-transparent font-medium text-foreground outline-none"><option value="spend_desc">Maior gasto</option><option value="ctr_desc">Maior CTR</option><option value="conversions_desc">Mais conversões</option></select></label>
       <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium', onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground')}><DollarSign className="size-3.5" />Com gasto</button>
+      {hasFilters ? <button type="button" onClick={resetEntityFilters} className="h-9 px-2 text-xs font-medium text-muted-foreground hover:text-foreground">Limpar filtros</button> : null}
       <span className="ml-auto text-xs tabular-nums text-muted-foreground">{visibleCount} de {totalCount}</span>
     </div>
   }
@@ -1685,7 +1694,7 @@ export function CampaignTree({
           <div className="min-w-0"><p className="truncate font-semibold text-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="mt-0.5 text-muted-foreground">{group.ads?.length || 0} anúncio{(group.ads?.length || 0) === 1 ? '' : 's'} · controle independente</p></div>
           <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="conjunto" status={group.status} busy={busyId === String(group.platformAdSetId)} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(String(group.platformAdSetId), group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
           <p className="text-right tabular-nums text-foreground">{group.budget?.amount != null ? fmtMoney(Number(group.budget.amount), campaign.currency || currency) : '—'}</p><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(group.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
-        </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
+        </div>)}{!rows.length ? <div className="px-3 py-10 text-center"><p className="text-sm font-medium text-foreground">{allRows.length ? 'Nenhum conjunto corresponde aos filtros.' : 'Nenhum conjunto disponível nesta conta.'}</p>{allRows.length ? <button type="button" onClick={resetEntityFilters} className="mt-2 text-xs font-medium text-primary hover:underline">Limpar filtros</button> : null}</div> : null}
       </div></div>
     }
     const allRows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad }))))
@@ -1704,7 +1713,7 @@ export function CampaignTree({
         <input type="checkbox" checked={selectedEntities.has(id)} onChange={() => toggleEntitySelection(id)} aria-label={`Selecionar anúncio ${ad.name || id}`} className="size-3.5 accent-primary" />
         <button type="button" onClick={() => setCreativeInspect({ campaign, group, ad })} className="group relative flex h-16 w-11 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-black focus-visible:ring-2 focus-visible:ring-primary" title="Abrir central do criativo">{videoUrl ? <video src={videoUrl} poster={imageUrl || undefined} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : imageUrl ? <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" /> : hasAsset ? <Play className="size-4 text-white/70" aria-label="Asset TikTok identificado; prévia pendente" /> : <span className="text-[9px] text-white/45">—</span>}<span className="absolute inset-0 hidden items-center justify-center bg-black/35 group-hover:flex"><Play className="size-4 fill-white text-white" /></span></button>
         <button type="button" onClick={() => setCreativeInspect({ campaign, group, ad })} className="min-w-0 text-left"><p className="truncate font-semibold text-foreground hover:text-primary">{ad.name || ad.platformAdId}</p><p className="mt-0.5 truncate text-muted-foreground">{ad.creative?.body || (hasAsset ? 'Asset TikTok identificado' : 'Sem criativo informado')}</p></button><p className="truncate text-muted-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="anúncio" status={ad.status} busy={busyId === id} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(id, ad.status === 'active' ? 'paused' : 'active', 'Anúncio')} name={ad.name || ad.platformAdId} /><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(ad.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p><span className={cn('text-xs font-medium', creativeSignal(ad).cls)} title={creativeSignal(ad).title}>{creativeSignal(ad).label}</span>
-      </div>})}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum anúncio disponível nesta conta.</p> : null}
+      </div>})}{!rows.length ? <div className="px-3 py-10 text-center"><p className="text-sm font-medium text-foreground">{allRows.length ? 'Nenhum anúncio corresponde aos filtros.' : 'Nenhum anúncio disponível nesta conta.'}</p>{allRows.length ? <button type="button" onClick={resetEntityFilters} className="mt-2 text-xs font-medium text-primary hover:underline">Limpar filtros</button> : null}</div> : null}
     </div></div>
   }
 
