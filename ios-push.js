@@ -56,15 +56,20 @@ function endpoint() {
 function payloadFor(note) {
   const event = String(note.event || '');
   const saleSound = event === 'sale' || event === 'test';
+  const isDailyReport = event === 'daily';
+  const interruptionLevel = note.priority === 'critical'
+    ? 'time-sensitive'
+    : (isDailyReport ? 'passive' : 'active');
   const aps = {
     alert: {
       title: String(note.title || 'ROI-NADOS').slice(0, 120),
       body: String(note.body || '').slice(0, 500),
     },
-    sound: saleSound ? 'roi-sale.wav' : 'default',
-    'thread-id': event.startsWith('ads_') ? 'automation' : (event || 'general'),
-    'interruption-level': note.priority === 'critical' ? 'time-sensitive' : 'active',
+    'thread-id': isDailyReport ? 'reports' : (event.startsWith('ads_') ? 'automation' : (event || 'general')),
+    'interruption-level': interruptionLevel,
   };
+  if (!isDailyReport) aps.sound = saleSound ? 'roi-sale.wav' : 'default';
+  if (event === 'sale') aps['content-available'] = 1;
   if (note.badge === true) aps.badge = 1;
   return JSON.stringify({
     aps,
