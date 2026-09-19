@@ -615,6 +615,10 @@ function mapInsightRow(row) {
   const impressions = num(m.impressions);
   const clicks = num(m.clicks);
   const conversions = num(m.conversion ?? m.conversions);
+  const maybe = (...keys) => {
+    for (const key of keys) if (m[key] != null && m[key] !== '') return num(m[key]);
+    return undefined;
+  };
   return {
     dimensions: d,
     spend,
@@ -622,6 +626,18 @@ function mapInsightRow(row) {
     clicks,
     conversions,
     reach: num(m.reach),
+    frequency: maybe('frequency'),
+    // O reporting do TikTok expõe estas métricas quando o nível/conta suporta.
+    // São best-effort: ausência não vira zero visual nem score inventado.
+    videoViews: maybe('video_play_actions', 'video_views'),
+    videoPlayActions: maybe('video_play_actions'),
+    videoWatched2s: maybe('video_watched_2s'),
+    videoWatched6s: maybe('video_watched_6s'),
+    videoViewsP25: maybe('video_views_p25'),
+    videoViewsP50: maybe('video_views_p50'),
+    videoViewsP75: maybe('video_views_p75'),
+    videoViewsP100: maybe('video_views_p100'),
+    averageVideoPlay: maybe('average_video_play', 'average_video_play_per_user'),
     // preferimos as métricas derivadas que o TikTok já entrega (evita divisão
     // por zero e bate com o painel do TikTok); caímos no cálculo se ausentes.
     ctr: m.ctr != null ? num(m.ctr) : (impressions ? clicks / impressions : 0),
