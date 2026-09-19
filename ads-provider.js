@@ -3912,6 +3912,12 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
     listSmartPlusAdGroups(adv),
     listSmartPlusAds(adv),
   ]);
+  const smartVideoIds = ads.map((ad) => {
+    const firstCreative = ad.creativeList[0] || {};
+    const info = firstCreative.creative_info && typeof firstCreative.creative_info === 'object' ? firstCreative.creative_info : {};
+    return { videoId: String(info.video_id || info.videoId || '') };
+  });
+  const videoAssets = await resolveVideoCreativeAssets(adv, smartVideoIds);
   const adsByGroup = new Map();
   for (const ad of ads) {
     const firstText = ad.adTextList[0] || {};
@@ -3937,9 +3943,10 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
         linkUrl: String(firstUrl.landing_page_url || firstUrl.url || ''),
         videoId: String(creativeInfo.video_id || creativeInfo.videoId || ''),
         imageIds: [String(creativeInfo.image_id || creativeInfo.imageId || '')].filter(Boolean),
-        // Smart+ também devolve IDs, não URLs públicas. Não exponha IDs como src.
-        videoUrl: '',
-        imageUrl: '',
+        // Smart+ também devolve IDs; o resolver em lote transforma somente
+        // URLs públicas reais em src e preserva o ID canônico separadamente.
+        videoUrl: String(creativeInfo.video_id || creativeInfo.videoId || '') ? (videoAssets.get(String(creativeInfo.video_id || creativeInfo.videoId))?.previewUrl || '') : '',
+        imageUrl: String(creativeInfo.video_id || creativeInfo.videoId || '') ? (videoAssets.get(String(creativeInfo.video_id || creativeInfo.videoId))?.coverUrl || '') : '',
       },
       rejectionReason: ad.rejectionReason,
       createdAt: ad.createTime || undefined,
