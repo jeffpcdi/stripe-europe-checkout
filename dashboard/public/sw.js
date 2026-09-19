@@ -18,57 +18,60 @@ self.addEventListener("push", (event) => {
     data = { title: "ROI-NADOS", body: event.data ? event.data.text() : "" }
   }
 
-  const title = data.title || "ROI-NADOS"
-  // Haptics são best-effort fora do iOS. O iPhone controla o feedback físico
-  // e pode ignorar totalmente a opção vibrate de Web Notifications.
-  const VIBRATE = {
-    cash: [90, 50, 120],
-    alert: [160, 80, 160],
-    tick: [50],
-    ping: [80],
-    info: [70],
-  }
-  const options = {
-    body: data.body || "",
-    icon: "/dashboard/icon-192.png",
-    badge: "/dashboard/badge-96.png",
-    tag: data.tag || undefined, // agrupa notificações do mesmo evento
-    data: { url: data.url || "/dashboard" },
-    // silent:false pede uma notificação não silenciosa; o SO/navegador ainda
-    // decide se haverá som conforme Foco, modo silencioso e preferências locais.
-    // O ROI-NADOS nunca promete som customizado em background.
-    silent: false,
-    vibrate: data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [150]),
-    // "critical" é prioridade interna do ROI-NADOS e NÃO equivale ao
-    // entitlement Apple Critical Alerts; aqui apenas solicita maior urgência.
-    renotify: data.priority === "critical" && Boolean(data.tag),
-    // Ações são best-effort; plataformas que não suportam simplesmente ignoram.
-    actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
-  }
+  event.waitUntil((async () => {
+    const title = data.title || "ROI-NADOS"
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+    const visibleClients = clients.filter((client) => client.visibilityState === "visible")
+    const hasVisibleClient = visibleClients.length > 0
 
-  const promises = [
-    self.registration.showNotification(title, options),
-    // Avisa as abas abertas; o componente cliente só toca WebAudio se a
-    // dashboard estiver visível, evitando duplicar o alerta de background.
-    data.sound
-      ? self.clients
-          .matchAll({ type: "window", includeUncontrolled: true })
-          .then((clients) => {
-            for (const client of clients) {
-              client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
-            }
-          })
-      : Promise.resolve(),
-  ]
+    // Haptics são best-effort fora do iOS. O iPhone controla o feedback físico
+    // e pode ignorar totalmente a opção vibrate de Web Notifications.
+    const VIBRATE = {
+      cash: [90, 50, 120],
+      alert: [160, 80, 160],
+      tick: [50],
+      ping: [80],
+      info: [70],
+    }
 
-  // iOS/iPadOS Home Screen web apps suportam Badging API. Um ponto é mais
-  // honesto que um contador inventado: indica "há algo novo" sem manter estado
-  // duplicado no service worker.
-  if (data.badge === true && "setAppBadge" in self.navigator) {
-    promises.push(self.navigator.setAppBadge().catch(() => {}))
-  }
+    const options = {
+      body: data.body || "",
+      icon: "/dashboard/icon-192.png",
+      badge: "/dashboard/badge-96.png",
+      lang: "pt-BR",
+      tag: data.tag || undefined,
+      data: { url: data.url || "/dashboard" },
+      // Dashboard visível: o feedback sonoro é local e curto. Em background,
+      // pedimos alerta não silencioso e deixamos som/Foco nas mãos do SO.
+      silent: hasVisibleClient,
+      // "critical" é prioridade interna do ROI-NADOS e NÃO equivale ao
+      // entitlement Apple Critical Alerts.
+      renotify: !hasVisibleClient && data.priority === "critical" && Boolean(data.tag),
+      actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
+    }
+    if (!hasVisibleClient) {
+      options.vibrate = data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [70])
+    }
 
-  event.waitUntil(Promise.all(promises))
+    const promises = [self.registration.showNotification(title, options)]
+
+    if (hasVisibleClient && data.sound) {
+      promises.push(Promise.resolve().then(() => {
+        for (const client of visibleClients) {
+          client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
+        }
+      }))
+    }
+
+    // iOS/iPadOS Home Screen web apps suportam Badging API. Um ponto é mais
+    // honesto que um contador inventado: indica "há algo novo" sem manter
+    // estado duplicado no service worker.
+    if (data.badge === true && "setAppBadge" in self.navigator) {
+      promises.push(self.navigator.setAppBadge().catch(() => {}))
+    }
+
+    await Promise.all(promises)
+  })())
 })
 
 self.addEventListener("notificationclick", (event) => {
