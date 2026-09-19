@@ -32,7 +32,7 @@ export function CommandPalette() {
   const [active, setActive] = useState(0)
   const [running, setRunning] = useState(false)
   const [confirmPauseBad, setConfirmPauseBad] = useState(false)
-  const [pauseTarget, setPauseTarget] = useState<{ id: string; name: string } | null>(null)
+  const [pauseTarget, setPauseTarget] = useState<{ id: string; name: string; currency: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
@@ -61,7 +61,7 @@ export function CommandPalette() {
     if (/pausar?.*(ruins?|sem venda)|campanhas?.*(ruins?|sem venda)/i.test(q)) {
       matches.unshift({
         id: 'command-pause-bad', label: 'Pausar campanhas ruins agora',
-        description: 'Pausa ativas com gasto de hoje ≥ 100 e nenhuma venda atribuída.',
+        description: 'Pausa ativas com gasto de hoje ≥ 100 na moeda da conta e nenhuma venda atribuída.',
         href: '/ads/tiktok', section: 'Ação', icon: PauseCircle, kind: 'pause_bad' as const,
       })
     } else if (/campanhas?|gast|venderam|roas|ctr/i.test(q)) {
@@ -114,7 +114,7 @@ export function CommandPalette() {
           toast.info('Selecione uma conta de anúncios no TikTok Ads antes de executar este comando.')
           return
         }
-        setPauseTarget({ id: selectedId, name: selected.name || selectedId })
+        setPauseTarget({ id: selectedId, name: selected.name || selectedId, currency: String(selected.currency || '').toUpperCase() })
         setOpen(false)
         setConfirmPauseBad(true)
       } catch (error) {
@@ -136,7 +136,7 @@ export function CommandPalette() {
       })
       setConfirmPauseBad(false)
       toast.success(result.dryRun ? 'Simulação concluída' : `${result.paused} campanha(s) pausada(s)`, {
-        hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : 'Critério: gasto de hoje ≥ 100 e zero vendas atribuídas.',
+        hint: result.dryRun ? `${result.matched} campanha(s) seriam pausadas no modo real.` : `Critério: gasto de hoje ≥ 100${pauseTarget?.currency ? ' ' + pauseTarget.currency : ' na moeda da conta'} e zero vendas atribuídas.`,
       })
     } catch (error) {
       toast.error('Não foi possível executar o comando', { hint: error instanceof Error ? error.message : undefined })
@@ -242,7 +242,7 @@ export function CommandPalette() {
       open={confirmPauseBad}
       title="Pausar campanhas sem venda?"
       description={pauseTarget
-        ? <>Conta: <strong>{pauseTarget.name}</strong>. Serão pausadas as campanhas ativas que gastaram pelo menos 100 hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria.</>
+        ? <>Conta: <strong>{pauseTarget.name}</strong>. Serão pausadas as campanhas ativas que gastaram pelo menos <strong>100{pauseTarget.currency ? ` ${pauseTarget.currency}` : ' na moeda da conta'}</strong> hoje e não tiveram nenhuma venda atribuída. A ação será registrada na auditoria.</>
         : 'Confirme a conta de anúncios antes de executar esta ação.'}
       confirmLabel="Pausar campanhas"
       busy={running}
