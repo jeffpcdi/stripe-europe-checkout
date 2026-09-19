@@ -7,11 +7,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Loader2, Plus, Trash2, UploadCloud, Download,
-  Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
-  Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
-  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw, Sparkles,
-  Search, ArrowUpDown, MoreHorizontal, SlidersHorizontal,
+  X,
+  Loader2,
+  Plus,
+  Trash2,
+  UploadCloud,
+  Check,
+  AlertCircle,
+  PackageOpen,
+  Building2,
+  Clock,
+  RefreshCw,
+  Pencil,
+  CopyPlus,
+  SearchCheck,
+  RotateCcw,
+  Sparkles,
+  Search,
+  ArrowUpDown,
+  MoreHorizontal,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
