@@ -1,0 +1,38 @@
+name: ROI-NADOS Validation
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax checks
+        run: npm run lint
+
+      - name: Dashboard regression guards
+        run: npm run pretest
+
+      - name: Notification tests
+        run: node test/web-push.test.js
+
+      - name: Production dashboard build
+        run: npm run build
