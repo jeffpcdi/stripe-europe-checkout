@@ -263,9 +263,10 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     ? req.roiNetworkContext
     : null;
   const ip = String(
-    (trustedNetwork && trustedNetwork.ip)
-    || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || req.socket?.remoteAddress || ''
+    trustedNetwork
+      ? (trustedNetwork.ip || '')
+      : ((req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+        || req.socket?.remoteAddress || '')
   );
 
   // ─── Camada A: UA ─────────────────────────────────────────────────────────
