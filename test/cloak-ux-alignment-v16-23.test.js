@@ -34,6 +34,9 @@ assert.match(editor, /Criar campanha/);
 assert.doesNotMatch(editor, /<option value="custom">Personalizada<\/option>/);
 assert.match(editor, /d\.uso === 'cloaker' \|\| \(entry && d\.host === entry\.dominio\)/);
 
+assert.match(editor, /const durableCampaign = !entry \|\| Boolean\(entry\.id \|\| entry\.campaignId\)/);
+assert.match(editor, /const endpoint = durableCampaign \? '\/api\/cloak\/campaigns' : '\/api\/cloak\/entries'/);
+
 const kit = read('dashboard/components/cloak/cloak-link-kit-dialog.tsx');
 assert.match(kit, /URL do site/);
 assert.match(kit, /Parâmetros da URL/);
