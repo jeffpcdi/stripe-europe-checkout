@@ -206,6 +206,7 @@ export function UniversalLauncherDialog({
     }
     let active = true
     const timer = window.setTimeout(() => {
+      setLaunchError(null)
       setGuardianLoading(true)
       apiSend<{ guardian?: { ready: boolean; recommendations: number; checks: { id: string; label: string; status: 'ready' | 'recommended'; detail: string }[] } }>(
         '/api/ads/create/preflight',
