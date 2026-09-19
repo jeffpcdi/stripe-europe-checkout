@@ -235,7 +235,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             <div>
               <label className={labelCls} htmlFor="ck-white">Destino seguro</label>
               <p className={`${hintCls} mb-2`}>
-                Deixe vazio para usar o destino seguro padrão configurado em Regras. Se não houver um padrão, o ROI-NADOS usa a página neutra.
+                Deixe vazio para usar o destino seguro padrão configurado em Proteção. Se não houver um padrão, o ROI-NADOS usa a página neutra.
               </p>
               <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
 
