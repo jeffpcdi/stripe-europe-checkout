@@ -481,6 +481,36 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s1:c-proposal')), 'autoria da pausa só nasce após aprovação real');
   }
 
+  // ── Learning Guardian também protege pausas automáticas do dayparting ────
+  {
+    const acc = 'acc_sched_learning_guardian';
+    const now = new Date();
+    const notToday = (now.getUTCDay() + 3) % 7;
+    configureRules(acc, [{
+      id: 's-learning',
+      enabled: true,
+      metric: 'schedule',
+      days: [notToday],
+      startTime: '03:00',
+      endTime: '03:01',
+      timezone: 'UTC',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({
+      platformCampaignId: 'c-learning-schedule',
+      status: 'active',
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      metrics: { spend: 30, conversions: 4, impressions: 4000, clicks: 80 },
+    })];
+    const out = await automation.runScheduleSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.status.length, 0, 'Learning Guardian não deixa o dayparting pausar a campanha jovem');
+    assert.strictEqual(out.executed.length, 1, 'pausa agendada vira uma proposta observável');
+    assert.strictEqual(out.executed[0].proposed, true, 'pausa protegida fica aguardando aprovação');
+    assert.match(out.executed[0].result, /Learning Guardian/);
+    assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s-learning:c-learning-schedule')), 'proposta não grava autoria de pausa antes da aprovação');
+  }
+
   // ── agendas conflitantes: pausa sempre vence reativação ──────────────────
   {
     const acc = 'acc_sched_conflict';
