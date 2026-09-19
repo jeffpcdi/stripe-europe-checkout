@@ -32,6 +32,8 @@ targets:
       properties:
         CFBundleDisplayName: ROI-NADOS
         UILaunchScreen: {}
+        UIBackgroundModes:
+          - remote-notification
         ROINADOS_KEYCHAIN_GROUP: "$(AppIdentifierPrefix)com.roinados.shared"
         CFBundleURLTypes:
           - CFBundleURLName: com.roinados.companion
