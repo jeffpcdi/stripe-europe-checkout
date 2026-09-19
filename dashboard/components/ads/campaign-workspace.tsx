@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   BarChart3,
   Bot,
@@ -15,12 +15,14 @@ import {
   Sparkles,
   TriangleAlert,
 } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, useAdsCreativeInsights, useAdsRulePresets, useAdsRules } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import type {
   AdsCampaignDecisionsResponse,
   AdsMetrics,
+  AdsRule,
+  AdsRulesResponse,
   AdsNodeStatus,
   AdsTreeAd,
   AdsTreeAdSet,
@@ -30,7 +32,7 @@ import type {
 import { cn } from '@/lib/utils'
 import { CampaignTree } from './campaign-tree'
 
-type WorkspaceLevel = 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights'
+type WorkspaceLevel = 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
 type MetricPreset = 'performance' | 'delivery' | 'cost'
 
@@ -70,6 +72,7 @@ const LEVELS: { value: WorkspaceLevel; label: string; icon: typeof Megaphone }[]
   { value: 'ads', label: 'Anúncios', icon: Play },
   { value: 'creatives', label: 'Criativos', icon: Film },
   { value: 'insights', label: 'Insights', icon: Sparkles },
+  { value: 'playbooks', label: 'Playbooks', icon: Bot },
 ]
 
 function money(value: number | undefined, currency: string) {
@@ -109,6 +112,20 @@ function metricCells(metrics: AdsMetrics | undefined, currency: string, preset: 
     { label: 'CTR', value: pct(metrics?.ctr) },
     { label: 'Conv.', value: compact(metrics?.conversions) },
   ]
+}
+
+function playbookSummary(rule: AdsRule, currency: string) {
+  if (rule.metric === 'spend_no_conv') return `Gasto ≥ ${money(rule.threshold, currency)} sem conversão → proposta de pausa.`
+  if (rule.metric === 'cpa_max') return `CPA > ${money(rule.threshold, currency)} com volume mínimo → proposta de pausa.`
+  if (rule.metric === 'ctr_min') return `CTR < ${String(rule.threshold).replace('.', ',')}% após o piso de impressões → proposta de pausa.`
+  if (rule.metric === 'roas_min') return `ROAS < ${rule.threshold.toFixed(1).replace('.', ',')}× com atribuição real → proposta de pausa.`
+  if (rule.metric === 'roas_scale') return `ROAS ≥ ${rule.threshold.toFixed(1).replace('.', ',')}× → proposta de escalar +${rule.pct}% com teto.`
+  if (rule.metric === 'self_heal') return `Realoca até ${rule.pct}% de uma doadora ruim para uma vencedora sem aumentar o orçamento total.`
+  if (rule.metric === 'scheduled_scale') return `Escala em dias/horário definidos somente quando o ROAS mínimo for atingido.`
+  if (rule.metric === 'schedule') return `Liga e pausa campanhas automaticamente dentro da janela de veiculação configurada.`
+  if (rule.metric === 'cpm_max') return `CPM alto → proposta de reduzir orçamento em ${rule.pct}%.`
+  if (rule.metric === 'cpc_max') return `CPC alto → proposta de reduzir orçamento em ${rule.pct}%.`
+  return 'Monitora a condição e gera uma proposta de ação dentro dos guardrails.'
 }
 
 function statusMeta(status?: AdsNodeStatus) {
@@ -231,7 +248,12 @@ export function CampaignWorkspace(props: Props) {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
   const [selectedAds, setSelectedAds] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [playbookBusy, setPlaybookBusy] = useState<string | null>(null)
   const campaigns = props.tree?.campaigns ?? []
+  const advertiserId = campaigns[0]?.platformAdAccountId || ''
+  const rulesQuery = useAdsRules(level === 'playbooks', advertiserId)
+  const presetsQuery = useAdsRulePresets(level === 'playbooks')
+  const creativeInsights = useAdsCreativeInsights(level === 'creatives', advertiserId)
 
   const groups = useMemo<AdGroupRow[]>(() =>
     campaigns.flatMap((campaign) => (campaign.adSets ?? []).map((group) => ({ campaign, group }))),
@@ -288,7 +310,55 @@ export function CampaignWorkspace(props: Props) {
   const winners = insightRows.filter((row) => row.roas != null && row.roas >= 2).sort((a, b) => (b.roas || 0) - (a.roas || 0))
   const attention = campaigns.filter((campaign) => ['rejected', 'error', 'pending_review'].includes(String(campaign.status)))
 
-  function toggleSelection(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
+  const groupSelectionScope = visibleGroups.map(({ group }) => group.platformAdSetId).filter(Boolean).sort().join('|')
+  const adSelectionScope = visibleAds.map(({ ad }) => ad.platformAdId || ad._id).filter(Boolean).sort().join('|')
+
+  useEffect(() => {
+    setSelectedGroups(new Set())
+  }, [level, nodeFilter, query, groupSelectionScope])
+
+  useEffect(() => {
+    setSelectedAds(new Set())
+  }, [level, nodeFilter, query, adSelectionScope])
+
+  async function togglePlaybook(preset: AdsRule) {
+    if (!advertiserId || !rulesQuery.data || playbookBusy) return
+    const current = rulesQuery.data
+    const existing = current.rules.find((rule) => rule.id === preset.id)
+    const enabling = !existing?.enabled
+    if (!existing && current.rules.length >= 12) {
+      toast.error('Limite de 12 regras atingido', { hint: 'Remova uma regra em Automações antes de adicionar outro playbook.' })
+      return
+    }
+    const nextRule: AdsRule = {
+      ...(existing || preset),
+      enabled: enabling,
+      mode: existing?.mode || 'proposal',
+    }
+    const nextRules = existing
+      ? current.rules.map((rule) => rule.id === preset.id ? nextRule : rule)
+      : [...current.rules, nextRule]
+
+    setPlaybookBusy(preset.id)
+    try {
+      const saved = await apiSend<AdsRulesResponse>('/api/ads/rules', 'PUT', {
+        adAccountId: advertiserId,
+        revision: current.revision,
+        rules: nextRules,
+      })
+      await rulesQuery.mutate(saved, { revalidate: false })
+      toast.success(enabling ? 'Playbook ativado em modo proposta' : 'Playbook pausado', {
+        hint: enabling ? 'O motor monitora e propõe ações; execução direta depende do nível de autonomia configurado.' : undefined,
+      })
+    } catch (error) {
+      toast.error('Não foi possível alterar o playbook', { hint: error instanceof Error ? error.message : undefined })
+      await rulesQuery.mutate()
+    } finally {
+      setPlaybookBusy(null)
+    }
+  }
+
+  function toggleSelection(setter: Dispatch<SetStateAction<Set<string>>>, id: string) {
     setter((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
@@ -518,6 +588,24 @@ export function CampaignWorkspace(props: Props) {
 
       {level === 'creatives' ? (
         <section>
+          {creativeInsights.data?.content || creativeInsights.data?.patterns ? (
+            <div className="mb-4 rounded-2xl border border-brand-cyan/20 bg-brand-cyan/[0.04] p-4">
+              <div className="flex items-start gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-cyan/20 bg-brand-cyan/10 text-brand-cyan"><Sparkles className="size-4" /></span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">Creative Intelligence</h3>
+                    <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">{creativeInsights.data.windowDays || 1}d</span>
+                  </div>
+                  {creativeInsights.data.content ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{creativeInsights.data.content}</p> : null}
+                  {creativeInsights.data.patterns ? <p className="mt-2 text-xs leading-relaxed text-foreground/85">{creativeInsights.data.patterns}</p> : null}
+                </div>
+              </div>
+            </div>
+          ) : creativeInsights.isLoading ? (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-border/60 px-4 py-3 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Analisando padrões dos criativos…</div>
+          ) : null}
+
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-foreground">Biblioteca em veiculação</h3>
@@ -547,6 +635,57 @@ export function CampaignWorkspace(props: Props) {
                       <button type="button" onClick={() => props.onOpenDetail?.(campaign)} className="mt-3 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">
                         Abrir campanha <ChevronRight className="size-3" />
                       </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {level === 'playbooks' ? (
+        <section className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/65 bg-card/40 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2"><Bot className="size-4 text-brand-cyan" /><h3 className="text-sm font-semibold text-foreground">Playbooks de operação</h3></div>
+              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">Estratégias prontas para monitorar a conta. Ao ligar aqui, o padrão é <strong className="font-medium text-foreground">propor</strong> a ação; execução automática continua protegida pela política e pelo nível de autonomia.</p>
+            </div>
+            {props.onOpenAutomations ? <button type="button" className="btn-secondary min-h-10 shrink-0 text-xs" onClick={props.onOpenAutomations}><Bot className="size-3.5" /> Configurar automações</button> : null}
+          </div>
+
+          {rulesQuery.error || presetsQuery.error ? (
+            <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-xs text-warning">Não foi possível carregar os playbooks. Abra Automações para revisar as regras diretamente.</div>
+          ) : rulesQuery.isLoading || presetsQuery.isLoading ? (
+            <div className="flex min-h-40 items-center justify-center rounded-2xl border border-border/65"><Loader2 className="size-5 animate-spin text-brand-cyan" /></div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(presetsQuery.data?.presets ?? []).map((preset) => {
+                const current = rulesQuery.data?.rules.find((rule) => rule.id === preset.id)
+                const enabled = current?.enabled === true
+                return (
+                  <article key={preset.id} className={cn('rounded-2xl border p-4 transition-colors', enabled ? 'border-brand-cyan/25 bg-brand-cyan/[0.04]' : 'border-border/65 bg-card/35')}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{preset.name || preset.metric}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{playbookSummary(current || preset, props.currency)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={Boolean(playbookBusy)}
+                        onClick={() => void togglePlaybook(preset)}
+                        className={cn(
+                          'inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors disabled:opacity-50',
+                          enabled ? 'border-brand-cyan/25 bg-brand-cyan/10 text-brand-cyan' : 'border-border/70 bg-secondary/30 text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {playbookBusy === preset.id ? <Loader2 className="size-3 animate-spin" /> : enabled ? <Pause className="size-3" /> : <Play className="size-3" />}
+                        {enabled ? 'Monitorando' : 'Ativar'}
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/45 pt-3 text-[10px] text-muted-foreground">
+                      <span className="rounded-md bg-secondary/50 px-1.5 py-0.5">modo {current?.mode === 'execute' ? 'automático' : 'proposta'}</span>
+                      <span>{preset.lookbackDays || 1}d de janela</span>
                     </div>
                   </article>
                 )
