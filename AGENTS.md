@@ -1,11 +1,14 @@
-## Cloaker UX alinhado às campanhas — V16.23 (2026-09-19)
-- A aba Cloaker é campaign-first: ordem `Campanhas → Resultados → Proteção`, com cabeçalho próprio e preferência de aba persistida. Conta sem campanhas abre diretamente em Campanhas.
-- Frontend usa `campaignId` como identidade estável para seleção, optimistic update, teste, ordenação por tráfego, histórico e keys React. Slug/path fica somente como endereço público e fallback legado.
-- Resultados da aba Cloaker filtram apenas `tipo='cloak'`; checkout `/go` não entra no agregado nem no reset global da tela. Campanhas V2 zeram stats via `campaign:<id>`.
-- O editor usa linguagem de campanha, exige domínio dedicado para novas associações, mantém domínio legado atual editável e recolhe proteção/segmentação avançada na criação.
-- Ao criar uma campanha, o frontend abre o `CloakLinkKitDialog` com URL e parâmetros separados para publicação no anúncio. Edições comuns não forçam esse passo novamente.
-- `Proteção da conta` diferencia controles realmente compartilhados (shadow, destino seguro, velocity/auto-block) de compatibilidade global/legada; não afirmar que o master global desativa campanhas V2.
-- Teste de regressão: `test/cloak-ux-alignment-v16-23.test.js`.
+## Alinhamento de UX e fluxos da dashboard — V16.23 (2026-09-19)
+- Cloaker virou campaign-first (`Campanhas → Resultados → Proteção`) e usa `campaignId` como identidade estável; slug/path fica como endereço público e fallback legado. Resultados e resets V2 usam `campaign:<id>` e não misturam checkout `/go`.
+- Domínios agora exigem uso explícito (`checkout` ou `cloaker`) para novas conexões. Troca de uso é durável e fail-closed: o backend bloqueia enquanto houver Links, campanhas V2 ou entradas Cloaker legadas referenciando o host.
+- Links usam `baseUrl` pública real do backend, só oferecem domínios prontos e impedem salvar um domínio indisponível. O CNAME técnico não é mais apresentado como URL pública de fallback.
+- Pixel & Conversões honra `?tab=pixels|gateways|logs`; Atividade honra `?f=` incluindo falhas, reembolsos e contestações e renderiza horário no fuso configurado da conta.
+- Visão Geral voltou a exibir o guia compacto de configuração e recuperou os alvos do tour. O período global só aparece nas áreas que realmente o consomem (Visão Geral/análises e TikTok Ads).
+- TikTok Ads pode escolher destinos já salvos em Links ou campanhas Cloaker. Cloaker usa `combinedUrl` do Link Kit, preservando token/macros, e o seletor filtra Standard vs Smart+ para não misturar contratos de parâmetros.
+- Navegação de topo usa `NAV_GROUPS` como fonte de verdade; drill-downs de Visão Geral permanecem no grupo correto. Atalhos/tours foram alinhados às rotas atuais.
+- A Zona de Perigo descreve corretamente `/api/reset-stats`: apaga leads e eventos de desempenho (visitas, checkouts, vendas, falhas, reembolsos e contestações), mantendo as configurações cadastradas.
+- Regressões: `test/cloak-ux-alignment-v16-23.test.js`, `test/dashboard-crossflow-coherence-v16-23.test.js` e `test/dashboard-navigation-and-ads-v16-23.test.js`.
+- O status de preview da Vercel no PR pode aparecer vermelho por integração da conta GitHub/Vercel; o bot reportou “There is no GitHub account connected to this Vercel account”. Não interpretar esse status isoladamente como erro de TypeScript.
 
 ## Domínios gerenciados — V16.17 (2026-09-17)
 - Escopo exclusivo de Domínios; Links, Cloaker, `/go`, `/c`, Pixel/CAPI e Ads permanecem inalterados.
