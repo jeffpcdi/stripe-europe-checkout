@@ -150,7 +150,7 @@ export function ConfigView() {
   )
 }
 
-function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
+function SettingsTab({ value, icon: Icon, title, description }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
   return (
     <Tabs.Trigger
       value={value}
@@ -161,6 +161,7 @@ function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold text-foreground">{title}</span>
+        <span className="mt-0.5 hidden text-[10px] leading-tight text-muted-foreground xl:block">{description}</span>
       </span>
       <ChevronRight className="settings-tabs__chevron" aria-hidden="true" />
     </Tabs.Trigger>
