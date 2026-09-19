@@ -12,7 +12,7 @@ The native companion exists for capabilities that a Home Screen web app cannot p
    - Push Notifications
    - App Groups: group.com.roinados.companion
    - Keychain Sharing: com.roinados.shared
-6. Use the production aps-environment entitlement for App Store/TestFlight builds.
+6. Debug uses the APNs development environment; Release uses production automatically through APS_ENVIRONMENT.
 
 The project starts with bundle identifiers:
 - com.roinados.companion
@@ -62,4 +62,4 @@ Configure:
 - APNS_PRIVATE_KEY or APNS_PRIVATE_KEY_B64
 - APNS_SANDBOX=true only for development builds
 
-If a native iPhone is paired, ROI-NADOS suppresses Web Push to iPhone/iPad subscriptions and keeps Web Push for desktop/Android, preventing duplicate notifications on the same Apple device.
+After pairing, enable “Preferir Companion no iPhone” in Conta → Alertas. Only then ROI-NADOS suppresses Web Push to iPhone/iPad subscriptions and routes those alerts through APNs; desktop/Android Web Push remains active. This explicit switch avoids silently changing an existing notification channel.
