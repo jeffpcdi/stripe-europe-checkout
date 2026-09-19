@@ -87,6 +87,16 @@ export function OverviewView() {
     error: overviewAnalyticsError,
     mutate: mutateOverviewAnalytics,
   } = useOverviewAnalytics(period, accountTimeZone, true)
+  useEffect(() => {
+    const onForegroundNotification = (event: Event) => {
+      const detail = (event as CustomEvent<{ event?: string }>).detail
+      if (detail?.event !== 'sale') return
+      void Promise.all([mutateStats(), mutateOverviewAnalytics()]).catch(() => {})
+    }
+    window.addEventListener('roi:foreground-notification', onForegroundNotification)
+    return () => window.removeEventListener('roi:foreground-notification', onForegroundNotification)
+  }, [mutateStats, mutateOverviewAnalytics])
+
   const { data: adsStatus, error: adsError, mutate: mutateAdsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
