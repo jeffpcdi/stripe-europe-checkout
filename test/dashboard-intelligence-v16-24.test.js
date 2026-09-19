@@ -48,6 +48,8 @@ assert.match(view, /Simular orçamento/)
 assert.match(view, /<ScenarioSimulator/)
 assert.match(view, /<InsightsCampaignsPanel/)
 assert.match(view, /<CreativeInsightsPanel/)
+assert.match(view, /todayAdsRange/)
+assert.match(view, /pacingTree/)
 assert.match(view, /previousAdsRange/)
 assert.match(view, /<InsightsDiagnosisPanel/)
 
@@ -55,6 +57,11 @@ for (const label of ['Gasto', 'Receita', 'Compras', 'CPA', 'ROAS']) {
   assert.match(campaigns, new RegExp(label))
 }
 assert.match(campaigns, /formatMoney\(Math\.round\(row\.spend \* 100\), row\.spendCurrency\)/)
+assert.match(campaigns, /Ritmo hoje/)
+assert.match(campaigns, /dailyBudget/)
+assert.match(campaigns, /pacingView/)
+assert.match(campaigns, /Acima do ritmo/)
+assert.match(campaigns, /Abaixo do ritmo/)
 
 assert.match(creatives, /Possível desgaste/)
 assert.match(creatives, /Ganhando eficiência/)
