@@ -312,6 +312,7 @@ export function TikTokAdsView() {
 
   const [audiencesOpen, setAudiencesOpen] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
+  const [creativeDraft, setCreativeDraft] = useState<{ body?: string; prefix?: string } | null>(null)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [smartPlusOpen, setSmartPlusOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
@@ -324,6 +325,24 @@ export function TikTokAdsView() {
   const [confirmAccountSwitch, setConfirmAccountSwitch] = useState(false)
   const [switchingAccount, setSwitchingAccount] = useState(false)
   const hasAutomationDraft = automationDirty || magicOpsDirty
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('create') !== '1') return
+    let draft: { body?: string; prefix?: string; createdAt?: number } | null = null
+    try {
+      const raw = sessionStorage.getItem('roi:ads:creative-draft')
+      if (raw) {
+        const parsed = JSON.parse(raw) as { body?: string; prefix?: string; createdAt?: number }
+        if (!parsed.createdAt || Date.now() - parsed.createdAt < 30 * 60 * 1000) draft = parsed
+        sessionStorage.removeItem('roi:ads:creative-draft')
+      }
+    } catch {}
+    setCreativeDraft(draft)
+    setLauncherOpen(true)
+    url.searchParams.delete('create')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
 
   function openOps(initialTab: 'jobs' | 'safety' = 'jobs') {
     setOpsInitialTab(initialTab)
@@ -894,8 +913,10 @@ export function TikTokAdsView() {
       {/* Fluxos de escrita */}
       <UniversalLauncherDialog key={`UniversalLauncherDialog:${concreteAdvertiser}`}
         open={launcherOpen}
-        onClose={() => setLauncherOpen(false)}
+        onClose={() => { setLauncherOpen(false); setCreativeDraft(null) }}
         advertiserId={concreteAdvertiser}
+        initialBody={creativeDraft?.body}
+        initialPrefix={creativeDraft?.prefix}
         currency={currency}
         onSuccess={() => { void refreshCampaignSurfaces() }}
         onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}
