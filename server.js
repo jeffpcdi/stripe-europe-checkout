@@ -1787,17 +1787,21 @@ app.get('/api/public-token', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ token });
 });
+function publicApiAccount(req) {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+([^\s]+)$/i);
+  const provided = String((bearer && bearer[1]) || req.query.token || '');
+  if (!provided) return null;
+  for (const accId of config.accountIds()) {
+    const t = (config.get(accId).api || {}).token;
+    if (t && safeEqual(provided, t)) return accId;
+  }
+  return null;
+}
+
 app.get('/api/v1/summary', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  // token → conta dona: procura em todas as contas (token é único por conta)
-  const provided = String(req.query.token || '');
-  let tokenAcc = null;
-  if (provided) {
-    for (const accId of config.accountIds()) {
-      const t = (config.get(accId).api || {}).token;
-      if (t && safeEqual(provided, t)) { tokenAcc = accId; break; }
-    }
-  }
+  const tokenAcc = publicApiAccount(req);
   if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
   if (rateLimited(clientIp(req), 'pubapi', 30)) return res.status(429).json({ error: 'rate limit' });
   const s = stats.getStats(tokenAcc);
@@ -1829,6 +1833,80 @@ app.get('/api/v1/summary', (req, res) => {
     }));
   }
   res.json(out);
+});
+
+// Snapshot compacto para WidgetKit/companion mobile. Usa o mesmo token
+// read-only da API pública; prefira Authorization: Bearer para não pôr o token
+// em URLs, histórico ou logs.
+app.get('/api/v1/widget', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const tokenAcc = publicApiAccount(req);
+  if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
+  if (rateLimited(clientIp(req), 'pubwidget', 60)) return res.status(429).json({ error: 'rate limit' });
+
+  try {
+    const cfg = config.get(tokenAcc);
+    const s = stats.getStats(tokenAcc);
+    const timeZone = accountTz(tokenAcc);
+    const dayKey = accDay(tokenAcc, new Date());
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(tokenAcc, l.at) === dayKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(tokenAcc, e.at) === dayKey);
+    const revenueCents = sales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
+    const currency = (sales[0] && sales[0].currency) || accountCurrency(tokenAcc);
+    const conversion = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
+
+    const adsCache = require('./ads-cache-store');
+    let spend = 0;
+    let adCurrency = null;
+    for (const state of await adsCache.listSyncStates(tokenAcc).catch(() => [])) {
+      const daily = await adsCache.readAdvertiserDaily(tokenAcc, state.advertiser_id, dayKey, dayKey).catch(() => null);
+      if (!daily || !daily.currency) continue;
+      if (adCurrency && daily.currency !== adCurrency) continue;
+      adCurrency = daily.currency;
+      spend += Number(daily.spend) || 0;
+    }
+    const sameCurrency = !adCurrency || adCurrency === currency;
+    const roas = sameCurrency && spend > 0 ? (revenueCents / 100) / spend : null;
+    const profit = require('./profit-engine').calculate(s.events || [], sameCurrency ? spend : 0, {
+      currency,
+      fromDate: dayKey,
+      toDate: dayKey,
+      timeZone,
+      config: cfg.profitability || {},
+      adSpendExact: sameCurrency && !!adCurrency,
+    });
+
+    const attention = [];
+    if (sameCurrency && spend > 0 && sales.length === 0) attention.push('spend_without_sales');
+    if (profit.netProfitCents < 0) attention.push('negative_profit');
+
+    res.json({
+      ok: true,
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      timeZone,
+      currency,
+      today: {
+        sales: sales.length,
+        revenueCents,
+        leads: dayLeads.length,
+        conversion,
+      },
+      media: {
+        tiktokSpend: sameCurrency ? spend : null,
+        currency: sameCurrency ? currency : adCurrency,
+        roas,
+      },
+      profitability: {
+        netProfitCents: profit.netProfitCents,
+        quality: profit.quality,
+      },
+      attention,
+    });
+  } catch (error) {
+    console.warn('[widget] snapshot falhou:', error && error.message);
+    res.status(503).json({ error: 'snapshot indisponível' });
+  }
 });
 
 // Item 419: alternar o escopo do token público (stats | stats+leads).
