@@ -39,7 +39,7 @@ import {
 import { campaignMatchesStatus, campaignStatusCounts } from '@/lib/campaign-list'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsNodeStatus, AdsCampaignDecisionsResponse, AdsCampaignDecisionEntry } from '@/lib/types'
+import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsTreeAdSet, AdsNodeStatus, AdsCampaignDecisionsResponse, AdsCampaignDecisionEntry } from '@/lib/types'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -702,7 +702,7 @@ export function CampaignTree({
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set())
-  const [creativeInspect, setCreativeInspect] = useState<{ campaign: AdsTreeCampaign; group: AdsTreeCampaign['adSets'][number]; ad: AdsTreeAd } | null>(null)
+  const [creativeInspect, setCreativeInspect] = useState<{ campaign: AdsTreeCampaign; group: AdsTreeAdSet; ad: AdsTreeAd } | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
   
@@ -1608,13 +1608,13 @@ export function CampaignTree({
     if (entityLevel === 'campaign') return null
     if (entityLevel === 'adgroup') {
       const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group })))
-      const all = rows.length > 0 && rows.every(({ group }) => selectedEntities.has(group.platformAdSetId))
+      const all = rows.length > 0 && rows.every(({ group }) => selectedEntities.has(String(String(group.platformAdSetId)))))
       return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[980px]">
-        <div className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ group }) => group.platformAdSetId)))} aria-label="Selecionar todos os conjuntos" className="size-3.5 accent-primary" /><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
+        <div className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ group }) => String(group.platformAdSetId)))))} aria-label="Selecionar todos os conjuntos" className="size-3.5 accent-primary" /><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
         {rows.map(({ campaign, group }) => <div key={group.platformAdSetId} className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/40 px-3 py-3 text-xs hover:bg-muted/20">
-          <input type="checkbox" checked={selectedEntities.has(group.platformAdSetId)} onChange={() => toggleEntitySelection(group.platformAdSetId)} aria-label={`Selecionar conjunto ${group.adSetName || group.platformAdSetId}`} className="size-3.5 accent-primary" />
+          <input type="checkbox" checked={selectedEntities.has(String(String(group.platformAdSetId))))} onChange={() => toggleEntitySelection(String(group.platformAdSetId))} aria-label={`Selecionar conjunto ${group.adSetName || group.platformAdSetId}`} className="size-3.5 accent-primary" />
           <div className="min-w-0"><p className="truncate font-semibold text-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="mt-0.5 text-muted-foreground">{group.ads?.length || 0} anúncio{(group.ads?.length || 0) === 1 ? '' : 's'} · controle independente</p></div>
-          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="conjunto" status={group.status} busy={busyId === group.platformAdSetId} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(group.platformAdSetId, group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
+          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle entityLabel="conjunto" status={group.status} busy={busyId === String(group.platformAdSetId)} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(String(group.platformAdSetId), group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
           <p className="text-right tabular-nums text-foreground">{group.budget?.amount != null ? fmtMoney(Number(group.budget.amount), campaign.currency || currency) : '—'}</p><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(group.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
         </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
       </div></div>
