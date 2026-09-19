@@ -862,8 +862,7 @@ async function findLeadsByContact(accountId, opts) {
 
 
 function purchasedAtSqlWindow(days) {
-  const safeDays = Math.max(1, Math.min(365, Math.round(Number(days) || 180)));
-  return safeDays;
+  return Math.max(1, Math.min(365, Math.round(Number(days) || 180)));
 }
 
 async function countPurchasedEmails(accountId, days) {
@@ -889,6 +888,7 @@ async function countPurchasedEmails(accountId, days) {
       SELECT COUNT(DISTINCT email)::int AS count
       FROM eligible
       WHERE purchased_at >= now() - make_interval(days => ${safeDays})
+        AND email ~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
     `;
     return Number(rows[0] && rows[0].count) || 0;
   } catch (err) {
@@ -921,7 +921,16 @@ async function listPurchasedEmails(accountId, days, limit) {
       SELECT DISTINCT email
       FROM eligible
       WHERE purchased_at >= now() - make_interval(days => ${safeDays})
-        AND email ~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+
+        AND email ~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
+      ORDER BY email
+      LIMIT ${safeLimit}
+    `;
+    return rows.map((row) => String(row && row.email || '').trim().toLowerCase()).filter(Boolean);
+  } catch (err) {
+    console.error('[db] listPurchasedEmails:', err.message);
+    return [];
+  }
+}
 async function insertEvent(accountId, evt) {
   if (!enabled || !evt || !evt.id) return;
   try {
