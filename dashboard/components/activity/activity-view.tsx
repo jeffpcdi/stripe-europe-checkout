@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertCircle,
   CheckCircle2,
@@ -88,12 +89,45 @@ function Summary({ label, value, tone = 'default' }: { label: string; value: num
   )
 }
 
+type ActivityFilter = 'all' | 'sale' | 'checkout' | 'visit' | 'failed' | 'refund' | 'dispute'
+
+const ACTIVITY_FILTERS: { value: ActivityFilter; label: string }[] = [
+  { value: 'all', label: 'Tudo' },
+  { value: 'sale', label: 'Vendas' },
+  { value: 'checkout', label: 'Checkouts' },
+  { value: 'visit', label: 'Visitas' },
+  { value: 'failed', label: 'Falhas' },
+  { value: 'refund', label: 'Reembolsos' },
+  { value: 'dispute', label: 'Contestações' },
+]
+
+function activityFilterFromQuery(value: string | null): ActivityFilter {
+  return ACTIVITY_FILTERS.some((item) => item.value === value) ? value as ActivityFilter : 'all'
+}
+
 export function ActivityView() {
   const { data, error, mutate, isLoading } = useStats()
   const { data: settings } = useAccountSettings()
   const { period } = useOverviewPeriod()
   const accountTimeZone = settings?.timezone || 'America/Sao_Paulo'
-  const [filter, setFilter] = useState('all')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requestedFilter = activityFilterFromQuery(searchParams.get('f'))
+  const [filter, setFilter] = useState<ActivityFilter>(requestedFilter)
+
+  useEffect(() => {
+    setFilter((current) => current === requestedFilter ? current : requestedFilter)
+  }, [requestedFilter])
+
+  function selectFilter(next: ActivityFilter) {
+    setFilter(next)
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'all') params.delete('f')
+    else params.set('f', next)
+    const query = params.toString()
+    router.replace(pathname + (query ? `?${query}` : ''), { scroll: false })
+  }
 
   const periodEvents = useMemo(() => {
     const now = new Date()
@@ -167,17 +201,11 @@ export function ActivityView() {
             <p className="mt-1 text-[11px] text-muted-foreground">Mostrando os registros mais recentes primeiro.</p>
           </div>
           <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-background/40 p-1">
-            {[
-              ['all', 'Tudo'],
-              ['sale', 'Vendas'],
-              ['checkout', 'Checkouts'],
-              ['visit', 'Visitas'],
-              ['failed', 'Falhas'],
-            ].map(([value, label]) => (
+            {ACTIVITY_FILTERS.map(({ value, label }) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setFilter(value)}
+                onClick={() => selectFilter(value)}
                 aria-pressed={filter === value}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filter === value ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
               >
