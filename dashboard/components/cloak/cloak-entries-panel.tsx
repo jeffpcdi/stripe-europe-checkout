@@ -185,7 +185,7 @@ export function CloakEntriesPanel() {
     }
   }
 
-  // Liga/desliga somente a proteção. A URL /c continua funcionando quando disabled.
+  // Liga/desliga somente a proteção da campanha; a URL pública continua existindo quando disabled.
   async function toggleEnabled(e: CloakEntry) {
     const next = !e.enabled
     const previous = data
@@ -439,7 +439,7 @@ export function CloakEntriesPanel() {
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nenhum link corresponde à busca.</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">Nenhuma campanha corresponde à busca.</p>
       ) : (
         <ul className="divide-y divide-border/60 border-y border-border/60">
           {visible.map((e) => {
@@ -671,10 +671,11 @@ export function CloakEntriesPanel() {
             setInitialDomain('')
           }}
           onSaved={(savedEntry) => {
+            const wasCreating = creating
             setCreating(false)
             setEditing(null)
             setInitialDomain('')
-            setPublishing(savedEntry)
+            if (wasCreating) setPublishing(savedEntry)
             mutate()
           }}
         />
