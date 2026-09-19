@@ -76,6 +76,12 @@ function defaults() {
       funMode: false,
       preferences: { sales: true, risks: true, automation: true }
     },
+    // Companion iOS nativo: token separado do token público/BI e dispositivos
+    // APNs registrados. O token pode ser rotacionado sem afetar planilhas.
+    companion: {
+      token: '',
+      devices: []
+    },
     // Custos usados pelo cálculo de lucro líquido. Valores exatos recebidos
     // no webhook sempre têm prioridade; estes defaults cobrem gateways que não
     // informam a tarifa/imposto por transação.
@@ -331,6 +337,23 @@ function prepareSet(accountId, patch) {
       automation: pref.automation !== false
     };
     next.webPush = wp;
+  }
+
+  // Companion iOS: token dedicado + poucos dispositivos APNs por conta.
+  {
+    const source = next.companion && typeof next.companion === 'object' ? next.companion : {};
+    const token = String(source.token || '').replace(/[^a-f0-9]/gi, '').slice(0, 96);
+    const devices = Array.isArray(source.devices) ? source.devices : [];
+    next.companion = {
+      token,
+      devices: devices.slice(0, 6).map((device) => ({
+        id: String(device && device.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
+        token: String(device && device.token || '').replace(/[^a-f0-9]/gi, '').slice(0, 200),
+        name: String(device && device.name || 'iPhone').slice(0, 60),
+        createdAt: String(device && device.createdAt || new Date().toISOString()).slice(0, 40),
+        updatedAt: String(device && device.updatedAt || new Date().toISOString()).slice(0, 40),
+      })).filter((device) => device.id && /^[a-f0-9]{64,200}$/i.test(device.token)),
+    };
   }
 
   // Custos do lucro líquido. Percentuais são sempre números positivos e os
