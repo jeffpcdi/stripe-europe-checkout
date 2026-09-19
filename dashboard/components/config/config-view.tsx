@@ -158,7 +158,7 @@ export function ConfigView() {
                   </span>
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">Cópia dos dados</h2>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Baixe links e configurações da conta em um único arquivo JSON.</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Baixe perfil, configurações, Links, Pixels, Checkouts, domínios, leads, eventos e auditoria em um único arquivo JSON.</p>
                   </div>
                 </div>
                 <a href="/api/account/export" download className="btn-secondary shrink-0 text-xs">
