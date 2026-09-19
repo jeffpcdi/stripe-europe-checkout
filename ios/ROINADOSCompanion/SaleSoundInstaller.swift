@@ -14,7 +14,7 @@ enum SaleSoundInstaller {
             let sounds = library.appending(path: "Sounds", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: sounds, withIntermediateDirectories: true)
             let destination = sounds.appending(path: fileName)
-            guard !FileManager.default.fileExists(atPath: destination.path()) else { return }
+            guard !FileManager.default.fileExists(atPath: destination.path) else { return }
             try buildSaleChime().write(to: destination, options: .atomic)
         } catch {
             // Som customizado é um refinamento; nunca bloqueia o companion.
