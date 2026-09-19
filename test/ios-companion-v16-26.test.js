@@ -49,6 +49,10 @@ const dailyPayload = JSON.parse(iosPush._payloadFor({
 }))
 assert.strictEqual(dailyPayload.aps['interruption-level'], 'passive', 'brief diário deve informar sem interromper')
 assert.strictEqual(dailyPayload.aps.sound, undefined, 'brief diário passivo não deve tocar som')
+const iosPushSource = fs.readFileSync(path.join(root, 'ios-push.js'), 'utf8')
+assert(iosPushSource.includes("event === 'daily' ? '5' : '10'"), 'APNs deve usar prioridade econômica no brief diário')
+assert(iosPushSource.includes("24 * 3600") && iosPushSource.includes("6 * 3600") && iosPushSource.includes("3600"), 'APNs deve manter TTL por severidade em vez de descartar offline')
+assert(iosPushSource.includes("'apns-collapse-id'"), 'notificações de status devem poder colapsar por tag')
 
 assert(server.includes("app.get('/api/v1/widget'"), 'backend deve expor snapshot agregado para WidgetKit')
 assert(server.includes("companionApiAccount(req) || publicApiAccount(req)"), 'widget deve aceitar token dedicado do companion')
@@ -59,6 +63,7 @@ assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do comp
 assert(server.includes("const title = 'Resumo de ontem · ' + revenueText"), 'relatório diário deve usar título executivo curto e factual')
 assert(server.includes('DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000') && server.includes('dailyReportBootCheck'), 'brief diário deve rodar por scheduler e não depender de tráfego')
 assert(server.includes("' · Ticket ' + aovText") && server.includes("'Atenção: ' + exception"), 'brief diário deve incluir ticket médio e exceção factual útil')
+assert(server.includes("'Próximo passo: ' + nextAction"), 'brief diário excepcional deve terminar com próxima ação operacional')
 assert(server.includes("NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation', 'reports']"), 'relatórios devem ter preferência nativa própria')
 assert(server.includes("new Intl.NumberFormat('pt-BR'"), 'brief diário deve formatar moeda para leitura humana')
 
@@ -85,6 +90,7 @@ assert(companionCard.includes('Confirmar renovação') && companionCard.includes
 assert(widgetSwift.includes('Receita, vendas, ROAS, lucro e tendência do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.accessoryRectangular') && widgetSwift.includes('.accessoryInline') && widgetSwift.includes('.accessoryCircular'), 'widget deve cobrir Tela de Início e superfícies úteis da Tela Bloqueada')
 assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
+assert(widgetSwift.includes('ÚLTIMA VENDA') && widgetSwift.includes('snapshot.lastSale'), 'widget médio deve mostrar a última venda sem poluir quando não há alerta')
 assert(widgetSwift.includes('.widgetURL(CompanionConfig.dashboardURL())'), 'toque no widget deve voltar ao ROI-NADOS')
 assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
