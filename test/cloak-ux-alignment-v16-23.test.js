@@ -55,8 +55,8 @@ assert.match(stats, /Os links de checkout não serão afetados/);
 
 const config = read('dashboard/components/cloak/cloak-config-panel.tsx');
 assert.match(config, /Proteção da conta/);
-assert.match(config, /Compatibilidade com o motor legado/);
-assert.match(config, /Modo global de observação/);
-assert.match(config, /Sensibilidade padrão \/ legado/);
+assert.match(config, /Proteção dos links de venda/);
+assert.match(config, /Observação das campanhas Cloaker/);
+assert.match(config, /Sensibilidade dos links de venda/);
 
 console.log('cloak-ux-alignment-v16-23: campaign-first UX e identidade por campaignId OK');
