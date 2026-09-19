@@ -23,7 +23,6 @@ export interface InsightAnomalyInput {
     drop: number
     lost: number
   } | null
-  sourceConcentration?: number | null
 }
 
 function pctDelta(current: number, previous: number | null | undefined): number | null {
@@ -146,16 +145,6 @@ export function buildInsightAnomalies(input: InsightAnomalyInput): InsightAnomal
     })
   }
 
-  if (input.sourceConcentration != null && input.sourceConcentration >= 70 && current.purchased >= 5) {
-    anomalies.push({
-      id: 'source-concentration',
-      severity: input.sourceConcentration >= 90 ? 'warning' : 'info',
-      title: 'Dependência de uma única origem',
-      detail: `A principal campanha concentra ${input.sourceConcentration.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% das compras entre as campanhas identificadas.`,
-      metric: `${input.sourceConcentration.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% na #1`,
-      href: '/insights?tab=campaigns',
-    })
-  }
 
   for (const action of health?.actions ?? []) {
     if (anomalies.some(item => item.id === `health-${action.id}`)) continue
