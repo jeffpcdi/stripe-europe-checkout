@@ -157,16 +157,15 @@ export function CommandPalette() {
                     data-active={i === active}
                     onMouseEnter={() => setActive(i)}
                     onClick={() => void runItem(item)}
-                    disabled={running}
                     className="cmdk-item flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left"
                   >
-                    {running && i === active ? <Loader2 className="size-4 shrink-0 animate-spin text-brand-cyan" aria-hidden="true" /> : <item.icon
+                    <item.icon
                       className={cn(
                         'size-4 shrink-0',
                         i === active ? 'text-brand-cyan' : 'text-muted-foreground',
                       )}
                       aria-hidden="true"
-                    />}
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm text-foreground">{item.label}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">
