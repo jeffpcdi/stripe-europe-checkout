@@ -1275,7 +1275,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (b.goal && b.goal !== 'conversions') return { error: 'ROI-NADOS cria somente campanhas de conversão' };
     const goal = 'conversions';
     const videoUrl = String(b.videoUrl || '').trim();
-    if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
+    const videoId = String(b.videoId || '').trim();
+    if (!videoId && !/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'Selecione um vídeo enviado ou um criativo sincronizado' };
+    if (videoId && !/^[a-zA-Z0-9_-]{3,160}$/.test(videoId)) return { error: 'videoId do criativo é inválido' };
     const budgetAmount = Number(b.budgetAmount);
     if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return { error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET };
     const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
@@ -1301,8 +1303,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       budgetOptimization,
       bidStrategy,
       bidAmount,
-      // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
-      imageUrl: videoUrl,
+      // URL local OU video_id já existente no TikTok.
+      imageUrl: videoUrl || undefined,
+      videoId: videoId || undefined,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
       linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
       callToAction: b.dynamicCallToAction === true ? undefined : (CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined),
@@ -1456,6 +1459,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         name: payload.name,
         goal: payload.goal,
         videoUrl: payload.imageUrl,
+        videoId: payload.videoId,
         budgetAmount: payload.budgetAmount,
         budgetType: payload.budgetType,
         budgetOptimization: payload.budgetOptimization,
@@ -3347,7 +3351,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ? await pipeboard.getOrCreateTikTokCtaPortfolio(env.accountId, p.adAccountId, ['SHOP_NOW', 'LEARN_MORE'])
         : null;
       const result = await pipeboard.createFullAd(p.adAccountId, {
-        name: p.name, goal: p.goal, videoUrl: p.imageUrl,
+        name: p.name, goal: p.goal, videoUrl: p.imageUrl, videoId: p.videoId,
         budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
         budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
@@ -3466,6 +3470,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           adAccountId: selected.advertiserId,
           name: it.name,
           videoUrl: it.videoUrl,
+          videoId: it.videoId,
           body: it.body !== undefined ? it.body : normalizedCommon.body,
           linkUrl: itemLinkUrl
         }));
