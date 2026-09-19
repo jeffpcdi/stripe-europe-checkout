@@ -52,7 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Visão geral',
     icon: LayoutDashboard,
     href: '/',
-    routes: ['/'],
+    routes: ['/', '/activity', '/funnel', '/geo', '/live'],
   },
   // Fase 3: grupo "Análises" (Funil + Atividade) removido da navegação — o
   // funil compacto e o ranking de campanhas agora vivem na Visão Geral. As
