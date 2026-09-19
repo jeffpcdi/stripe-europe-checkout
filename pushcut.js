@@ -41,7 +41,7 @@ function nativeGroup(event) {
 }
 
 function nativePreferenceEnabled(accountId, event) {
-  if (event === 'test' || event === 'daily') return true;
+  if (event === 'test') return true;
   if (event === 'daily') {
     const cfg = accountConfig(accountId);
     return cfg.settings?.dailyReportEnabled === true || cfg.pushcut?.events?.daily === true;
