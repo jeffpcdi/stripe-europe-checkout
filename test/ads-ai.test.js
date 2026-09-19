@@ -128,10 +128,15 @@ function day(d, spend, impressions, clicks, conversions) {
   // garante caminho sem IA (rationale vazio): remove todas as credenciais que habilitam IA
   delete process.env.ANTHROPIC_API_KEY;
 
-  const camp = (id, name, budget, spend, status = 'active') => ({
-    platformCampaignId: id, name, status, budget, budgetMode: 'daily',
+  const camp = (id, name, budget, spend, status = 'active', extra = {}) => ({
+    platformCampaignId: id,
+    campaignName: name,
+    status,
+    budgetOwner: budget > 0 ? 'campaign' : 'adgroup',
+    budget: budget > 0 ? { amount: budget, type: 'daily' } : null,
     metrics: { spend, impressions: 10000, clicks: 100, conversions: 5 },
     adSets: [],
+    ...extra,
   });
 
   (async () => {
@@ -158,7 +163,7 @@ function day(d, spend, impressions, clicks, conversions) {
     const total = p.changes.reduce((a, c) => a + c.proposed, 0) +
       (p.unchanged || []).reduce((a, u) => {
         const orig = treeCampaigns.find((c) => c.platformCampaignId === u.id);
-        return a + (orig ? orig.budget : 0);
+        return a + (orig && orig.budget ? Number(orig.budget.amount) || 0 : 0);
       }, 0);
     ok(total <= p.totalBudget + 0.01, 'teto global respeitado (realocar nunca aumenta o total)');
     for (const ch of p.changes) {
@@ -183,6 +188,50 @@ function day(d, spend, impressions, clicks, conversions) {
     const p3 = await adsAi.budgetProposal('acc1', 'adv1', 'USD');
     eq((p3.excluded || []).length, 2, 'pausada + sem budget são excluídas');
     ok(p3.excluded.every((e) => e.reason), 'exclusões têm motivo legível');
+
+    // Learning Guardian também vale para o allocator: campanha jovem não vira
+    // doadora/vencedora enquanto ainda está abaixo dos marcos de estabilização.
+    adsAi.init({
+      cache: {
+        readTree: async (_accId, _advertiserId, range) => {
+          lastReadRange = range;
+          return { campaigns: treeCampaigns };
+        },
+        readAdvertiserTotals: async () => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0 }),
+        readDailySeries: async () => [],
+        listBriefings: async () => [],
+        upsertBriefing: async () => true,
+      },
+      computeAttribution: (...args) => {
+        lastAttributionArgs = args;
+        return { byCampaign: leadsByCampaign, unattributed: { revenueCents: 0, sales: 0 } };
+      },
+      resolveAdvertiserTimeZone: async () => 'America/New_York',
+      campaignLearningState: (campaign) => ({
+        protected: campaign.createdAt === 'young',
+        ageDays: campaign.createdAt === 'young' ? 2 : 10,
+        results: Number(campaign.metrics && campaign.metrics.conversions) || 0,
+        reason: campaign.createdAt === 'young' ? 'aprendizado protegido' : '',
+      }),
+      getRules: () => [],
+      getRulesLog: () => [],
+      sendPushcut: async () => {},
+    });
+    treeCampaigns = [
+      camp('1111111111', 'Madura A', 100, 200, 'active', { createdAt: 'mature' }),
+      camp('2222222222', 'Madura B', 100, 200, 'active', { createdAt: 'mature' }),
+      camp('3333333333', 'Jovem', 100, 200, 'active', { createdAt: 'young' }),
+    ];
+    leadsByCampaign = {
+      1111111111: { revenueCents: 80000, sales: 4 },
+      2222222222: { revenueCents: 20000, sales: 2 },
+      3333333333: { revenueCents: 200000, sales: 8 },
+    };
+    const p4 = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7);
+    ok((p4.excluded || []).some((item) => item.id === '3333333333' && /Learning Guardian/.test(item.reason)), 'allocator exclui campanha protegida do aprendizado');
+    ok(!(p4.changes || []).some((item) => item.campaignId === '3333333333'), 'campanha protegida não recebe nem doa orçamento');
+    ok((p4.changes || []).every((item) => item.name), 'proposal usa campaignName real da árvore');
+    eq(p4.totalBudget, 200, 'total do allocator soma budget.amount apenas das campanhas elegíveis');
 
     // enabled() false sem a chave
     eq(adsAi.enabled(), false, 'enabled() false sem credenciais de IA');
