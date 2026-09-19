@@ -38,6 +38,7 @@ import type {
   AdsRoasResponse,
   AdsProfitabilityResponse,
   AdsLibraryResponse,
+  AdsCloudVideoResponse,
   AdsAlertsConfig,
   AdsAttributionResponse,
   AdsCampaignDecisionsResponse,
@@ -47,6 +48,7 @@ import type {
   AdsOpsJobsResponse,
   AdsSafetyPolicyResponse,
   AdsHealthResponse,
+  AdsDestinationHealthResponse,
   AdsCatalogsResponse,
   AdsCatalogDetailResponse,
   AdsCatalogIdentitiesResponse,
@@ -65,6 +67,7 @@ import type {
   AdsBudgetProposal,
   AdsCatalogCapabilitiesResponse,
   AdsCustomAudience,
+  AdsCustomerAudiencePreview,
   CopilotEvent,
 } from './types'
 import { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } from './catalog-run-polling'
@@ -498,6 +501,15 @@ export function useAdsLibrary(active: boolean) {
   })
 }
 
+export function useAdsCloudVideo(active: boolean) {
+  return useSWR<AdsCloudVideoResponse>(active ? '/api/ads/cloud-video' : null, fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 30_000,
+    keepPreviousData: true,
+    shouldRetryOnError: false,
+  })
+}
+
 // Config de alertas de performance da conta.
 export function useAdsAlerts(active: boolean, adAccountId = '') {
   const key = active && adAccountId ? `/api/ads/alerts?adAccountId=${encodeURIComponent(adAccountId)}` : null
@@ -718,6 +730,18 @@ export function useAdsHealth(active: boolean) {
   })
 }
 
+export function useAdsDestinationHealth(active: boolean, adAccountId: string) {
+  const key = active && adAccountId
+    ? `/api/ads/destinations/health?adAccountId=${encodeURIComponent(adAccountId)}`
+    : null
+  return useSWR<AdsDestinationHealthResponse>(key, fetcher, {
+    refreshInterval: 5 * 60_000,
+    revalidateOnFocus: true,
+    keepPreviousData: false,
+    shouldRetryOnError: false,
+  })
+}
+
 // Política de segurança da conta (dry-run, kill switch, tetos). Ativa na
 // view inteira: alimenta o badge "modo simulação" e o editor.
 export function useAdsSafetyPolicy(active: boolean) {
@@ -860,6 +884,8 @@ export function useAdsTikTokPixels(active: boolean, adAccountId: string) {
     pixels: AdsTikTokPixel[]
     binding: import('./types').AdsPixelBinding | null
     ready: boolean
+    capiReady: boolean
+    localPixelSlug: string | null
     needsChoice: boolean
   }>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/pixels', adAccountId) : null,
@@ -926,6 +952,15 @@ export function useAdsCustomAudiences(active: boolean, adAccountId?: string | nu
     active && adAccountId ? `/api/ads/audiences?adAccountId=${encodeURIComponent(adAccountId)}` : null,
     fetcher,
     { revalidateOnFocus: false, dedupingInterval: 30_000 }
+  )
+}
+
+
+export function useAdsCustomerAudiencePreview(active: boolean, adAccountId?: string | null) {
+  return useSWR<AdsCustomerAudiencePreview>(
+    active && adAccountId ? `/api/ads/audiences/customer-file/preview?adAccountId=${encodeURIComponent(adAccountId)}` : null,
+    fetcher,
+    { revalidateOnFocus: true, dedupingInterval: 60_000, keepPreviousData: false, shouldRetryOnError: false },
   )
 }
 

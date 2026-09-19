@@ -1,0 +1,356 @@
+'use client'
+
+import Link from 'next/link'
+import { useRef, useState } from 'react'
+import { ArrowUpRight, Download, Loader2, Scale } from 'lucide-react'
+import type { AdsCampaignDecisionsResponse, AdsTreeCampaign, AdsTreeResponse } from '@/lib/types'
+import { formatMoney } from '@/lib/format'
+import { GlassCard } from '@/components/glass-card'
+import { Skeleton } from '@/components/skeleton'
+import { toast } from '@/lib/toast'
+import { ApiError, apiSend, useAdsBudgetProposal } from '@/lib/api'
+
+
+function dailyBudget(campaign: AdsTreeCampaign): number | null {
+  if (campaign.budgetOwner === 'campaign') {
+    return campaign.budget?.type === 'daily' && Number(campaign.budget.amount) > 0 ? Number(campaign.budget.amount) : null
+  }
+  const budgets = (campaign.adSets ?? [])
+    .map(adSet => adSet.budget)
+    .filter(budget => budget?.type === 'daily' && Number(budget.amount) > 0)
+    .map(budget => Number(budget?.amount) || 0)
+  if (!budgets.length) return null
+  return budgets.reduce((sum, value) => sum + value, 0)
+}
+
+function dayProgress(timeZone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date())
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+    const minutes = Number(values.hour || 0) * 60 + Number(values.minute || 0)
+    return Math.max(0.05, Math.min(1, minutes / 1440))
+  } catch {
+    return 0.5
+  }
+}
+
+function pacingView(spend: number | null, budget: number | null, timeZone: string) {
+  if (spend == null || budget == null || budget <= 0) return null
+  const consumed = (spend / budget) * 100
+  const expected = dayProgress(timeZone) * 100
+  const gap = consumed - expected
+  if (gap >= 20) return { label: 'Acima do ritmo', tone: 'text-warning', consumed }
+  if (gap <= -20) return { label: 'Abaixo do ritmo', tone: 'text-muted-foreground', consumed }
+  return { label: 'No ritmo', tone: 'text-success', consumed }
+}
+
+function learningState(campaign: AdsTreeCampaign) {
+  const effectiveStatus = String(campaign.childStatus || campaign.status || '').toLowerCase()
+  if (effectiveStatus !== 'active' && effectiveStatus !== 'enable') return null
+  const raw = campaign.createdAt || (campaign as AdsTreeCampaign & { createTime?: string; created_at?: string }).createTime || (campaign as AdsTreeCampaign & { created_at?: string }).created_at
+  if (!raw) return null
+  const created = new Date(raw)
+  if (!Number.isFinite(created.getTime())) return null
+  const ageDays = Math.max(0, (Date.now() - created.getTime()) / 86400000)
+  if (ageDays >= 7) return null
+  return { ageDays }
+}
+
+function statusLabel(status?: string) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'active' || value === 'enable') return 'Ativa'
+  if (value === 'paused' || value === 'disable') return 'Pausada'
+  if (value === 'pending_review') return 'Em revisão'
+  if (value === 'rejected') return 'Reprovada'
+  if (value === 'completed') return 'Concluída'
+  return status || '—'
+}
+
+function statusClass(status?: string) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'active' || value === 'enable') return 'text-success'
+  if (value === 'rejected' || value === 'error') return 'text-destructive'
+  if (value === 'pending_review') return 'text-warning'
+  return 'text-muted-foreground'
+}
+
+export function InsightsCampaignsPanel({
+  connected,
+  tree,
+  decisions,
+  pacingTree,
+  currency,
+  timeZone,
+  advertiserId,
+  fromDate,
+  toDate,
+  loading,
+  onChanged,
+}: {
+  connected: boolean
+  tree?: AdsTreeResponse
+  decisions?: AdsCampaignDecisionsResponse
+  pacingTree?: AdsTreeResponse
+  currency: string
+  timeZone: string
+  advertiserId: string
+  fromDate: string
+  toDate: string
+  loading: boolean
+  onChanged?: () => void | Promise<void>
+}) {
+  const [exporting, setExporting] = useState(false)
+  const [allocatorOpen, setAllocatorOpen] = useState(false)
+  const [applyingAllocator, setApplyingAllocator] = useState(false)
+  const allocatorAttemptRef = useRef<{ signature: string; key: string } | null>(null)
+  const { data: allocator, error: allocatorError, isLoading: allocatorLoading, mutate: mutateAllocator } = useAdsBudgetProposal(
+    allocatorOpen && connected,
+    advertiserId,
+    currency,
+    7,
+  )
+  if (!connected) {
+    return (
+      <GlassCard className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
+        <p className="text-sm font-semibold text-foreground">TikTok Ads não conectado</p>
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">Conecte a conta para cruzar gasto, receita, CPA e ROAS por campanha.</p>
+        <Link href="/ads/tiktok" className="btn-ghost mt-4 text-xs">Abrir TikTok Ads <ArrowUpRight className="size-3.5" /></Link>
+      </GlassCard>
+    )
+  }
+
+  if (loading && !tree) {
+    return <Skeleton className="h-80 rounded-2xl" />
+  }
+
+  const todayByCampaign = new Map((pacingTree?.campaigns ?? []).map(campaign => [String(campaign.platformCampaignId || ''), campaign]))
+
+
+  async function applyAllocator() {
+    if (!advertiserId || applyingAllocator || !allocator?.changes?.length) return
+    setApplyingAllocator(true)
+    try {
+      const signature = JSON.stringify({
+        advertiserId,
+        currency,
+        days: 7,
+        changes: allocator.changes.map(change => ({
+          campaignId: change.campaignId,
+          current: change.current,
+          proposed: change.proposed,
+        })),
+      })
+      if (!allocatorAttemptRef.current || allocatorAttemptRef.current.signature !== signature) {
+        allocatorAttemptRef.current = {
+          signature,
+          key: `profit-allocator:${advertiserId}:${crypto.randomUUID()}`,
+        }
+      }
+      const result = await apiSend<{ dryRun?: boolean; updated?: number }>(
+        '/api/ads/budget/proposal/apply',
+        'POST',
+        {
+          adAccountId: advertiserId,
+          currency,
+          days: 7,
+          idempotencyKey: allocatorAttemptRef.current.key,
+        },
+      )
+      if (result.dryRun) toast.info('Simulação concluída. Nenhum orçamento foi alterado.')
+      else toast.success('Orçamento redistribuído', { hint: `${result.updated || allocator.changes.length} campanha(s) atualizada(s).` })
+      await mutateAllocator()
+      await onChanged?.()
+    } catch (error) {
+      // Se o backend confirmou rollback completo, a operação anterior terminou
+      // sem mutação residual e uma nova tentativa pode ganhar outra chave.
+      // Falha ambígua/rollback parcial preserva a chave para impedir replay.
+      if (error instanceof ApiError
+        && error.code === 'BUDGET_ALLOCATOR_ROLLED_BACK'
+        && error.retryable === true) {
+        allocatorAttemptRef.current = null
+      }
+      toast.error('Não foi possível aplicar o plano', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setApplyingAllocator(false)
+    }
+  }
+
+  async function exportCsv() {
+    if (!advertiserId || exporting) return
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({
+        adAccountId: advertiserId,
+        fromDate,
+        toDate,
+      })
+      const response = await fetch('/api/ads/reports/export?' + params.toString(), { credentials: 'include' })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string; message?: string }
+        throw new Error(body.error || body.message || 'Não foi possível gerar o relatório')
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get('content-disposition') || ''
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'roi-nados-tiktok-campanhas.csv'
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Relatório exportado')
+    } catch (error) {
+      toast.error('Não foi possível exportar', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const rows = (tree?.campaigns ?? []).map(campaign => {
+    const id = String(campaign.platformCampaignId || '')
+    const spend = typeof campaign.metrics?.spend === 'number' ? campaign.metrics.spend : null
+    const decision = decisions?.byCampaign?.[id]
+    const sales = decision ? Number(decision.sales) || 0 : null
+    const revenueCents = decision ? Number(decision.revenueCents) || 0 : null
+    const decisionCurrency = String(decision?.currency || campaign.currency || currency || 'BRL').toUpperCase()
+    const spendCurrency = String(campaign.currency || currency || decisionCurrency).toUpperCase()
+    const comparable = decisionCurrency === spendCurrency
+    const cpa = sales != null && sales > 0 && spend != null ? spend / sales : null
+    const roas = revenueCents != null && spend != null && spend > 0 && comparable ? (revenueCents / 100) / spend : null
+    const todayCampaign = todayByCampaign.get(id)
+    const todaySpend = typeof todayCampaign?.metrics?.spend === 'number' ? todayCampaign.metrics.spend : null
+    const budget = dailyBudget(campaign)
+    const pacing = pacingView(todaySpend, budget, timeZone)
+    const learning = learningState(campaign)
+
+    return {
+      id,
+      name: campaign.campaignName || id,
+      status: campaign.childStatus || campaign.status,
+      spend,
+      spendCurrency,
+      sales,
+      revenueCents,
+      decisionCurrency,
+      cpa,
+      roas,
+      pacing,
+      learning,
+    }
+  }).sort((a, b) => (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || (b.spend ?? -1) - (a.spend ?? -1))
+
+  return (
+    <GlassCard className="overflow-hidden">
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-[15px] font-semibold text-foreground">Campanhas</h2>
+        <div className="flex flex-wrap items-center gap-1">
+          <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={!rows.length} onClick={() => setAllocatorOpen(value => !value)}>
+            <Scale className="size-3.5" aria-hidden="true" />
+            Redistribuir
+          </button>
+          <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={exporting || !rows.length} onClick={() => void exportCsv()}>
+            {exporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Download className="size-3.5" aria-hidden="true" />}
+            Exportar
+          </button>
+          <Link href="/ads/tiktok" className="inline-flex h-9 items-center gap-1 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+            TikTok Ads <ArrowUpRight className="size-3.5" />
+          </Link>
+        </div>
+      </div>
+
+      {allocatorOpen ? (
+        <div className="border-t border-border/60 bg-secondary/[0.04] px-5 py-4">
+          {allocatorLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Calculando distribuição…</div>
+          ) : allocatorError ? (
+            <p className="text-xs text-muted-foreground">Não foi possível calcular uma realocação agora.</p>
+          ) : allocator?.insufficient ? (
+            <p className="text-xs text-muted-foreground">São necessárias pelo menos duas campanhas ativas, elegíveis e fora do aprendizado protegido.</p>
+          ) : allocator?.noChange ? (
+            <p className="text-xs text-muted-foreground">{allocator.message || 'A distribuição atual já está equilibrada.'}</p>
+          ) : allocator?.changes?.length ? (
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-xs font-semibold text-foreground">Profit Allocator · 7 dias</p>
+                  <span className="text-[11px] text-muted-foreground">{allocator.changes.length} ajuste(s) · sem aumentar o total</span>
+                </div>
+                {allocator.rationale ? <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">{allocator.rationale}</p> : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {allocator.changes.slice(0, 5).map(change => (
+                    <span key={change.campaignId} className="rounded-lg border border-border/60 bg-background/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                      <strong className="font-medium text-foreground">{change.name}</strong>
+                      {' · '}
+                      {formatMoney(Math.round(change.current * 100), allocator.currency || currency)}
+                      {' → '}
+                      {formatMoney(Math.round(change.proposed * 100), allocator.currency || currency)}
+                    </span>
+                  ))}
+                  {allocator.changes.length > 5 ? <span className="px-1 py-1.5 text-[11px] text-muted-foreground">+{allocator.changes.length - 5}</span> : null}
+                </div>
+              </div>
+              <button type="button" className="btn-primary h-10 shrink-0 text-xs" disabled={applyingAllocator} onClick={() => void applyAllocator()}>
+                {applyingAllocator && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+                Aplicar plano
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {rows.length ? (
+        <div className="overflow-x-auto border-t border-border/60">
+          <table className="w-full min-w-[920px] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
+                <th className="px-5 py-3">Campanha</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Gasto</th>
+                <th className="px-4 py-3 text-right">Receita</th>
+                <th className="px-4 py-3 text-right">Compras</th>
+                <th className="px-4 py-3 text-right">CPA</th>
+                <th className="px-4 py-3 text-right">ROAS</th>
+                <th className="px-5 py-3">Ritmo hoje</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 20).map(row => (
+                <tr key={row.id || row.name} className="border-b border-border/40 last:border-0 hover:bg-secondary/10">
+                  <td className="max-w-[320px] px-5 py-3.5">
+                    <span className="block truncate text-[13px] font-medium text-foreground" title={row.name}>{row.name}</span>
+                    {row.learning ? <span className="mt-0.5 block text-[11px] text-muted-foreground">Learning Guardian · fase inicial</span> : null}
+                  </td>
+                  <td className={`px-4 py-3.5 text-xs font-medium ${statusClass(row.status)}`}>{statusLabel(row.status)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.spend == null ? '—' : formatMoney(Math.round(row.spend * 100), row.spendCurrency)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground" data-private="true">{row.revenueCents == null ? '—' : formatMoney(row.revenueCents, row.decisionCurrency)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.sales == null ? '—' : row.sales.toLocaleString('pt-BR')}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.cpa == null ? '—' : formatMoney(Math.round(row.cpa * 100), row.spendCurrency)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs font-semibold tabular-nums text-brand-cyan">{row.roas == null ? '—' : `${row.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`}</td>
+                  <td className="px-5 py-3.5">
+                    {row.pacing ? (
+                      <span>
+                        <span className={`block text-xs font-semibold ${row.pacing.tone}`}>{row.pacing.label}</span>
+                        <span className="mt-0.5 block text-[11px] tabular-nums text-muted-foreground">{row.pacing.consumed.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do orçamento diário</span>
+                      </span>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="border-t border-border/60 px-5 py-12 text-center text-sm text-muted-foreground">
+          Nenhuma campanha encontrada no período.
+        </div>
+      )}
+    </GlassCard>
+  )
+}

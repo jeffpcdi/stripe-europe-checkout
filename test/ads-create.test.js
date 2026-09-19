@@ -10,6 +10,19 @@ const path = require('path');
 // do módulo e chama pipeboard.callTool em runtime, então o patch pega tudo
 // (inclusive getAdvertiserInfo/setCampaignStatus internos).
 const mcp = require('../pipeboard-mcp');
+const config = require('../config');
+const testConfig = new Map();
+let durableConfigWrites = 0;
+config.get = (accountId) => testConfig.get(String(accountId || '')) || {};
+config.setDurable = async (accountId, patch) => {
+  durableConfigWrites += 1;
+  const key = String(accountId || '');
+  const current = testConfig.get(key) || {};
+  const resolved = typeof patch === 'function' ? patch({ ...current }) : (patch || {});
+  const next = { ...current, ...resolved };
+  testConfig.set(key, next);
+  return next;
+};
 const toolCalls = [];
 let failOn = null; // nome de tool que deve falhar (simula erro do TikTok)
 const responses = {
@@ -25,7 +38,10 @@ const responses = {
   create_tiktok_campaign: () => ({ campaign_id: '111' }),
   create_tiktok_adgroup: () => ({ adgroup_id: '222' }),
   upload_tiktok_video: () => ({ video_id: 'v_1', displayable: true }),
+  get_tiktok_video_info: (args) => ({ videos: [{ video_id: String(args.video_ids && args.video_ids[0] || 'v_1'), displayable: true }] }),
   create_tiktok_ad: () => ({ ad_id: '333' }),
+  create_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1' }),
+  get_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1', call_to_actions: ['SHOP_NOW', 'LEARN_MORE'] }),
   update_tiktok_ad_status: () => ({ ok: true }),
   update_tiktok_campaign_status: () => ({ ok: true }),
 };
@@ -86,6 +102,58 @@ const baseSpec = {
     assert.ok(out.warnings.some((w) => /PAUSED/.test(w)), 'warning avisa que ficou pausado');
   }
 
+  // ── vídeo já sincronizado: valida e reutiliza sem reupload ────────────────
+  {
+    resetCalls();
+    const out = await provider.createFullAd('adv1', { ...baseSpec, videoUrl: undefined, videoId: 'cloud_video_123' });
+    assert.strictEqual(out.videoId, 'cloud_video_123');
+    assert.strictEqual(callsTo('upload_tiktok_video').length, 0, 'asset sincronizado não é enviado novamente');
+    assert.strictEqual(callsTo('get_tiktok_video_info').length, 1, 'videoId é validado antes da criação');
+    const idxCheck = toolCalls.findIndex((call) => call.name === 'get_tiktok_video_info');
+    const idxCampaign = toolCalls.findIndex((call) => call.name === 'create_tiktok_campaign');
+    assert.ok(idxCheck >= 0 && idxCheck < idxCampaign, 'asset é validado antes de qualquer estrutura TikTok');
+    assert.strictEqual(callsTo('create_tiktok_ad')[0].args.video_id, 'cloud_video_123');
+  }
+
+  // ── CTA dinâmico: portfolio verificado + call_to_action_id exclusivo ──────
+  {
+    resetCalls();
+    durableConfigWrites = 0;
+    testConfig.delete('tenant-cta-test');
+    const portfolio = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
+    assert.strictEqual(portfolio.id, 'cta_auto_1');
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'portfolio é criado uma vez');
+    assert.strictEqual(callsTo('get_tiktok_cta_portfolio').length, 1, 'portfolio é verificado antes do uso');
+    assert.strictEqual(durableConfigWrites, 1, 'ID remoto só é considerado pronto após persistência durável');
+    assert.strictEqual(testConfig.get('tenant-cta-test').pipeboardAds.ctaPortfolios['adv1|SHOP_NOW,LEARN_MORE'].id, 'cta_auto_1');
+
+    const reused = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
+    assert.strictEqual(reused.id, 'cta_auto_1');
+    assert.strictEqual(reused.reused, true);
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'segunda criação reutiliza o ID persistido');
+    assert.strictEqual(durableConfigWrites, 1, 'reuso não regrava configuração sem necessidade');
+
+    resetCalls();
+    await provider.createFullAd('adv1', { ...baseSpec, callToAction: 'SHOP_NOW', callToActionId: 'cta_auto_1' });
+    const dynamicAd = callsTo('create_tiktok_ad')[0].args;
+    assert.strictEqual(dynamicAd.call_to_action_id, 'cta_auto_1');
+    assert.strictEqual(dynamicAd.call_to_action, undefined, 'CTA dinâmica nunca é enviada junto com CTA fixa');
+  }
+
+  // ── CTA dinâmico concorrente: um portfolio para todo o lote ───────────────
+  {
+    resetCalls();
+    durableConfigWrites = 0;
+    testConfig.delete('tenant-cta-race');
+    const portfolios = await Promise.all(Array.from({ length: 8 }, () =>
+      provider.getOrCreateTikTokCtaPortfolio('tenant-cta-race', 'adv1', ['SHOP_NOW', 'LEARN_MORE'])
+    ));
+    assert.ok(portfolios.every((portfolio) => portfolio.id === 'cta_auto_1'));
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'concorrência cria um único portfolio remoto');
+    assert.strictEqual(callsTo('get_tiktok_cta_portfolio').length, 1, 'portfolio remoto é verificado uma única vez');
+    assert.strictEqual(durableConfigWrites, 1, 'portfolio concorrente é persistido uma única vez');
+  }
+
   // ── status active: liga o anúncio só no FIM da composição ─────────────────
   {
     resetCalls();
@@ -117,6 +185,7 @@ const baseSpec = {
   // ── validações ANTES de qualquer tool call (zero órfãos) ───────────────────
   {
     resetCalls();
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, videoUrl: undefined, videoId: undefined }), /videoUrl HTTPS ou videoId/i, 'sem fonte de criativo falha cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetAmount: 49.99 }), /orçamento mínimo/i, 'orçamento abaixo de 50 é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /não suportado/, 'objetivo fora de conversão é rejeitado');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
@@ -180,6 +249,16 @@ const baseSpec = {
     assert.match(createRoute, /killSwitchActive/, 'kill switch continua na rota');
     assert.match(createRoute, /isDryRun/, 'dry-run continua na rota');
     assert.match(createRoute, /status: 'paused'/, 'rota cria SEMPRE em paused');
+    assert.match(routes, /getOrCreateTikTokCtaPortfolio/, 'rota resolve portfolio de CTA dinâmico fora do browser');
+    assert.match(routes, /dynamicCallToAction/, 'contrato aceita CTA automática sem expor call_to_action_id ao cliente');
+    assert.match(routes, /videoId: payload\.videoId/, 'criação unitária preserva videoId sincronizado');
+    assert.match(routes, /videoId: p\.videoId/, 'worker de lote preserva videoId sincronizado');
+    assert.match(routes, /videoId: it\.videoId/, 'entrada do lote aceita videoId sincronizado');
+    const buildStart = routes.indexOf('function buildCreatePayload');
+    const buildEnd = routes.indexOf('async function prepareManualCampaign', buildStart);
+    const buildCreatePayloadSource = routes.slice(buildStart, buildEnd);
+    assert.match(buildCreatePayloadSource, /const parsedLink = new URL\(rawLinkUrl\)/, 'destino é parseado como URL real antes do preflight');
+    assert.match(buildCreatePayloadSource, /parsedLink\.protocol !== 'https:'/, 'backend exige HTTPS depois do parse, não só por regex');
   }
 
   console.log('ads-create (F1): todos os testes passaram');

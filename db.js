@@ -860,6 +860,76 @@ async function findLeadsByContact(accountId, opts) {
   } catch (err) { console.error('[db] findLeadsByContact:', err.message); return []; }
 }
 
+function purchasedAtSqlWindow(days) {
+  return Math.max(1, Math.min(365, Math.round(Number(days) || 180)));
+}
+
+async function countPurchasedEmails(accountId, days) {
+  if (!enabled || !accountId) return 0;
+  const safeDays = purchasedAtSqlWindow(days);
+  try {
+    const rows = await sql`
+      WITH eligible AS (
+        SELECT lower(trim(data->>'email')) AS email,
+          CASE
+            WHEN COALESCE(data->>'purchasedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+              THEN (data->>'purchasedAt')::timestamptz
+            WHEN COALESCE(data->>'convertedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+              THEN (data->>'convertedAt')::timestamptz
+            ELSE created_at
+          END AS purchased_at
+        FROM leads
+        WHERE account_id = ${accountId}
+          AND stage = 'purchased'
+          AND orphan = false
+          AND NULLIF(trim(data->>'email'), '') IS NOT NULL
+      )
+      SELECT COUNT(DISTINCT email)::int AS count
+      FROM eligible
+      WHERE purchased_at >= now() - make_interval(days => ${safeDays})
+        AND email ~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
+    `;
+    return Number(rows[0] && rows[0].count) || 0;
+  } catch (err) {
+    console.error('[db] countPurchasedEmails:', err.message);
+    return 0;
+  }
+}
+
+async function listPurchasedEmails(accountId, days, limit) {
+  if (!enabled || !accountId) return [];
+  const safeDays = purchasedAtSqlWindow(days);
+  const safeLimit = Math.max(1000, Math.min(250000, Math.round(Number(limit) || 250000)));
+  try {
+    const rows = await sql`
+      WITH eligible AS (
+        SELECT lower(trim(data->>'email')) AS email,
+          CASE
+            WHEN COALESCE(data->>'purchasedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+              THEN (data->>'purchasedAt')::timestamptz
+            WHEN COALESCE(data->>'convertedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+              THEN (data->>'convertedAt')::timestamptz
+            ELSE created_at
+          END AS purchased_at
+        FROM leads
+        WHERE account_id = ${accountId}
+          AND stage = 'purchased'
+          AND orphan = false
+          AND NULLIF(trim(data->>'email'), '') IS NOT NULL
+      )
+      SELECT DISTINCT email
+      FROM eligible
+      WHERE purchased_at >= now() - make_interval(days => ${safeDays})
+        AND email ~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
+      ORDER BY email
+      LIMIT ${safeLimit}
+    `;
+    return rows.map((row) => String(row && row.email || '').trim().toLowerCase()).filter(Boolean);
+  } catch (err) {
+    console.error('[db] listPurchasedEmails:', err.message);
+    return [];
+  }
+}
 async function insertEvent(accountId, evt) {
   if (!enabled || !evt || !evt.id) return;
   try {
@@ -2163,6 +2233,8 @@ module.exports = {
   // dados por conta
   upsertLead,
   findLeadsByContact,
+  countPurchasedEmails,
+  listPurchasedEmails,
   insertEvent,
   archiveOldEvents,
   aggregateDaily,

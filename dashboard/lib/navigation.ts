@@ -9,6 +9,7 @@ import {
   Megaphone,
   Bell,
   ShieldCheck,
+  BrainCircuit,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -18,6 +19,7 @@ export type ViewId =
   | 'activity'
   | 'funnel'
   | 'geo'
+  | 'insights'
   | 'links'
   | 'conversions'
   | 'pixels'
@@ -63,6 +65,20 @@ export const NAV_GROUPS: NavGroup[] = [
   // rotas /funnel e /activity CONTINUAM acessíveis por link direto (drill-down
   // dos KPIs/feed apontam para elas); apenas saíram das pills/menu.
   {
+    id: 'insights',
+    label: 'Insights',
+    icon: BrainCircuit,
+    href: '/insights',
+    routes: ['/insights'],
+    tabs: [
+      { label: 'Visão', href: '/insights' },
+      { label: 'Campanhas', href: '/insights?tab=campaigns' },
+      { label: 'Criativos', href: '/insights?tab=creatives' },
+      { label: 'Funil', href: '/insights?tab=funnel' },
+      { label: 'Diagnóstico', href: '/insights?tab=diagnosis' },
+    ],
+  },
+  {
     id: 'tracking',
     label: 'Rastreamento',
     icon: Target,
@@ -103,6 +119,7 @@ export function activeGroup(pathname: string): NavGroup {
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: 'Operação', items: [
     { id: 'overview', label: 'Visão geral', description: 'Resultados e visitantes online', icon: LayoutDashboard, href: '/' },
+    { id: 'insights', label: 'Insights', description: 'Performance, campanhas e diagnóstico', icon: BrainCircuit, href: '/insights' },
     { id: 'ads', label: 'TikTok Ads', description: 'Campanhas e automações', icon: Megaphone, href: '/ads/tiktok' },
   ] },
   { title: 'Rastreamento', items: [

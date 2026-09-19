@@ -19,7 +19,7 @@ redis.saveBreakerSamples = async () => true;
 automation._internals.actionOutcomes.clear();
 automation._internals.breakerHydrated.clear();
 automation._internals.breakerLastAt.clear();
-const calls = { status: [], budget: [], upserts: [], deletes: [] };
+const calls = { status: [], budget: [], upserts: [], deletes: [], proposals: [] };
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
 provider.getAdvertiserInfo = async () => ({ id: 'adv1', timezone: 'UTC' });
@@ -38,6 +38,11 @@ cache.getSyncState = async () => null;
 let policyOverride = { dryRun: false };
 adsOps.getSafetyPolicy = async () => adsOps.normalizePolicy(policyOverride);
 adsOps.appendAuditEvent = async () => ({ id: 'audit_test' });
+adsOps.createRuleProposal = async (accId, input) => {
+  const row = { id: 'proposal_' + (calls.proposals.length + 1), accId, ...input };
+  calls.proposals.push(row);
+  return row;
+};
 // Contador durável de ações/hora: por padrão zero (sem histórico). Testes do
 // cap sobrescrevem para simular ações já feitas na janela.
 let recentActions = 0;
@@ -61,7 +66,7 @@ function campaign(over = {}) {
     adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }],
   }, over);
 }
-function resetCalls() { calls.status.length = 0; calls.budget.length = 0; calls.upserts.length = 0; calls.deletes.length = 0; }
+function resetCalls() { calls.status.length = 0; calls.budget.length = 0; calls.upserts.length = 0; calls.deletes.length = 0; calls.proposals.length = 0; }
 function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
 function configureRules(accId, rules, advertiserId = 'adv1') {
   const profile = automation.getAutomationProfile(accId, advertiserId);
@@ -187,6 +192,53 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(thirteen.length, 12, 'máximo de 12 regras (13ª é cortada)');
   }
 
+  // ── Learning Guardian também exclui campanhas da autocura ───────────────
+  {
+    const { planSelfHealing } = automation._internals
+    const rule = {
+      threshold: 2,
+      minSales: 2,
+      budgetUtilizationPct: 85,
+      minSpend: 20,
+      donorRoasMax: 0.8,
+      pct: 20,
+      budgetCap: 100,
+    }
+    const oldWinner = campaign({
+      platformCampaignId: 'winner-old',
+      createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      metrics: { spend: 45, conversions: 5, impressions: 5000, clicks: 120 },
+    })
+    const youngWinner = campaign({
+      platformCampaignId: 'winner-young',
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      metrics: { spend: 45, conversions: 5, impressions: 5000, clicks: 120 },
+    })
+    const donor = campaign({
+      platformCampaignId: 'donor-old',
+      createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      metrics: { spend: 30, conversions: 0, impressions: 4000, clicks: 60 },
+    })
+    const oldAttribution = {
+      byCampaign: {
+        'winner-old': { revenueCents: 10000, sales: 5 },
+        'donor-old': { revenueCents: 0, sales: 0 },
+      },
+    }
+    assert.ok(planSelfHealing([oldWinner, donor], oldAttribution, rule, 20), 'autocura continua disponível entre campanhas maduras')
+    const youngAttribution = {
+      byCampaign: {
+        'winner-young': { revenueCents: 10000, sales: 5 },
+        'donor-old': { revenueCents: 0, sales: 0 },
+      },
+    }
+    assert.strictEqual(
+      planSelfHealing([youngWinner, donor], youngAttribution, rule, 20),
+      null,
+      'campanha em aprendizado não participa da transferência automática',
+    )
+  }
+
   // ── dayparting: janela normal / cruzando meia-noite / dias ────────────────
   {
     const { scheduleActiveNow } = automation._internals;
@@ -202,6 +254,85 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(scheduleActiveNow({ timezone: 'UTC', days: [4], startTime: '22:00', endTime: '02:00' }, after), false, '01:00 não pertence à janela de quinta (ainda não começou)');
     // fuso: 12:00 UTC = 13:00 em Lisboa (verão) — janela 12:30–14:00 Lisboa pega
     assert.strictEqual(scheduleActiveNow({ timezone: 'Europe/Lisbon', days: [0, 1, 2, 3, 4, 5, 6], startTime: '12:30', endTime: '14:00' }, base), true, 'conversão de fuso aplicada');
+  }
+
+  // ── Learning Guardian: autonomia vira proposta enquanto aprende ───────────
+  {
+    const pureRecent = automation.campaignLearningState(campaign({
+      createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 4, impressions: 2000, clicks: 40 },
+    }));
+    assert.strictEqual(pureRecent.protected, true, '2 dias + 4 resultados fica protegido');
+    assert.strictEqual(
+      automation.campaignLearningState(campaign({
+        createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+        metrics: { spend: 20, conversions: 25, impressions: 2000, clicks: 40 },
+      })).protected,
+      false,
+      '25 resultados libera a proteção mesmo antes de 7 dias',
+    );
+    assert.strictEqual(
+      automation.campaignLearningState(
+        campaign({
+          createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+          metrics: { spend: 20, conversions: 25, impressions: 2000, clicks: 40 },
+        }),
+        new Date(),
+        { resultsReliable: false },
+      ).protected,
+      true,
+      '25 conversões de uma janela parcial não fingem saída do aprendizado',
+    );
+    assert.strictEqual(
+      automation.campaignLearningState(campaign({
+        createdAt: new Date(Date.now() - 8 * 864e5).toISOString(),
+        metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+      })).protected,
+      false,
+      'após 7 dias a automação volta ao modo configurado',
+    );
+
+    const acc = 'acc_learning_guard';
+    configureRules(acc, [{
+      id: 'learn-pause',
+      enabled: true,
+      metric: 'spend_no_conv',
+      threshold: 10,
+      lookbackDays: 1,
+      action: 'pause',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({
+      createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    let out = await automation.runRulesSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.status.length, 0, 'Learning Guardian não pausa automaticamente');
+    assert.strictEqual(calls.proposals.length, 1, 'ação vira proposta para aprovação');
+    assert.strictEqual(out.executed[0].proposed, true);
+    assert.match(out.executed[0].result, /Learning Guardian/);
+    assert.match(calls.proposals[0].detail, /aprendizado protegido/);
+
+    const matureAcc = 'acc_learning_mature';
+    configureRules(matureAcc, [{
+      id: 'mature-pause',
+      enabled: true,
+      metric: 'spend_no_conv',
+      threshold: 10,
+      lookbackDays: 1,
+      action: 'pause',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(matureAcc);
+    treeCampaigns = [campaign({
+      createdAt: new Date(Date.now() - 8 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    out = await automation.runRulesSweep(matureAcc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.proposals.length, 0, 'campanha madura não é desviada para proposta');
+    assert.strictEqual(calls.status.length, 1, 'campanha madura executa a regra configurada');
+    assert.strictEqual(calls.status[0].status, 'paused');
   }
 
   // ── ctr_min: guarda de impressões mínimas ─────────────────────────────────
@@ -407,6 +538,36 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(out.executed.length, 1, 'agendamento registra a intenção');
     assert.strictEqual(out.executed[0].proposed, true, 'intenção marcada como proposta');
     assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s1:c-proposal')), 'autoria da pausa só nasce após aprovação real');
+  }
+
+  // ── Learning Guardian também protege pausas automáticas do dayparting ────
+  {
+    const acc = 'acc_sched_learning_guardian';
+    const now = new Date();
+    const notToday = (now.getUTCDay() + 3) % 7;
+    configureRules(acc, [{
+      id: 's-learning',
+      enabled: true,
+      metric: 'schedule',
+      days: [notToday],
+      startTime: '03:00',
+      endTime: '03:01',
+      timezone: 'UTC',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({
+      platformCampaignId: 'c-learning-schedule',
+      status: 'active',
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      metrics: { spend: 30, conversions: 4, impressions: 4000, clicks: 80 },
+    })];
+    const out = await automation.runScheduleSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.status.length, 0, 'Learning Guardian não deixa o dayparting pausar a campanha jovem');
+    assert.strictEqual(out.executed.length, 1, 'pausa agendada vira uma proposta observável');
+    assert.strictEqual(out.executed[0].proposed, true, 'pausa protegida fica aguardando aprovação');
+    assert.match(out.executed[0].result, /Learning Guardian/);
+    assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s-learning:c-learning-schedule')), 'proposta não grava autoria de pausa antes da aprovação');
   }
 
   // ── agendas conflitantes: pausa sempre vence reativação ──────────────────

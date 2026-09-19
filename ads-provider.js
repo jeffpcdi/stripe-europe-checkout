@@ -19,6 +19,7 @@
 
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
+const redisMod = require('./redis');
 const net = require('net');
 const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 const { TIKTOK_PIXEL_EVENTS } = require('./catalog/catalog-domain');
@@ -676,6 +677,79 @@ async function getInsights(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate
   throw new Error('Limite de paginação de métricas atingido; sincronização incompleta');
 }
 
+
+function reportDateChunks(startDate, endDate, maxDays = 30) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(startDate || '')) ? new Date(String(startDate) + 'T00:00:00Z') : null;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(String(endDate || '')) ? new Date(String(endDate) + 'T00:00:00Z') : null;
+  if (!start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) {
+    throw badRequest('Período do relatório é inválido');
+  }
+  const chunks = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(
+      end.getTime(),
+      cursor.getTime() + (Math.max(1, maxDays) - 1) * 86400000,
+    ));
+    chunks.push({
+      startDate: cursor.toISOString().slice(0, 10),
+      endDate: chunkEnd.toISOString().slice(0, 10),
+    });
+    cursor = new Date(chunkEnd.getTime() + 86400000);
+    if (chunks.length > 24) throw badRequest('Período do relatório é amplo demais');
+  }
+  return chunks;
+}
+
+async function getIntegratedReport(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate, endDate } = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const dimension = (LEVEL_DEFAULT_DIMENSION[level] || [])[0];
+  if (!dimension || !['AUCTION_CAMPAIGN', 'AUCTION_AD'].includes(level)) {
+    throw badRequest('Nível de relatório não suportado');
+  }
+
+  const aggregate = new Map();
+  const chunks = reportDateChunks(startDate, endDate, 30);
+  for (const chunk of chunks) {
+    const rawRows = await listAllPages(
+      'get_tiktok_integrated_report',
+      {
+        advertiser_id: adv,
+        report_type: 'BASIC',
+        data_level: level,
+        dimensions: [dimension],
+        metrics: ['spend', 'impressions', 'clicks', 'ctr', 'cpc', 'cpm', 'conversion', 'cost_per_conversion'],
+        start_date: chunk.startDate,
+        end_date: chunk.endDate,
+      },
+      ['list', 'rows', 'metrics', 'data'],
+      { pageSize: 100 },
+    );
+    for (const raw of rawRows) {
+      const row = mapInsightRow(raw);
+      const id = String((row.dimensions || {})[dimension] || '').trim();
+      if (!id) continue;
+      const current = aggregate.get(id) || { id, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+      current.spend += row.spend;
+      current.impressions += row.impressions;
+      current.clicks += row.clicks;
+      current.conversions += row.conversions;
+      aggregate.set(id, current);
+    }
+  }
+
+  const rows = [...aggregate.values()].map((row) => ({
+    ...row,
+    ctr: row.impressions ? row.clicks / row.impressions : 0,
+    cpc: row.clicks ? row.spend / row.clicks : 0,
+    cpm: row.impressions ? (row.spend / row.impressions) * 1000 : 0,
+    cpa: row.conversions ? row.spend / row.conversions : 0,
+  })).sort((a, b) => b.spend - a.spend);
+
+  return { level, startDate, endDate, rows, chunks: chunks.length };
+}
+
 // ── Árvore no SHAPE do dashboard (contrato do frontend) ──────────────────────
 // O frontend (AdsTreeResponse em dashboard/lib/types.ts) espera:
 //   campaign: { platformCampaignId, campaignName, status(AdsNodeStatus),
@@ -853,6 +927,7 @@ async function getDashboardTree(accountId, opts = {}) {
         // pelo ads-sync). O motor de automação usa este campo para rotear a ação
         // de status ao provider certo e pular ajustes de orçamento no Smart+.
         campaignKind: 'auction',
+        createdAt: c.createTime || undefined,
         budgetOwner,
         budgetOptimizeOn: c.budgetOptimizeOn,
         platformCampaignStatus: platformStatus,
@@ -1340,6 +1415,190 @@ async function listTikTokPixels(advertiserId) {
   return out;
 }
 
+
+async function createTikTokPixel(advertiserId, input = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(input.name || input.pixelName || 'ROI-NADOS — Vendas').trim().slice(0, 128);
+  if (!name) throw badRequest('Nome do Pixel é obrigatório');
+
+  // Repetição segura da ação principal da UI: se um Pixel com o mesmo nome já
+  // existe na conta, reutiliza e vincula em vez de criar uma cópia.
+  const existing = (await listTikTokPixels(adv)).find(
+    (pixel) => String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+  );
+  if (existing) return { pixel: existing, reused: true, raw: null };
+
+  const raw = await pipeboard.callTool('create_tiktok_pixel', {
+    advertiser_id: adv,
+    pixel_name: name,
+  });
+
+  cacheBust('pixels:' + adv);
+
+  const rawId = textField(
+    deepPluck(raw, 'pixel_id'),
+    deepPluck(raw, 'id'),
+  );
+  const rawCode = textField(
+    deepPluck(raw, 'pixel_code'),
+    deepPluck(raw, 'code'),
+  );
+  const rawStatus = textField(
+    deepPluck(raw, 'pixel_status'),
+    deepPluck(raw, 'status'),
+  );
+
+  if (/^\d{5,30}$/.test(rawId)) {
+    // O ID pode propagar antes do pixel_code. Uma releitura barata evita criar
+    // um espelho local incompleto e mandar o usuário para um fluxo sem código.
+    if (!rawCode) {
+      cacheBust('pixels:' + adv);
+      const refreshed = (await listTikTokPixels(adv)).find(
+        (pixel) => pixel.id === rawId || String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+      );
+      if (refreshed) return { reused: false, raw, pixel: refreshed };
+    }
+    return {
+      reused: false,
+      raw,
+      pixel: {
+        id: rawId,
+        code: rawCode,
+        name,
+        status: rawStatus || 'UNKNOWN',
+        purchaseCount: 0,
+      },
+    };
+  }
+
+  // Algumas versões do conector confirmam a criação sem devolver o id no
+  // payload. Reconsulta a lista depois de invalidar o cache e confirma pelo
+  // mesmo nome antes de permitir outra tentativa.
+  const confirmed = (await listTikTokPixels(adv)).find(
+    (pixel) => String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+  );
+  if (confirmed) return { pixel: confirmed, reused: false, raw };
+
+  const err = badRequest(
+    'O TikTok recebeu a criação do Pixel, mas ainda não confirmou o identificador.',
+    502,
+  );
+  err.code = 'PIXEL_CREATE_NOT_CONFIRMED';
+  err.userMessage = 'A criação ainda está sendo confirmada pelo TikTok. Atualize a tela antes de tentar novamente para evitar duplicidade.';
+  throw err;
+}
+
+
+const DYNAMIC_CTA_DEFAULTS = ['SHOP_NOW', 'LEARN_MORE'];
+const ctaPortfolioInflight = new Map();
+
+function readCtaPortfolio(accountId, key, actions) {
+  const state = getState(accountId);
+  const stored = state.ctaPortfolios && typeof state.ctaPortfolios === 'object' ? state.ctaPortfolios : {};
+  const existing = stored[key];
+  if (!existing || !String(existing.id || '').trim()) return null;
+  return { id: String(existing.id), actions, reused: true };
+}
+
+async function waitForCtaPortfolio(accountId, key, actions, timeoutMs) {
+  const deadline = Date.now() + Math.max(500, Number(timeoutMs) || 6000);
+  while (Date.now() < deadline) {
+    const existing = readCtaPortfolio(accountId, key, actions);
+    if (existing) return existing;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
+}
+
+async function createTikTokCtaPortfolioLocked(acc, adv, actions, key) {
+  const leaseName = ['cta-portfolio', acc.slice(0, 80), adv.slice(0, 80), actions.join('-')].join(':');
+  const lease = await redisMod.acquireLease(leaseName, 90);
+
+  if (!lease || lease.acquired !== true) {
+    if (lease && lease.reason === 'busy') {
+      const waited = await waitForCtaPortfolio(acc, key, actions, 8000);
+      if (waited) return waited;
+    }
+    const err = badRequest('CTA automático está sendo preparado. Tente novamente em instantes.', 503);
+    err.code = 'DYNAMIC_CTA_LOCK_UNAVAILABLE';
+    err.retryable = true;
+    throw err;
+  }
+
+  try {
+    // Outra instância pode ter concluído entre a primeira leitura e o lease.
+    const existing = readCtaPortfolio(acc, key, actions);
+    if (existing) return existing;
+
+    const raw = await pipeboard.callTool('create_tiktok_cta_portfolio', {
+      advertiser_id: adv,
+      call_to_actions: actions,
+    });
+    const id = textField(
+      deepPluck(raw, 'creative_portfolio_id'),
+      deepPluck(raw, 'call_to_action_id'),
+      deepPluck(raw, 'portfolio_id'),
+      deepPluck(raw, 'id'),
+    );
+    if (!id) {
+      const err = badRequest('O TikTok não confirmou o identificador do CTA automático.', 502);
+      err.code = 'DYNAMIC_CTA_CREATE_NOT_CONFIRMED';
+      throw err;
+    }
+
+    // Confirma o objeto remoto antes de persistir e antes de criar campanha.
+    await pipeboard.callTool('get_tiktok_cta_portfolio', {
+      advertiser_id: adv,
+      creative_portfolio_id: id,
+    });
+
+    const createdAt = new Date().toISOString();
+    await config.setDurable(acc, (latest) => {
+      const currentAds = latest && latest.pipeboardAds && typeof latest.pipeboardAds === 'object'
+        ? latest.pipeboardAds
+        : {};
+      const currentPortfolios = currentAds.ctaPortfolios && typeof currentAds.ctaPortfolios === 'object'
+        ? currentAds.ctaPortfolios
+        : {};
+      const merged = { ...currentPortfolios, [key]: { id, actions, createdAt } };
+      const entries = Object.entries(merged);
+      const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : merged;
+      return { pipeboardAds: { ...currentAds, ctaPortfolios: bounded } };
+    });
+    return { id, actions, reused: false };
+  } finally {
+    await redisMod.releaseLease(lease).catch(() => {});
+  }
+}
+
+async function getOrCreateTikTokCtaPortfolio(accountId, advertiserId, callToActions) {
+  const acc = String(accountId || '').trim();
+  const adv = String(advertiserId || '').trim();
+  if (!acc || !adv) throw badRequest('Conta e advertiser são obrigatórios para CTA automático');
+
+  const actions = [...new Set((Array.isArray(callToActions) && callToActions.length ? callToActions : DYNAMIC_CTA_DEFAULTS)
+    .map((value) => String(value || '').trim().toUpperCase())
+    .filter((value) => /^[A-Z_]{3,30}$/.test(value)))]
+    .slice(0, 5);
+  if (actions.length < 2) throw badRequest('CTA automático exige pelo menos duas opções válidas');
+
+  const key = adv + '|' + actions.join(',');
+  const existing = readCtaPortfolio(acc, key, actions);
+  if (existing) return existing;
+
+  const inflightKey = acc + '|' + key;
+  if (ctaPortfolioInflight.has(inflightKey)) return ctaPortfolioInflight.get(inflightKey);
+
+  const task = createTikTokCtaPortfolioLocked(acc, adv, actions, key);
+  ctaPortfolioInflight.set(inflightKey, task);
+  try {
+    return await task;
+  } finally {
+    if (ctaPortfolioInflight.get(inflightKey) === task) ctaPortfolioInflight.delete(inflightKey);
+  }
+}
+
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
 // de get_tiktok_identities. Para criação automática regular/Smart+/catálogo,
 // só BC_AUTH_TT é elegível: o schema atual do conector marca CUSTOMIZED_USER
@@ -1540,6 +1799,36 @@ async function uploadVideoAsset(advertiserId, videoUrl) {
   const createdIds = {};
   const videoId = await uploadVideoAndWait(String(advertiserId || ''), String(videoUrl || ''), createdIds);
   return { videoId, displayable: true };
+}
+
+async function verifyReusableVideoAsset(advertiserId, videoId) {
+  const adv = String(advertiserId || '').trim();
+  const id = String(videoId || '').trim();
+  if (!adv || !/^[a-zA-Z0-9_-]{3,160}$/.test(id)) throw badRequest('videoId reutilizável é inválido');
+
+  let lastAsset = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const out = await pipeboard.callTool('get_tiktok_video_info', {
+      advertiser_id: adv,
+      video_ids: [id],
+      page: 1,
+      page_size: 10,
+    });
+    const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
+    const asset = inspectUploadedVideoAsset(rows, id);
+    lastAsset = asset;
+    if (asset.row && asset.displayable) return String(asset.row.video_id || asset.row.id || id);
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  const err = badRequest(
+    lastAsset && lastAsset.row
+      ? 'O criativo sincronizado ainda está sendo processado pelo TikTok.'
+      : 'O criativo sincronizado não está disponível nesta conta de anúncios.',
+    lastAsset && lastAsset.row ? 409 : 404,
+  );
+  err.code = lastAsset && lastAsset.row ? 'TIKTOK_VIDEO_NOT_READY' : 'TIKTOK_VIDEO_NOT_FOUND';
+  err.retryable = Boolean(lastAsset && lastAsset.row);
+  throw err;
 }
 
 function assetStepError(value, step, createdIds) {
@@ -1829,7 +2118,7 @@ async function findCampaignIdByName(advertiserId, name) {
 }
 
 // Orquestração completa. spec (já validado pela rota):
-//   { name, goal, videoUrl, budgetAmount, budgetType, endDate?, body?, linkUrl?,
+//   { name, goal, videoUrl?|videoId?, budgetAmount, budgetType, endDate?, body?, linkUrl?,
 //     callToAction?, countries?, languages?, ageMin?, ageMax?,
 //     promotedObject? { pixelId, customEventType }, status? 'paused'|'active' }
 // SEMPRE cria o anúncio PAUSED e só liga no fim se spec.status==='active' —
@@ -1908,6 +2197,11 @@ async function createFullAd(advertiserId, spec, opts) {
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
   const o = opts || {};
+  const requestedVideoUrl = String(s.videoUrl || '').trim();
+  const requestedVideoId = String(s.videoId || '').trim();
+  if (!requestedVideoId && !/^https:\/\/[^\s]+/.test(requestedVideoUrl)) {
+    throw badRequest('A criação exige videoUrl HTTPS ou videoId já existente no TikTok');
+  }
   const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const goal = GOAL_MAP[s.goal];
@@ -1940,10 +2234,14 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 
   // Pré-requisitos ANTES de criar qualquer coisa (falha barata, zero órfãos):
-  const [info, identity, regions] = await Promise.all([
+  const reusableVideoIdPromise = requestedVideoId
+    ? verifyReusableVideoAsset(adv, requestedVideoId)
+    : Promise.resolve('');
+  const [info, identity, regions, reusableVideoId] = await Promise.all([
     getAdvertiserInfo(adv),
     pickAdIdentity(adv),
     resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['PT']), goal.objective),
+    reusableVideoIdPromise,
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
 
@@ -2035,8 +2333,9 @@ async function createFullAd(advertiserId, spec, opts) {
     createdIds.adGroupId = adGroupId;
     await report({ ...createdIds });
 
-    // 3) Vídeo (URL pública do Blob → TikTok; dedupe por md5 no retry).
-    const videoId = String(resume.videoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    // 3) Vídeo. Assets já sincronizados reutilizam o video_id confirmado;
+    // uploads locais continuam usando URL pública + dedupe por md5.
+    const videoId = String(resume.videoId || reusableVideoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
     createdIds.videoId = videoId;
     await report({ ...createdIds });
 
@@ -2055,7 +2354,8 @@ async function createFullAd(advertiserId, spec, opts) {
     if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
     if (identity.darkPost) adArgs.dark_post_status = 'ON';
     if (s.linkUrl) adArgs.landing_page_url = String(s.linkUrl).slice(0, 500);
-    if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
+    if (s.callToActionId) adArgs.call_to_action_id = String(s.callToActionId);
+    else if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
     const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
     const adId = String(deepPluck(adOut, 'ad_id') || '');
     if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
@@ -3939,6 +4239,7 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
     return {
       platformCampaignId: campaign.campaignId,
       campaignName: campaign.name,
+      createdAt: campaign.createTime || undefined,
       status,
       childStatus,
       campaignKind: 'smart_plus',
@@ -4706,6 +5007,53 @@ async function deleteCustomAudiences(advertiserId, audienceIds) {
   return out;
 }
 
+
+async function shareCustomAudiences(advertiserId, audienceIds, sharedAdvertiserIds, sharedBcId) {
+  const adv = String(advertiserId || '').trim();
+  const ids = [...new Set((Array.isArray(audienceIds) ? audienceIds : [audienceIds]).filter(Boolean).map((id) => String(id).trim()).filter(Boolean))];
+  const recipients = [...new Set((Array.isArray(sharedAdvertiserIds) ? sharedAdvertiserIds : [sharedAdvertiserIds]).filter(Boolean).map((id) => String(id).trim()).filter(Boolean))]
+    .filter((id) => id !== adv);
+  if (!adv || !ids.length || !recipients.length) throw badRequest('Público e conta de destino são obrigatórios');
+
+  const args = {
+    advertiser_id: adv,
+    custom_audience_ids: ids,
+    shared_advertiser_ids: recipients,
+  };
+  const bc = String(sharedBcId || '').trim();
+  if (bc) args.shared_bc_id = bc;
+
+  const out = await pipeboard.callTool('share_tiktok_custom_audience', args);
+  cacheBust('audiences:' + adv);
+  recipients.forEach((id) => cacheBust('audiences:' + id));
+  return out;
+}
+
+
+async function uploadCustomerFileAudience(advertiserId, input = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(input.name || '').trim().slice(0, 128);
+  if (!name) throw badRequest('Nome do público é obrigatório');
+  const retention = Math.max(1, Math.min(365, Math.round(Number(input.retentionDays) || 180)));
+  const fileContent = String(input.fileContent || '');
+  if (!fileContent.startsWith('Email_SHA256\n')) throw badRequest('Arquivo de audiência inválido');
+  const entries = fileContent.split('\n').slice(1).filter(Boolean);
+  if (entries.length < 1000) throw badRequest('O TikTok exige pelo menos 1.000 identificadores no arquivo de clientes');
+  if (entries.length > 250000) throw badRequest('A base excede o limite seguro desta versão');
+
+  const out = await pipeboard.callTool('upload_tiktok_customer_file_audience', {
+    advertiser_id: adv,
+    custom_audience_name: name,
+    file_content: fileContent,
+    file_name: 'roi-nados-buyers.csv',
+    calculate_type: 'EMAIL_SHA256',
+    retention_in_days: retention,
+  }, { timeoutMs: 120000 });
+  cacheBust('audiences:' + adv);
+  return out;
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -4724,6 +5072,8 @@ module.exports = {
   createCustomAudience,
   createLookalikeAudience,
   deleteCustomAudiences,
+  shareCustomAudiences,
+  uploadCustomerFileAudience,
   // árvore
   getCampaigns,
   getAdGroups,
@@ -4732,6 +5082,7 @@ module.exports = {
   getDashboardTree,
   // insights
   getInsights,
+  getIntegratedReport,
   // escrita (Gate 4)
   setCampaignStatus,
   setAdGroupStatus,
@@ -4772,6 +5123,8 @@ module.exports = {
   // direcionamento (leitura p/ a criação)
   listInterestCategories,
   listTikTokPixels,
+  createTikTokPixel,
+  getOrCreateTikTokCtaPortfolio,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAdGroups,
@@ -4791,5 +5144,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, reportDateChunks, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
 };

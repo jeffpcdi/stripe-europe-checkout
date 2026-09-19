@@ -81,6 +81,20 @@ export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
 
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const cloudResult = url.searchParams.get('cloudVideo')
+    if (!cloudResult) return
+    if (cloudResult === 'connected') {
+      toast.success('Nuvem conectada', { hint: 'Abra a Biblioteca de criativos para configurar a pasta e ativar a sincronização.' })
+    } else {
+      toast.error('Não foi possível conectar a nuvem', { hint: url.searchParams.get('message') || undefined })
+    }
+    url.searchParams.delete('cloudVideo')
+    url.searchParams.delete('message')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
+
   // Pipeboard não tem Business Center — as contas vêm direto do token.
   const { data: accounts, mutate: mutateAccounts, error: accountsError, isLoading: accountsLoading } = useAdsAccounts(connected)
 
@@ -298,6 +312,14 @@ export function TikTokAdsView() {
 
   const [audiencesOpen, setAudiencesOpen] = useState(false)
   const [launcherOpen, setLauncherOpen] = useState(false)
+  const [creativeDraft, setCreativeDraft] = useState<{
+    body?: string
+    prefix?: string
+    linkUrl?: string
+    videoId?: string
+    videoUrl?: string
+    videoName?: string
+  } | null>(null)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [smartPlusOpen, setSmartPlusOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
@@ -310,6 +332,24 @@ export function TikTokAdsView() {
   const [confirmAccountSwitch, setConfirmAccountSwitch] = useState(false)
   const [switchingAccount, setSwitchingAccount] = useState(false)
   const hasAutomationDraft = automationDirty || magicOpsDirty
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('create') !== '1') return
+    let draft: { body?: string; prefix?: string; linkUrl?: string; videoId?: string; videoUrl?: string; videoName?: string; createdAt?: number } | null = null
+    try {
+      const raw = sessionStorage.getItem('roi:ads:creative-draft')
+      if (raw) {
+        const parsed = JSON.parse(raw) as { body?: string; prefix?: string; linkUrl?: string; videoId?: string; videoUrl?: string; videoName?: string; createdAt?: number }
+        if (!parsed.createdAt || Date.now() - parsed.createdAt < 30 * 60 * 1000) draft = parsed
+        sessionStorage.removeItem('roi:ads:creative-draft')
+      }
+    } catch {}
+    setCreativeDraft(draft)
+    setLauncherOpen(true)
+    url.searchParams.delete('create')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
 
   function openOps(initialTab: 'jobs' | 'safety' = 'jobs') {
     setOpsInitialTab(initialTab)
@@ -876,12 +916,18 @@ export function TikTokAdsView() {
         </Tabs.Root>
       )}
 
-      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} onConfigurePixel={() => { setAudiencesOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }} />
+      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} accounts={accounts?.accounts ?? []} onConfigurePixel={() => { setAudiencesOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }} />
       {/* Fluxos de escrita */}
       <UniversalLauncherDialog key={`UniversalLauncherDialog:${concreteAdvertiser}`}
         open={launcherOpen}
-        onClose={() => setLauncherOpen(false)}
+        onClose={() => { setLauncherOpen(false); setCreativeDraft(null) }}
         advertiserId={concreteAdvertiser}
+        initialBody={creativeDraft?.body}
+        initialPrefix={creativeDraft?.prefix}
+        initialLinkUrl={creativeDraft?.linkUrl}
+        initialVideoId={creativeDraft?.videoId}
+        initialVideoUrl={creativeDraft?.videoUrl}
+        initialVideoName={creativeDraft?.videoName}
         currency={currency}
         onSuccess={() => { void refreshCampaignSurfaces() }}
         onSmartPlus={() => { setLauncherOpen(false); setSmartPlusOpen(true) }}

@@ -2,7 +2,7 @@
 // A. REGRA DE OURO — ads-ai.js não importa pipeboard-mcp/ads-provider (fonte)
 // B. detectAnomalies — z-score, mínimos anti-ruído, direção/severidade
 // C. validateProposedAction — schema, clamps, IDs contra o espelho
-// D. budgetProposal — guardas: teto global, mín. 2 vendas, ±30%, exclusões
+// D. budgetProposal — guardas: teto global, mín. 2 vendas, política, exclusões
 // Nenhum teste toca rede/Neon/IA: cache e atribuição são stubs.
 const assert = require('assert');
 require('./helpers/test-env').isolateUnitTest('ads-ai-');
@@ -27,6 +27,9 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); asserts += 1; };
   ok(/const scopeKey = String\(accId\) \+ '\|' \+ String\(advertiserId\)/.test(src), 'briefing diário é idempotente por conta + advertiser');
   ok(/listBriefings\(accId, advertiserId, 'daily'/.test(src), 'briefing diário consulta apenas o advertiser atual');
   ok(/listBriefings\(accId, advertiserId, 'creatives'/.test(src), 'insights criativos consultam apenas o advertiser atual');
+  ok(/campaignName: String\(c\.campaignName \|\| c\.name/.test(src), 'Creative DNA preserva o nome real da campanha');
+  ok(/body: String\(ad\.creative && ad\.creative\.body/.test(src), 'Creative DNA recebe a copy real do anúncio');
+  ok(/Não invente conteúdo visual, falas, áudio, hook, ângulo ou CTA/.test(src), 'prompt proíbe inferências criativas não observadas');
   console.log('A. regra de ouro (zero Pipeboard em ads-ai.js) OK');
 }
 
@@ -109,10 +112,10 @@ function day(d, spend, impressions, clicks, conversions) {
   ok(!adsAi.validateProposedAction({ type: 'pause', params: { campaignIds: many } }, null).ok, 'mais de 20 IDs rejeitado');
 
   // budget fora do intervalo → rejeita; dentro → passa com clamp de 2 casas
-  ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 3 } }, known).ok, 'budget < 5 rejeitado');
+  ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 30 } }, known).ok, 'budget abaixo do mínimo TikTok rejeitado');
   ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 20000 } }, known).ok, 'budget > 10000 rejeitado');
-  const v3 = adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 33.333 } }, known);
-  ok(v3.ok && v3.params.budget === 33.33, 'budget válido normalizado para 2 casas');
+  const v3 = adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 53.333 } }, known);
+  ok(v3.ok && v3.params.budget === 53.33, 'budget válido normalizado para 2 casas');
 
   // duplicate não existe mais (backend 501) → rejeita
   ok(!adsAi.validateProposedAction({ type: 'duplicate', params: { campaignId: '1111111111' } }, known).ok, 'duplicate não é mais um tipo válido');
@@ -128,10 +131,15 @@ function day(d, spend, impressions, clicks, conversions) {
   // garante caminho sem IA (rationale vazio): remove todas as credenciais que habilitam IA
   delete process.env.ANTHROPIC_API_KEY;
 
-  const camp = (id, name, budget, spend, status = 'active') => ({
-    platformCampaignId: id, name, status, budget, budgetMode: 'daily',
+  const camp = (id, name, budget, spend, status = 'active', extra = {}) => ({
+    platformCampaignId: id,
+    campaignName: name,
+    status,
+    budgetOwner: budget > 0 ? 'campaign' : 'adgroup',
+    budget: budget > 0 ? { amount: budget, type: 'daily' } : null,
     metrics: { spend, impressions: 10000, clicks: 100, conversions: 5 },
     adSets: [],
+    ...extra,
   });
 
   (async () => {
@@ -158,16 +166,35 @@ function day(d, spend, impressions, clicks, conversions) {
     const total = p.changes.reduce((a, c) => a + c.proposed, 0) +
       (p.unchanged || []).reduce((a, u) => {
         const orig = treeCampaigns.find((c) => c.platformCampaignId === u.id);
-        return a + (orig ? orig.budget : 0);
+        return a + (orig && orig.budget ? Number(orig.budget.amount) || 0 : 0);
       }, 0);
     ok(total <= p.totalBudget + 0.01, 'teto global respeitado (realocar nunca aumenta o total)');
     for (const ch of p.changes) {
       ok(ch.proposed >= ch.current * 0.7 - 0.01 && ch.proposed <= ch.current * 1.3 + 0.01, 'ajuste dentro de ±30%: ' + ch.name);
-      ok(ch.proposed >= 5, 'piso de 5 respeitado');
+      ok(ch.proposed >= 50, 'mínimo TikTok de 50 respeitado');
     }
     const winner = p.changes.find((c) => c.campaignId === '1111111111');
     if (winner) ok(winner.deltaPct > 0, 'vencedora (2+ vendas) recebe verba');
     eq(p.rationale, '', 'sem credenciais de IA o rationale fica vazio (proposta continua válida)');
+
+    const pPolicy = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7, 20);
+    ok((pPolicy.changes || []).every((change) => Math.abs(change.deltaPct) <= 20.01), 'allocator respeita maxBudgetChangePct da política');
+
+    // Doador já no piso: o filtro de microajustes nunca pode deixar um
+    // aumento sem corte correspondente. Antes, 100/50 podia retornar apenas
+    // o vencedor em +5,9%, transformando "realocação" em aumento líquido.
+    treeCampaigns = [
+      camp('1111111111', 'Vencedora no limite', 100, 100),
+      camp('2222222222', 'Doadora no mínimo', 50, 100),
+    ];
+    leadsByCampaign = {
+      1111111111: { revenueCents: 20000, sales: 2 }, // ROAS 2
+      2222222222: { revenueCents: 5000, sales: 2 },  // ROAS 0,5
+    };
+    const pFloor = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7, 30);
+    const appliedNet = (pFloor.changes || []).reduce((sum, change) => sum + (change.proposed - change.current), 0);
+    ok(appliedNet <= 0.01, 'allocator nunca aumenta o total aplicado quando doadores não têm verba cedível');
+    ok(pFloor.noChange || (pFloor.changes || []).some((change) => change.deltaPct < 0), 'aumento só existe quando há corte significativo correspondente');
 
     // Menos de 2 elegíveis → insufficient
     treeCampaigns = [camp('1111111111', 'Única', 100, 200)];
@@ -183,6 +210,50 @@ function day(d, spend, impressions, clicks, conversions) {
     const p3 = await adsAi.budgetProposal('acc1', 'adv1', 'USD');
     eq((p3.excluded || []).length, 2, 'pausada + sem budget são excluídas');
     ok(p3.excluded.every((e) => e.reason), 'exclusões têm motivo legível');
+
+    // Learning Guardian também vale para o allocator: campanha jovem não vira
+    // doadora/vencedora enquanto ainda está abaixo dos marcos de estabilização.
+    adsAi.init({
+      cache: {
+        readTree: async (_accId, _advertiserId, range) => {
+          lastReadRange = range;
+          return { campaigns: treeCampaigns };
+        },
+        readAdvertiserTotals: async () => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0 }),
+        readDailySeries: async () => [],
+        listBriefings: async () => [],
+        upsertBriefing: async () => true,
+      },
+      computeAttribution: (...args) => {
+        lastAttributionArgs = args;
+        return { byCampaign: leadsByCampaign, unattributed: { revenueCents: 0, sales: 0 } };
+      },
+      resolveAdvertiserTimeZone: async () => 'America/New_York',
+      campaignLearningState: (campaign) => ({
+        protected: campaign.createdAt === 'young',
+        ageDays: campaign.createdAt === 'young' ? 2 : 10,
+        results: Number(campaign.metrics && campaign.metrics.conversions) || 0,
+        reason: campaign.createdAt === 'young' ? 'aprendizado protegido' : '',
+      }),
+      getRules: () => [],
+      getRulesLog: () => [],
+      sendPushcut: async () => {},
+    });
+    treeCampaigns = [
+      camp('1111111111', 'Madura A', 100, 200, 'active', { createdAt: 'mature' }),
+      camp('2222222222', 'Madura B', 100, 200, 'active', { createdAt: 'mature' }),
+      camp('3333333333', 'Jovem', 100, 200, 'active', { createdAt: 'young' }),
+    ];
+    leadsByCampaign = {
+      1111111111: { revenueCents: 80000, sales: 4 },
+      2222222222: { revenueCents: 20000, sales: 2 },
+      3333333333: { revenueCents: 200000, sales: 8 },
+    };
+    const p4 = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7);
+    ok((p4.excluded || []).some((item) => item.id === '3333333333' && /Learning Guardian/.test(item.reason)), 'allocator exclui campanha protegida do aprendizado');
+    ok(!(p4.changes || []).some((item) => item.campaignId === '3333333333'), 'campanha protegida não recebe nem doa orçamento');
+    ok((p4.changes || []).every((item) => item.name), 'proposal usa campaignName real da árvore');
+    eq(p4.totalBudget, 200, 'total do allocator soma budget.amount apenas das campanhas elegíveis');
 
     // enabled() false sem a chave
     eq(adsAi.enabled(), false, 'enabled() false sem credenciais de IA');

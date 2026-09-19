@@ -4,9 +4,9 @@ import { useMemo, useRef, useState } from 'react'
 import { Loader2, RefreshCw, Trash2, X } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DialogPortal } from '@/components/ui/dialog-portal'
-import { apiSend, useAdsCustomAudiences, useAdsTikTokPixels } from '@/lib/api'
+import { apiSend, useAdsCustomAudiences, useAdsCustomerAudiencePreview, useAdsTikTokPixels } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsCustomAudience } from '@/lib/types'
+import type { AdsAdvertiser, AdsCustomAudience } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { defaultMarket, MarketSelector, type AdMarket } from './market-selector'
 
@@ -14,6 +14,7 @@ interface AudiencesDialogProps {
   open: boolean
   onClose: () => void
   advertiserId: string
+  accounts?: AdsAdvertiser[]
   onConfigurePixel?: () => void
 }
 
@@ -39,10 +40,11 @@ function formatSize(size: number) {
   return Number(size) > 0 ? `${Number(size).toLocaleString('pt-BR')} pessoas estimadas` : 'Tamanho ainda indisponível'
 }
 
-export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel }: AudiencesDialogProps) {
+export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], onConfigurePixel }: AudiencesDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { data, isLoading, mutate, error } = useAdsCustomAudiences(open, advertiserId)
   const { data: pixelState, isLoading: pixelLoading } = useAdsTikTokPixels(open && Boolean(advertiserId), advertiserId)
+  const { data: buyerPreview, mutate: mutateBuyerPreview } = useAdsCustomerAudiencePreview(open, advertiserId)
   const audiences = data?.audiences || []
   const availableSources = useMemo(() => audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE')), [audiences])
   const readyAudiences = audiences.filter(audience => audience.isValid).length
@@ -58,8 +60,15 @@ export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel 
   const [lookalikeType, setLookalikeType] = useState<'BALANCE' | 'SIMILARITY' | 'REACH'>('BALANCE')
   const [market, setMarket] = useState<AdMarket>(defaultMarket('BR'))
   const [creatingLookalike, setCreatingLookalike] = useState(false)
+  const [shareAudience, setShareAudience] = useState<AdsCustomAudience | null>(null)
+  const [shareTargetId, setShareTargetId] = useState('')
+  const [sharing, setSharing] = useState(false)
+  const [showBuyerAudience, setShowBuyerAudience] = useState(false)
+  const [buyerConsent, setBuyerConsent] = useState(false)
+  const [creatingBuyerAudience, setCreatingBuyerAudience] = useState(false)
+  const shareTargets = accounts.filter(account => String(account.id) !== String(advertiserId))
 
-  const busy = creatingPreset !== null || deletingId !== null || creatingLookalike
+  const busy = creatingPreset !== null || deletingId !== null || creatingLookalike || sharing || creatingBuyerAudience
   useModalA11y(open, ref, busy ? () => {} : onClose)
 
   if (!open) return null
@@ -114,6 +123,55 @@ export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel 
       toast.error('Não foi possível criar o público semelhante', { hint: err instanceof Error ? err.message : undefined })
     } finally {
       setCreatingLookalike(false)
+    }
+  }
+
+  async function handleShare() {
+    if (!shareAudience || !shareTargetId || sharing) return
+    setSharing(true)
+    try {
+      const result = await apiSend<{ dryRun?: boolean }>('/api/ads/audiences/share', 'POST', {
+        adAccountId: advertiserId,
+        audienceId: shareAudience.id,
+        sharedAdvertiserId: shareTargetId,
+      })
+      if (result.dryRun) toast.info('Simulação concluída. O público não foi compartilhado.')
+      else toast.success('Público compartilhado')
+      setShareAudience(null)
+      setShareTargetId('')
+    } catch (err) {
+      toast.error('Não foi possível compartilhar o público', { hint: err instanceof Error ? err.message : undefined })
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  async function handleCreateBuyerAudience() {
+    if (!buyerConsent || creatingBuyerAudience) return
+    setCreatingBuyerAudience(true)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; eligibleCount?: number }>('/api/ads/audiences/customer-file', 'POST', {
+        adAccountId: advertiserId,
+        confirm: true,
+        name: 'Compradores ROI-NADOS — 180 dias',
+      })
+      if (result.dryRun) {
+        toast.info('Simulação concluída. Nenhuma base foi enviada ao TikTok.')
+      } else {
+        toast.success('Base de compradores enviada', {
+          hint: 'O TikTok pode levar 24–48h para calcular e liberar a audiência.',
+        })
+        await mutate()
+      }
+      setShowBuyerAudience(false)
+      setBuyerConsent(false)
+      await mutateBuyerPreview()
+    } catch (err) {
+      toast.error('Não foi possível criar o público de compradores', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setCreatingBuyerAudience(false)
     }
   }
 
@@ -174,6 +232,29 @@ export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel 
                 </button>
               </div>)}
             </div>
+            {buyerPreview?.canCreate ? <div className="mt-3 rounded-xl border border-border/70 bg-secondary/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Base própria · 180 dias</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{buyerPreview.eligibleCount.toLocaleString('pt-BR')} compradores com e-mail elegível.</p>
+                </div>
+                <button type="button" className="btn-secondary min-h-10 shrink-0 text-xs" disabled={busy} onClick={() => { setShowBuyerAudience(value => !value); if (showBuyerAudience) setBuyerConsent(false) }}>
+                  {showBuyerAudience ? 'Recolher' : 'Criar público'}
+                </button>
+              </div>
+              {showBuyerAudience ? <div className="mt-3 border-t border-border/60 pt-3">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">Os e-mails são normalizados e transformados em SHA-256 no servidor antes do envio. Nenhum e-mail é exibido nesta tela.</p>
+                <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" className="mt-0.5 size-4" checked={buyerConsent} onChange={(event) => setBuyerConsent(event.target.checked)} disabled={creatingBuyerAudience} />
+                  <span>Confirmo que posso usar estes contatos para criar uma audiência no TikTok.</span>
+                </label>
+                <div className="mt-3 flex justify-end">
+                  <button type="button" className="btn-primary min-h-10 text-xs" disabled={!buyerConsent || creatingBuyerAudience} onClick={() => void handleCreateBuyerAudience()}>
+                    {creatingBuyerAudience && <Loader2 className="size-3.5 animate-spin" />}Enviar base
+                  </button>
+                </div>
+              </div> : null}
+            </div> : null}
           </section>
 
           <section className="border-b border-border/60 pb-5">
@@ -197,7 +278,23 @@ export function AudiencesDialog({ open, onClose, advertiserId, onConfigurePixel 
 
           <section>
             <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-foreground">Públicos da conta</h3><button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => mutate()} disabled={isLoading}><RefreshCw className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`} />Atualizar</button></div>
-            {isLoading && !data ? <p className="py-6 text-xs text-muted-foreground">Consultando públicos no TikTok Ads…</p> : error ? <div className="py-5"><p className="text-sm font-medium text-warning">Não foi possível carregar os públicos</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutate()}>Tentar novamente</button></div> : audiences.length === 0 ? <div className="py-7 text-center"><p className="text-sm font-medium text-foreground">Nenhum público criado</p><p className="mt-1 text-xs text-muted-foreground">Crie um público de remarketing acima ou gere um público semelhante quando houver uma origem pronta.</p></div> : <ul className="mt-2 divide-y divide-border/50 border-y border-border/60">{audiences.map((audience) => { const status = audienceStatus(audience); return <li key={audience.id} className="flex items-start gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{audience.name}</p><p className="mt-1 text-xs text-muted-foreground">{audienceTypeLabel(audience.type)} · {formatSize(audience.size)}</p></div><div className="flex shrink-0 items-center gap-2"><span className={`flex items-center gap-1.5 text-xs ${status.tone}`}><span className={`size-2 rounded-full ${status.dot}`} />{status.label}</span><button type="button" className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-error/10 hover:text-error" onClick={() => setConfirmDelete(audience)} disabled={busy}><Trash2 className="size-3.5" />Remover</button></div></li>})}</ul>}
+            {isLoading && !data ? <p className="py-6 text-xs text-muted-foreground">Consultando públicos no TikTok Ads…</p> : error ? <div className="py-5"><p className="text-sm font-medium text-warning">Não foi possível carregar os públicos</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutate()}>Tentar novamente</button></div> : audiences.length === 0 ? <div className="py-7 text-center"><p className="text-sm font-medium text-foreground">Nenhum público criado</p><p className="mt-1 text-xs text-muted-foreground">Crie um público de remarketing acima ou gere um público semelhante quando houver uma origem pronta.</p></div> : <ul className="mt-2 divide-y divide-border/50 border-y border-border/60">{audiences.map((audience) => { const status = audienceStatus(audience); return <li key={audience.id} className="flex items-start gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{audience.name}</p><p className="mt-1 text-xs text-muted-foreground">{audienceTypeLabel(audience.type)} · {formatSize(audience.size)}</p></div><div className="flex shrink-0 items-center gap-2"><span className={`flex items-center gap-1.5 text-xs ${status.tone}`}><span className={`size-2 rounded-full ${status.dot}`} />{status.label}</span>{shareTargets.length > 0 && !audience.type.toUpperCase().includes('BUSINESS_ACCOUNT') ? <button type="button" className="min-h-10 rounded-lg px-2 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground" onClick={() => { setShareAudience(audience); setShareTargetId('') }} disabled={busy}>Compartilhar</button> : null}<button type="button" className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-error/10 hover:text-error" onClick={() => setConfirmDelete(audience)} disabled={busy}><Trash2 className="size-3.5" />Remover</button></div></li>})}</ul>}
+            {shareAudience ? <div className="mt-3 rounded-xl border border-border/70 bg-secondary/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">Compartilhar · {shareAudience.name}</p>
+                  <select className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" value={shareTargetId} onChange={(event) => setShareTargetId(event.target.value)} disabled={sharing}>
+                    <option value="">Selecione a conta de destino</option>
+                    {shareTargets.map(account => <option key={account.id} value={account.id}>{account.name || account.id}</option>)}
+                  </select>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" className="btn-ghost h-10 text-xs" disabled={sharing} onClick={() => { setShareAudience(null); setShareTargetId('') }}>Cancelar</button>
+                  <button type="button" className="btn-primary h-10 text-xs" disabled={sharing || !shareTargetId} onClick={() => void handleShare()}>{sharing && <Loader2 className="size-3.5 animate-spin" />}Compartilhar</button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Disponível para contas compatíveis no mesmo Business Center.</p>
+            </div> : null}
           </section>
         </div>
       </div>

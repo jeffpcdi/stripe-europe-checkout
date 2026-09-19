@@ -8,7 +8,7 @@ import { usePathname } from 'next/navigation'
 import { NAV_GROUPS } from '@/lib/navigation'
 
 const PRIMARY_LINKS = NAV_GROUPS
-  .filter((group) => group.id === 'overview' || group.id === 'tracking' || group.id === 'ads')
+  .filter((group) => group.id === 'overview' || group.id === 'insights' || group.id === 'tracking' || group.id === 'ads')
   .map((group) => ({ label: group.label, href: group.href, routes: group.routes }))
 
 /**

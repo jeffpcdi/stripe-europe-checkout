@@ -1,20 +1,39 @@
 'use client'
 
 import { useState } from 'react'
-import { useAdsLibrary } from '@/lib/api'
+import { useAdsCloudVideo, useAdsLibrary } from '@/lib/api'
 import type { AdsLibraryItem } from '@/lib/types'
 import { Check, Film, Loader2 } from 'lucide-react'
+import { CloudVideoSyncPanel } from './cloud-video-sync-panel'
 
 // Seleção sem exclusão: reutilizar um vídeo nunca altera a biblioteca.
-export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'default' }: {
+export function SavedVideos({ selectedUrls, selectedVideoIds = [], onPick, disabled, appearance = 'default', advertiserId }: {
   selectedUrls: string[]
+  selectedVideoIds?: string[]
   onPick: (item: AdsLibraryItem) => void
   disabled?: boolean
   appearance?: 'default' | 'creation'
+  advertiserId?: string
 }) {
   const [open, setOpen] = useState(false)
   const { data, error, isLoading, mutate } = useAdsLibrary(open)
+  const { data: cloudData, mutate: mutateCloud } = useAdsCloudVideo(open && appearance === 'creation' && Boolean(advertiserId))
   const items = data?.items ?? []
+  const cloudItems: AdsLibraryItem[] = appearance === 'creation' && advertiserId
+    ? [...new Map(
+        (cloudData?.activity ?? [])
+          .filter(item => item.status === 'uploaded' && item.tiktok_video_id && item.advertiser_id === advertiserId)
+          .map(item => [String(item.tiktok_video_id), {
+            url: '',
+            name: item.name,
+            size: 0,
+            uploadedAt: item.processed_at || item.updated_at || null,
+            videoId: String(item.tiktok_video_id),
+            source: 'cloud' as const,
+          }])
+      ).values()]
+    : []
+  const creationItems = [...cloudItems, ...items]
 
   // Default preserva Catálogo e qualquer consumidor legado sem regressão visual.
   if (appearance === 'default') {
@@ -46,16 +65,18 @@ export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'defa
     {open && <div className="rounded-xl border border-border bg-background p-3">
       {isLoading ? <p className="flex items-center gap-2 py-1 text-xs"><Loader2 className="size-3.5 animate-spin" />Carregando vídeos…</p>
         : error ? <button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => void mutate()}>Não foi possível carregar. Tentar novamente</button>
-        : items.length === 0 ? <p className="py-1 text-xs text-muted-foreground">Seus próximos uploads aparecerão aqui.</p>
+        : creationItems.length === 0 ? <p className="py-1 text-xs text-muted-foreground">Seus próximos uploads aparecerão aqui.</p>
         : <ul className="max-h-52 space-y-1 overflow-y-auto" aria-label="Vídeos salvos">
-          {items.map((item) => {
-            const selected = selectedUrls.includes(item.url)
-            return <li key={item.url}><button type="button" disabled={disabled || selected} onClick={() => onPick(item)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary/60 disabled:opacity-60">
-              <span className="truncate">{item.name}</span>
+          {creationItems.map((item) => {
+            const selected = item.videoId ? selectedVideoIds.includes(item.videoId) : selectedUrls.includes(item.url)
+            const itemKey = item.videoId ? 'cloud:' + item.videoId : item.url
+            return <li key={itemKey}><button type="button" disabled={disabled || selected} onClick={() => onPick(item)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary/60 disabled:opacity-60">
+              <span className="min-w-0"><span className="block truncate">{item.name}</span>{item.videoId ? <span className="mt-0.5 block text-[10px] text-muted-foreground">Sincronizado no TikTok</span> : null}</span>
               {selected ? <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Check className="size-3.5 text-success" /> Selecionado</span> : <span className="shrink-0 text-xs font-medium text-primary">Adicionar</span>}
             </button></li>
           })}
         </ul>}
+      {advertiserId ? <CloudVideoSyncPanel advertiserId={advertiserId} onSynced={() => { void mutate(); void mutateCloud() }} /> : null}
     </div>}
   </div>
 }

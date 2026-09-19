@@ -39,6 +39,7 @@ const adsOps = require('./ads-ops-store');
 const { buildCampaignDecisions } = require('./ads-campaign-decisions');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
 const pixelStore = require('./pixel-store');
+const db = require('./db');
 const config = require('./config');
 const profitEngine = require('./profit-engine');
 const reportingIntegrity = require('./reporting-integrity');
@@ -51,137 +52,93 @@ const catalogGateway = require('./catalog/catalog-tiktok-gateway');
 const catalogBatchDomain = require('./catalog/catalog-batch-domain');
 const catalogBatchExecutor = require('./catalog/catalog-batch-executor');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
+const { resolvePublicHost, httpsProbe } = require('./domain-security');
 
-const DEFAULT_ADS_TIME_ZONE = 'America/Sao_Paulo';
-const ADS_DAY_FORMATS = new Map();
-function safeAdsTimeZone(value) {
-  const timeZone = String(value || '').trim() || DEFAULT_ADS_TIME_ZONE;
-  try {
-    new Intl.DateTimeFormat('pt-BR', { timeZone }).format(new Date());
-    return timeZone;
-  } catch (_) {
-    return DEFAULT_ADS_TIME_ZONE;
-  }
-}
-function adsDay(value, timeZone) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  const zone = safeAdsTimeZone(timeZone);
-  let formatter = ADS_DAY_FORMATS.get(zone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'
-    });
-    ADS_DAY_FORMATS.set(zone, formatter);
-  }
-  return formatter.format(date);
-}
+const DESTINATION_CHECK_TTL_MS = 5 * 60 * 1000;
+const DESTINATION_CHECK_TIMEOUT_MS = 6000;
+const destinationHealthCache = new Map();
 
-// Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
-function fail(res, err) {
-  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
-  const out = { error: String(err.message || 'erro inesperado').slice(0, 500) };
-  if (err.step) out.step = err.step;
-  if (err.code) out.code = err.code;
-  if (err.userMessage) out.userMessage = err.userMessage;
-  if (err.retryable != null) out.retryable = Boolean(err.retryable);
-  if (err.suggestedAction) out.suggestedAction = err.suggestedAction;
-  if (err.providerRequestId) out.providerRequestId = err.providerRequestId;
-  if (err.createdIds) out.createdIds = err.createdIds;
-  if (err.currentRevision != null) out.currentRevision = err.currentRevision;
-  res.status(status).json(out);
-}
+async function inspectAdsDestination(rawUrl) {
+  let current;
+  try { current = new URL(String(rawUrl || '').trim()); }
+  catch (_) { return { ok: false, status: 0, error: 'URL inválida' }; }
 
-async function setEntityStatus(entity, status) {
-  const smart = entity.campaignKind === 'smart_plus';
-  if (entity.type === 'campaign') {
-    return smart
-      ? pipeboard.setSmartPlusCampaignStatus(entity.advertiserId, [entity.campaignId], status)
-      : pipeboard.setCampaignStatus(entity.advertiserId, [entity.campaignId], status);
-  }
-  if (entity.type === 'adgroup') {
-    return smart
-      ? pipeboard.setSmartPlusAdGroupStatus(entity.advertiserId, [entity.adGroupId], status)
-      : pipeboard.setAdGroupStatus(entity.advertiserId, [entity.adGroupId], status);
-  }
-  return smart
-    ? pipeboard.setSmartPlusAdStatus(entity.advertiserId, [entity.adId], status)
-    : pipeboard.setAdStatus(entity.advertiserId, [entity.adId], status);
-}
+  const startedAt = Date.now();
+  for (let hop = 0; hop <= 1; hop += 1) {
+    if (current.protocol !== 'https:') {
+      return { ok: false, status: 0, host: current.hostname, error: 'Destino sem HTTPS' };
+    }
+    if (current.username || current.password || (current.port && current.port !== '443')) {
+      return { ok: false, status: 0, host: current.hostname, error: 'Destino não permitido para verificação' };
+    }
 
-function budgetTargetForEntity(entity) {
-  if (entity.type === 'campaign' || entity.budgetOwner === 'campaign') {
-    return { kind: 'campaign', id: entity.campaignId };
-  }
-  return { kind: 'adgroup', id: entity.adGroupId };
-}
+    let addresses;
+    try {
+      // resolvePublicHost rejeita IP literal, respostas privadas/reservadas e
+      // respostas mistas. httpsProbe recebe exatamente esse conjunto e prende
+      // a conexão a um dos IPs já validados, fechando DNS rebinding/TOCTOU.
+      addresses = await resolvePublicHost(current.hostname);
+    } catch (_) {
+      return { ok: false, status: 0, host: current.hostname, error: 'Host bloqueado ou não resolvido' };
+    }
 
-async function updateEntityBudget(entity, target, budget) {
-  const smart = entity.campaignKind === 'smart_plus';
-  if (target.kind === 'campaign') {
-    return smart
-      ? pipeboard.updateSmartPlusCampaign(entity.advertiserId, target.id, { budget })
-      : pipeboard.updateCampaign(entity.advertiserId, target.id, { budget });
-  }
-  return smart
-    ? pipeboard.updateSmartPlusAdGroup(entity.advertiserId, target.id, { budget })
-    : pipeboard.updateAdGroup(entity.advertiserId, target.id, { budget });
-}
+    let response;
+    try {
+      response = await httpsProbe(
+        current.hostname,
+        (current.pathname || '/') + (current.search || ''),
+        {
+          addresses,
+          timeoutMs: DESTINATION_CHECK_TIMEOUT_MS,
+          method: 'HEAD',
+          maxBytes: 1024,
+        },
+      );
+    } catch (_) {
+      return {
+        ok: false,
+        status: 0,
+        host: current.hostname,
+        latencyMs: Date.now() - startedAt,
+        error: 'Página indisponível ou bloqueou a verificação',
+      };
+    }
 
-// A unicidade durável dos runs legados é account_id + idempotency_key. Cada
-// rota já valida o advertiser, mas a mesma chave enviada em dois advertisers
-// da mesma conta ainda poderia reutilizar o run errado. Derivamos uma chave
-// opaca e estável que inclui o advertiser antes de gravá-la; o limite da
-// coluna (200) continua folgadamente atendido.
-function scopedCatalogRunIdempotencyKey(advertiserId, value) {
-  const advertiser = String(advertiserId || '').trim();
-  const key = String(value || '').trim();
-  if (!advertiser || !key) return key.slice(0, 200);
-  return crypto.createHash('sha256')
-    .update('catalog-run-v1\u0000' + advertiser + '\u0000' + key)
-    .digest('hex');
-}
-
-function catalogBatchMinimumErrors(plan) {
-  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
-  const errors = [];
-  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
-    const catalog = catalogs[catalogIndex] || {};
-    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
-    const products = Array.isArray(catalog.products) ? catalog.products : [];
-    const deliverable = products.filter((product) => String(product && product.data && product.data.availability || '').trim().toLowerCase() === 'in stock');
-    if (!campaigns.length || deliverable.length >= catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS) continue;
-    errors.push({
-      code: 'CATALOG_CAMPAIGN_MIN_PRODUCTS_REQUIRED',
-      message: 'Inclua pelo menos ' + catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS
-        + ' produtos válidos; o TikTok exige quatro produtos aprovados, ativos e em estoque para Catalog Ads.',
-      path: 'catalogs[' + catalogIndex + '].products',
-      catalogKey: String(catalog.key || ''),
-    });
-  }
-  return errors;
-}
-
-function catalogBatchCampaignSpecErrors(plan) {
-  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
-  const errors = catalogBatchMinimumErrors(plan);
-  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
-    const catalog = catalogs[catalogIndex] || {};
-    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
-    for (let campaignIndex = 0; campaignIndex < campaigns.length; campaignIndex += 1) {
-      try {
-        catalogDomain.normalizeCampaignSpec(campaigns[campaignIndex], catalog);
-      } catch (err) {
-        errors.push({
-          code: String(err && err.code || 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID'),
-          message: String(err && (err.userMessage || err.message) || 'A campanha do lote é inválida.'),
-          path: 'catalogs[' + catalogIndex + '].campaigns[' + campaignIndex + ']',
-          catalogKey: String(catalog.key || ''),
-        });
+    const status = Number(response.status) || 0;
+    if (status >= 300 && status < 400) {
+      const location = response.headers && response.headers.location;
+      const target = Array.isArray(location) ? location[0] : location;
+      if (!target || hop === 1) {
+        return {
+          ok: false,
+          status,
+          host: current.hostname,
+          latencyMs: Date.now() - startedAt,
+          error: 'Redirecionamento não concluído',
+        };
+      }
+      try { current = new URL(String(target), current); continue; }
+      catch (_) {
+        return { ok: false, status, host: current.hostname, error: 'Redirecionamento inválido' };
       }
     }
+
+    // 401/403/405 provam que o host e a rota responderam, mas o checker foi
+    // recusado ou HEAD não é permitido. Não classificamos isso como "offline".
+    const reachableRestricted = status === 401 || status === 403 || status === 405 || status === 429;
+    const ok = (status >= 200 && status < 300) || reachableRestricted;
+    return {
+      ok,
+      status,
+      host: current.hostname,
+      finalUrl: current.href,
+      latencyMs: Date.now() - startedAt,
+      error: ok ? null : 'HTTP ' + status,
+      restricted: reachableRestricted || undefined,
+    };
   }
-  return errors;
+
+  return { ok: false, status: 0, host: current.hostname, error: 'Verificação incompleta' };
 }
 
 module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
@@ -679,7 +636,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function pixelContext(accountId, advertiserId) {
     const localPixels = pixelStore.list(accountId)
       .filter((pixel) => pixel.active && pixel.pixelCode)
-      .map((pixel) => ({ slug: pixel.slug, name: pixel.name, code: String(pixel.pixelCode).trim() }));
+      .map((pixel) => ({
+        slug: pixel.slug,
+        name: pixel.name,
+        code: String(pixel.pixelCode).trim(),
+        hasToken: Boolean(pixel.accessToken),
+      }));
     const remotePixels = await pipeboard.listTikTokPixels(advertiserId);
     const matchFor = (local) => remotePixels.find((remote) => remote.code.toUpperCase() === local.code.toUpperCase());
     const matches = localPixels.map((local) => ({ local, remote: matchFor(local) })).filter((item) => item.remote);
@@ -725,6 +687,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         }),
         binding: context.binding,
         ready: Boolean(context.binding),
+        capiReady: Boolean(context.binding && context.matches.some((item) => (
+          item.remote.id === context.binding.pixelId && item.local.hasToken
+        ))),
+        localPixelSlug: context.binding
+          ? (context.matches.find((item) => item.remote.id === context.binding.pixelId)?.local.slug || null)
+          : null,
         needsChoice: !context.binding && context.remotePixels.length > 1,
       });
     } catch (err) { fail(res, err); }
@@ -749,6 +717,96 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         pixelName: remote.name, remoteStatus: remote.status,
       });
       res.json({ ok: true, binding });
+    } catch (err) { fail(res, err); }
+  });
+
+
+  app.post('/api/ads/pixels', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+
+      const pixelName = String(body.pixelName || body.name || 'ROI-NADOS — Vendas').trim().slice(0, 128);
+      if (!pixelName) return res.status(400).json({ error: 'Informe um nome para o Pixel.' });
+
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'pixel.create',
+          targetType: 'pixel',
+          advertiserId: selected.advertiserId,
+          metadata: { pixelName },
+          title: 'Criar Pixel TikTok',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
+
+      const created = await pipeboard.createTikTokPixel(selected.advertiserId, { name: pixelName });
+      const remote = created.pixel;
+      const binding = await adsOps.savePixelBinding(req.account.id, selected.advertiserId, {
+        pixelSlug: '', pixelCode: remote.code || '', pixelId: remote.id,
+        pixelName: remote.name, remoteStatus: remote.status,
+      });
+
+      let localPixelCreated = false;
+      let localPixelSlug = null;
+      if (remote.code) {
+        const existingLocal = pixelStore.list(req.account.id).find(
+          (pixel) => String(pixel.pixelCode || '').trim().toUpperCase() === String(remote.code).trim().toUpperCase(),
+        );
+        if (existingLocal) {
+          localPixelSlug = existingLocal.slug;
+        } else {
+          try {
+            const savedLocal = await pixelStore.save(req.account.id, {
+              name: remote.name || pixelName,
+              pixelCode: remote.code,
+              accessToken: '',
+              active: true,
+              gatewayBindingMode: 'explicit',
+            }, { createOnly: true });
+            localPixelCreated = true;
+            localPixelSlug = savedLocal && savedLocal.slug ? savedLocal.slug : null;
+          } catch (localErr) {
+            // O Pixel remoto e o vínculo da campanha já foram criados. Falha
+            // local não pode induzir retry remoto e duplicar Pixel no TikTok.
+            console.warn('[ads/pixels] Pixel remoto criado, mas espelho local não foi criado:', localErr && localErr.message);
+          }
+        }
+      }
+
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: created.reused ? 'pixel.reused' : 'pixel.created',
+          targetType: 'pixel',
+          targetId: remote.id,
+          advertiserId: selected.advertiserId,
+          afterState: { pixelId: remote.id, pixelCode: remote.code || null, pixelName: remote.name },
+          reason: created.reused ? 'Pixel existente vinculado pelo onboarding' : 'Pixel criado e vinculado pelo onboarding',
+        });
+      } catch (_) {}
+
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] ' + (created.reused ? 'Pixel existente vinculado' : 'Pixel criado e vinculado') + ': ' + remote.name,
+      });
+
+      res.status(created.reused ? 200 : 201).json({
+        ok: true,
+        reused: Boolean(created.reused),
+        pixel: remote,
+        binding,
+        localPixelCreated,
+        localPixelSlug,
+        capiReady: false,
+        nextStep: 'Configure o Access Token em Conversões para ativar o envio server-side.',
+      });
     } catch (err) { fail(res, err); }
   });
 
@@ -789,6 +847,116 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+
+  app.get('/api/ads/audiences/customer-file/preview', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const selected = await requireAdvertiser(req.account.id, null, req.query.adAccountId || req.query.advertiserId, null);
+      const retentionDays = 180;
+      if (!db.enabled || (typeof db.isReady === 'function' && !db.isReady())) {
+        return res.json({
+          available: false,
+          canCreate: false,
+          eligibleCount: 0,
+          minimumRequired: 1000,
+          retentionDays,
+          advertiserId: selected.advertiserId,
+        });
+      }
+      const eligibleCount = await db.countPurchasedEmails(req.account.id, retentionDays);
+      res.json({
+        available: true,
+        canCreate: eligibleCount >= 1000,
+        eligibleCount,
+        minimumRequired: 1000,
+        retentionDays,
+        advertiserId: selected.advertiserId,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/audiences/customer-file', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      if (body.confirm !== true) {
+        return res.status(400).json({ error: 'Confirme o uso da base antes de enviar ao TikTok.' });
+      }
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (!db.enabled || (typeof db.isReady === 'function' && !db.isReady())) {
+        return res.status(503).json({ error: 'A base durável de compradores não está disponível agora.' });
+      }
+
+      const retentionDays = 180;
+      const eligibleCount = await db.countPurchasedEmails(req.account.id, retentionDays);
+      if (eligibleCount < 1000) {
+        return res.status(409).json({
+          error: 'O TikTok exige pelo menos 1.000 identificadores no arquivo de clientes.',
+          code: 'CUSTOMER_AUDIENCE_MINIMUM_NOT_MET',
+          eligibleCount,
+          minimumRequired: 1000,
+        });
+      }
+
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'audience.customer_file',
+          targetType: 'audience',
+          advertiserId: selected.advertiserId,
+          metadata: { eligibleCount, retentionDays, identifier: 'EMAIL_SHA256' },
+          title: 'Criar público de compradores',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true, eligibleCount, retentionDays });
+      }
+
+      const emails = await db.listPurchasedEmails(req.account.id, retentionDays, 250000);
+      if (emails.length < 1000) {
+        return res.status(409).json({
+          error: 'A base elegível mudou e agora está abaixo do mínimo do TikTok.',
+          code: 'CUSTOMER_AUDIENCE_MINIMUM_NOT_MET',
+          eligibleCount: emails.length,
+          minimumRequired: 1000,
+        });
+      }
+
+      const hashes = emails.map((email) => crypto.createHash('sha256').update(email).digest('hex'));
+      const fileContent = 'Email_SHA256\n' + hashes.join('\n');
+      const name = String(body.name || 'Compradores ROI-NADOS — 180 dias').trim().slice(0, 128);
+      await pipeboard.uploadCustomerFileAudience(selected.advertiserId, {
+        name,
+        fileContent,
+        retentionDays,
+      });
+
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: 'audience.customer_file.created',
+          targetType: 'audience',
+          advertiserId: selected.advertiserId,
+          reason: 'Público de compradores criado a partir de dados first-party hasheados',
+          metadata: { eligibleCount: emails.length, retentionDays, identifier: 'EMAIL_SHA256' },
+        });
+      } catch (_) {}
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] Público de compradores enviado: ' + emails.length + ' identificadores SHA-256',
+      });
+      res.status(202).json({
+        ok: true,
+        processing: true,
+        eligibleCount: emails.length,
+        retentionDays,
+        identifier: 'EMAIL_SHA256',
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   app.post('/api/ads/audiences/lookalike', dashboardAuth, async (req, res) => {
     try {
       const body = req.body || {};
@@ -822,6 +990,58 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
       const audienceIds = Array.isArray(body.audienceIds) ? body.audienceIds : [body.audienceId];
       const result = await pipeboard.deleteCustomAudiences(selected.advertiserId, audienceIds);
+      res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
+
+  app.post('/api/ads/audiences/share', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      const targetId = String(body.sharedAdvertiserId || '').trim();
+      if (!targetId || targetId === selected.advertiserId) {
+        return res.status(400).json({ error: 'Escolha outra conta de anúncio como destino.' });
+      }
+      const authorized = await pipeboard.listAdvertiserIds();
+      if (!authorized.map(String).includes(targetId)) {
+        return res.status(403).json({ error: 'A conta de destino não está autorizada nesta integração.' });
+      }
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'audience.share',
+          targetType: 'audience',
+          targetId: String(body.audienceId || ''),
+          advertiserId: selected.advertiserId,
+          metadata: { sharedAdvertiserId: targetId },
+          title: 'Compartilhar público TikTok',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
+
+      const result = await pipeboard.shareCustomAudiences(
+        selected.advertiserId,
+        [String(body.audienceId || '').trim()],
+        [targetId],
+        body.sharedBcId,
+      );
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: 'audience.shared',
+          targetType: 'audience',
+          targetId: String(body.audienceId || ''),
+          advertiserId: selected.advertiserId,
+          reason: 'Público compartilhado com outra conta de anúncio',
+          metadata: { sharedAdvertiserId: targetId },
+        });
+      } catch (_) {}
       res.json({ ok: true, result });
     } catch (err) { fail(res, err); }
   });
@@ -1011,7 +1231,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (b.goal && b.goal !== 'conversions') return { error: 'ROI-NADOS cria somente campanhas de conversão' };
     const goal = 'conversions';
     const videoUrl = String(b.videoUrl || '').trim();
-    if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
+    const videoId = String(b.videoId || '').trim();
+    if (!videoId && !/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'Selecione um vídeo enviado ou um criativo sincronizado' };
+    if (videoId && !/^[a-zA-Z0-9_-]{3,160}$/.test(videoId)) return { error: 'videoId do criativo é inválido' };
     const budgetAmount = Number(b.budgetAmount);
     if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return { error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET };
     const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
@@ -1027,6 +1249,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!(bidAmount > 0)) return { error: 'Estratégia "custo-alvo" exige um valor de lance (bidAmount) maior que zero' };
     }
 
+    const rawLinkUrl = String(b.linkUrl || '').trim().slice(0, 500);
+    let normalizedLinkUrl = '';
+    try {
+      const parsedLink = new URL(rawLinkUrl);
+      if (parsedLink.protocol !== 'https:' || parsedLink.username || parsedLink.password) {
+        return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+      }
+      normalizedLinkUrl = withAdsTracking(parsedLink.href);
+    } catch (_) {
+      return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+    }
+
     const payload = {
       accountId: st.accountId,
       adAccountId,
@@ -1037,11 +1271,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       budgetOptimization,
       bidStrategy,
       bidAmount,
-      // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
-      imageUrl: videoUrl,
+      // URL local OU video_id já existente no TikTok.
+      imageUrl: videoUrl || undefined,
+      videoId: videoId || undefined,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
-      linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
-      callToAction: CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined,
+      linkUrl: normalizedLinkUrl,
+      callToAction: b.dynamicCallToAction === true ? undefined : (CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined),
+      dynamicCallToAction: b.dynamicCallToAction === true,
       countries: Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
         : undefined,
@@ -1094,7 +1330,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       err.status = 400;
       throw err;
     }
-    return { advertiserId: selected.advertiserId, payload: built.payload };
+    return { advertiserId: selected.advertiserId, payload: built.payload, pixel };
   }
 
   // Valida todo o formulário e o escopo da conta sem criar recursos no TikTok.
@@ -1103,9 +1339,42 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const prepared = await prepareManualCampaign(req, req.body);
+
+      // Launch Guardian: valida tudo que consegue sem criar recurso. Assets já
+      // sincronizados no TikTok são conferidos aqui para falhar antes do clique
+      // final; upload por URL é validado novamente no createFullAd.
+      let creativeDetail = 'Vídeo HTTPS pronto para envio';
+      if (prepared.payload.videoId) {
+        await pipeboard.verifyReusableVideoAsset(prepared.advertiserId, prepared.payload.videoId);
+        creativeDetail = 'Criativo já disponível no TikTok';
+      }
+
+      const pxContext = await pixelContext(req.account.id, prepared.advertiserId).catch(() => null);
+      const capiReady = Boolean(pxContext && pxContext.binding && pxContext.matches.some((item) => (
+        item.remote.id === pxContext.binding.pixelId && item.local.hasToken
+      )));
+      const checks = [
+        { id: 'account', label: 'Conta de anúncios', status: 'ready', detail: 'Escopo autorizado' },
+        { id: 'pixel', label: 'Pixel', status: 'ready', detail: prepared.pixel.pixelName || prepared.pixel.pixelId },
+        {
+          id: 'server_side',
+          label: 'Server-side',
+          status: capiReady ? 'ready' : 'recommended',
+          detail: capiReady ? 'Pixel + Events API' : 'Events API pendente em Conversões',
+        },
+        { id: 'destination', label: 'Destino', status: 'ready', detail: new URL(prepared.payload.linkUrl).hostname },
+        { id: 'creative', label: 'Criativo', status: 'ready', detail: creativeDetail },
+        { id: 'budget', label: 'Orçamento', status: 'ready', detail: String(prepared.payload.budgetAmount) },
+        { id: 'delivery', label: 'Publicação', status: 'ready', detail: 'Será criada pausada para revisão' },
+      ];
       res.json({
         ok: true,
         advertiserId: prepared.advertiserId,
+        guardian: {
+          ready: true,
+          recommendations: checks.filter((item) => item.status === 'recommended').length,
+          checks,
+        },
         summary: {
           goal: prepared.payload.goal,
           budgetType: prepared.payload.budgetType,
@@ -1176,6 +1445,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         idempotencyJobId = reservation.job && reservation.job.id;
       }
 
+      // CTA automático é um recurso remoto separado do anúncio. Resolve uma vez,
+      // verifica via get_tiktok_cta_portfolio e persiste o ID antes de criar a
+      // hierarquia. Em dry-run essa etapa nunca roda.
+      const dynamicCta = payload.dynamicCallToAction
+        ? await pipeboard.getOrCreateTikTokCtaPortfolio(req.account.id, payload.adAccountId, ['SHOP_NOW', 'LEARN_MORE'])
+        : null;
+
       // F1: criação composta via Pipeboard (campaign → adgroup → upload → ad).
       // O provider SEMPRE cria em PAUSED; sem "status: active" aqui — a rota de
       // criação entrega material p/ revisão humana, nunca delivery imediato.
@@ -1184,6 +1460,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         name: payload.name,
         goal: payload.goal,
         videoUrl: payload.imageUrl,
+        videoId: payload.videoId,
         budgetAmount: payload.budgetAmount,
         budgetType: payload.budgetType,
         budgetOptimization: payload.budgetOptimization,
@@ -1193,6 +1470,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         body: payload.body,
         linkUrl: payload.linkUrl,
         callToAction: payload.callToAction,
+        callToActionId: dynamicCta ? dynamicCta.id : undefined,
         countries: payload.countries,
         languages: payload.languages,
         ageMin: payload.ageMin,
@@ -2147,12 +2425,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Google Drive / Dropbox → biblioteca TikTok (rascunho) ─────────────
   app.get('/api/ads/cloud-video', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     try {
-      const [providers, activity] = await Promise.all([
+      const [providers, activity, safety] = await Promise.all([
         cloudVideo.status(req.account.id),
-        cloudVideo.listActivity(req.account.id, 50),
+        cloudVideo.listActivity(req.account.id, 100),
+        adsOps.getSafetyPolicy(req.account.id).catch(() => null),
       ]);
-      res.json({ ok: true, providers, activity });
+      res.json({
+        ok: true,
+        providers,
+        activity,
+        safety: safety ? {
+          enabled: safety.enabled !== false,
+          dryRun: safety.dryRun !== false,
+          killSwitch: safety.killSwitch === true,
+        } : { enabled: false, dryRun: true, killSwitch: false },
+      });
     } catch (err) { fail(res, err); }
   });
 
@@ -2170,14 +2459,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       await cloudVideo.exchangeCode(req.account.id, providerName, req.query.code, req.query.state);
       await config.setDurable(req.account.id, (latest) => {
         const source = latest.cloudVideo || {};
+        const current = source[providerName] || {};
         return { cloudVideo: {
           ...source,
-          [providerName]: { ...(source[providerName] || {}), enabled: true },
+          [providerName]: {
+            ...current,
+            // Primeira conexão não pode escolher uma conta de anúncios por
+            // heurística. Só permanece ativa se já havia advertiser explícito.
+            enabled: current.enabled === true && Boolean(String(current.advertiserId || '').trim()),
+          },
         } };
       });
-      res.redirect('/dashboard?adsCloudVideo=connected');
+      res.redirect('/dashboard/ads/tiktok?cloudVideo=connected');
     } catch (err) {
-      res.redirect('/dashboard?adsCloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
+      res.redirect('/dashboard/ads/tiktok?cloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
     }
   });
 
@@ -2237,6 +2532,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     getRules: automation.getRules,
     getRulesLog: automation.getRulesLog,
     resolveAdvertiserTimeZone: automation.resolveAdvertiserTimeZone,
+    campaignLearningState: automation.campaignLearningState,
     sendPushcut: require('./pushcut').sendPushcut,
   });
 
@@ -2458,9 +2754,249 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const q = req.query || {};
       const advertiserId = await resolveAdv(req, String(q.adAccountId || '').trim());
       const days = Math.max(1, Math.min(30, parseInt(q.days, 10) || 1));
-      const out = await adsAi.budgetProposal(req.account.id, advertiserId, String(q.currency || 'USD').slice(0, 5), days);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const out = await adsAi.budgetProposal(
+        req.account.id,
+        advertiserId,
+        String(q.currency || 'USD').slice(0, 5),
+        days,
+        policy.maxBudgetChangePct,
+      );
       res.json(out);
     } catch (err) { fail(res, err); }
+  });
+
+
+  app.post('/api/ads/budget/proposal/apply', dashboardAuth, async (req, res) => {
+    let allocatorLedgerJobId = null;
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const body = req.body || {};
+      const advertiserId = await resolveAdv(req, String(body.adAccountId || '').trim());
+      const days = Math.max(3, Math.min(30, parseInt(body.days, 10) || 7));
+      const currency = String(body.currency || 'USD').slice(0, 5);
+      const idempotencyKey = String(body.idempotencyKey || '').trim().slice(0, 200);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const proposal = await adsAi.budgetProposal(
+        req.account.id,
+        advertiserId,
+        currency,
+        days,
+        policy.maxBudgetChangePct,
+      );
+      const changes = Array.isArray(proposal && proposal.changes) ? proposal.changes : [];
+      if (!changes.length) {
+        return res.status(409).json({ error: proposal && proposal.message || 'Nenhuma realocação relevante agora.', code: 'BUDGET_PLAN_EMPTY' });
+      }
+
+      const maxDeltaPct = Math.max(...changes.map((item) => Math.abs(Number(item.deltaPct) || 0)));
+      const guard = adsOps.assertMutationAllowed(policy, {
+        advertiserId,
+        idempotencyKey,
+        budgetChangePct: maxDeltaPct,
+      });
+
+      if (policy.dailySpendCap != null && Number(proposal.totalBudget) > Number(policy.dailySpendCap)) {
+        return res.status(409).json({
+          error: 'O orçamento diário atual já está acima do teto definido na política de segurança.',
+          code: 'DAILY_SPEND_CAP_EXCEEDED',
+        });
+      }
+
+      const actionsInLastHour = policy.maxActionsPerHour > 0
+        ? await adsOps.countRecentEngineActions(req.account.id, 3600e3, advertiserId)
+        : 0;
+      if (!guard.dryRun && policy.maxActionsPerHour > 0
+        && actionsInLastHour + changes.length > policy.maxActionsPerHour) {
+        return res.status(409).json({
+          error: 'O plano excede o limite de ações por hora da política de segurança.',
+          code: 'ADS_ACTION_CAP_EXCEEDED',
+        });
+      }
+
+      const classified = await adsCache.classifyEntities(
+        req.account.id,
+        advertiserId,
+        changes.map((item) => String(item.campaignId || '')),
+      );
+      const prepared = [];
+      for (const change of changes) {
+        const id = String(change.campaignId || '');
+        const entity = classified.get(id);
+        if (!entity || entity.type !== 'campaign') {
+          return res.status(409).json({ error: 'A campanha ' + id + ' não está mais disponível no espelho.', code: 'BUDGET_PLAN_STALE' });
+        }
+        if (entity.budgetOwner && entity.budgetOwner !== 'campaign') {
+          return res.status(409).json({ error: 'A campanha "' + change.name + '" agora usa orçamento no conjunto (ABO). Recalcule o plano.', code: 'BUDGET_PLAN_STALE' });
+        }
+        prepared.push({
+          ...change,
+          entity,
+          current: Number(change.current),
+          proposed: Number(change.proposed),
+        });
+      }
+
+      const ledgerKey = 'profit-allocator:' + crypto.createHash('sha256')
+        .update(advertiserId + '|' + idempotencyKey)
+        .digest('hex');
+      const reservation = await adsOps.reserveIdempotentOperation(req.account.id, {
+        idempotencyKey: ledgerKey,
+        kind: 'idempotency:profit_allocator',
+        advertiserId,
+        payload: {
+          days,
+          currency,
+          changes: prepared.map((item) => ({
+            id: item.campaignId,
+            from: item.current,
+            to: item.proposed,
+          })),
+        },
+      });
+      if (!reservation.reserved) {
+        const previous = reservation.job;
+        const progress = previous && previous.progress && typeof previous.progress === 'object' ? previous.progress : {};
+        if (previous && previous.status === 'completed' && progress.result) {
+          return res.json({ ...progress.result, replayed: true });
+        }
+        if (previous && previous.status === 'failed' && progress.errorResponse) {
+          return res.status(Number(progress.httpStatus) || 409).json({ ...progress.errorResponse, replayed: true });
+        }
+        return res.status(409).json({
+          error: 'Este plano já está sendo aplicado e não pode ser executado novamente.',
+          code: 'BUDGET_ALLOCATOR_IN_PROGRESS',
+        });
+      }
+      allocatorLedgerJobId = reservation.job && reservation.job.id || null;
+
+      if (guard.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'budget_allocator.apply',
+          targetType: 'campaign',
+          advertiserId,
+          metadata: { days, currency, changes: prepared.map((item) => ({ id: item.campaignId, from: item.current, to: item.proposed })) },
+          title: 'Profit Allocator · ' + prepared.length + ' ajuste(s)',
+        });
+        const result = { ok: true, dryRun: true, simulated: prepared.length, proposal };
+        if (allocatorLedgerJobId) {
+          await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'completed', {
+            progress: { result },
+          });
+          allocatorLedgerJobId = null;
+        }
+        return res.json(result);
+      }
+
+      // Reduz primeiro e só depois aumenta. Em uma falha, tenta restaurar tudo
+      // que já foi aplicado em ordem inversa para não deixar o portfólio torto.
+      const ordered = prepared.slice().sort((a, b) => {
+        const aDown = a.proposed < a.current ? 0 : 1;
+        const bDown = b.proposed < b.current ? 0 : 1;
+        return aDown - bDown || Math.abs(b.deltaPct) - Math.abs(a.deltaPct);
+      });
+      const applied = [];
+      try {
+        for (const item of ordered) {
+          await updateEntityBudget(
+            item.entity,
+            { kind: 'campaign', id: item.campaignId },
+            { amount: item.proposed, type: 'daily' },
+          );
+          applied.push(item);
+        }
+      } catch (error) {
+        const rollbackErrors = [];
+        for (const item of applied.slice().reverse()) {
+          try {
+            await updateEntityBudget(
+              item.entity,
+              { kind: 'campaign', id: item.campaignId },
+              { amount: item.current, type: 'daily' },
+            );
+          } catch (rollbackError) {
+            rollbackErrors.push(String(rollbackError && rollbackError.message || rollbackError).slice(0, 160));
+          }
+        }
+        const err = new Error(
+          rollbackErrors.length
+            ? 'A realocação falhou e parte do rollback também falhou. Revise os orçamentos antes de continuar.'
+            : 'A realocação falhou e as alterações aplicadas foram revertidas.',
+        );
+        err.status = 502;
+        err.code = rollbackErrors.length ? 'BUDGET_ALLOCATOR_PARTIAL_ROLLBACK' : 'BUDGET_ALLOCATOR_ROLLED_BACK';
+        err.retryable = rollbackErrors.length === 0;
+        err.rollbackErrors = rollbackErrors;
+        throw err;
+      }
+
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      for (const item of prepared) {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'system',
+          actorId: req.account.id,
+          action: 'budget_allocator.change',
+          targetType: 'campaign',
+          targetId: item.campaignId,
+          advertiserId,
+          beforeState: { budget: { amount: item.current, type: 'daily' } },
+          afterState: { budget: { amount: item.proposed, type: 'daily' } },
+          reason: 'Profit Allocator aprovado pelo gestor',
+          metadata: { deltaPct: item.deltaPct, idempotencyKey },
+        }).catch(() => {});
+      }
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user',
+        actorId: req.account.id,
+        action: 'budget_allocator.applied',
+        targetType: 'campaign',
+        targetId: 'allocator:' + Date.now(),
+        advertiserId,
+        beforeState: { totalBudget: proposal.totalBudget },
+        afterState: { totalBudget: proposal.totalBudget },
+        reason: 'Profit Allocator aprovado pelo gestor',
+        metadata: {
+          days,
+          currency,
+          idempotencyKey,
+          changes: prepared.map((item) => ({
+            id: item.campaignId,
+            name: item.name,
+            from: item.current,
+            to: item.proposed,
+            deltaPct: item.deltaPct,
+          })),
+        },
+      }).catch(() => {});
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] Profit Allocator aplicado: ' + prepared.length + ' orçamento(s)',
+      });
+      const result = { ok: true, updated: prepared.length, proposal };
+      if (allocatorLedgerJobId) {
+        await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'completed', {
+          progress: { result },
+        });
+        allocatorLedgerJobId = null;
+      }
+      res.json(result);
+    } catch (err) {
+      if (allocatorLedgerJobId) {
+        await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'failed', {
+          progress: {
+            httpStatus: Number(err && err.status) || 500,
+            errorResponse: {
+              error: String(err && err.message || 'Falha ao aplicar o plano').slice(0, 500),
+              ...(err && err.code ? { code: err.code } : {}),
+            },
+          },
+          error: String(err && err.message || 'Falha ao aplicar o plano').slice(0, 500),
+        }).catch(() => {});
+      }
+      fail(res, err);
+    }
   });
 
   app.get('/api/ads/alerts', dashboardAuth, async (req, res) => {
@@ -2508,6 +3044,74 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // receita, vendas e ROAS POR CAMPANHA. A lógica vive em ads-automation.js
   // (as regras roas_min/roas_scale usam a mesma atribuição).
   const computeAttribution = automation.computeAttribution;
+
+  function csvCell(value) {
+    const text = value == null ? '' : String(value);
+    // Evita CSV/Formula Injection em Excel/Sheets sem alterar a informação
+    // exibida: células potencialmente executáveis viram texto literal.
+    const safe = /^\s*[=+\-@]/.test(text) || /^[\t\r]/.test(text) ? "'" + text : text;
+    return '"' + safe.replace(/"/g, '""') + '"';
+  }
+
+  app.get('/api/ads/reports/export', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const q = req.query || {};
+      const advertiserId = q.adAccountId
+        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+        : await resolveAdv(req, '');
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : '';
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : '';
+      if (!fromDate || !toDate) return res.status(400).json({ error: 'Informe o período do relatório.' });
+
+      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
+      const [report, campaigns, advertiserInfo] = await Promise.all([
+        pipeboard.getIntegratedReport(advertiserId, {
+          level: 'AUCTION_CAMPAIGN',
+          startDate: fromDate,
+          endDate: toDate,
+        }),
+        pipeboard.getCampaigns(advertiserId),
+        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+      ]);
+      const attribution = computeAttribution(req.account.id, fromDate, toDate, timeZone, true);
+      const campaignById = new Map((campaigns || []).map((campaign) => [String(campaign.id || ''), campaign]));
+      const spendCurrency = String((advertiserInfo && advertiserInfo.currency) || 'BRL').toUpperCase();
+
+      const headers = ['Campanha ID', 'Campanha', 'Status', 'Gasto', 'Moeda gasto', 'Receita', 'Moeda receita', 'Compras', 'CPA', 'ROAS'];
+      const lines = [headers.map(csvCell).join(',')];
+      for (const row of report.rows || []) {
+        const campaign = campaignById.get(String(row.id || '')) || {};
+        const attributed = attribution.byCampaign && attribution.byCampaign[String(row.id || '')] || {};
+        const revenueCents = Number(attributed.revenueCents) || 0;
+        const sales = Number(attributed.sales) || 0;
+        const revenueCurrency = String(attributed.currency || '').toUpperCase();
+        const comparable = Boolean(revenueCurrency && revenueCurrency === spendCurrency);
+        const cpa = sales > 0 ? Number(row.spend || 0) / sales : null;
+        const roas = comparable && Number(row.spend || 0) > 0
+          ? (revenueCents / 100) / Number(row.spend || 0)
+          : null;
+        lines.push([
+          row.id,
+          campaign.name || row.id,
+          campaign.status || '',
+          Number(row.spend || 0).toFixed(2),
+          spendCurrency,
+          (revenueCents / 100).toFixed(2),
+          revenueCurrency,
+          sales,
+          cpa == null ? '' : cpa.toFixed(2),
+          roas == null ? '' : roas.toFixed(4),
+        ].map(csvCell).join(','));
+      }
+
+      const filename = 'roi-nados-tiktok-campanhas-' + fromDate + '-' + toDate + '.csv';
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.send('\uFEFF' + lines.join('\n'));
+    } catch (err) { fail(res, err); }
+  });
 
   app.get('/api/ads/attribution', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -2656,6 +3260,118 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // adsSweepHook.fn, com throttle de 30min por conta — a rota nunca a aguarda.
   // Antes, o sweep inline segurava a conexão por segundos a cada poll de 12s,
   // estourando o limite de 6 conexões do navegador e enfileirando o /tree.
+  // Destination Sentinel — verifica somente destinos já associados a
+  // campanhas ativas no espelho. Nunca aceita URL arbitrária do navegador.
+  app.get('/api/ads/destinations/health', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const cacheKey = req.account.id + '|' + advertiserId;
+      const cached = destinationHealthCache.get(cacheKey);
+      if (cached && Date.now() - cached.at < DESTINATION_CHECK_TTL_MS && String((req.query || {}).force || '') !== '1') {
+        return res.json({ ...cached.data, cached: true });
+      }
+
+      const tree = await adsCache.readTree(req.account.id, advertiserId, {});
+      const grouped = new Map();
+      for (const campaign of (tree && tree.campaigns) || []) {
+        const status = String(campaign.status || '').toLowerCase();
+        if (status !== 'active') continue;
+        const campaignId = String(campaign.platformCampaignId || '');
+        const campaignName = String(campaign.campaignName || campaignId || 'Campanha');
+        for (const group of campaign.adSets || []) {
+          for (const ad of group.ads || []) {
+            const raw = String(ad && ad.creative && ad.creative.linkUrl || '').trim();
+            if (!/^https?:\/\//i.test(raw)) continue;
+            let parsed;
+            try { parsed = new URL(raw); } catch (_) { continue; }
+            const canonical = parsed.protocol + '//' + parsed.host + (parsed.pathname || '/');
+            const current = grouped.get(canonical) || {
+              url: canonical,
+              host: parsed.hostname.toLowerCase().replace(/^www\./, ''),
+              spend: 0,
+              campaigns: new Map(),
+            };
+            // O Sentinel usa gasto no nível do anúncio quando disponível para
+            // não atribuir o orçamento inteiro da campanha a cada destino.
+            current.spend += Math.max(0, Number(ad.metrics && ad.metrics.spend) || 0);
+            current.campaigns.set(campaignId, campaignName);
+            grouped.set(canonical, current);
+          }
+        }
+      }
+
+      const targets = [...grouped.values()]
+        .sort((a, b) => b.spend - a.spend)
+        .slice(0, 5);
+
+      const binding = await adsOps.getPixelBinding(req.account.id, advertiserId).catch(() => null);
+      const localPixels = pixelStore.list(req.account.id);
+      const localPixel = binding
+        ? localPixels.find((pixel) => String(pixel.pixelCode || '').trim().toUpperCase() === String(binding.pixelCode || '').trim().toUpperCase())
+        : null;
+      const capiReady = Boolean(localPixel && localPixel.accessToken);
+
+      let runtimeKnown = false;
+      const runtimeByHost = new Map();
+      if (localPixel && localPixel.slug && db && typeof db.readPixelRuntimeCoverage === 'function') {
+        const runtime = await db.readPixelRuntimeCoverage(req.account.id, { windowDays: 1, pixelSlug: localPixel.slug });
+        if (runtime && runtime.ok) {
+          runtimeKnown = true;
+          for (const row of runtime.data || []) {
+            runtimeByHost.set(String(row.host || '').toLowerCase().replace(/^www\./, ''), row);
+          }
+        }
+      }
+
+      const destinations = await Promise.all(targets.map(async (target) => {
+        const page = await inspectAdsDestination(target.url);
+        const runtime = runtimeByHost.get(target.host) || null;
+        const runtimeSeen = runtimeKnown ? Boolean(runtime && Number(runtime.visits) > 0) : null;
+        const severity = !page.ok
+          ? 'critical'
+          : runtimeKnown && target.spend > 0 && runtimeSeen === false
+            ? 'warning'
+            : 'healthy';
+        return {
+          url: target.url,
+          host: target.host,
+          spend: +target.spend.toFixed(2),
+          campaigns: [...target.campaigns.entries()].slice(0, 5).map(([id, name]) => ({ id, name })),
+          page,
+          runtimeSeen,
+          runtimeVisits: runtime ? Number(runtime.visits) || 0 : null,
+          lastSeenAt: runtime ? runtime.lastSeenAt || null : null,
+          severity,
+        };
+      }));
+
+      const data = {
+        advertiserId,
+        checkedAt: new Date().toISOString(),
+        pixel: {
+          bound: Boolean(binding),
+          name: binding && (binding.pixelName || binding.pixelId) || null,
+          capiReady,
+          runtimeKnown,
+        },
+        summary: {
+          total: destinations.length,
+          healthy: destinations.filter((item) => item.severity === 'healthy').length,
+          warning: destinations.filter((item) => item.severity === 'warning').length,
+          critical: destinations.filter((item) => item.severity === 'critical').length,
+        },
+        destinations,
+      };
+      destinationHealthCache.set(cacheKey, { at: Date.now(), data });
+      if (destinationHealthCache.size > 500) {
+        const oldestKey = destinationHealthCache.keys().next().value;
+        if (oldestKey) destinationHealthCache.delete(oldestKey);
+      }
+      res.json(data);
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/health', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -2988,11 +3704,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // reiniciar NÃO pode duplicar campanha.
       const p = task.payload || {};
       const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const dynamicCta = p.dynamicCallToAction
+        ? await pipeboard.getOrCreateTikTokCtaPortfolio(env.accountId, p.adAccountId, ['SHOP_NOW', 'LEARN_MORE'])
+        : null;
       const result = await pipeboard.createFullAd(p.adAccountId, {
-        name: p.name, goal: p.goal, videoUrl: p.imageUrl,
+        name: p.name, goal: p.goal, videoUrl: p.imageUrl, videoId: p.videoId,
         budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
         budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
+        callToActionId: dynamicCta ? dynamicCta.id : undefined,
         countries: p.countries, languages: p.languages,
         ageMin: p.ageMin, ageMax: p.ageMax,
         gender: p.gender, interestIds: p.interestIds, placements: p.placements,
@@ -3107,6 +3827,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           adAccountId: selected.advertiserId,
           name: it.name,
           videoUrl: it.videoUrl,
+          videoId: it.videoId,
           body: it.body !== undefined ? it.body : normalizedCommon.body,
           linkUrl: itemLinkUrl
         }));

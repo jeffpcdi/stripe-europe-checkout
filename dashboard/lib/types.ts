@@ -1020,6 +1020,42 @@ export interface AdsHealthResponse {
   appealUrl: string
 }
 
+export interface AdsDestinationHealthResponse {
+  advertiserId: string
+  checkedAt: string
+  cached?: boolean
+  pixel: {
+    bound: boolean
+    name: string | null
+    capiReady: boolean
+    runtimeKnown: boolean
+  }
+  summary: {
+    total: number
+    healthy: number
+    warning: number
+    critical: number
+  }
+  destinations: {
+    url: string
+    host: string
+    spend: number
+    campaigns: { id: string; name: string }[]
+    page: {
+      ok: boolean
+      status: number
+      host?: string
+      finalUrl?: string
+      latencyMs?: number
+      error?: string | null
+    }
+    runtimeSeen: boolean | null
+    runtimeVisits: number | null
+    lastSeenAt: string | null
+    severity: 'healthy' | 'warning' | 'critical'
+  }[]
+}
+
 // ── Métricas roladas em cada nível da árvore ──
 export interface AdsMetrics {
   impressions?: number
@@ -1157,6 +1193,8 @@ export interface AdsTreeCampaign {
   childStatus?: AdsNodeStatus
   // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus'.
   campaignKind?: 'auction' | 'smart_plus'
+  /** Data de criação reportada pelo TikTok; usada por guardas de aprendizado. */
+  createdAt?: string
   budgetOwner?: 'campaign' | 'adgroup'
   budgetOptimizeOn?: boolean
   platformCampaignStatus?: string | null
@@ -1336,10 +1374,48 @@ export interface AdsLibraryItem {
   name: string
   size: number
   uploadedAt: string | null
+  videoId?: string
+  source?: 'local' | 'cloud'
 }
 
 export interface AdsLibraryResponse {
   items: AdsLibraryItem[]
+}
+
+export interface AdsCloudVideoProvider {
+  configured: boolean
+  connected: boolean
+  enabled: boolean
+  advertiserId: string
+  folderId: string
+  folderPath: string
+  connectedAt: string | null
+}
+
+export interface AdsCloudVideoActivity {
+  provider: 'googleDrive' | 'dropbox' | string
+  file_id: string
+  advertiser_id: string
+  name: string
+  status: string
+  tiktok_video_id: string | null
+  error: string | null
+  processed_at: string | null
+  updated_at: string
+}
+
+export interface AdsCloudVideoResponse {
+  ok: boolean
+  providers: {
+    googleDrive: AdsCloudVideoProvider
+    dropbox: AdsCloudVideoProvider
+  }
+  activity: AdsCloudVideoActivity[]
+  safety: {
+    enabled: boolean
+    dryRun: boolean
+    killSwitch: boolean
+  }
 }
 
 // ── GET/PUT /api/ads/alerts — regras de alerta de performance ──
@@ -2145,6 +2221,16 @@ export interface AdsCustomAudience {
   status: string
   isValid: boolean
   createTime: string | null
+}
+
+
+export interface AdsCustomerAudiencePreview {
+  available: boolean
+  canCreate: boolean
+  eligibleCount: number
+  minimumRequired: number
+  retentionDays: number
+  advertiserId: string
 }
 
 export interface AdsCatalogSyncRun {
