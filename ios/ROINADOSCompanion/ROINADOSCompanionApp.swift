@@ -8,10 +8,6 @@ struct ROINADOSCompanionApp: App {
     var body: some Scene {
         WindowGroup {
             CompanionSetupView()
-                .onOpenURL { url in
-                    guard url.scheme == "roinados", url.host == "pair" else { return }
-                    Task { await handlePairingURL(url) }
-                }
         }
     }
 }
@@ -53,6 +49,10 @@ struct CompanionSetupView: View {
                 }
             }
             .navigationTitle("ROI-NADOS")
+        }
+        .onOpenURL { url in
+            guard url.scheme == "roinados", url.host == "pair" else { return }
+            Task { await handlePairingURL(url) }
         }
     }
 
