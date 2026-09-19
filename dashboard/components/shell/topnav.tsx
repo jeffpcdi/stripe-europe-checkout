@@ -8,15 +8,9 @@ import { usePathname } from 'next/navigation'
 import { NAV_GROUPS } from '@/lib/navigation'
 
 const PRIMARY_LINKS = NAV_GROUPS
-  .filter((group) => group.id === 'overview' || group.id === 'tracking' || group.id === 'ads')
+  .filter((group) => group.id === 'overview' || group.id === 'insights' || group.id === 'tracking' || group.id === 'ads')
   .map((group) => ({ label: group.label, href: group.href, routes: group.routes }))
 
-/**
- * Navbar reestruturada em 3 zonas.
- * Esquerda: identidade.
- * Centro: navegação principal realmente centralizada.
- * Direita: utilidades/conta.
- */
 export function TopNav({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
