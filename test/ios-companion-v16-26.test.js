@@ -44,6 +44,7 @@ assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar 
 assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
 assert(server.includes("const title = 'Ontem · ' + revenueText + ' em receita'"), 'relatório diário deve usar título executivo curto e factual')
 assert(server.includes("' · Ticket ' + aovText") && server.includes("'Atenção: ' + exception"), 'brief diário deve incluir ticket médio e exceção factual útil')
+assert(server.includes("new Intl.NumberFormat('pt-BR'"), 'brief diário deve formatar moeda para leitura humana')
 
 const widgetBlock = server.slice(server.indexOf("app.get('/api/v1/widget'"), server.indexOf("app.post('/api/v1/companion/register'"))
 assert(!/email|phone|customer|orderId/i.test(widgetBlock), 'snapshot do widget não deve expor PII de cliente')
@@ -57,7 +58,8 @@ assert(fanout.includes('note.skipIOSWebPush'), 'fan-out deve sinalizar supressã
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
 assert(widgetSwift.includes('Receita, vendas, ROAS e lucro do dia.'), 'widget deve focar KPIs executivos')
-assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium])'), 'widget deve começar pequeno e médio, sem proliferar formatos')
+assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])'), 'widget deve cobrir Tela de Início e uma superfície enxuta da Tela Bloqueada')
+assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
 assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
