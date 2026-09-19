@@ -26,8 +26,11 @@ enum CompanionConfig {
         guard let base = apiBaseURL,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         else { return nil }
-        components.path = path.hasPrefix("/") ? path : "/" + path
-        components.query = nil
+
+        let raw = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        let pieces = raw.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components.path = "/" + String(pieces.first ?? "dashboard")
+        components.percentEncodedQuery = pieces.count > 1 ? String(pieces[1]) : nil
         components.fragment = nil
         return components.url
     }
