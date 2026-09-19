@@ -68,7 +68,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Links', href: '/links' },
       { label: 'Cloaker', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Pixel', href: '/conversions' },
+      { label: 'Conversões', href: '/conversions' },
     ],
   },
   {
@@ -102,7 +102,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     { id: 'ads', label: 'TikTok Ads', description: 'Campanhas e automações', icon: Megaphone, href: '/ads/tiktok' },
   ] },
   { title: 'Rastreamento', items: [
-    { id: 'conversions', label: 'Pixel', description: 'Pixels e checkouts', icon: CreditCard, href: '/conversions' },
+    { id: 'conversions', label: 'Conversões', description: 'Pixels, checkouts e entregas', icon: CreditCard, href: '/conversions' },
     { id: 'links', label: 'Links', description: 'Links e destinos', icon: Link2, href: '/links' },
     { id: 'domains', label: 'Domínios', description: 'Endereços próprios dos seus links', icon: Globe, href: '/domains' },
     { id: 'cloak', label: 'Cloaker', description: 'Filtro de acessos', icon: ShieldAlert, href: '/cloak' },
