@@ -1132,7 +1132,16 @@ export interface AdsTreeAd {
   isExternal?: boolean
   budget?: AdsBudget | null
   metrics?: AdsMetrics
-  creative?: { body?: string; linkUrl?: string; videoUrl?: string; imageUrl?: string } | null
+  creative?: {
+    body?: string
+    linkUrl?: string
+    /** IDs canônicos do TikTok; permanecem disponíveis mesmo sem URL pública de preview. */
+    videoId?: string
+    imageIds?: string[]
+    /** URLs públicas resolvidas. Nunca contêm pseudo-URLs tiktok:* ou IDs crus. */
+    videoUrl?: string
+    imageUrl?: string
+  } | null
   rejectionReason?: string
   createdAt?: string
 }
