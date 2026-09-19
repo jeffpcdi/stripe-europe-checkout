@@ -27,7 +27,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { AdsConnectCard } from './connect-card'
 import { AdsContextBar } from './context-bar'
-import { CampaignTree } from './campaign-tree'
+import { CampaignWorkspace } from './campaign-workspace'
 import { SparkAdDialog } from './spark-ad-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
@@ -813,7 +813,7 @@ export function TikTokAdsView() {
                 appearance="embedded"
                 showHealthAlarm={false}
               />
-              <CampaignTree
+              <CampaignWorkspace
               key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
               tree={tree}
               loading={treeLoading && !tree}
