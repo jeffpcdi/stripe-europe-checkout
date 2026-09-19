@@ -5,12 +5,11 @@ import { Menu, X } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { NAV_GROUPS } from '@/lib/navigation'
 
-const PRIMARY_LINKS = [
-  { label: 'Visão Geral', href: '/', routes: ['/'] },
-  { label: 'Rastreamento', href: '/links', routes: ['/links', '/domains', '/cloak', '/pixels', '/conversions', '/gateways'] },
-  { label: 'TikTok Ads', href: '/ads/tiktok', routes: ['/ads', '/catalog'] },
-]
+const PRIMARY_LINKS = NAV_GROUPS
+  .filter((group) => group.id === 'overview' || group.id === 'tracking' || group.id === 'ads')
+  .map((group) => ({ label: group.label, href: group.href, routes: group.routes }))
 
 /**
  * Navbar reestruturada em 3 zonas.
