@@ -30,6 +30,9 @@ function nativePreferencesFor(accountId) {
     automation: typeof saved.automation === 'boolean'
       ? saved.automation
       : (typeof legacy.ads === 'boolean' ? legacy.ads : true),
+    reports: typeof saved.reports === 'boolean'
+      ? saved.reports
+      : (typeof legacy.daily === 'boolean' ? legacy.daily : true),
   };
 }
 
@@ -37,6 +40,7 @@ function nativeGroup(event) {
   if (event === 'sale' || event === 'pix_pending' || event === 'test') return 'sales';
   if (['failed', 'refund', 'dispute', 'login', 'watchdog'].includes(event)) return 'risks';
   if (String(event || '').startsWith('ads_') || event === 'ads') return 'automation';
+  if (event === 'daily') return 'reports';
   return null;
 }
 
