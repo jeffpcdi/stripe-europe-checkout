@@ -146,11 +146,18 @@ export function formatTime(iso?: string): string {
   }
 }
 
-/** Data + hora local (dd/mm HH:MM) no fuso de Brasília. */
-export function formatDateTime(iso?: string): string {
+/** Data + hora local (dd/mm HH:MM). Usa Brasília por padrão e aceita o fuso da conta por chamada. */
+export function formatDateTime(iso?: string, timeZone: string = TIMEZONE): string {
   if (!iso) return ''
   try {
-    return dateTimeFmt.format(new Date(iso))
+    if (!timeZone || timeZone === TIMEZONE) return dateTimeFmt.format(new Date(iso))
+    return new Intl.DateTimeFormat(LOCALE, {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone,
+    }).format(new Date(iso))
   } catch {
     return ''
   }
