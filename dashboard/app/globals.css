@@ -2363,13 +2363,17 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .roi-toast-in,
   .premium-navbar__notification-dot,
+  .anim-shake,
+  .toast-life,
   ::view-transition-old(.vt-fade-out),
   ::view-transition-new(.vt-fade-in) {
     animation: none !important;
   }
 }
 html[data-anim='off'] .roi-toast-in,
-html[data-anim='off'] .premium-navbar__notification-dot {
+html[data-anim='off'] .premium-navbar__notification-dot,
+html[data-anim='off'] .anim-shake,
+html[data-anim='off'] .toast-life {
   animation: none !important;
 }
 
