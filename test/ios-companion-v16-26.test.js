@@ -30,6 +30,7 @@ const salePayload = JSON.parse(iosPush._payloadFor({
 assert.strictEqual(salePayload.aps.sound, 'roi-sale.wav', 'venda nativa deve usar o som ROI-NADOS')
 assert.strictEqual(salePayload.aps['interruption-level'], 'active', 'venda comum não deve fingir alerta crítico Apple')
 assert.strictEqual(salePayload.aps.badge, 1, 'venda acionável deve marcar o app')
+assert.strictEqual(salePayload.aps['content-available'], 1, 'venda deve solicitar atualização de dados do widget em background')
 
 const breakerPayload = JSON.parse(iosPush._payloadFor({
   event: 'ads_breaker',
@@ -39,6 +40,15 @@ const breakerPayload = JSON.parse(iosPush._payloadFor({
 }))
 assert.strictEqual(breakerPayload.aps.sound, 'default', 'som customizado é reservado para venda/teste')
 assert.strictEqual(breakerPayload.aps['interruption-level'], 'time-sensitive', 'falha crítica interna pode usar Time Sensitive, não Critical Alert')
+
+const dailyPayload = JSON.parse(iosPush._payloadFor({
+  event: 'daily',
+  title: 'Resumo de ontem · R$ 1.000,00',
+  body: '10 vendas · ROAS 2.50×',
+  priority: 'normal',
+}))
+assert.strictEqual(dailyPayload.aps['interruption-level'], 'passive', 'brief diário deve informar sem interromper')
+assert.strictEqual(dailyPayload.aps.sound, undefined, 'brief diário passivo não deve tocar som')
 
 assert(server.includes("app.get('/api/v1/widget'"), 'backend deve expor snapshot agregado para WidgetKit')
 assert(server.includes("companionApiAccount(req) || publicApiAccount(req)"), 'widget deve aceitar token dedicado do companion')
@@ -79,13 +89,17 @@ assert(widgetSwift.includes('.widgetURL(CompanionConfig.dashboardURL())'), 'toqu
 assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
+assert(registerSwift.includes('requestAuthorizationAndRegister') && registerSwift.includes('registerIfAuthorized'), 'permissão de notificação deve ser pedida em contexto, não automaticamente no primeiro launch')
+assert(registerSwift.includes('didReceiveRemoteNotification') && registerSwift.includes('reloadAllTimelines'), 'venda recebida em background deve sinalizar atualização do WidgetKit')
 assert(registerSwift.includes('didReceive response') && registerSwift.includes('CompanionConfig.dashboardURL'), 'toque em notificação nativa deve abrir o deep link correto')
 assert(registerSwift.includes('WidgetCenter.shared.reloadAllTimelines()'), 'alerta nativo deve sinalizar atualização dos widgets')
 assert(companionConfigSwift.includes('percentEncodedQuery') && companionConfigSwift.includes('maxSplits: 1'), 'deep link nativo deve preservar query como tab=automation')
 assert(projectYml.includes('APS_ENVIRONMENT: production') && projectYml.includes('APS_ENVIRONMENT: development'), 'Debug e Release devem usar ambientes APNs coerentes')
 assert(projectYml.includes('CFBundleURLSchemes:') && projectYml.includes('- roinados'), 'Companion deve registrar o scheme de pareamento')
+assert(projectYml.includes('UIBackgroundModes:') && projectYml.includes('- remote-notification'), 'Companion deve habilitar refresh de widget por push em background')
 assert(appEntitlements.includes('$(APS_ENVIRONMENT)'), 'entitlement APNs não deve ficar fixo em development')
 const companionApp = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/ROINADOSCompanionApp.swift'), 'utf8')
 assert(companionApp.includes('.onOpenURL') && companionApp.includes('handlePairingURL'), 'app deve consumir o link de pareamento e validar a conta')
+assert(companionApp.includes('requestAuthorizationAndRegister') && companionApp.includes('Abrir Ajustes de notificações'), 'app deve pedir alertas após validar a conta e oferecer recuperação se negado')
 
 console.log('[OK] V16.26 — executive brief, APNs nativo, som de venda e WidgetKit coerentes.')
