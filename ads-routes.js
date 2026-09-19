@@ -2880,6 +2880,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
 
   app.post('/api/ads/budget/proposal/apply', dashboardAuth, async (req, res) => {
+    let allocatorLedgerJobId = null;
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
@@ -2950,6 +2951,39 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
       }
 
+      const ledgerKey = 'profit-allocator:' + crypto.createHash('sha256')
+        .update(advertiserId + '|' + idempotencyKey)
+        .digest('hex');
+      const reservation = await adsOps.reserveIdempotentOperation(req.account.id, {
+        idempotencyKey: ledgerKey,
+        kind: 'idempotency:profit_allocator',
+        advertiserId,
+        payload: {
+          days,
+          currency,
+          changes: prepared.map((item) => ({
+            id: item.campaignId,
+            from: item.current,
+            to: item.proposed,
+          })),
+        },
+      });
+      if (!reservation.reserved) {
+        const previous = reservation.job;
+        const progress = previous && previous.progress && typeof previous.progress === 'object' ? previous.progress : {};
+        if (previous && previous.status === 'completed' && progress.result) {
+          return res.json({ ...progress.result, replayed: true });
+        }
+        if (previous && previous.status === 'failed' && progress.errorResponse) {
+          return res.status(Number(progress.httpStatus) || 409).json({ ...progress.errorResponse, replayed: true });
+        }
+        return res.status(409).json({
+          error: 'Este plano já está sendo aplicado e não pode ser executado novamente.',
+          code: 'BUDGET_ALLOCATOR_IN_PROGRESS',
+        });
+      }
+      allocatorLedgerJobId = reservation.job && reservation.job.id || null;
+
       if (guard.dryRun) {
         await auditSimulated(req.account.id, {
           action: 'budget_allocator.apply',
@@ -2958,7 +2992,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           metadata: { days, currency, changes: prepared.map((item) => ({ id: item.campaignId, from: item.current, to: item.proposed })) },
           title: 'Profit Allocator · ' + prepared.length + ' ajuste(s)',
         });
-        return res.json({ ok: true, dryRun: true, simulated: prepared.length, proposal });
+        const result = { ok: true, dryRun: true, simulated: prepared.length, proposal };
+        if (allocatorLedgerJobId) {
+          await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'completed', {
+            progress: { result },
+          });
+          allocatorLedgerJobId = null;
+        }
+        return res.json(result);
       }
 
       // Reduz primeiro e só depois aumenta. Em uma falha, tenta restaurar tudo
@@ -3045,8 +3086,29 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         acc: req.account.id,
         title: '[tiktok-ads] Profit Allocator aplicado: ' + prepared.length + ' orçamento(s)',
       });
-      res.json({ ok: true, updated: prepared.length, proposal });
-    } catch (err) { fail(res, err); }
+      const result = { ok: true, updated: prepared.length, proposal };
+      if (allocatorLedgerJobId) {
+        await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'completed', {
+          progress: { result },
+        });
+        allocatorLedgerJobId = null;
+      }
+      res.json(result);
+    } catch (err) {
+      if (allocatorLedgerJobId) {
+        await adsOps.setJobStatus(req.account.id, allocatorLedgerJobId, 'failed', {
+          progress: {
+            httpStatus: Number(err && err.status) || 500,
+            errorResponse: {
+              error: String(err && err.message || 'Falha ao aplicar o plano').slice(0, 500),
+              ...(err && err.code ? { code: err.code } : {}),
+            },
+          },
+          error: String(err && err.message || 'Falha ao aplicar o plano').slice(0, 500),
+        }).catch(() => {});
+      }
+      fail(res, err);
+    }
   });
 
   app.get('/api/ads/alerts', dashboardAuth, async (req, res) => {
