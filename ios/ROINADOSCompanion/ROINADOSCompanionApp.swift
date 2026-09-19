@@ -8,6 +8,10 @@ struct ROINADOSCompanionApp: App {
     var body: some Scene {
         WindowGroup {
             CompanionSetupView()
+                .onOpenURL { url in
+                    guard url.scheme == "roinados", url.host == "pair" else { return }
+                    Task { await handlePairingURL(url) }
+                }
         }
     }
 }
@@ -50,6 +54,23 @@ struct CompanionSetupView: View {
             }
             .navigationTitle("ROI-NADOS")
         }
+    }
+
+    @MainActor
+    private func handlePairingURL(_ url: URL) async {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let server = components.queryItems?.first(where: { $0.name == "server" })?.value,
+              let incomingToken = components.queryItems?.first(where: { $0.name == "token" })?.value,
+              let serverURL = URL(string: server),
+              !incomingToken.isEmpty
+        else {
+            status = "Link de pareamento inválido."
+            return
+        }
+
+        baseURL = serverURL.absoluteString
+        token = incomingToken
+        await save()
     }
 
     @MainActor
