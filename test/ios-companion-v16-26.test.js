@@ -42,8 +42,8 @@ assert(server.includes("companionApiAccount(req) || publicApiAccount(req)"), 'wi
 assert(server.includes("app.post('/api/v1/companion/register'"), 'companion deve registrar device token APNs')
 assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar token dedicado de pareamento')
 assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
-assert(server.includes("Resumo diário · "), 'relatório diário deve usar título curto de executive brief')
-assert(server.includes('Atenção: houve gasto no TikTok sem venda registrada.'), 'brief diário deve destacar exceção factual útil')
+assert(server.includes("const title = 'Ontem · ' + revenueText + ' em receita'"), 'relatório diário deve usar título executivo curto e factual')
+assert(server.includes("' · Ticket ' + aovText") && server.includes("'Atenção: ' + exception"), 'brief diário deve incluir ticket médio e exceção factual útil')
 
 const widgetBlock = server.slice(server.indexOf("app.get('/api/v1/widget'"), server.indexOf("app.post('/api/v1/companion/register'"))
 assert(!/email|phone|customer|orderId/i.test(widgetBlock), 'snapshot do widget não deve expor PII de cliente')
