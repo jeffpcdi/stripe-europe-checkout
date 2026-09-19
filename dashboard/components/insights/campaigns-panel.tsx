@@ -8,7 +8,7 @@ import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { toast } from '@/lib/toast'
-import { apiSend, useAdsBudgetProposal } from '@/lib/api'
+import { ApiError, apiSend, useAdsBudgetProposal } from '@/lib/api'
 
 
 function dailyBudget(campaign: AdsTreeCampaign): number | null {
@@ -164,6 +164,14 @@ export function InsightsCampaignsPanel({
       await mutateAllocator()
       await onChanged?.()
     } catch (error) {
+      // Se o backend confirmou rollback completo, a operação anterior terminou
+      // sem mutação residual e uma nova tentativa pode ganhar outra chave.
+      // Falha ambígua/rollback parcial preserva a chave para impedir replay.
+      if (error instanceof ApiError
+        && error.code === 'BUDGET_ALLOCATOR_ROLLED_BACK'
+        && error.retryable === true) {
+        allocatorAttemptRef.current = null
+      }
       toast.error('Não foi possível aplicar o plano', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setApplyingAllocator(false)
