@@ -184,7 +184,7 @@ test('notify-copy: alertas acionáveis usam deep links específicos', () => {
   assert.strictEqual(rejected.url, '/dashboard/ads/tiktok?tab=automation');
   assert.strictEqual(breaker.url, '/dashboard/ads/tiktok?tab=automation');
   assert.strictEqual(cap.url, '/dashboard/ads/tiktok?tab=automation');
-  assert.strictEqual(testNote.url, '/dashboard/config?tab=alerts');
+  assert.strictEqual(testNote.url, '/dashboard/config?tab=notifications');
 });
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {
   const webPushNotify = require('../web-push-notify');
