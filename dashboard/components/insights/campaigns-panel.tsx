@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { ArrowUpRight, Download, Loader2 } from 'lucide-react'
+import { ArrowUpRight, Download, Loader2, Scale } from 'lucide-react'
 import type { AdsCampaignDecisionsResponse, AdsTreeCampaign, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { toast } from '@/lib/toast'
+import { apiSend, useAdsBudgetProposal } from '@/lib/api'
 
 
 function dailyBudget(campaign: AdsTreeCampaign): number | null {
@@ -48,6 +49,17 @@ function pacingView(spend: number | null, budget: number | null, timeZone: strin
   return { label: 'No ritmo', tone: 'text-success', consumed }
 }
 
+function learningState(campaign: AdsTreeCampaign) {
+  const raw = campaign.createdAt || (campaign as AdsTreeCampaign & { createTime?: string; created_at?: string }).createTime || (campaign as AdsTreeCampaign & { created_at?: string }).created_at
+  if (!raw) return null
+  const created = new Date(raw)
+  if (!Number.isFinite(created.getTime())) return null
+  const ageDays = Math.max(0, (Date.now() - created.getTime()) / 86400000)
+  const results = Math.max(0, Number(campaign.metrics?.conversions) || 0)
+  if (ageDays >= 7 || results >= 25) return null
+  return { ageDays, results }
+}
+
 function statusLabel(status?: string) {
   const value = String(status || '').toLowerCase()
   if (value === 'active' || value === 'enable') return 'Ativa'
@@ -77,6 +89,7 @@ export function InsightsCampaignsPanel({
   fromDate,
   toDate,
   loading,
+  onChanged,
 }: {
   connected: boolean
   tree?: AdsTreeResponse
@@ -88,8 +101,17 @@ export function InsightsCampaignsPanel({
   fromDate: string
   toDate: string
   loading: boolean
+  onChanged?: () => void | Promise<void>
 }) {
   const [exporting, setExporting] = useState(false)
+  const [allocatorOpen, setAllocatorOpen] = useState(false)
+  const [applyingAllocator, setApplyingAllocator] = useState(false)
+  const { data: allocator, error: allocatorError, isLoading: allocatorLoading, mutate: mutateAllocator } = useAdsBudgetProposal(
+    allocatorOpen && connected,
+    advertiserId,
+    currency,
+    7,
+  )
   if (!connected) {
     return (
       <GlassCard className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
@@ -106,6 +128,31 @@ export function InsightsCampaignsPanel({
 
   const todayByCampaign = new Map((pacingTree?.campaigns ?? []).map(campaign => [String(campaign.platformCampaignId || ''), campaign]))
 
+
+  async function applyAllocator() {
+    if (!advertiserId || applyingAllocator || !allocator?.changes?.length) return
+    setApplyingAllocator(true)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; updated?: number }>(
+        '/api/ads/budget/proposal/apply',
+        'POST',
+        {
+          adAccountId: advertiserId,
+          currency,
+          days: 7,
+          idempotencyKey: `profit-allocator:${advertiserId}:${crypto.randomUUID()}`,
+        },
+      )
+      if (result.dryRun) toast.info('Simulação concluída. Nenhum orçamento foi alterado.')
+      else toast.success('Orçamento redistribuído', { hint: `${result.updated || allocator.changes.length} campanha(s) atualizada(s).` })
+      await mutateAllocator()
+      await onChanged?.()
+    } catch (error) {
+      toast.error('Não foi possível aplicar o plano', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setApplyingAllocator(false)
+    }
+  }
 
   async function exportCsv() {
     if (!advertiserId || exporting) return
@@ -155,6 +202,7 @@ export function InsightsCampaignsPanel({
     const todaySpend = typeof todayCampaign?.metrics?.spend === 'number' ? todayCampaign.metrics.spend : null
     const budget = dailyBudget(campaign)
     const pacing = pacingView(todaySpend, budget, timeZone)
+    const learning = learningState(campaign)
 
     return {
       id,
@@ -168,6 +216,7 @@ export function InsightsCampaignsPanel({
       cpa,
       roas,
       pacing,
+      learning,
     }
   }).sort((a, b) => (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || (b.spend ?? -1) - (a.spend ?? -1))
 
@@ -176,6 +225,10 @@ export function InsightsCampaignsPanel({
       <div className="flex items-center justify-between gap-4 px-5 py-4">
         <h2 className="text-[15px] font-semibold text-foreground">Campanhas</h2>
         <div className="flex items-center gap-1">
+          <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={!rows.length} onClick={() => setAllocatorOpen(value => !value)}>
+            <Scale className="size-3.5" aria-hidden="true" />
+            Redistribuir
+          </button>
           <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={exporting || !rows.length} onClick={() => void exportCsv()}>
             {exporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Download className="size-3.5" aria-hidden="true" />}
             Exportar
@@ -185,6 +238,46 @@ export function InsightsCampaignsPanel({
           </Link>
         </div>
       </div>
+
+      {allocatorOpen ? (
+        <div className="border-t border-border/60 bg-secondary/[0.04] px-5 py-4">
+          {allocatorLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Calculando distribuição…</div>
+          ) : allocatorError ? (
+            <p className="text-xs text-muted-foreground">Não foi possível calcular uma realocação agora.</p>
+          ) : allocator?.insufficient ? (
+            <p className="text-xs text-muted-foreground">São necessárias pelo menos duas campanhas ativas, elegíveis e fora do aprendizado protegido.</p>
+          ) : allocator?.noChange ? (
+            <p className="text-xs text-muted-foreground">{allocator.message || 'A distribuição atual já está equilibrada.'}</p>
+          ) : allocator?.changes?.length ? (
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-xs font-semibold text-foreground">Profit Allocator · 7 dias</p>
+                  <span className="text-[11px] text-muted-foreground">{allocator.changes.length} ajuste(s) · total preservado</span>
+                </div>
+                {allocator.rationale ? <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">{allocator.rationale}</p> : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {allocator.changes.slice(0, 5).map(change => (
+                    <span key={change.campaignId} className="rounded-lg border border-border/60 bg-background/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                      <strong className="font-medium text-foreground">{change.name}</strong>
+                      {' · '}
+                      {formatMoney(Math.round(change.current * 100), allocator.currency || currency)}
+                      {' → '}
+                      {formatMoney(Math.round(change.proposed * 100), allocator.currency || currency)}
+                    </span>
+                  ))}
+                  {allocator.changes.length > 5 ? <span className="px-1 py-1.5 text-[11px] text-muted-foreground">+{allocator.changes.length - 5}</span> : null}
+                </div>
+              </div>
+              <button type="button" className="btn-primary h-10 shrink-0 text-xs" disabled={applyingAllocator} onClick={() => void applyAllocator()}>
+                {applyingAllocator && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+                Aplicar plano
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {rows.length ? (
         <div className="overflow-x-auto border-t border-border/60">
@@ -206,6 +299,7 @@ export function InsightsCampaignsPanel({
                 <tr key={row.id || row.name} className="border-b border-border/40 last:border-0 hover:bg-secondary/10">
                   <td className="max-w-[320px] px-5 py-3.5">
                     <span className="block truncate text-[13px] font-medium text-foreground" title={row.name}>{row.name}</span>
+                    {row.learning ? <span className="mt-0.5 block text-[11px] text-brand-cyan">Aprendizado protegido · {row.learning.results} resultado(s)</span> : null}
                   </td>
                   <td className={`px-4 py-3.5 text-xs font-medium ${statusClass(row.status)}`}>{statusLabel(row.status)}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.spend == null ? '—' : formatMoney(Math.round(row.spend * 100), row.spendCurrency)}</td>
