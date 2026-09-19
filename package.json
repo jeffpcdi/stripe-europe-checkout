@@ -6,7 +6,7 @@
     "dev": "node --env-file-if-exists=.env.development.local dev.js",
     "postinstall": "npm --prefix dashboard install",
     "build": "NODE_ENV=production npm --prefix dashboard run build",
-    "lint": "node --check server.js db.js dev.js cloak-campaign-store.js cloak-traffic-sources.js cloak-network-risk.js cloak-network-context.js cloak-decision-engine.js cloak-decision-shadow.js edge-domain-auth.js cloudflare/domain-edge-worker.mjs",
+    "lint": "node --check server.js db.js dev.js cloak-campaign-store.js cloak-traffic-sources.js cloak-network-risk.js cloak-network-context.js cloak-decision-engine.js cloak-decision-shadow.js edge-domain-auth.js cloudflare/domain-edge-worker.mjs ios-push.js",
     "start": "node start.js",
     "doctor": "node scripts/doctor.js",
     "audit:sync": "node scripts/audit-sync.js",
