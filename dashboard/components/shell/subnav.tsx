@@ -6,6 +6,7 @@ import { activeGroup } from '@/lib/navigation'
 
 function normalizeInsightsTab(value: string | null) {
   if (value === 'campaigns' || value === 'sources') return 'campaigns'
+  if (value === 'creatives') return 'creatives'
   if (value === 'funnel') return 'funnel'
   if (value === 'diagnosis' || value === 'opportunities' || value === 'anomalies' || value === 'quality') return 'diagnosis'
   return 'performance'
