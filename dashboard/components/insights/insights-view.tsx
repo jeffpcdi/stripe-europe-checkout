@@ -14,7 +14,7 @@ import {
   useOverviewAnalytics,
   useOverviewHealth,
 } from '@/lib/api'
-import { adsDateRange } from '@/lib/ads-time'
+import { adsDateRange, previousAdsRange } from '@/lib/ads-time'
 import { useOverviewPeriod } from '@/lib/overview-period'
 import { fmtDelta, fmtInt, fmtPercent, formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
@@ -22,12 +22,14 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { InsightsCampaignsPanel } from './campaigns-panel'
 import { InsightsDiagnosisPanel } from './diagnosis-panel'
+import { CreativeInsightsPanel } from './creative-insights-panel'
 import { ScenarioSimulator } from './scenario-simulator'
 
-type InsightTab = 'performance' | 'campaigns' | 'funnel' | 'diagnosis'
+type InsightTab = 'performance' | 'campaigns' | 'creatives' | 'funnel' | 'diagnosis'
 
 function normalizeTab(value: string | null): InsightTab {
   if (value === 'campaigns' || value === 'sources') return 'campaigns'
+  if (value === 'creatives') return 'creatives'
   if (value === 'funnel') return 'funnel'
   if (value === 'diagnosis' || value === 'opportunities' || value === 'anomalies' || value === 'quality') return 'diagnosis'
   return 'performance'
@@ -95,9 +97,11 @@ export function InsightsView() {
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const adsRange = useMemo(() => adsDateRange(periodToDays(period), accountTimeZone), [period, accountTimeZone])
+  const previousCreativeRange = useMemo(() => previousAdsRange(adsRange), [adsRange])
 
   const adsOverviewActive = adsConnected && tab === 'performance'
   const campaignsActive = adsConnected && tab === 'campaigns'
+  const creativesActive = adsConnected && tab === 'creatives'
   const { data: roas, error: roasError } = useAdsRoas(adsOverviewActive, adAccountId, adsRange)
   const { data: profitability, error: profitabilityError } = useAdsProfitability(adsOverviewActive, adAccountId, adsRange)
   const { data: adsTree, error: adsTreeError, isLoading: adsTreeLoading } = useAdsTree(campaignsActive, {
@@ -107,6 +111,16 @@ export function InsightsView() {
     sort: 'conversions',
   })
   const { data: campaignDecisions, error: decisionsError } = useAdsCampaignDecisions(campaignsActive, adAccountId, adsRange)
+  const { data: creativeTree, error: creativeTreeError, isLoading: creativeTreeLoading } = useAdsTree(creativesActive, {
+    adAccountId,
+    fromDate: adsRange.fromDate,
+    toDate: adsRange.toDate,
+  })
+  const { data: previousCreativeTree, error: previousCreativeTreeError } = useAdsTree(creativesActive, {
+    adAccountId,
+    fromDate: previousCreativeRange.fromDate,
+    toDate: previousCreativeRange.toDate,
+  })
 
   const computed = useMemo(() => {
     if (!analytics?.current) return null
@@ -191,7 +205,7 @@ export function InsightsView() {
         ) : null}
       </div>
 
-      {(analyticsError || healthError || roasError || profitabilityError || adsTreeError || decisionsError) ? (
+      {(analyticsError || healthError || roasError || profitabilityError || adsTreeError || decisionsError || creativeTreeError || previousCreativeTreeError) ? (
         <button
           type="button"
           className="btn-ghost self-start text-xs text-warning"
@@ -275,6 +289,15 @@ export function InsightsView() {
           decisions={campaignDecisions}
           currency={spendCurrency}
           loading={adsTreeLoading}
+        />
+      ) : null}
+
+      {tab === 'creatives' ? (
+        <CreativeInsightsPanel
+          connected={adsConnected}
+          current={creativeTree}
+          previous={previousCreativeTree}
+          loading={creativeTreeLoading}
         />
       ) : null}
 
