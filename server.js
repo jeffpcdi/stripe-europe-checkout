@@ -1799,6 +1799,18 @@ function publicApiAccount(req) {
   return null;
 }
 
+function companionApiAccount(req) {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+([^\s]+)$/i);
+  const provided = String((bearer && bearer[1]) || '');
+  if (!provided) return null;
+  for (const accId of config.accountIds()) {
+    const token = (config.get(accId).companion || {}).token;
+    if (token && safeEqual(provided, token)) return accId;
+  }
+  return null;
+}
+
 app.get('/api/v1/summary', (req, res) => {
   res.set('Cache-Control', 'no-store');
   const tokenAcc = publicApiAccount(req);
@@ -1840,7 +1852,7 @@ app.get('/api/v1/summary', (req, res) => {
 // em URLs, histórico ou logs.
 app.get('/api/v1/widget', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const tokenAcc = publicApiAccount(req);
+  const tokenAcc = companionApiAccount(req) || publicApiAccount(req);
   if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
   if (rateLimited(clientIp(req), 'pubwidget', 60)) return res.status(429).json({ error: 'rate limit' });
 
@@ -1906,6 +1918,62 @@ app.get('/api/v1/widget', async (req, res) => {
   } catch (error) {
     console.warn('[widget] snapshot falhou:', error && error.message);
     res.status(503).json({ error: 'snapshot indisponível' });
+  }
+});
+
+app.post('/api/v1/companion/register', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const accId = companionApiAccount(req);
+  if (!accId) return res.status(401).json({ ok: false, error: 'token do companion inválido' });
+  if (rateLimited(clientIp(req), 'companionreg', 12)) return res.status(429).json({ ok: false, error: 'rate limit' });
+
+  const rawToken = String((req.body || {}).deviceToken || '').replace(/[^a-f0-9]/gi, '');
+  const name = String((req.body || {}).name || 'iPhone').trim().slice(0, 60) || 'iPhone';
+  if (!/^[a-f0-9]{64,200}$/i.test(rawToken)) {
+    return res.status(400).json({ ok: false, error: 'deviceToken APNs inválido' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const id = crypto.createHash('sha256').update(rawToken).digest('hex').slice(0, 24);
+  try {
+    const saved = await config.setDurable(accId, (latest) => {
+      const companion = latest.companion || {};
+      const current = Array.isArray(companion.devices) ? companion.devices : [];
+      const existing = current.find((device) => device.token === rawToken);
+      const next = current.filter((device) => device.token !== rawToken);
+      next.push({
+        id,
+        token: rawToken,
+        name,
+        createdAt: existing?.createdAt || nowIso,
+        updatedAt: nowIso,
+      });
+      return { companion: Object.assign({}, companion, { devices: next.slice(-6) }) };
+    });
+    stats.logEvent('info', { acc: accId, title: '[companion] iPhone pareado: ' + name });
+    res.json({ ok: true, deviceId: id, devices: ((saved.companion || {}).devices || []).length });
+  } catch (_) {
+    res.status(503).json({ ok: false, error: 'Não foi possível registrar o iPhone.' });
+  }
+});
+
+app.delete('/api/v1/companion/device/:id', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const accId = companionApiAccount(req);
+  if (!accId) return res.status(401).json({ ok: false, error: 'token do companion inválido' });
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  try {
+    const saved = await config.setDurable(accId, (latest) => {
+      const companion = latest.companion || {};
+      return {
+        companion: Object.assign({}, companion, {
+          devices: (companion.devices || []).filter((device) => device.id !== id),
+        }),
+      };
+    });
+    res.json({ ok: true, devices: ((saved.companion || {}).devices || []).length });
+  } catch (_) {
+    res.status(503).json({ ok: false, error: 'Não foi possível remover o aparelho.' });
   }
 });
 
@@ -4794,6 +4862,53 @@ app.get('/api/webpush/status', dashboardAuth, (req, res) => {
     funMode: wp.funMode === true,
     preferences: nativePreferencesFor(req.account.id),
   });
+});
+
+app.get('/api/companion/status', dashboardAuth, (req, res) => {
+  const companion = config.get(req.account.id).companion || { devices: [] };
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    paired: Boolean(companion.token),
+    devices: (companion.devices || []).map((device) => ({
+      id: device.id,
+      name: device.name,
+      createdAt: device.createdAt,
+      updatedAt: device.updatedAt,
+    })),
+    apnsConfigured: require('./ios-push').configured(),
+  });
+});
+
+app.get('/api/companion/token', dashboardAuth, async (req, res) => {
+  let companion = config.get(req.account.id).companion || {};
+  let token = companion.token;
+  if (!token) {
+    token = crypto.randomBytes(32).toString('hex');
+    try {
+      const saved = await config.setDurable(req.account.id, (latest) => ({
+        companion: Object.assign({}, latest.companion || {}, { token }),
+      }));
+      token = (saved.companion || {}).token || token;
+      audit(req, req.account.id, 'companion_token_criado', 'Token do companion iOS criado');
+    } catch (error) { return configMutationError(res, error); }
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, token });
+});
+
+app.post('/api/companion/token/rotate', dashboardAuth, async (req, res) => {
+  if (rateLimited('companionrot|' + req.account.id, 'companionrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas rotações. Aguarde um minuto.' });
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  try {
+    await config.setDurable(req.account.id, (latest) => ({
+      companion: Object.assign({}, latest.companion || {}, { token, devices: [] }),
+    }));
+    audit(req, req.account.id, 'companion_token_rotacionado', 'Token do companion iOS rotacionado; aparelhos revogados');
+    res.json({ ok: true, token, devices: 0 });
+  } catch (error) { return configMutationError(res, error); }
 });
 
 // Tom descontraído é opcional; o padrão é curto e direto.
