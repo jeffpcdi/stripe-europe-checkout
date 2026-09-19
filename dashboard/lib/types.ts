@@ -1336,6 +1336,8 @@ export interface AdsLibraryItem {
   name: string
   size: number
   uploadedAt: string | null
+  videoId?: string
+  source?: 'local' | 'cloud'
 }
 
 export interface AdsLibraryResponse {
