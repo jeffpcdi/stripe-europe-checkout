@@ -4771,6 +4771,28 @@ async function deleteCustomAudiences(advertiserId, audienceIds) {
   return out;
 }
 
+
+async function shareCustomAudiences(advertiserId, audienceIds, sharedAdvertiserIds, sharedBcId) {
+  const adv = String(advertiserId || '').trim();
+  const ids = [...new Set((Array.isArray(audienceIds) ? audienceIds : [audienceIds]).filter(Boolean).map((id) => String(id).trim()).filter(Boolean))];
+  const recipients = [...new Set((Array.isArray(sharedAdvertiserIds) ? sharedAdvertiserIds : [sharedAdvertiserIds]).filter(Boolean).map((id) => String(id).trim()).filter(Boolean))]
+    .filter((id) => id !== adv);
+  if (!adv || !ids.length || !recipients.length) throw badRequest('Público e conta de destino são obrigatórios');
+
+  const args = {
+    advertiser_id: adv,
+    custom_audience_ids: ids,
+    shared_advertiser_ids: recipients,
+  };
+  const bc = String(sharedBcId || '').trim();
+  if (bc) args.shared_bc_id = bc;
+
+  const out = await pipeboard.callTool('share_tiktok_custom_audience', args);
+  cacheBust('audiences:' + adv);
+  recipients.forEach((id) => cacheBust('audiences:' + id));
+  return out;
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -4789,6 +4811,7 @@ module.exports = {
   createCustomAudience,
   createLookalikeAudience,
   deleteCustomAudiences,
+  shareCustomAudiences,
   // árvore
   getCampaigns,
   getAdGroups,
