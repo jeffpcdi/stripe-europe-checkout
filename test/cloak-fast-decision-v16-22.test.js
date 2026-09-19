@@ -217,6 +217,7 @@ const goodHeaders = {
   assert.match(server, /app\.get\('\/api\/cloak\/engine-health'/);
   assert.match(server, /CLOAK_DECISION_ENGINE_MODE/);
   assert.match(store, /decisionEngineVersion/);
+  assert.match(server, /\['v5', 'v6-shadow'\]\.includes\(b\.decisionEngineVersion\)/);
 
   const goStart = server.indexOf('async function handleCheckoutPublic');
   const goEnd = server.indexOf("app.get('/go/:slug'", goStart);
@@ -232,6 +233,8 @@ const goodHeaders = {
   const cloakBlock = server.slice(cloakStart, cloakEnd);
   assert.match(cloakBlock, /roiNetworkContext: networkContext && networkContext\.networkVerified/);
   assert.match(cloakBlock, /geoCountry: observedCountry\(\)/);
+  assert.match(cloakBlock, /networkContext && networkContext\.networkVerified[\s\S]*networkContext\.ip \|\| ''/);
+  assert.match(cloakBlock, /networkContext && networkContext\.networkVerified[\s\S]*networkContext\.country \|\| ''/);
 
   assert.match(worker, /const VERSION = 'v2'/);
   assert.match(worker, /X-ROI-Edge-Client-IP/);
@@ -241,6 +244,7 @@ const goodHeaders = {
   assert.doesNotMatch(v6, /require\(['"]\.\/redis['"]\)/);
   assert.match(bot, /roiNetworkContext/);
   assert.match(bot, /asn:edge-signed/);
+  assert.match(bot, /trustedNetwork[\s\S]*\? \(trustedNetwork\.ip \|\| ''\)[\s\S]*: \(\(req\.headers\['x-forwarded-for'\]/);
   assert.match(server, /roiNetworkContext: networkContext && networkContext\.networkVerified/);
 }
 
