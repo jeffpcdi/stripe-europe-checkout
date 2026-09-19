@@ -2420,12 +2420,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Google Drive / Dropbox → biblioteca TikTok (rascunho) ─────────────
   app.get('/api/ads/cloud-video', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     try {
-      const [providers, activity] = await Promise.all([
+      const [providers, activity, safety] = await Promise.all([
         cloudVideo.status(req.account.id),
         cloudVideo.listActivity(req.account.id, 50),
+        adsOps.getSafetyPolicy(req.account.id).catch(() => null),
       ]);
-      res.json({ ok: true, providers, activity });
+      res.json({
+        ok: true,
+        providers,
+        activity,
+        safety: safety ? {
+          enabled: safety.enabled !== false,
+          dryRun: safety.dryRun !== false,
+          killSwitch: safety.killSwitch === true,
+        } : { enabled: false, dryRun: true, killSwitch: false },
+      });
     } catch (err) { fail(res, err); }
   });
 
@@ -2448,9 +2459,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           [providerName]: { ...(source[providerName] || {}), enabled: true },
         } };
       });
-      res.redirect('/dashboard?adsCloudVideo=connected');
+      res.redirect('/dashboard/ads/tiktok?cloudVideo=connected');
     } catch (err) {
-      res.redirect('/dashboard?adsCloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
+      res.redirect('/dashboard/ads/tiktok?cloudVideo=error&message=' + encodeURIComponent(String(err.message || err).slice(0, 160)));
     }
   });
 
