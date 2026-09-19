@@ -32,6 +32,7 @@ let getRules = null; // (accId) => AdsRule[]
 let getRulesLog = null; // (accId) => log[]
 let sendPushcut = null; // (name, payload, accId)
 let resolveAdvertiserTimeZone = async () => automationWindow.DEFAULT_TIME_ZONE;
+let campaignLearningState = () => ({ protected: false, ageDays: null, results: 0, reason: '' });
 
 function init(deps) {
   cache = deps.cache;
@@ -41,6 +42,9 @@ function init(deps) {
   sendPushcut = deps.sendPushcut || (async () => {});
   resolveAdvertiserTimeZone = deps.resolveAdvertiserTimeZone
     || (async () => automationWindow.DEFAULT_TIME_ZONE);
+  campaignLearningState = typeof deps.campaignLearningState === 'function'
+    ? deps.campaignLearningState
+    : campaignLearningState;
 }
 
 function enabled() {
@@ -173,6 +177,7 @@ async function compactCampaigns(accId, advertiserId, { fromDate, toDate, status,
     impressions: (c.metrics && c.metrics.impressions) || 0,
     clicks: (c.metrics && c.metrics.clicks) || 0,
     conversions: (c.metrics && c.metrics.conversions) || 0,
+    createdAt: c.createdAt || c.createTime || c.created_at || null,
   }));
 }
 
@@ -720,10 +725,22 @@ async function creativeInsights(accId, advertiserId, { force } = {}) {
 async function budgetProposal(accId, advertiserId, currency, days = 1) {
   const windowDays = Math.max(1, Math.min(30, parseInt(days, 10) || 1));
   const rows = await roasByCampaign(accId, advertiserId, windowDays);
-  const eligible = rows.filter((c) => c.status === 'active' && c.dailyBudget > 0);
-  const excluded = rows
-    .filter((c) => !(c.status === 'active' && c.dailyBudget > 0))
-    .map((c) => ({ id: c.id, name: c.name, reason: c.status !== 'active' ? 'não está ativa' : 'sem orçamento diário (budget no ad group ou ilimitado)' }));
+  const rowsWithLearning = rows.map((c) => ({ ...c, learning: campaignLearningState({
+    createdAt: c.createdAt,
+    metrics: { conversions: c.conversions },
+  }) }));
+  const eligible = rowsWithLearning.filter((c) => c.status === 'active' && c.dailyBudget > 0 && !c.learning.protected);
+  const excluded = rowsWithLearning
+    .filter((c) => !(c.status === 'active' && c.dailyBudget > 0 && !c.learning.protected))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      reason: c.status !== 'active'
+        ? 'não está ativa'
+        : c.learning.protected
+          ? 'Learning Guardian: ainda em aprendizado'
+          : 'sem orçamento diário (budget no ad group ou ilimitado)',
+    }));
   if (eligible.length < 2) return { insufficient: true, eligibleCount: eligible.length, excluded, windowDays };
 
   const totalBudget = eligible.reduce((a, c) => a + c.dailyBudget, 0);
