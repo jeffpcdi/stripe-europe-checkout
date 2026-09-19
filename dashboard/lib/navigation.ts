@@ -67,6 +67,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Desempenho', href: '/insights' },
       { label: 'Funil', href: '/insights?tab=funnel' },
       { label: 'Origens', href: '/insights?tab=sources' },
+      { label: 'Anomalias', href: '/insights?tab=anomalies' },
       { label: 'Qualidade', href: '/insights?tab=quality' },
     ],
   },
