@@ -98,6 +98,7 @@ assert(companionCard.includes("disabled={!data?.apnsConfigured && data?.preferNa
 assert(companionCard.includes('Web Push do iPhone continua sendo o fallback'), 'UI deve explicar a recuperação automática do canal')
 assert(companionCard.includes('Testar som nativo de venda') && companionCard.includes('/api/companion/test'), 'pareamento deve oferecer teste real do chime APNs')
 assert(companionCard.includes('roinados://pair?server=') && companionCard.includes('Abrir no Companion'), 'pareamento no iPhone deve ter fluxo de um toque')
+assert(companionCard.includes("QRCode.toDataURL") && companionCard.includes('Parear pelo iPhone'), 'desktop deve oferecer QR de pareamento sem exigir copiar token para o iPhone')
 assert(server.includes('widgetSnapshotVersion: 2') && server.includes('lockScreenWidget: true'), 'status do companion deve declarar capacidades reais')
 assert(server.includes('largeExecutiveWidget: true') && server.includes('salesWidget: true'), 'status deve declarar os widgets adicionais reais')
 assert(companionCard.includes('Confirmar renovação') && companionCard.includes('/api/companion/token/rotate'), 'rotação do token deve existir na UI com confirmação antes de desconectar iPhones')
