@@ -39,6 +39,7 @@ const adsOps = require('./ads-ops-store');
 const { buildCampaignDecisions } = require('./ads-campaign-decisions');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
 const pixelStore = require('./pixel-store');
+const db = require('./db');
 const config = require('./config');
 const profitEngine = require('./profit-engine');
 const reportingIntegrity = require('./reporting-integrity');
@@ -887,6 +888,116 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         pixelId,
       });
       res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
+
+  app.get('/api/ads/audiences/customer-file/preview', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const selected = await requireAdvertiser(req.account.id, null, req.query.adAccountId || req.query.advertiserId, null);
+      const retentionDays = 180;
+      if (!db.enabled || (typeof db.isReady === 'function' && !db.isReady())) {
+        return res.json({
+          available: false,
+          canCreate: false,
+          eligibleCount: 0,
+          minimumRequired: 1000,
+          retentionDays,
+          advertiserId: selected.advertiserId,
+        });
+      }
+      const eligibleCount = await db.countPurchasedEmails(req.account.id, retentionDays);
+      res.json({
+        available: true,
+        canCreate: eligibleCount >= 1000,
+        eligibleCount,
+        minimumRequired: 1000,
+        retentionDays,
+        advertiserId: selected.advertiserId,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/audiences/customer-file', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      if (body.confirm !== true) {
+        return res.status(400).json({ error: 'Confirme o uso da base antes de enviar ao TikTok.' });
+      }
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (!db.enabled || (typeof db.isReady === 'function' && !db.isReady())) {
+        return res.status(503).json({ error: 'A base durável de compradores não está disponível agora.' });
+      }
+
+      const retentionDays = 180;
+      const eligibleCount = await db.countPurchasedEmails(req.account.id, retentionDays);
+      if (eligibleCount < 1000) {
+        return res.status(409).json({
+          error: 'O TikTok exige pelo menos 1.000 identificadores no arquivo de clientes.',
+          code: 'CUSTOMER_AUDIENCE_MINIMUM_NOT_MET',
+          eligibleCount,
+          minimumRequired: 1000,
+        });
+      }
+
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'audience.customer_file',
+          targetType: 'audience',
+          advertiserId: selected.advertiserId,
+          metadata: { eligibleCount, retentionDays, identifier: 'EMAIL_SHA256' },
+          title: 'Criar público de compradores',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true, eligibleCount, retentionDays });
+      }
+
+      const emails = await db.listPurchasedEmails(req.account.id, retentionDays, 250000);
+      if (emails.length < 1000) {
+        return res.status(409).json({
+          error: 'A base elegível mudou e agora está abaixo do mínimo do TikTok.',
+          code: 'CUSTOMER_AUDIENCE_MINIMUM_NOT_MET',
+          eligibleCount: emails.length,
+          minimumRequired: 1000,
+        });
+      }
+
+      const hashes = emails.map((email) => crypto.createHash('sha256').update(email).digest('hex'));
+      const fileContent = 'Email_SHA256\n' + hashes.join('\n');
+      const name = String(body.name || 'Compradores ROI-NADOS — 180 dias').trim().slice(0, 128);
+      await pipeboard.uploadCustomerFileAudience(selected.advertiserId, {
+        name,
+        fileContent,
+        retentionDays,
+      });
+
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: 'audience.customer_file.created',
+          targetType: 'audience',
+          advertiserId: selected.advertiserId,
+          reason: 'Público de compradores criado a partir de dados first-party hasheados',
+          metadata: { eligibleCount: emails.length, retentionDays, identifier: 'EMAIL_SHA256' },
+        });
+      } catch (_) {}
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] Público de compradores enviado: ' + emails.length + ' identificadores SHA-256',
+      });
+      res.status(202).json({
+        ok: true,
+        processing: true,
+        eligibleCount: emails.length,
+        retentionDays,
+        identifier: 'EMAIL_SHA256',
+      });
     } catch (err) { fail(res, err); }
   });
 
