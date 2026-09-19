@@ -236,6 +236,12 @@ test('notify-copy: alertas acionáveis usam deep links específicos', () => {
   assert.strictEqual(cap.url, '/dashboard/ads/tiktok?tab=automation');
   assert.strictEqual(testNote.url, '/dashboard/config?tab=notifications');
 });
+test('web-push-notify: brief diário usa entrega de baixa urgência', () => {
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', 'web-push-notify.js'), 'utf8');
+  assert.ok(source.includes("note.event === 'daily' ? 21600 : 3600"), 'brief diário deve sobreviver mais tempo offline');
+  assert.ok(source.includes("note.event === 'daily' ? 'low' : 'normal'"), 'brief diário deve usar baixa urgência');
+});
+
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {
   const webPushNotify = require('../web-push-notify');
   assert.deepStrictEqual(webPushNotify.subsFor('conta-inexistente-xyz'), []);
