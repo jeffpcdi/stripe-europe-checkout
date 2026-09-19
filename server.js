@@ -1393,13 +1393,13 @@ async function handleCloakPublic(req, res) {
     ? cloakNetworkContext.fromRequest(req)
     : null;
   const observedIp = () => (
-    networkContext && networkContext.networkVerified && networkContext.ip
-      ? networkContext.ip
+    networkContext && networkContext.networkVerified
+      ? (networkContext.ip || '')
       : clientIp(req)
   );
   const observedCountry = () => (
-    networkContext && networkContext.networkVerified && networkContext.country
-      ? networkContext.country
+    networkContext && networkContext.networkVerified
+      ? (networkContext.country || '')
       : (geoFromReq(req).country || '')
   );
   const v6State = {
@@ -4231,6 +4231,7 @@ function _ckCampaignSettings(body) {
   ].forEach((key) => { if (typeof b[key] === 'boolean') out[key] = b[key]; });
   out.requireAdClick = false;
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) out.sensitivity = b.sensitivity;
+  if (['v5', 'v6-shadow'].includes(b.decisionEngineVersion)) out.decisionEngineVersion = b.decisionEngineVersion;
   if (b.threshold !== undefined && Number.isFinite(Number(b.threshold))) out.threshold = Number(b.threshold);
   if (b.deadlineMs !== undefined && Number.isFinite(Number(b.deadlineMs))) out.deadlineMs = Number(b.deadlineMs);
   if (b.paisPreset !== undefined) out.paisPreset = String(b.paisPreset || '');
