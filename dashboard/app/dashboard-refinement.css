@@ -3230,6 +3230,15 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
   transform: translateX(2px);
 }
 
+/* Entrada de página: movimento curto dentro da dashboard, sem animar o chrome. */
+@keyframes dashboard-page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.refined-dashboard .dashboard-main > * {
+  animation: dashboard-page-enter 220ms cubic-bezier(.2,.8,.2,1) both;
+}
+
 /* Popovers: mesma entrada, profundidade e feedback em todas as utilidades. */
 .premium-navbar-popup {
   transform-origin: var(--radix-dropdown-menu-content-transform-origin);
@@ -3335,14 +3344,16 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .premium-navbar-popup[data-state='open'],
-  .premium-navbar-popup[data-state='closed'] { animation: none !important; }
+  .premium-navbar-popup[data-state='closed'],
+  .refined-dashboard .dashboard-main > * { animation: none !important; }
   .refined-dashboard .section-tabs__item,
   .refined-dashboard .context-nav__item,
   .refined-dashboard .settings-tabs__item { transition: none !important; }
 }
 
 html[data-anim='off'] .premium-navbar-popup[data-state='open'],
-html[data-anim='off'] .premium-navbar-popup[data-state='closed'] {
+html[data-anim='off'] .premium-navbar-popup[data-state='closed'],
+html[data-anim='off'] .refined-dashboard .dashboard-main > * {
   animation: none !important;
 }
 
