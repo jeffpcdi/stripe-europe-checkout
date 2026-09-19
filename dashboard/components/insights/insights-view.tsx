@@ -98,6 +98,7 @@ export function InsightsView() {
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const adsRange = useMemo(() => adsDateRange(periodToDays(period), accountTimeZone), [period, accountTimeZone])
   const previousCreativeRange = useMemo(() => previousAdsRange(adsRange), [adsRange])
+  const todayAdsRange = useMemo(() => adsDateRange(1, accountTimeZone), [accountTimeZone])
 
   const adsOverviewActive = adsConnected && tab === 'performance'
   const campaignsActive = adsConnected && tab === 'campaigns'
@@ -111,6 +112,11 @@ export function InsightsView() {
     sort: 'conversions',
   })
   const { data: campaignDecisions, error: decisionsError } = useAdsCampaignDecisions(campaignsActive, adAccountId, adsRange)
+  const { data: pacingTree, error: pacingTreeError } = useAdsTree(campaignsActive, {
+    adAccountId,
+    fromDate: todayAdsRange.fromDate,
+    toDate: todayAdsRange.toDate,
+  })
   const { data: creativeTree, error: creativeTreeError, isLoading: creativeTreeLoading } = useAdsTree(creativesActive, {
     adAccountId,
     fromDate: adsRange.fromDate,
@@ -205,7 +211,7 @@ export function InsightsView() {
         ) : null}
       </div>
 
-      {(analyticsError || healthError || roasError || profitabilityError || adsTreeError || decisionsError || creativeTreeError || previousCreativeTreeError) ? (
+      {(analyticsError || healthError || roasError || profitabilityError || adsTreeError || decisionsError || pacingTreeError || creativeTreeError || previousCreativeTreeError) ? (
         <button
           type="button"
           className="btn-ghost self-start text-xs text-warning"
@@ -287,7 +293,9 @@ export function InsightsView() {
           connected={adsConnected}
           tree={adsTree}
           decisions={campaignDecisions}
+          pacingTree={pacingTree}
           currency={spendCurrency}
+          timeZone={accountTimeZone}
           loading={adsTreeLoading}
         />
       ) : null}
