@@ -124,9 +124,13 @@ async function sendWebPush(accountId, note) {
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
         {
-          TTL: note.priority === 'critical' ? 86400 : 3600,
+          TTL: note.priority === 'critical' ? 86400 : (note.event === 'daily' ? 21600 : 3600),
           timeout: 8000,
-          headers: { Urgency: note.priority === 'critical' ? 'high' : 'normal' }
+          headers: {
+            Urgency: note.priority === 'critical'
+              ? 'high'
+              : (note.event === 'daily' ? 'low' : 'normal')
+          }
         }
       );
       delivered++;
