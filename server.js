@@ -3289,6 +3289,58 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
 // concede ownership, não altera provider de infraestrutura e não muda o estado
 // do domínio. Se o provedor não puder ser identificado, devolvemos um tutorial
 // universal sem bloquear o fluxo.
+app.post('/api/domains/:host/usage', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = normHost(req.params.host);
+  const uso = String((req.body || {}).uso || '').trim().toLowerCase();
+  if (!host) return apiError(res, 400, 'Domínio inválido.', 'domain_invalid');
+  if (!['checkout', 'cloaker'].includes(uso)) {
+    return apiError(res, 400, 'Escolha onde este domínio será usado.', 'domain_usage_invalid');
+  }
+
+  const acc = req.account.id;
+  const snapshot = config.get(acc);
+  const current = (snapshot.customDomains || []).find((domain) => domain.host === host);
+  if (!current) return apiError(res, 404, 'Domínio não encontrado nesta conta.', 'domain_not_found');
+  if (current.uso === uso) return res.json({ ok: true, domain: current });
+
+  const checkoutRefs = linkStore.list(acc).filter((link) => link.dominio === host);
+  const cloakRefsLegacy = (snapshot.cloakLinks || []).filter((link) => link.dominio === host);
+  const cloakRefsV2 = cloakCampaignStore.isReady()
+    ? cloakCampaignStore.list(acc).filter((campaign) => campaign.domainHost === host)
+    : [];
+  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
+
+  if (uso === 'cloaker' && checkoutRefs.length) {
+    return apiError(res, 409,
+      'Este domínio ainda está sendo usado por links de venda.',
+      'domain_usage_in_use',
+      'Troque o domínio em ' + checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' antes de dedicar este endereço ao Cloaker.');
+  }
+  if (uso === 'checkout' && cloakRefs.length) {
+    return apiError(res, 409,
+      'Este domínio ainda está sendo usado por campanhas do Cloaker.',
+      'domain_usage_in_use',
+      'Troque o domínio em ' + cloakRefs.length + ' campanha' + (cloakRefs.length === 1 ? '' : 's') + ' antes de dedicar este endereço aos Links.');
+  }
+
+  let savedCfg;
+  try {
+    savedCfg = await config.setDurable(acc, (latest) => ({
+      customDomains: (latest.customDomains || []).map((domain) =>
+        domain.host === host ? { ...domain, uso } : domain
+      ),
+    }), { expectedUpdatedAt: (req.body || {})._baseUpdatedAt || null });
+  } catch (err) {
+    return configMutationError(res, err);
+  }
+
+  const saved = (savedCfg.customDomains || []).find((domain) => domain.host === host);
+  stats.logEvent('info', { acc, title: 'Uso do domínio alterado: ' + host + ' → ' + uso });
+  audit(req, acc, 'dominio_uso', host + ' → ' + uso);
+  return res.json({ ok: true, domain: saved || { ...current, uso }, configUpdatedAt: savedCfg.updatedAt || null });
+});
+
 app.get('/api/domains/:host/guide', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = normHost(req.params.host);
