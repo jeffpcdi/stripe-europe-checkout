@@ -72,6 +72,13 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         Task { await CompanionPushRegistrar.register(deviceToken: deviceToken) }
     }
 
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        WidgetCenter.shared.reloadAllTimelines()
+        Task {
+            try? await UNUserNotificationCenter.current().setBadgeCount(0)
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -97,6 +104,9 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
     ) {
         defer { completionHandler() }
         WidgetCenter.shared.reloadAllTimelines()
+        Task {
+            try? await UNUserNotificationCenter.current().setBadgeCount(0)
+        }
         let rawPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
         guard let url = CompanionConfig.dashboardURL(path: rawPath) else { return }
         Task { @MainActor in
