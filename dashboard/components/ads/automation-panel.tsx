@@ -264,6 +264,9 @@ function engineStatusView(engine: AdsAutomationEngine, loadFailed = false): {
   if (engine.executionMode === 'proposal') {
     return { title: 'Monitorando e propondo', detail: `Toda mudança aguarda sua aprovação. ${timing}`, tone: 'primary' }
   }
+  if (engine.executionMode === 'automatic') {
+    return { title: 'Aplicando automaticamente', detail: `As regras podem agir dentro dos limites de segurança. ${timing}`, tone: 'primary' }
+  }
   return { title: 'Automação ativa', detail: timing, tone: 'primary' }
 }
 
@@ -271,7 +274,7 @@ const ENGINE_MODE_LABEL: Record<AdsAutomationEngine['executionMode'], string> = 
   notify: 'Só avisa',
   proposal: 'Aguarda aprovação',
   simulation: 'Modo teste',
-  automatic: 'Modo real',
+  automatic: 'Aplica sozinho',
   custom: 'Personalizado',
 }
 
@@ -922,6 +925,7 @@ export function AutomationPanel({
 
   const engineView = data ? engineStatusView(data.engine, !!error) : null
   const engineTone = engineView?.tone
+  const engineNeedsSafetyReview = Boolean(data && ['kill_switch', 'policy_disabled', 'advertiser_blocked', 'action_cap_disabled'].includes(String(data.engine.reasonCode || '')))
 
   return (
     <div className="flex flex-col gap-3">
@@ -929,9 +933,7 @@ export function AutomationPanel({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="text-base font-semibold text-foreground">Automação</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Monitore campanhas, crie propostas ou permita ações dentro dos limites de segurança.</p>
-            <p className="mt-3 text-xs text-muted-foreground">● {data?.autonomy === 'auto' ? 'Aplicando regras automaticamente' : data?.autonomy === 'propose' ? 'Monitorando e propondo' : data?.autonomy === 'notify' ? 'Somente monitorando' : 'Configuração mista'} · {enabledCount} {enabledCount === 1 ? 'regra ativa' : 'regras ativas'} · {alertsCfg?.enabled ? 'alertas ativos' : 'alertas desligados'}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{log[0]?.at ? `Última atividade ${timeAgo(log[0].at)}` : 'Sem execução registrada'}{data?.engine.nextSweepAt ? ` · próxima em ${timeUntil(data.engine.nextSweepAt)}` : ''}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Monitore campanhas, peça aprovação ou delegue ações ao ROI-NADOS dentro dos limites de segurança.</p>
           </div>
           <button type="button" className="btn-primary min-h-10 self-start px-4 text-xs" onClick={requestRun} disabled={testing || !data} title="Executa uma avaliação imediata usando as regras e a autonomia atuais">
             {testing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Activity className="size-3.5" aria-hidden="true" />}
@@ -972,11 +974,13 @@ export function AutomationPanel({
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">{engineView.title}</p>
               <p className="text-xs leading-relaxed text-muted-foreground">{engineView.detail}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{enabledCount} {enabledCount === 1 ? 'regra ativa' : 'regras ativas'} · {alertsCfg?.enabled ? 'alertas ativos' : 'alertas desligados'}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
             <Clock3 className="size-3.5 text-muted" aria-hidden="true" />
-<span className="text-xs text-muted-foreground">{ENGINE_MODE_LABEL[data.engine.executionMode]}</span>
+            <span className="text-xs text-muted-foreground">{ENGINE_MODE_LABEL[data.engine.executionMode]}</span>
+            {engineNeedsSafetyReview && onOpenLimits ? <button type="button" className="btn-ghost min-h-10 px-3 text-xs text-warning" onClick={onOpenLimits}>Revisar segurança</button> : null}
             {error && (
               <button
                 type="button"
