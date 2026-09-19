@@ -19,6 +19,19 @@ struct WidgetSnapshot: Codable {
         let quality: String
     }
 
+    struct Trend: Codable {
+        let previousSales: Int
+        let previousRevenueCents: Int
+        let salesDelta: Int
+        let revenueDeltaPct: Double?
+    }
+
+    struct LastSale: Codable {
+        let at: Date
+        let amountCents: Int
+        let currency: String
+    }
+
     let ok: Bool
     let version: Int
     let generatedAt: Date
@@ -27,5 +40,7 @@ struct WidgetSnapshot: Codable {
     let today: Today
     let media: Media
     let profitability: Profitability
+    let trend: Trend
+    let lastSale: LastSale?
     let attention: [String]
 }
