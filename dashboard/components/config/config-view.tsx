@@ -193,8 +193,14 @@ function SettingsTab({ value, icon: Icon, title, description }: { value: string;
   )
 }
 
-function SectionIntro(_props: { eyebrow: string; title: string; description: string }) {
-  return null
+function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return (
+    <div className="px-0.5">
+      <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
+      <h2 className="mt-1 text-sm font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">{description}</p>
+    </div>
+  )
 }
 
 function SettingsOverview() {
