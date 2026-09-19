@@ -296,6 +296,9 @@ export function InsightsView() {
           pacingTree={pacingTree}
           currency={spendCurrency}
           timeZone={accountTimeZone}
+          advertiserId={adAccountId}
+          fromDate={adsRange.fromDate}
+          toDate={adsRange.toDate}
           loading={adsTreeLoading}
         />
       ) : null}
