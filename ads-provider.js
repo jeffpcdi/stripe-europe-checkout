@@ -19,6 +19,7 @@
 
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
+const redisMod = require('./redis');
 const net = require('net');
 const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 const { TIKTOK_PIXEL_EVENTS } = require('./catalog/catalog-domain');
@@ -1489,6 +1490,86 @@ async function createTikTokPixel(advertiserId, input = {}) {
 
 
 const DYNAMIC_CTA_DEFAULTS = ['SHOP_NOW', 'LEARN_MORE'];
+const ctaPortfolioInflight = new Map();
+
+function readCtaPortfolio(accountId, key, actions) {
+  const state = getState(accountId);
+  const stored = state.ctaPortfolios && typeof state.ctaPortfolios === 'object' ? state.ctaPortfolios : {};
+  const existing = stored[key];
+  if (!existing || !String(existing.id || '').trim()) return null;
+  return { id: String(existing.id), actions, reused: true };
+}
+
+async function waitForCtaPortfolio(accountId, key, actions, timeoutMs) {
+  const deadline = Date.now() + Math.max(500, Number(timeoutMs) || 6000);
+  while (Date.now() < deadline) {
+    const existing = readCtaPortfolio(accountId, key, actions);
+    if (existing) return existing;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
+}
+
+async function createTikTokCtaPortfolioLocked(acc, adv, actions, key) {
+  const leaseName = ['cta-portfolio', acc.slice(0, 80), adv.slice(0, 80), actions.join('-')].join(':');
+  const lease = await redisMod.acquireLease(leaseName, 90);
+
+  if (!lease || lease.acquired !== true) {
+    if (lease && lease.reason === 'busy') {
+      const waited = await waitForCtaPortfolio(acc, key, actions, 8000);
+      if (waited) return waited;
+    }
+    const err = badRequest('CTA automático está sendo preparado. Tente novamente em instantes.', 503);
+    err.code = 'DYNAMIC_CTA_LOCK_UNAVAILABLE';
+    err.retryable = true;
+    throw err;
+  }
+
+  try {
+    // Outra instância pode ter concluído entre a primeira leitura e o lease.
+    const existing = readCtaPortfolio(acc, key, actions);
+    if (existing) return existing;
+
+    const raw = await pipeboard.callTool('create_tiktok_cta_portfolio', {
+      advertiser_id: adv,
+      call_to_actions: actions,
+    });
+    const id = textField(
+      deepPluck(raw, 'creative_portfolio_id'),
+      deepPluck(raw, 'call_to_action_id'),
+      deepPluck(raw, 'portfolio_id'),
+      deepPluck(raw, 'id'),
+    );
+    if (!id) {
+      const err = badRequest('O TikTok não confirmou o identificador do CTA automático.', 502);
+      err.code = 'DYNAMIC_CTA_CREATE_NOT_CONFIRMED';
+      throw err;
+    }
+
+    // Confirma o objeto remoto antes de persistir e antes de criar campanha.
+    await pipeboard.callTool('get_tiktok_cta_portfolio', {
+      advertiser_id: adv,
+      creative_portfolio_id: id,
+    });
+
+    const createdAt = new Date().toISOString();
+    await config.setDurable(acc, (latest) => {
+      const currentAds = latest && latest.pipeboardAds && typeof latest.pipeboardAds === 'object'
+        ? latest.pipeboardAds
+        : {};
+      const currentPortfolios = currentAds.ctaPortfolios && typeof currentAds.ctaPortfolios === 'object'
+        ? currentAds.ctaPortfolios
+        : {};
+      const merged = { ...currentPortfolios, [key]: { id, actions, createdAt } };
+      const entries = Object.entries(merged);
+      const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : merged;
+      return { pipeboardAds: { ...currentAds, ctaPortfolios: bounded } };
+    });
+    return { id, actions, reused: false };
+  } finally {
+    await redisMod.releaseLease(lease).catch(() => {});
+  }
+}
 
 async function getOrCreateTikTokCtaPortfolio(accountId, advertiserId, callToActions) {
   const acc = String(accountId || '').trim();
@@ -1501,51 +1582,20 @@ async function getOrCreateTikTokCtaPortfolio(accountId, advertiserId, callToActi
     .slice(0, 5);
   if (actions.length < 2) throw badRequest('CTA automático exige pelo menos duas opções válidas');
 
-  const state = getState(acc);
-  const stored = state.ctaPortfolios && typeof state.ctaPortfolios === 'object' ? state.ctaPortfolios : {};
   const key = adv + '|' + actions.join(',');
-  const existing = stored[key];
-  if (existing && String(existing.id || '').trim()) {
-    return { id: String(existing.id), actions, reused: true };
+  const existing = readCtaPortfolio(acc, key, actions);
+  if (existing) return existing;
+
+  const inflightKey = acc + '|' + key;
+  if (ctaPortfolioInflight.has(inflightKey)) return ctaPortfolioInflight.get(inflightKey);
+
+  const task = createTikTokCtaPortfolioLocked(acc, adv, actions, key);
+  ctaPortfolioInflight.set(inflightKey, task);
+  try {
+    return await task;
+  } finally {
+    if (ctaPortfolioInflight.get(inflightKey) === task) ctaPortfolioInflight.delete(inflightKey);
   }
-
-  const raw = await pipeboard.callTool('create_tiktok_cta_portfolio', {
-    advertiser_id: adv,
-    call_to_actions: actions,
-  });
-  const id = textField(
-    deepPluck(raw, 'creative_portfolio_id'),
-    deepPluck(raw, 'call_to_action_id'),
-    deepPluck(raw, 'portfolio_id'),
-    deepPluck(raw, 'id'),
-  );
-  if (!id) {
-    const err = badRequest('O TikTok não confirmou o identificador do CTA automático.', 502);
-    err.code = 'DYNAMIC_CTA_CREATE_NOT_CONFIRMED';
-    throw err;
-  }
-
-  // Confirma o objeto remoto antes de persistir e antes de criar campanha.
-  // Se a leitura falhar, nenhuma campanha é criada com um ID não verificado.
-  await pipeboard.callTool('get_tiktok_cta_portfolio', {
-    advertiser_id: adv,
-    creative_portfolio_id: id,
-  });
-
-  const createdAt = new Date().toISOString();
-  await config.setDurable(acc, (latest) => {
-    const currentAds = latest && latest.pipeboardAds && typeof latest.pipeboardAds === 'object'
-      ? latest.pipeboardAds
-      : {};
-    const currentPortfolios = currentAds.ctaPortfolios && typeof currentAds.ctaPortfolios === 'object'
-      ? currentAds.ctaPortfolios
-      : {};
-    const merged = { ...currentPortfolios, [key]: { id, actions, createdAt } };
-    const entries = Object.entries(merged);
-    const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : merged;
-    return { pipeboardAds: { ...currentAds, ctaPortfolios: bounded } };
-  });
-  return { id, actions, reused: false };
 }
 
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
