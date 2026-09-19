@@ -108,7 +108,7 @@ async function sendViaWebPush(notificationName, payload, accountId, meta, option
     note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
     note.dedupeKey = meta && meta.dedupeKey ? String(meta.dedupeKey).slice(0, 160) : '';
 
-    const recordInCenter = shouldRecord(event);
+    const recordInCenter = options.recordInCenter !== false && shouldRecord(event);
     note.badge = shouldBadge(event);
     const companion = accountConfig(accountId).companion || {};
     const nativeReady = companion.preferNativeIOS === true
@@ -228,7 +228,10 @@ async function sendNotification(notificationName, payload, accountId, meta) {
   // somente às inscrições Web Push de iOS para não duplicar desktop/Android.
   let iosFallbackOk = false;
   if (nativePreferred && !iosOk) {
-    iosFallbackOk = await sendViaWebPush(notificationName, payload || {}, accountId, meta || {}, { onlyIOS: true });
+    iosFallbackOk = await sendViaWebPush(notificationName, payload || {}, accountId, meta || {}, {
+      onlyIOS: true,
+      recordInCenter: false,
+    });
   }
 
   return webOk || iosOk || iosFallbackOk || legacyOk;
