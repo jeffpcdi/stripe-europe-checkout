@@ -22,11 +22,11 @@ self.addEventListener("push", (event) => {
   // Haptics são best-effort fora do iOS. O iPhone controla o feedback físico
   // e pode ignorar totalmente a opção vibrate de Web Notifications.
   const VIBRATE = {
-    cash: [200, 100, 200, 100, 400],
-    alert: [400, 150, 400, 150, 600],
-    tick: [80],
-    ping: [120],
-    info: [150, 80, 150],
+    cash: [90, 50, 120],
+    alert: [160, 80, 160],
+    tick: [50],
+    ping: [80],
+    info: [70],
   }
   const options = {
     body: data.body || "",
@@ -48,8 +48,8 @@ self.addEventListener("push", (event) => {
 
   const promises = [
     self.registration.showNotification(title, options),
-      // Avisa as abas abertas do painel para tocar o som do evento
-      // (ex.: 'cash' = cha-ching de dinheiro quando cai venda).
+    // Avisa as abas abertas; o componente cliente só toca WebAudio se a
+    // dashboard estiver visível, evitando duplicar o alerta de background.
     data.sound
       ? self.clients
           .matchAll({ type: "window", includeUncontrolled: true })
@@ -73,16 +73,17 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  if ("clearAppBadge" in self.navigator) {
-    event.waitUntil(self.navigator.clearAppBadge().catch(() => {}))
-  }
   // Deep link: ação clicada > url do payload > painel
   const action = (event.notification.data || {}).url || "/dashboard"
   const url = event.action
     ? (event.notification.actions || []).find((a) => a.action === event.action)?.action || action
     : action
 
-  event.waitUntil(
+  const tasks = []
+  if ("clearAppBadge" in self.navigator) {
+    tasks.push(self.navigator.clearAppBadge().catch(() => {}))
+  }
+  tasks.push(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       // Se o painel já está aberto, foca e navega; senão abre janela nova
       for (const client of clients) {
@@ -95,4 +96,5 @@ self.addEventListener("notificationclick", (event) => {
       return self.clients.openWindow(url)
     }),
   )
+  event.waitUntil(Promise.all(tasks))
 })
