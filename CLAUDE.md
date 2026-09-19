@@ -1,5 +1,17 @@
 # CLAUDE.md — ROI-NADOS
 
+## Coerência global da dashboard — V16.23 (2026-09-19)
+- Escopo ampliado para a dashboard inteira: Visão Geral, Rastreamento, Atividade, TikTok Ads, Conta e navegação global.
+- `NAV_GROUPS` é a fonte de verdade do TopNav/SubNav; `/activity`, `/funnel`, `/geo` e `/live` permanecem sob Visão Geral.
+- Domínios novos exigem uso explícito (`checkout` ou `cloaker`). Troca de uso é persistida por `POST /api/domains/:host/usage` e é bloqueada enquanto o host ainda tiver Links ou campanhas do outro escopo.
+- Links usam `/api/links.baseUrl` como base pública real; nunca usar o CNAME técnico de DNS para montar URL/QR. Domínios não ativos não podem ser selecionados em novos Links.
+- `/conversions?tab=gateways|logs`, `/activity?f=...` e `/config?tab=...` são deep-links reais e sincronizam URL↔estado; páginas com `useSearchParams` ficam sob `Suspense`.
+- Atividade respeita o fuso da conta e oferece filtros de reembolso/contestação usados pelos drill-downs da Visão Geral/Funil.
+- Visão Geral voltou a renderizar `SetupGuide`; os targets do tour foram restaurados e os textos do tour refletem o fuso da conta e o comportamento real do indicador ao vivo.
+- Conta voltou a renderizar `SectionIntro` e os hints do resumo. TikTok Ads deixou de apontar para `/dashboard/pixels`; o atalho de Pixel abre `/conversions?tab=pixels`.
+- A falha atual de preview Vercel no PR #146 é externa ao código: o bot informa “There is no GitHub account connected to this Vercel account.” Não usar esse status como evidência de erro TS/Next.
+- Regressões novas: `test/dashboard-crossflow-coherence-v16-23.test.js` e `test/dashboard-project-coherence-v16-23.test.js`.
+
 ## Alinhamento de UX e fluxos da dashboard — V16.23 (2026-09-19)
 - Cloaker virou campaign-first (`Campanhas → Resultados → Proteção`) e usa `campaignId` como identidade estável; slug/path fica como endereço público e fallback legado. Resultados e resets V2 usam `campaign:<id>` e não misturam checkout `/go`.
 - Domínios agora exigem uso explícito (`checkout` ou `cloaker`) para novas conexões. Troca de uso é durável e fail-closed: o backend bloqueia enquanto houver Links, campanhas V2 ou entradas Cloaker legadas referenciando o host.
