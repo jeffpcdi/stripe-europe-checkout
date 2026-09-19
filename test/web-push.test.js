@@ -120,6 +120,15 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true });
 });
 
+test('notificações nativas: briefing diário usa opt-in próprio e não é bloqueado pelos grupos', () => {
+  const notifications = require('../pushcut');
+  const config = require('../config');
+  config.set('daily-native', {
+    webPush: { preferences: { sales: false, risks: false, automation: false } },
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-native', 'daily'), true);
+});
+
 test('notificações nativas: preferências são simples e independentes do Pushcut', () => {
   const config = require('../config');
   const notifications = require('../pushcut');
