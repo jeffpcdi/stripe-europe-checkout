@@ -2220,11 +2220,10 @@ async function checkDailyReportFor(accId) {
       ? 'Confira tracking, checkout e campanhas antes de aumentar orçamento.'
       : (profit.netProfitCents < 0 ? 'Revise custos e campanhas antes de escalar.' : null);
 
-    // Push: cabe no Lock Screen e entrega o essencial em poucos segundos.
-    const pushText = sales.length + (sales.length === 1 ? ' venda' : ' vendas')
-      + ' · ROAS ' + roasText
-      + ' · Lucro ' + profitText
-      + '\nTikTok ' + spendText + ' · Ticket ' + aovText
+    // Push executivo: resultado primeiro, contexto depois, exceção por último.
+    // O usuário entende a manhã em poucos segundos sem abrir a dashboard.
+    const pushText = 'ROAS ' + roasText + ' · Lucro ' + profitText + ' · Ticket ' + aovText
+      + '\nTikTok ' + spendText + ' · Conversão ' + conv + '%'
       + (deltaText ? '\nReceita ' + deltaText : '')
       + (exception ? '\nAtenção: ' + exception : '')
       + (nextAction ? '\nPróximo passo: ' + nextAction : '');
@@ -2239,7 +2238,7 @@ async function checkDailyReportFor(accId) {
       + (nextAction ? '\nPróximo passo: ' + nextAction : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
 
-    const title = 'Resumo de ontem · ' + revenueText;
+    const title = 'Ontem · ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas');
     const deliveries = [];
     // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
     // Uma única chamada evita duplicar a mesma notificação no iPhone.
@@ -5370,6 +5369,23 @@ async function notifyPushcut(event, n) {
     if (seen) return;
   }
   const valor = fmtMoney(n.amountCents, n.currency);
+  let dailySales = 0;
+  let dailyRevenue = '';
+  if (map.key === 'sale' && n.acc) {
+    try {
+      const todayKey = accDay(n.acc, new Date());
+      const saleCurrency = String(n.currency || '').toUpperCase();
+      const todaySales = (stats.getStats(n.acc).events || []).filter((event) =>
+        event.type === 'sale'
+        && accDay(n.acc, event.at) === todayKey
+        && (!saleCurrency || String(event.currency || '').toUpperCase() === saleCurrency)
+      );
+      dailySales = todaySales.length;
+      dailyRevenue = fmtMoney(todaySales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0), n.currency);
+    } catch (_) {
+      // Contexto diário é enriquecimento; a venda nunca deixa de notificar por isso.
+    }
+  }
   // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
   // contas existentes, mas o recurso agora pertence à notificação nativa.
   const settings = config.get(n.acc).settings || {};
@@ -5401,7 +5417,9 @@ async function notifyPushcut(event, n) {
     valor,
     produto: n.product || '',
     cliente: n.customer || '',
-    gateway: n.gateway || ''
+    gateway: n.gateway || '',
+    dailySales,
+    dailyRevenue
   }).catch(() => {});
 }
 
