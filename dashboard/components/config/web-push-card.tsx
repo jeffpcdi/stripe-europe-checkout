@@ -14,6 +14,7 @@ import {
   type WebPushSupport,
 } from '@/lib/web-push'
 import { getSoundMasterEnabled, setSoundMasterEnabled } from '@/lib/notify-prefs'
+import { playSaleSound } from '@/lib/sale-alerts'
 
 type PreferenceGroup = 'sales' | 'risks' | 'automation'
 type Status = {
@@ -263,7 +264,16 @@ export function WebPushCard() {
               label="Tom descontraído"
             />
           </label>
-          <button
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => playSaleSound()}
+              className="flex min-h-9 w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              <Volume2 className="size-3.5" aria-hidden="true" />
+              Ouvir som de venda
+            </button>
+            <button
             type="button"
             onClick={handleTest}
             disabled={testing || devices === 0}
@@ -271,7 +281,8 @@ export function WebPushCard() {
           >
             {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
             Enviar teste
-          </button>
+            </button>
+          </div>
         </div>
       </details>
 
