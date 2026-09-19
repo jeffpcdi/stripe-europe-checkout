@@ -2176,6 +2176,18 @@ async function checkDailyReportFor(accId) {
     const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
     const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
     const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
+    const productStats = new Map();
+    for (const sale of sales) {
+      const raw = sale && sale.raw && typeof sale.raw === 'object' ? sale.raw : {};
+      const product = String(raw.product || '').replace(/\s+/g, ' ').trim().slice(0, 56);
+      if (!product) continue;
+      const current = productStats.get(product) || { count: 0, revenue: 0 };
+      current.count += 1;
+      current.revenue += Number(sale.amount) || 0;
+      productStats.set(product, current);
+    }
+    const topProduct = [...productStats.entries()]
+      .sort((a, b) => b[1].count - a[1].count || b[1].revenue - a[1].revenue)[0] || null;
     const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
     // anteontem, para comparação
     const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
@@ -2213,6 +2225,9 @@ async function checkDailyReportFor(accId) {
     const profitText = briefMoney(profit.netProfitCents / 100);
     const aovText = sales.length ? briefMoney(rev / 100 / sales.length) : '—';
     const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
+    const topProductText = topProduct
+      ? topProduct[0] + ' · ' + topProduct[1].count + (topProduct[1].count === 1 ? ' venda' : ' vendas')
+      : null;
     const exception = sameCurrency && spend > 0 && sales.length === 0
       ? 'Gasto no TikTok sem venda registrada.'
       : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
@@ -2225,6 +2240,7 @@ async function checkDailyReportFor(accId) {
     const pushText = 'ROAS ' + roasText + ' · Lucro ' + profitText + ' · Ticket ' + aovText
       + '\nTikTok ' + spendText + ' · Conversão ' + conv + '%'
       + (deltaText ? '\nReceita ' + deltaText : '')
+      + (topProductText ? '\nMais vendido: ' + topProductText : '')
       + (exception ? '\nAtenção: ' + exception : '')
       + (nextAction ? '\nPróximo passo: ' + nextAction : '');
 
@@ -2234,6 +2250,7 @@ async function checkDailyReportFor(accId) {
       + (deltaText ? '\nReceita ' + deltaText : '')
       + '\nTikTok ' + spendText + ' · ROAS ' + roasText
       + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
+      + (topProductText ? '\nMais vendido: ' + topProductText : '')
       + (exception ? '\nAtenção: ' + exception : '')
       + (nextAction ? '\nPróximo passo: ' + nextAction : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
