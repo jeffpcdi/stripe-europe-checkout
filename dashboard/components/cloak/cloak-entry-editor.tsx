@@ -334,7 +334,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             </summary>
 
             <div className="mt-5 space-y-6">
-          <section aria-labelledby="cloak-entry-protection">
+              <section aria-labelledby="cloak-entry-protection">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h3 id="cloak-entry-protection" className="text-sm font-semibold text-foreground">Proteção da campanha</h3>
