@@ -8,35 +8,54 @@
 const SW_PATH = "/dashboard/sw.js"
 
 export type WebPushSupport =
-  | { supported: true }
-  | { supported: false; reason: string; needsInstall?: boolean }
+  | { supported: true; platform: 'ios' | 'other'; standalone: boolean; permission: NotificationPermission }
+  | { supported: false; reason: string; needsInstall?: boolean; platform: 'ios' | 'other'; standalone: boolean; permission?: NotificationPermission }
 
 /** Detecta suporte. No iOS, Web Push só funciona com o site instalado na Tela de Início. */
 export function checkSupport(): WebPushSupport {
   if (typeof window === "undefined") return { supported: false, reason: "SSR" }
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const platform = isIOS ? 'ios' : 'other'
   const standalone =
     window.matchMedia?.("(display-mode: standalone)").matches ||
     (navigator as unknown as { standalone?: boolean }).standalone === true
+  const permission = "Notification" in window ? Notification.permission : undefined
 
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
     if (isIOS && !standalone) {
       return {
         supported: false,
         needsInstall: true,
+        platform,
+        standalone,
+        permission,
         reason: "No iPhone, adicione o site à Tela de Início primeiro (Compartilhar → Adicionar à Tela de Início).",
       }
     }
-    return { supported: false, reason: "Este navegador não suporta notificações push." }
+    if (isIOS) {
+      return {
+        supported: false,
+        platform,
+        standalone,
+        permission,
+        reason: "Este iPhone/iPad precisa do iOS/iPadOS 16.4 ou mais recente para receber Web Push.",
+      }
+    }
+    return { supported: false, platform, standalone, permission, reason: "Este navegador não suporta notificações push." }
   }
   if (isIOS && !standalone) {
     return {
       supported: false,
       needsInstall: true,
+      platform,
+      standalone,
+      permission,
       reason: "No iPhone, abra pelo ícone da Tela de Início para ativar as notificações.",
     }
   }
-  return { supported: true }
+  return { supported: true, platform, standalone, permission: Notification.permission }
 }
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {
