@@ -48,6 +48,7 @@ import type {
   AdsOpsJobsResponse,
   AdsSafetyPolicyResponse,
   AdsHealthResponse,
+  AdsDestinationHealthResponse,
   AdsCatalogsResponse,
   AdsCatalogDetailResponse,
   AdsCatalogIdentitiesResponse,
@@ -726,6 +727,18 @@ export function useAdsHealth(active: boolean) {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
+  })
+}
+
+export function useAdsDestinationHealth(active: boolean, adAccountId: string) {
+  const key = active && adAccountId
+    ? `/api/ads/destinations/health?adAccountId=${encodeURIComponent(adAccountId)}`
+    : null
+  return useSWR<AdsDestinationHealthResponse>(key, fetcher, {
+    refreshInterval: 5 * 60_000,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+    shouldRetryOnError: false,
   })
 }
 
