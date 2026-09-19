@@ -327,7 +327,7 @@ export function CreativeInsightsPanel({
             <div className="space-y-2">
               <div>
                 <p className="text-xs font-semibold text-foreground">Refresh assistido</p>
-                <p className="mt-1 text-xs text-muted-foreground">Candidatos novos e ainda não usados neste advertiser. A campanha será preparada e continuará pausada para revisão.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Prioriza assets recentes; quando há video_id, os que já estão em uso são excluídos. A campanha será preparada e continuará pausada para revisão.</p>
               </div>
               <div className="divide-y divide-border/40 rounded-xl border border-border/50 bg-background/30">
                 {refreshRecommendations.map(({ row, candidate }) => (
