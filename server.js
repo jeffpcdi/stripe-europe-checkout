@@ -44,6 +44,9 @@ const cloakCampaignStore = require('./cloak-campaign-store');
 const cloakTrafficSources = require('./cloak-traffic-sources');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
+const cloakNetworkContext = require('./cloak-network-context');
+const cloakDecisionEngine = require('./cloak-decision-engine');
+const cloakDecisionShadow = require('./cloak-decision-shadow');
 const domainSecurity = require('./domain-security');
 const edgeDomainAuth = require('./edge-domain-auth');
 const protectedDomains = require('./protected-domains');
@@ -1287,6 +1290,7 @@ function campaignToCloakEntry(campaign) {
     mobileOnly: settings.mobileOnly === true,
     requireAdClick: false,
     sensitivity: settings.sensitivity || 'balanced',
+    decisionEngineVersion: settings.decisionEngineVersion || 'v6-shadow',
     threshold: settings.threshold,
     deadlineMs: settings.deadlineMs,
     paisPreset: settings.paisPreset || '',
@@ -1366,34 +1370,93 @@ async function handleCloakPublic(req, res) {
   if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
   const { acc, entry, campaign = null } = found;
   const decisionKey = campaign ? 'campaign:' + campaign.id : 'cloak:' + entry.slug;
+  const gatewayRef = campaign ? 'cloak-campaign:' + campaign.id : 'cloak:' + entry.slug;
   const offer = entry.offerUrl;
-  // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
   const acctCloak = config.get(acc).cloak || {};
   const white = entry.whitePageUrl || acctCloak.defaultWhitePage || '/_safe';
   const uaRaw = String(req.headers['user-agent'] || '');
-  // Interruptor do link liga/desliga o cloaking; o destino seguro sempre existe.
+  const dev = uaTools.parse(uaRaw);
+  const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
+  const q = req.query || {};
   const cloakOn = entry.enabled !== false;
   const shadowMode = entry.shadowMode === true || acctCloak.shadowMode === true;
   const enforceCloak = cloakOn && !shadowMode;
 
-  // Registra a decisão (offer/white + motivo) nos contadores do painel e,
-  // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
-  // sem PII. `score` é opcional (só o gate de score o conhece).
+  // V16.22: campanhas V2 executam o motor novo SOMENTE em shadow. O V5 abaixo
+  // continua sendo a autoridade do redirect nesta versão.
+  const requestedEngineMode = campaign
+    ? String(entry.decisionEngineVersion || process.env.CLOAK_DECISION_ENGINE_DEFAULT || 'v6-shadow')
+    : 'v5';
+  const engineMode = requestedEngineMode === 'v5' ? 'v5' : 'v6-shadow';
+  const networkContext = campaign && engineMode === 'v6-shadow'
+    ? cloakNetworkContext.fromRequest(req)
+    : null;
+  const observedIp = () => (
+    networkContext && networkContext.networkVerified && networkContext.ip
+      ? networkContext.ip
+      : clientIp(req)
+  );
+  const observedCountry = () => (
+    networkContext && networkContext.networkVerified && networkContext.country
+      ? networkContext.country
+      : (geoFromReq(req).country || '')
+  );
+  const v6State = {
+    denied: false,
+    sticky: false,
+    knownBot: false,
+    engineError: false,
+    velocityCount: 0,
+    velocityLimit: (acctCloak.velocityLimit || 12),
+  };
+  let v6Browser = {};
+
+  const recordV6Shadow = (legacyAction, legacyReason, legacyScore) => {
+    if (!campaign || !cloakOn || engineMode !== 'v6-shadow') return null;
+    try {
+      const result = cloakDecisionEngine.decide({
+        policy: entry,
+        network: networkContext || {},
+        request: {
+          headers: req.headers || {},
+          ua: uaRaw,
+          isMobile,
+          language: String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase(),
+        },
+        browser: v6Browser,
+        state: v6State,
+      });
+      cloakDecisionShadow.record({
+        accountId: acc,
+        campaignId: campaign.id,
+        legacyAction,
+        legacyReason,
+        legacyScore,
+        v6: result,
+        edgeVerified: !!(networkContext && networkContext.edgeVerified),
+        networkVerified: !!(networkContext && networkContext.networkVerified),
+      });
+      return result;
+    } catch (_) {
+      return null; // shadow jamais interfere no redirect real
+    }
+  };
+
+  // Registra a decisão nos contadores/histórico V5. A identidade interna da
+  // campanha é campaign:<id>; path/slug fica somente como metadata de exibição.
   const bumpDecision = (decision, reason, score, signals) => {
     try { redis.bumpCloakDecision(acc, decisionKey, decision, reason); } catch (_) {}
     try {
       redis.pushCloakDecision(acc, decisionKey, {
         decision, reason, score,
-        signals, // Item 212: top sinais do judge nesta decisão (para calibrar camadas)
-        ip: clientIp(req),
+        signals,
+        ip: observedIp(),
         ua: uaRaw,
-        country: (geoFromReq(req).country || ''),
+        country: observedCountry(),
       });
     } catch (_) {}
   };
 
-  // Preserva parâmetros de atribuição, mas nunca vaza parâmetros internos do
-  // ROI-NADOS (token rk, debug/challenge etc.) para a página de destino.
   const outboundParams = () => cloakTrafficSources.stripInternalParams(
     new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '')
   );
@@ -1408,39 +1471,30 @@ async function handleCloakPublic(req, res) {
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
 
-  // Denylist automática por IP anonimizado. A checagem ocorre antes dos gates
-  // caros e o IP bruto nunca é salvo no histórico do bloqueio.
   if (enforceCloak && acctCloak.autoBlockEnabled) {
-    const denied = await botRiskStore.isBlocked(acc, clientIp(req)).catch(() => ({ blocked: false }));
+    const denied = await botRiskStore.isBlocked(acc, observedIp()).catch(() => ({ blocked: false }));
     if (denied.blocked) {
-      stats.logEvent('info', { acc, title: '[cloak] IP da denylist automática → white', gateway: 'cloak:' + entry.slug, ref: denied.ipHash.slice(0, 12) });
+      v6State.denied = true;
+      recordV6Shadow('SAFE', 'auto-block');
+      stats.logEvent('info', { acc, title: '[cloak] IP da denylist automática → white', gateway: gatewayRef, ref: denied.ipHash.slice(0, 12) });
       bumpDecision('white', 'auto-block');
       return go(white);
     }
   }
 
-  // Crawler conhecido → página segura (nunca à offer)
   if (uaTools.isBot(uaRaw)) {
-    stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (enforceCloak ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
+    v6State.knownBot = true;
+    const actual = enforceCloak ? 'SAFE' : 'PRIMARY';
+    recordV6Shadow(actual, 'bot-ua');
+    stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (enforceCloak ? 'white' : 'offer'), gateway: gatewayRef, ref: String(uaRaw).slice(0, 80) });
     if (enforceCloak) { bumpDecision('white', 'bot-ua'); return go(white); }
     bumpDecision('offer', null);
     return go(offer);
   }
 
-  // ── Sinais de dispositivo + parâmetros de atribuição ─────────────────────
-  // Parâmetros de campanha podem seguir para analytics/CAPI, mas NÃO participam
-  // do veredito de bot. A proteção V5 é independente da origem de tráfego.
-  const dev = uaTools.parse(uaRaw);
-  const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
-  const q = req.query || {};
   const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
   const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
 
-  // ── Identidade do visitante (habilita sticky + atribuição no destino) ──────
-  // O /c não assinava cookie; sem um id estável, o veredito sticky e os sinais
-  // 2026 coletados na página de destino (via /t.js → /api/cloakcheck) não podiam
-  // ser amarrados a este visitante. Costura: usa ?vid válido (encurtador/clique)
-  // ou gera um novo, gravando o cookie ANTES do redirect.
   let cloakVid = readCookie(req, 'v_id') || '';
   if (q.vid && VID_RE.test(String(q.vid))) {
     cloakVid = String(q.vid);
@@ -1450,103 +1504,110 @@ async function handleCloakPublic(req, res) {
     appendCookie(res, visitorCookie(req, cloakVid));
   }
 
-  // ── Veredito STICKY (só bot) — mesmo comportamento do /go/ ─────────────────
-  // Visitante já condenado antes (score alto OU o beacon /api/cloakcheck flagrou
-  // WebGL de software / ambiente incoerente) vai direto à white, sem re-rodar o
-  // judge e sem oscilar offer↔white. Nunca cacheamos 'real' (fail-safe).
   if (enforceCloak && cloakVid) {
     const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
     if (sticky) {
-      stats.logEvent('info', { acc, title: '[cloak] sticky bot → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      v6State.sticky = true;
+      recordV6Shadow('SAFE', 'sticky', sticky.score);
+      stats.logEvent('info', { acc, title: '[cloak] sticky bot → white', gateway: gatewayRef, ref: observedIp() });
       bumpDecision('white', 'sticky');
       return go(white);
     }
   }
 
-  // Segmentação opcional por tipo de dispositivo. O padrão V5 é desligado.
   if (enforceCloak && entry.mobileOnly !== false && !isMobile) {
-    stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: 'cloak:' + entry.slug, ref: dev.device || 'desktop' });
+    recordV6Shadow('SAFE', 'mobile');
+    stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: gatewayRef, ref: dev.device || 'desktop' });
     bumpDecision('white', 'mobile');
     return go(white);
   }
 
-  // Velocity genérico (sempre que a proteção está ligada). Rajadas do mesmo
-  // IP no mesmo link são tratadas como automação. Sem Redis, há fallback em
-  // memória para single-instance.
   if (enforceCloak) {
     try {
-      const ip = clientIp(req);
-      // Velocity por IP: N acessos na janela ao mesmo link = automação/farm.
-      // Item 254: limiar e janela configuráveis por conta (preset seguro 12/60s).
-      const vcfg = config.get(acc).cloak || {};
-      const vLimit = vcfg.velocityLimit || 12;
-      const vWin = vcfg.velocityWindowSec || 60;
+      const ip = observedIp();
+      const vLimit = acctCloak.velocityLimit || 12;
+      const vWin = acctCloak.velocityWindowSec || 60;
       const vip = await redis.bumpVelocity('c:' + (campaign ? campaign.id : entry.slug) + ':ip', ip, vWin).catch(() => 0);
+      v6State.velocityCount = vip;
+      v6State.velocityLimit = vLimit;
       if (vip > vLimit) {
-        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: 'cloak:' + entry.slug, ref: ip });
+        recordV6Shadow('SAFE', 'velocity');
+        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: gatewayRef, ref: ip });
         bumpDecision('white', 'velocity');
         return go(white);
       }
     } catch (_) { /* Redis instável nunca bloqueia o usuário legítimo */ }
   }
 
-  // Gate geográfico (instantâneo, sem DNS)
   if (enforceCloak && Array.isArray(entry.paises) && entry.paises.length) {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
     if (!cc || entry.paises.indexOf(cc) < 0) {
-      stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      recordV6Shadow('SAFE', 'pais');
+      stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: gatewayRef, ref: observedIp() });
       bumpDecision('white', 'pais');
       return go(white);
     }
   }
-  // Gate de idioma (instantâneo, via Accept-Language)
+
   if (enforceCloak && Array.isArray(entry.idiomas) && entry.idiomas.length) {
     const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     if (!lang || entry.idiomas.indexOf(lang) < 0) {
-      stats.logEvent('info', { acc, title: '[cloak] idioma ' + (lang || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      recordV6Shadow('SAFE', 'idioma');
+      stats.logEvent('info', { acc, title: '[cloak] idioma ' + (lang || '??') + ' fora da allowlist → white', gateway: gatewayRef, ref: observedIp() });
       bumpDecision('white', 'idioma');
       return go(white);
     }
   }
 
-  // Motor de score — recebe a config do PRÓPRIO link como cloakCfg
   if (cloakOn) {
     const lead0 = (() => { try { return stats.getLead(cloakVid) || {}; } catch (_) { return {}; } })();
     const challengeToken = lead0.cloakChallenge === 'ok'
       ? botFilter.issueChallengeToken(cloakVid)
       : (lead0.cloakChallenge === 'fail' ? '' : null);
     const challengeData = buildCloakChallengeData(lead0);
+    const challengeAt = Date.parse(String(lead0.cloakChallengeAt || ''));
+    v6Browser = {
+      ...challengeData,
+      challenge: lead0.cloakChallenge || '',
+      challengeAgeMs: Number.isFinite(challengeAt) ? Math.max(0, Date.now() - challengeAt) : NaN,
+    };
+
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     let j;
     try {
       j = await botFilter.judge(filterReq, cloakVid, challengeToken, challengeData, entry);
     } catch (err) {
-      stats.logEvent('warn', { acc, title: '[cloak] motor indisponível', gateway: 'cloak:' + entry.slug, ref: String(err && err.message || 'judge_error').slice(0, 120) });
+      v6State.engineError = true;
+      const actual = shadowMode ? 'PRIMARY' : 'SAFE';
+      recordV6Shadow(actual, shadowMode ? 'shadow-engine-error' : 'engine-error');
+      stats.logEvent('warn', { acc, title: '[cloak] motor indisponível', gateway: gatewayRef, ref: String(err && err.message || 'judge_error').slice(0, 120) });
       if (shadowMode) { bumpDecision('offer', 'shadow-engine-error'); return goWithVid(offer, cloakVid); }
       bumpDecision('white', 'engine-error');
       return go(white);
     }
+
     if (j.verdict === 'bot') {
       if (shadowMode) {
-        stats.logEvent('info', { acc, title: '[cloak] shadow score=' + j.score + ' — sem redirecionar', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+        recordV6Shadow('PRIMARY', 'shadow-score', j.score);
+        stats.logEvent('info', { acc, title: '[cloak] shadow score=' + j.score + ' — sem redirecionar', gateway: gatewayRef, ref: observedIp() });
         bumpDecision('offer', 'shadow-score', j.score, (j.signals || []).slice(0, 5));
         return goWithVid(offer, cloakVid);
       }
-      stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+
+      recordV6Shadow('SAFE', 'score', j.score);
+      stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: gatewayRef, ref: observedIp() });
       bumpDecision('white', 'score', j.score, (j.signals || []).slice(0, 5));
-      // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
-      // curto-circuitam no gate sticky acima, sem re-rodar o judge.
+
       if (cloakVid && j.score >= (j.threshold || 40)) {
         redis.setStickyBot(cloakVid, { at: Date.now(), score: j.score, sig: (j.signals || []).slice(0, 3) }).catch(() => {});
       }
-      // Vários julgamentos fortes do mesmo IP + anúncio viram bloqueio com
-      // TTL. Opcionalmente envia um evento CUSTOMIZADO de diagnóstico à CAPI;
-      // jamais Purchase/CompletePayment e jamais receita sintética.
+
       if (acctCloak.autoBlockEnabled) {
-        const adKey = String(q.ad_id || q.adid || q.adgroup_id || q.campaign_id || q.utm_content || q.utm_campaign || entry.slug);
+        const fallbackAdKey = campaign ? campaign.id : entry.slug;
+        const adKey = String(q.ad_id || q.adid || q.adgroup_id || q.campaign_id || q.utm_content || q.utm_campaign || fallbackAdKey);
         const risk = await botRiskStore.recordHighRisk({
           accountId: acc,
-          ip: clientIp(req),
+          ip: observedIp(),
           adKey,
           score: j.score,
           reason: 'score',
@@ -1555,7 +1616,7 @@ async function handleCloakPublic(req, res) {
           ttlHours: acctCloak.autoBlockTtlHours,
         }).catch(() => null);
         if (risk && risk.newlyBlocked) {
-          stats.logEvent('warn', { acc, title: '[cloak] IP bloqueado automaticamente após ' + risk.count + ' acessos suspeitos no link ' + risk.adKey, gateway: 'cloak:' + entry.slug, ref: risk.ipHash.slice(0, 12) });
+          stats.logEvent('warn', { acc, title: '[cloak] IP bloqueado automaticamente após ' + risk.count + ' acessos suspeitos no link ' + risk.adKey, gateway: gatewayRef, ref: risk.ipHash.slice(0, 12) });
           sendPushcut('Aprovada', {
             title: 'Tráfego falso bloqueado',
             text: 'O mesmo perfil atingiu ' + risk.count + ' sinais de alto risco no anúncio ' + risk.adKey + '. O bloqueio expira sozinho.',
@@ -1566,7 +1627,7 @@ async function handleCloakPublic(req, res) {
               event: 'BotTrafficBlocked',
               eventId: 'BotTrafficBlocked.' + risk.ipHash.slice(0, 32) + '.' + Math.floor(Date.now() / 3600000),
               acc,
-              ip: clientIp(req),
+              ip: observedIp(),
               userAgent: uaRaw,
               ttclid: validTtclid ? ttclidRaw : undefined,
               url: req.protocol + '://' + req.get('host') + req.originalUrl,
@@ -1579,9 +1640,11 @@ async function handleCloakPublic(req, res) {
       return go(white);
     }
   }
-  if (cloakOn) bumpDecision('offer', null);
-  // Encaminha o vid ao destino para o tracker da offer amarrar os sinais do
-  // browser a ESTE visitante (habilita sticky/atribuição sem cookie de terceiros).
+
+  if (cloakOn) {
+    recordV6Shadow('PRIMARY', null);
+    bumpDecision('offer', null);
+  }
   return goWithVid(offer, cloakVid);
 }
 
@@ -2553,7 +2616,8 @@ async function readAccountIntegrity(accountId) {
   const cfg = config.get(accountId);
   const pixels = new Set(pixelStore.list(accountId).map((p) => p.slug));
   const domains = new Set((cfg.customDomains || []).map((d) => d.host));
-  const cloakSlugs = new Set((cfg.cloakLinks || []).map((c) => c.slug));
+  const legacyCloak = cfg.cloakLinks || [];
+  const campaigns = cloakCampaignStore.isReady() ? cloakCampaignStore.list(accountId) : [];
   const problemas = [];
 
   for (const l of linkStore.list(accountId)) {
@@ -2571,12 +2635,34 @@ async function readAccountIntegrity(accountId) {
     }
   }
 
+  for (const campaign of campaigns) {
+    if (campaign.domainHost && domains.size > 0 && !domains.has(campaign.domainHost)) {
+      problemas.push({
+        tipo: 'cloak-dominio', slug: campaign.path, campaignId: campaign.id, ref: campaign.domainHost,
+        msg: 'Campanha Cloaker "' + (campaign.name || campaign.path) + '" usa o domínio "' + campaign.domainHost + '", que não está mais cadastrado.'
+      });
+    }
+  }
+
+  // As stats compartilham o mesmo namespace entre checkout legado, Cloaker
+  // legado e campanhas V2. A auditoria precisa reconhecer todos os formatos
+  // para nunca apagar campaign:<id> como se fosse uma slug órfã.
+  const validKeys = new Set(linkStore.list(accountId).map((link) => link.slug));
+  for (const item of legacyCloak) validKeys.add('cloak:' + item.slug);
+  for (const campaign of campaigns) {
+    validKeys.add('campaign:' + campaign.id);
+    if (campaign.legacySlug) validKeys.add('cloak:' + campaign.legacySlug);
+  }
+
   let orfaosCloak = [];
   try {
-    const statSlugs = await redis.listCloakStatSlugs(accountId);
-    orfaosCloak = statSlugs
-      .map((s) => s.replace(/^cloak:/, ''))
-      .filter((slug) => !cloakSlugs.has(slug));
+    const statKeys = await redis.listCloakStatSlugs(accountId);
+    orfaosCloak = statKeys.filter((key) => {
+      // Se o store durável está degradado, não declaramos campaign:* órfão:
+      // ausência de memória não é prova de que a campanha foi removida.
+      if (!cloakCampaignStore.isReady() && String(key).startsWith('campaign:')) return false;
+      return !validKeys.has(key);
+    });
   } catch (_) {
     // Falha de diagnóstico do Redis não pode transformar o GET em mutação ou
     // esconder os demais problemas encontrados em configuração durável.
@@ -2602,10 +2688,9 @@ async function repairAccountIntegrity(accountId, snapshot) {
   }
 
   if (snapshot.orfaosCloak.length) {
-    const prefixed = snapshot.orfaosCloak.map((slug) => 'cloak:' + slug);
     try {
-      corrigidos += await redis.clearCloakStats(accountId, prefixed);
-      await redis.clearCloakDecisionLogs(accountId, prefixed);
+      corrigidos += await redis.clearCloakStats(accountId, snapshot.orfaosCloak);
+      await redis.clearCloakDecisionLogs(accountId, snapshot.orfaosCloak);
     } catch (error) {
       falhas.push(`Cloak: ${error && error.message ? error.message : 'falha ao limpar dados órfãos'}`);
     }
@@ -2654,7 +2739,7 @@ app.get('/api/backup/export', dashboardAuth, (req, res) => {
   const cfg = config.get(acc);
   const payload = {
     formato: 'pragmatic-flow-backup',
-    versao: 1,
+    versao: 2,
     exportadoEm: new Date().toISOString(),
     links: linkStore.list(acc),
     pixels: pixelStore.list(acc).map((p) => {
@@ -3913,6 +3998,27 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   });
 });
 
+// V16.22: observabilidade do motor novo em shadow. Não contém IP/UA nem altera
+// decisões; serve para medir divergência antes de qualquer rollout de enforcement.
+app.get('/api/cloak/engine-health', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const campaigns = cloakCampaignStore.isReady()
+    ? cloakCampaignStore.list(req.account.id).map((campaign) => ({
+        campaignId: campaign.id,
+        path: campaign.path,
+        mode: (campaign.settings && campaign.settings.decisionEngineVersion) || 'v6-shadow',
+      }))
+    : [];
+  res.json({
+    ok: true,
+    policyVersion: cloakDecisionEngine.POLICY_VERSION,
+    edgeExpectedVersion: edgeDomainAuth.VERSION,
+    edgeSecretConfigured: !!String(process.env.EDGE_DOMAIN_SECRET || '').trim(),
+    metrics: cloakDecisionShadow.snapshot(req.account.id),
+    campaigns,
+  });
+});
+
 // ── Métricas de decisão do cloaker (offer vs white) por conta ─────────��──��─
 // Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
 // a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
@@ -4782,8 +4888,15 @@ app.post('/api/ops/clear-log', dashboardAuth, async (req, res) => {
     if (scope === 'pixelLog') removed = await ttEvents.clearLog(acc);
     else if (scope === 'convLog') removed = await rdb.clearConversionLog(acc);
     else if (scope === 'cloakLog') {
-      const slugs = (config.get(acc).cloakLinks || []).map((l) => l.slug);
-      removed = await rdb.clearCloakDecisionLogs(acc, slugs);
+      const keys = new Set(linkStore.list(acc).map((link) => link.slug));
+      for (const item of (config.get(acc).cloakLinks || [])) keys.add('cloak:' + item.slug);
+      if (cloakCampaignStore.isReady()) {
+        for (const campaign of cloakCampaignStore.list(acc)) {
+          keys.add('campaign:' + campaign.id);
+          if (campaign.legacySlug) keys.add('cloak:' + campaign.legacySlug);
+        }
+      }
+      removed = await rdb.clearCloakDecisionLogs(acc, [...keys]);
     } else if (scope === 'emq') {
       const pixels = pixelStore.list(acc).map((p) => p.pixelCode);
       removed = await rdb.clearEmq(acc, pixels);
