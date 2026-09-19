@@ -40,7 +40,7 @@ import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contract
 type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'approvals' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
 type MetricPreset = 'performance' | 'delivery' | 'cost' | 'video'
-type ChildSort = 'spend_desc' | 'ctr_desc' | 'conversions_desc' | 'name'
+type ChildSort = 'spend_desc' | 'ctr_desc' | 'conversions_desc' | 'video_desc' | 'name'
 
 type Props = {
   tree?: AdsTreeResponse
@@ -385,7 +385,7 @@ export function CampaignWorkspace(props: Props) {
   const [playbookBusy, setPlaybookBusy] = useState<string | null>(null)
   const campaigns = props.tree?.campaigns ?? []
   const advertiserId = props.adAccountId || campaigns[0]?.platformAdAccountId || ''
-  const rulesQuery = useAdsRules(level === 'playbooks', advertiserId)
+  const rulesQuery = useAdsRules(level === 'playbooks' || level === 'overview', advertiserId)
   const presetsQuery = useAdsRulePresets(level === 'playbooks')
   const creativeInsights = useAdsCreativeInsights(level === 'creatives', advertiserId)
 
@@ -433,6 +433,7 @@ export function CampaignWorkspace(props: Props) {
       const bm = metricsFor(b)
       if (childSort === 'ctr_desc') return (Number(bm?.ctr) || 0) - (Number(am?.ctr) || 0)
       if (childSort === 'conversions_desc') return (Number(bm?.conversions) || 0) - (Number(am?.conversions) || 0)
+      if (childSort === 'video_desc') return (Number(bm?.videoWatched2s ?? bm?.videoViews) || 0) - (Number(am?.videoWatched2s ?? am?.videoViews) || 0)
       return (Number(bm?.spend) || 0) - (Number(am?.spend) || 0)
     })
 
@@ -450,6 +451,7 @@ export function CampaignWorkspace(props: Props) {
   const activeGroups = groups.filter(({ group }) => group.status === 'active').length
   const activeAds = ads.filter(({ ad }) => ad.status === 'active').length
   const videoAds = ads.filter(({ ad }) => /^https:\/\//i.test(ad.creative?.videoUrl || '')).length
+  const activePlaybooks = rulesQuery.data?.rules.filter((rule) => rule.enabled).length ?? 0
   const groupsWithFewCreatives = groups
     .filter(({ group }) => group.status === 'active' && (group.ads?.filter((ad) => ad.status !== 'rejected').length ?? 0) < 3)
     .sort((a, b) => (a.group.ads?.length ?? 0) - (b.group.ads?.length ?? 0))
@@ -578,7 +580,7 @@ export function CampaignWorkspace(props: Props) {
               const count = item.value === 'campaigns' ? campaigns.length
                 : item.value === 'adgroups' ? groups.length
                   : item.value === 'ads' ? ads.length
-                    : item.value === 'creatives' ? videoAds
+                    : item.value === 'creatives' ? ads.length
                       : item.value === 'approvals' ? (props.approvalsCount || null)
                         : null
               return (
@@ -616,6 +618,7 @@ export function CampaignWorkspace(props: Props) {
                     <option value="spend_desc">Maior gasto</option>
                     <option value="ctr_desc">Maior CTR</option>
                     <option value="conversions_desc">Mais conversões</option>
+                    {(level === 'ads' || level === 'creatives') && <option value="video_desc">Mais views 2s</option>}
                     <option value="name">Nome</option>
                   </select>
                 </div>
@@ -714,7 +717,12 @@ export function CampaignWorkspace(props: Props) {
                 <div><h3 className="text-sm font-semibold text-foreground">Operação autônoma</h3><p className="mt-1 text-xs text-muted-foreground">Playbooks monitoram sinais e propõem ações com guardrails.</p></div>
                 <Bot className="size-4 text-brand-cyan" />
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border/55 bg-border/40">
+                <div className="bg-background/45 px-3 py-2.5"><p className="text-base font-semibold tabular-nums text-foreground">{activePlaybooks}</p><p className="text-[10px] text-muted-foreground">Playbooks ativos</p></div>
+                <div className="bg-background/45 px-3 py-2.5"><p className="text-base font-semibold tabular-nums text-foreground">{props.approvalsCount || 0}</p><p className="text-[10px] text-muted-foreground">Aguardando decisão</p></div>
+                <div className="bg-background/45 px-3 py-2.5"><p className="text-base font-semibold tabular-nums text-foreground">{videoAds}</p><p className="text-[10px] text-muted-foreground">Vídeos em campanhas</p></div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setLevel('playbooks')} className="btn-secondary min-h-10 text-xs"><Bot className="size-3.5" /> Ver playbooks</button>
                 {props.onOpenAutomations ? <button type="button" onClick={props.onOpenAutomations} className="btn-secondary min-h-10 text-xs"><Sparkles className="size-3.5" /> Automações</button> : null}
               </div>
