@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 import type { AdsCampaignDecisionsResponse, AdsTreeResponse } from '@/lib/types'
-import { fmtSpend, formatMoney } from '@/lib/format'
+import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 
@@ -108,10 +108,10 @@ export function InsightsCampaignsPanel({
                     <span className="block truncate text-[13px] font-medium text-foreground" title={row.name}>{row.name}</span>
                   </td>
                   <td className={`px-4 py-3.5 text-xs font-medium ${statusClass(row.status)}`}>{statusLabel(row.status)}</td>
-                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.spend == null ? '—' : fmtSpend(row.spend, row.spendCurrency)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.spend == null ? '—' : formatMoney(Math.round(row.spend * 100), row.spendCurrency)}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground" data-private="true">{row.revenueCents == null ? '—' : formatMoney(row.revenueCents, row.decisionCurrency)}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.sales == null ? '—' : row.sales.toLocaleString('pt-BR')}</td>
-                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.cpa == null ? '—' : fmtSpend(row.cpa, row.spendCurrency)}</td>
+                  <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.cpa == null ? '—' : formatMoney(Math.round(row.cpa * 100), row.spendCurrency)}</td>
                   <td className="px-5 py-3.5 text-right text-xs font-semibold tabular-nums text-brand-cyan">{row.roas == null ? '—' : `${row.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`}</td>
                 </tr>
               ))}
