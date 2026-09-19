@@ -91,8 +91,11 @@ function logFailure(accountId, reason) {
  * @returns {boolean} true se pelo menos um aparelho recebeu
  */
 async function sendWebPush(accountId, note) {
-  const subs = subsFor(accountId);
-  if (!subs.length) return false; // sem aparelhos = silenciosamente off
+  const allSubs = subsFor(accountId);
+  const subs = note && note.skipIOSWebPush
+    ? allSubs.filter((sub) => !/(iPhone|iPad|iPod|Macintosh.*Mobile)/i.test(String(sub.ua || '')))
+    : allSubs;
+  if (!subs.length) return false; // sem aparelhos elegíveis = silenciosamente off
   try { await ensureVapid(); } catch (err) {
     logFailure(accountId, 'VAPID indisponível: ' + err.message);
     return false;
