@@ -122,6 +122,23 @@ function buildOverviewHealth(input) {
   }
   if (gateways.length === 0) {
     addAction('gateway', 'critical', 'Conecte um gateway', 'Vendas só são confirmadas por webhook do gateway.', '/conversions?tab=gateways');
+  } else {
+    const gatewayEvents = gateways
+      .filter((gateway) => gateway && gateway.lastEventAt)
+      .sort((a, b) => (validTime(b.lastEventAt) || 0) - (validTime(a.lastEventAt) || 0));
+    const latestGateway = gatewayEvents[0] || null;
+    const gatewayOk = latestGateway && /^ok\b/i.test(String(latestGateway.lastEventStatus || ''));
+    if (!gatewayOk) {
+      addAction(
+        'gateway-validation',
+        'warning',
+        latestGateway ? 'Revise o último webhook do checkout' : 'Valide o primeiro webhook do checkout',
+        latestGateway
+          ? 'O checkout recebeu um evento, mas a última entrega ainda não foi confirmada como válida.'
+          : 'O checkout está cadastrado, mas ainda não recebeu uma confirmação real de pagamento.',
+        '/conversions?tab=gateways'
+      );
+    }
   }
   if (orphanPurchases > 0) {
     addAction(
@@ -174,10 +191,17 @@ function buildOverviewHealth(input) {
     setup: {
       links: { total: links.length, active: activeLinks.length },
       pixels: { total: pixels.length, active: activePixels.length, ready: readyPixels.length, incomplete: incompletePixels.length },
-      gateways: {
-        total: gateways.length,
-        lastEventAt: latest(gateways.map((gateway) => gateway.lastEventAt))
-      }
+      gateways: (() => {
+        const withEvents = gateways
+          .filter((gateway) => gateway && gateway.lastEventAt)
+          .sort((a, b) => (validTime(b.lastEventAt) || 0) - (validTime(a.lastEventAt) || 0));
+        const latestGateway = withEvents[0] || null;
+        return {
+          total: gateways.length,
+          lastEventAt: latestGateway ? latestGateway.lastEventAt : null,
+          lastEventStatus: latestGateway ? String(latestGateway.lastEventStatus || '') : null
+        };
+      })()
     },
     coverage: {
       purchases: {
