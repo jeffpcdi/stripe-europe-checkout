@@ -73,6 +73,7 @@ export function Header() {
   const showPeriod = pathname === '/'
     || pathname.startsWith('/activity')
     || pathname.startsWith('/funnel')
+    || pathname.startsWith('/insights')
     || pathname.startsWith('/ads')
 
   return (
