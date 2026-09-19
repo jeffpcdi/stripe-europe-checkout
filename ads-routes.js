@@ -2428,7 +2428,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const [providers, activity, safety] = await Promise.all([
         cloudVideo.status(req.account.id),
-        cloudVideo.listActivity(req.account.id, 50),
+        cloudVideo.listActivity(req.account.id, 100),
         adsOps.getSafetyPolicy(req.account.id).catch(() => null),
       ]);
       res.json({
