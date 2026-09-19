@@ -139,7 +139,8 @@ assert.match(adsAi, /maxBudgetChangePct/)
 
 assert.match(routes, /\/api\/ads\/destinations\/health/)
 assert.match(routes, /Destination Sentinel/)
-assert.match(routes, /hostSeguro/)
+assert.match(routes, /resolvePublicHost/)
+assert.match(routes, /httpsProbe/)
 assert.match(routes, /\/api\/ads\/budget\/proposal\/apply/)
 assert.match(routes, /budget_allocator\.applied/)
 assert.match(routes, /budget_allocator\.change/)
@@ -150,6 +151,17 @@ const destinationRoute = routes.slice(
 )
 assert.match(destinationRoute, /adsCache\.readTree/)
 assert.doesNotMatch(destinationRoute, /req\.body[^\n]*url/, 'Destination Sentinel não aceita URL arbitrária do navegador')
+const destinationProbe = routes.slice(
+  routes.indexOf('async function inspectAdsDestination'),
+  routes.indexOf('module.exports = function registerAdsRoutes'),
+)
+assert.doesNotMatch(destinationProbe, /\bfetch\s*\(/, 'Sentinel não pode resolver o host novamente via fetch após validar DNS')
+assert.match(destinationProbe, /resolvePublicHost/)
+assert.match(destinationProbe, /httpsProbe/)
+assert.ok(
+  destinationProbe.indexOf('resolvePublicHost') < destinationProbe.indexOf('httpsProbe'),
+  'Sentinel resolve e valida IPs antes de abrir a conexão pinada',
+)
 
 const rollbackRoute = routes.slice(
   routes.indexOf("app.post('/api/ads/ops/audit/:auditId/rollback'"),
@@ -169,5 +181,8 @@ assert.ok(
   'allocator reserva a idempotência antes da primeira mutação externa',
 )
 assert.match(allocatorRoute, /BUDGET_ALLOCATOR_IN_PROGRESS/)
+assert.match(campaigns, /allocatorAttemptRef/)
+assert.match(campaigns, /signature/)
+assert.match(campaigns, /idempotencyKey: allocatorAttemptRef\.current\.key/)
 
 console.log('dashboard insights v16.24: ok')
