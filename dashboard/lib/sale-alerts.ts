@@ -45,7 +45,7 @@ export function playSaleSound() {
    aberto (via postMessage do service worker → push-sound.tsx):
    - alert: dois tons graves descendentes (recusa/reembolso/disputa)
    - tick:  click curto e agudo (checkout iniciado)
-   - ping:  nota única limpa com leve vibrato (login)
+   - ping:  confirmação curta e limpa (login)
    - info:  duas notas médias ascendentes suaves (ads/resumo)             */
 
 /** Helper: toca um tom simples com envelope ADSR curto. */
