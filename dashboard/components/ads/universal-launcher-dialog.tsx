@@ -467,7 +467,7 @@ export function UniversalLauncherDialog({
                     <div className="flex min-h-28 flex-col justify-center rounded-xl border border-border/70 bg-secondary/10 p-4">
                       <p className="text-xs font-semibold text-foreground">Biblioteca</p>
                       <p className="mt-1 mb-3 text-xs leading-relaxed text-muted-foreground">Reutilize vídeos enviados anteriormente sem duplicar ou excluir arquivos.</p>
-                      <SavedVideos appearance="creation" selectedUrls={items.map(item => item.videoUrl)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={item => setItems(current => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 120), fileName: item.name, videoUrl: item.url, uploading: false }])} />
+                      <SavedVideos appearance="creation" advertiserId={advertiserId} selectedUrls={items.map(item => item.videoUrl)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={item => setItems(current => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 120), fileName: item.name, videoUrl: item.url, uploading: false }])} />
                     </div>
                   </div>
 
