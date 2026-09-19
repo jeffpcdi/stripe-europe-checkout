@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const mcp = require('../pipeboard-mcp');
 
 const calls = [];
@@ -65,5 +66,12 @@ const provider = require('../ads-provider');
     /inválido/i,
   );
 
-  console.log('ads-integrated-report: chunks, agregação e métricas derivadas OK');
+  const routes = fs.readFileSync(require.resolve('../ads-routes'), 'utf8');
+  const csvStart = routes.indexOf('function csvCell');
+  const csvEnd = routes.indexOf("app.get('/api/ads/reports/export'", csvStart);
+  const csvHelper = routes.slice(csvStart, csvEnd);
+  assert.match(csvHelper, /\^\\s\*\[=\+\\-@\]/, 'CSV neutraliza células com fórmula');
+  assert.match(csvHelper, /"'" \+ text/, 'CSV converte fórmula potencial em texto literal');
+
+  console.log('ads-integrated-report: chunks, agregação, métricas e CSV seguro OK');
 })().catch(error => { console.error(error); process.exitCode = 1; });
