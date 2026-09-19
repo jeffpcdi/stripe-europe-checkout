@@ -27,6 +27,8 @@ enum ROIAPIClient {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WidgetSnapshot.self, from: data)
+        let snapshot = try decoder.decode(WidgetSnapshot.self, from: data)
+        WidgetSnapshotCache.save(snapshot)
+        return snapshot
     }
 }
