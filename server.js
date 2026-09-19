@@ -4905,6 +4905,14 @@ app.get('/api/companion/status', dashboardAuth, (req, res) => {
     })),
     apnsConfigured: require('./ios-push').configured(),
     preferNativeIOS: companion.preferNativeIOS === true,
+    capabilities: {
+      nativePush: true,
+      customSaleSound: true,
+      homeScreenWidget: true,
+      lockScreenWidget: true,
+      liveActivities: false,
+      widgetSnapshotVersion: 2,
+    },
   });
 });
 
