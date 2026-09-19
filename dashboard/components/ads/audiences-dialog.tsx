@@ -223,28 +223,26 @@ export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], on
           <section>
             <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-foreground">Públicos da conta</h3><button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => mutate()} disabled={isLoading}><RefreshCw className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`} />Atualizar</button></div>
             {isLoading && !data ? <p className="py-6 text-xs text-muted-foreground">Consultando públicos no TikTok Ads…</p> : error ? <div className="py-5"><p className="text-sm font-medium text-warning">Não foi possível carregar os públicos</p><button type="button" className="btn-secondary mt-3 min-h-10 text-xs" onClick={() => mutate()}>Tentar novamente</button></div> : audiences.length === 0 ? <div className="py-7 text-center"><p className="text-sm font-medium text-foreground">Nenhum público criado</p><p className="mt-1 text-xs text-muted-foreground">Crie um público de remarketing acima ou gere um público semelhante quando houver uma origem pronta.</p></div> : <ul className="mt-2 divide-y divide-border/50 border-y border-border/60">{audiences.map((audience) => { const status = audienceStatus(audience); return <li key={audience.id} className="flex items-start gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{audience.name}</p><p className="mt-1 text-xs text-muted-foreground">{audienceTypeLabel(audience.type)} · {formatSize(audience.size)}</p></div><div className="flex shrink-0 items-center gap-2"><span className={`flex items-center gap-1.5 text-xs ${status.tone}`}><span className={`size-2 rounded-full ${status.dot}`} />{status.label}</span>{shareTargets.length > 0 && !audience.type.toUpperCase().includes('BUSINESS_ACCOUNT') ? <button type="button" className="min-h-10 rounded-lg px-2 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground" onClick={() => { setShareAudience(audience); setShareTargetId('') }} disabled={busy}>Compartilhar</button> : null}<button type="button" className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-error/10 hover:text-error" onClick={() => setConfirmDelete(audience)} disabled={busy}><Trash2 className="size-3.5" />Remover</button></div></li>})}</ul>}
+            {shareAudience ? <div className="mt-3 rounded-xl border border-border/70 bg-secondary/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">Compartilhar · {shareAudience.name}</p>
+                  <select className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" value={shareTargetId} onChange={(event) => setShareTargetId(event.target.value)} disabled={sharing}>
+                    <option value="">Selecione a conta de destino</option>
+                    {shareTargets.map(account => <option key={account.id} value={account.id}>{account.name || account.id}</option>)}
+                  </select>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" className="btn-ghost h-10 text-xs" disabled={sharing} onClick={() => { setShareAudience(null); setShareTargetId('') }}>Cancelar</button>
+                  <button type="button" className="btn-primary h-10 text-xs" disabled={sharing || !shareTargetId} onClick={() => void handleShare()}>{sharing && <Loader2 className="size-3.5 animate-spin" />}Compartilhar</button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Disponível para contas compatíveis no mesmo Business Center.</p>
+            </div> : null}
           </section>
         </div>
       </div>
     </div></DialogPortal>
-    {shareAudience ? <DialogPortal><div className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl">
-        <h3 className="text-sm font-semibold text-foreground">Compartilhar público</h3>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{shareAudience.name}</p>
-        <label className="mt-4 flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-foreground">Conta de destino</span>
-          <select className="input-base h-10 rounded-lg border border-border bg-background px-3 text-sm" value={shareTargetId} onChange={(event) => setShareTargetId(event.target.value)} disabled={sharing}>
-            <option value="">Selecione a conta</option>
-            {shareTargets.map(account => <option key={account.id} value={account.id}>{account.name || account.id}</option>)}
-          </select>
-        </label>
-        <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">Disponível para contas compatíveis dentro do mesmo Business Center.</p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="btn-ghost h-10 text-xs" disabled={sharing} onClick={() => { setShareAudience(null); setShareTargetId('') }}>Cancelar</button>
-          <button type="button" className="btn-primary h-10 text-xs" disabled={sharing || !shareTargetId} onClick={() => void handleShare()}>{sharing && <Loader2 className="size-3.5 animate-spin" />}Compartilhar</button>
-        </div>
-      </div>
-    </div></DialogPortal> : null}
     <ConfirmDialog open={Boolean(confirmDelete)} title="Excluir este público?" description="Ele será removido do TikTok Ads. Se ainda estiver em uso, o TikTok poderá recusar a exclusão ou a campanha poderá exigir ajuste." confirmLabel="Excluir público" appearance="quiet" busy={Boolean(deletingId)} onConfirm={() => { if (confirmDelete) return handleDelete(confirmDelete.id) }} onClose={() => setConfirmDelete(null)} />
   </>
 }
