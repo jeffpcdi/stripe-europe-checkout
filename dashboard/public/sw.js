@@ -54,29 +54,30 @@ self.addEventListener("push", (event) => {
       options.vibrate = data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [70])
     }
 
-    const promises = [self.registration.showNotification(title, options)]
+    const promises = []
 
-    if (hasVisibleClient && data.sound) {
+    if (hasVisibleClient) {
+      // Produto aberto: feedback acontece dentro da dashboard. Evita duplicar
+      // a mesma venda em toast + banner do sistema + som.
+      const client = visibleClients[0]
       promises.push(Promise.resolve().then(() => {
-        for (const client of visibleClients) {
-          client.postMessage({
-            type: "roi-notification",
-            sound: data.sound,
-            event: data.event || "",
-            title,
-            body: data.body || "",
-            url: data.url || "/dashboard",
-            priority: data.priority || "normal",
-          })
-        }
+        client.postMessage({
+          type: "roi-notification",
+          sound: data.sound || "",
+          event: data.event || "",
+          title,
+          body: data.body || "",
+          url: data.url || "/dashboard",
+          priority: data.priority || "normal",
+        })
       }))
-    }
+    } else {
+      promises.push(self.registration.showNotification(title, options))
 
-    // iOS/iPadOS Home Screen web apps suportam Badging API. Um ponto é mais
-    // honesto que um contador inventado: indica "há algo novo" sem manter
-    // estado duplicado no service worker.
-    if (data.badge === true && "setAppBadge" in self.navigator) {
-      promises.push(self.navigator.setAppBadge().catch(() => {}))
+      // Fora da dashboard, badge representa algo novo que ainda não foi visto.
+      if (data.badge === true && "setAppBadge" in self.navigator) {
+        promises.push(self.navigator.setAppBadge().catch(() => {}))
+      }
     }
 
     await Promise.all(promises)
