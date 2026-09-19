@@ -73,6 +73,7 @@ export const NAV_GROUPS: NavGroup[] = [
     tabs: [
       { label: 'Visão', href: '/insights' },
       { label: 'Campanhas', href: '/insights?tab=campaigns' },
+      { label: 'Criativos', href: '/insights?tab=creatives' },
       { label: 'Funil', href: '/insights?tab=funnel' },
       { label: 'Diagnóstico', href: '/insights?tab=diagnosis' },
     ],
