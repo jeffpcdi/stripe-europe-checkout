@@ -20,6 +20,7 @@ interface CreativeRow {
   body: string
   linkUrl: string
   videoId: string
+  videoUrl: string
   currency: string
   metrics: AdsMetrics
   previous?: AdsMetrics
@@ -138,6 +139,7 @@ function flatten(tree?: AdsTreeResponse): Omit<CreativeRow, 'previous' | 'signal
           body: ad.creative?.body || '',
           linkUrl: ad.creative?.linkUrl || '',
           videoId: creativeVideo.startsWith('tiktok:video:') ? creativeVideo.slice('tiktok:video:'.length) : '',
+          videoUrl: creativeVideo.startsWith('tiktok:video:') ? '' : creativeVideo,
           currency: String(campaign.currency || 'BRL').toUpperCase(),
           metrics: ad.metrics || {},
         })
@@ -192,10 +194,11 @@ export function CreativeInsightsPanel({
   const attentionRows = useMemo(() => rows.filter(row => row.signal === 'attention'), [rows])
   const refreshRecommendations = useMemo(() => {
     const usedVideoIds = new Set(rows.map(row => row.videoId).filter(Boolean))
+    const usedVideoUrls = new Set(rows.map(row => row.videoUrl).filter(Boolean))
     const candidates: (AdsLibraryItem & { uploadedAtMs: number })[] = []
 
     for (const item of library?.items ?? []) {
-      if (!item.url) continue
+      if (!item.url || usedVideoUrls.has(item.url) || (item.videoId && usedVideoIds.has(item.videoId))) continue
       candidates.push({ ...item, source: item.source || 'local', uploadedAtMs: item.uploadedAt ? Date.parse(item.uploadedAt) || 0 : 0 })
     }
     for (const item of cloud?.activity ?? []) {
