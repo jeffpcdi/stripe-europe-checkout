@@ -90,7 +90,7 @@ function logFailure(accountId, channel, notificationName, reason) {
   } catch (_) {}
 }
 
-async function sendViaWebPush(notificationName, payload, accountId, meta) {
+async function sendViaWebPush(notificationName, payload, accountId, meta, options = {}) {
   try {
     const cfg = accountConfig(accountId).webPush || {};
     const note = require('./notify-copy').build({
@@ -107,7 +107,11 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     const recordInCenter = shouldRecord(event);
     note.badge = recordInCenter;
     const companion = accountConfig(accountId).companion || {};
-    note.skipIOSWebPush = companion.preferNativeIOS === true && (companion.devices || []).length > 0;
+    const nativeReady = companion.preferNativeIOS === true
+      && (companion.devices || []).length > 0
+      && require('./ios-push').configured();
+    note.skipIOSWebPush = options.onlyIOS !== true && nativeReady;
+    note.onlyIOSWebPush = options.onlyIOS === true;
     if (recordInCenter) {
       try { await require('./redis').pushNotifLog(accountId, note); } catch (_) {}
     }
@@ -204,12 +208,26 @@ async function sendNotification(notificationName, payload, accountId, meta) {
     const compact = require('./notify-copy').compactSale(payload, meta);
     payload = Object.assign({}, payload, { title: compact.title, text: compact.body });
   }
+  const cfg = accountConfig(accountId);
+  const companion = cfg.companion || {};
+  const nativePreferred = companion.preferNativeIOS === true
+    && (companion.devices || []).length > 0
+    && require('./ios-push').configured();
+
   const [webOk, iosOk, legacyOk] = await Promise.all([
     sendViaWebPush(notificationName, payload || {}, accountId, meta || {}),
     sendViaIOS(notificationName, payload || {}, accountId, meta || {}),
     sendViaPushcut(notificationName, payload || {}, accountId, meta || {}),
   ]);
-  return webOk || iosOk || legacyOk;
+
+  // Falha transitória do APNs não pode virar silêncio no iPhone. Reenvia
+  // somente às inscrições Web Push de iOS para não duplicar desktop/Android.
+  let iosFallbackOk = false;
+  if (nativePreferred && !iosOk) {
+    iosFallbackOk = await sendViaWebPush(notificationName, payload || {}, accountId, meta || {}, { onlyIOS: true });
+  }
+
+  return webOk || iosOk || iosFallbackOk || legacyOk;
 }
 
 const sendPushcut = sendNotification;
