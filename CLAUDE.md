@@ -21,7 +21,7 @@
 - TikTok Ads pode escolher destinos já salvos em Links ou campanhas Cloaker. Cloaker usa `combinedUrl` do Link Kit, preservando token/macros, e o seletor filtra Standard vs Smart+ para não misturar contratos de parâmetros.
 - Navegação de topo usa `NAV_GROUPS` como fonte de verdade; drill-downs de Visão Geral permanecem no grupo correto. Atalhos/tours foram alinhados às rotas atuais.
 - A Zona de Perigo descreve corretamente `/api/reset-stats`: apaga leads e eventos de desempenho (visitas, checkouts, vendas, falhas, reembolsos e contestações), mantendo as configurações cadastradas.
-- Regressões: `test/cloak-ux-alignment-v16-23.test.js`, `test/dashboard-crossflow-coherence-v16-23.test.js` e `test/dashboard-navigation-and-ads-v16-23.test.js`.
+- Regressões: `test/cloak-ux-alignment-v16-23.test.js`, `test/dashboard-crossflow-coherence-v16-23.test.js`, `test/dashboard-project-coherence-v16-23.test.js` e `test/dashboard-navigation-and-ads-v16-23.test.js`.
 - O status de preview da Vercel no PR pode aparecer vermelho por integração da conta GitHub/Vercel; o bot reportou “There is no GitHub account connected to this Vercel account”. Não interpretar esse status isoladamente como erro de TypeScript.
 
 
