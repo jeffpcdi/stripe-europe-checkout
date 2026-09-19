@@ -2,9 +2,36 @@ import Foundation
 import UIKit
 import UserNotifications
 import WidgetKit
-import WidgetKit
 
 enum CompanionPushRegistrar {
+    @MainActor
+    static func registerIfAuthorized(application: UIApplication = .shared) async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            application.registerForRemoteNotifications()
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    static func requestAuthorizationAndRegister(application: UIApplication = .shared) async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+
+        if settings.authorizationStatus == .notDetermined {
+            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+            if granted {
+                application.registerForRemoteNotifications()
+            }
+            return granted
+        }
+
+        return await registerIfAuthorized(application: application)
+    }
+
     static func register(deviceToken: Data) async {
         guard let base = CompanionConfig.apiBaseURL,
               let token = CompanionCredentials.token(),
@@ -36,17 +63,22 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         UNUserNotificationCenter.current().delegate = self
 
         Task { @MainActor in
-            let center = UNUserNotificationCenter.current()
-            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            if granted {
-                application.registerForRemoteNotifications()
-            }
+            _ = await CompanionPushRegistrar.registerIfAuthorized(application: application)
         }
         return true
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { await CompanionPushRegistrar.register(deviceToken: deviceToken) }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        WidgetCenter.shared.reloadAllTimelines()
+        completionHandler(.newData)
     }
 
     func userNotificationCenter(
