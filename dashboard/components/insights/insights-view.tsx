@@ -20,11 +20,12 @@ import { fmtDelta, fmtInt, fmtPercent, formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
+import { AnomaliesPanel } from './anomalies-panel'
 
-type InsightTab = 'performance' | 'funnel' | 'sources' | 'quality'
+type InsightTab = 'performance' | 'funnel' | 'sources' | 'anomalies' | 'quality'
 
 function normalizeTab(value: string | null): InsightTab {
-  if (value === 'funnel' || value === 'sources' || value === 'quality') return value
+  if (value === 'funnel' || value === 'sources' || value === 'anomalies' || value === 'quality') return value
   return 'performance'
 }
 
@@ -431,6 +432,18 @@ export function InsightsView() {
             </div>
           )}
         </GlassCard>
+      ) : null}
+
+      {tab === 'anomalies' ? (
+        <AnomaliesPanel
+          current={current}
+          previous={previous ?? null}
+          health={health}
+          currentRevenue={computed.currentRevenue}
+          previousRevenue={computed.previousRevenue}
+          bottleneck={computed.bottleneck}
+          sourceConcentration={computed.concentration}
+        />
       ) : null}
 
       {tab === 'quality' ? (
