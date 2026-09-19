@@ -1800,6 +1800,36 @@ async function uploadVideoAsset(advertiserId, videoUrl) {
   return { videoId, displayable: true };
 }
 
+async function verifyReusableVideoAsset(advertiserId, videoId) {
+  const adv = String(advertiserId || '').trim();
+  const id = String(videoId || '').trim();
+  if (!adv || !/^[a-zA-Z0-9_-]{3,160}$/.test(id)) throw badRequest('videoId reutilizável é inválido');
+
+  let lastAsset = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const out = await pipeboard.callTool('get_tiktok_video_info', {
+      advertiser_id: adv,
+      video_ids: [id],
+      page: 1,
+      page_size: 10,
+    });
+    const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
+    const asset = inspectUploadedVideoAsset(rows, id);
+    lastAsset = asset;
+    if (asset.row && asset.displayable) return String(asset.row.video_id || asset.row.id || id);
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  const err = badRequest(
+    lastAsset && lastAsset.row
+      ? 'O criativo sincronizado ainda está sendo processado pelo TikTok.'
+      : 'O criativo sincronizado não está disponível nesta conta de anúncios.',
+    lastAsset && lastAsset.row ? 409 : 404,
+  );
+  err.code = lastAsset && lastAsset.row ? 'TIKTOK_VIDEO_NOT_READY' : 'TIKTOK_VIDEO_NOT_FOUND';
+  err.retryable = Boolean(lastAsset && lastAsset.row);
+  throw err;
+}
+
 function assetStepError(value, step, createdIds) {
   const err = value instanceof Error ? value : new Error(String(value || 'Falha no asset do TikTok'));
   if (!err.step) err.step = step;
@@ -2198,10 +2228,15 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 
   // Pré-requisitos ANTES de criar qualquer coisa (falha barata, zero órfãos):
-  const [info, identity, regions] = await Promise.all([
+  const requestedVideoId = String(s.videoId || '').trim();
+  const reusableVideoIdPromise = requestedVideoId
+    ? verifyReusableVideoAsset(adv, requestedVideoId)
+    : Promise.resolve('');
+  const [info, identity, regions, reusableVideoId] = await Promise.all([
     getAdvertiserInfo(adv),
     pickAdIdentity(adv),
     resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['PT']), goal.objective),
+    reusableVideoIdPromise,
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
 
@@ -2293,8 +2328,9 @@ async function createFullAd(advertiserId, spec, opts) {
     createdIds.adGroupId = adGroupId;
     await report({ ...createdIds });
 
-    // 3) Vídeo (URL pública do Blob → TikTok; dedupe por md5 no retry).
-    const videoId = String(resume.videoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    // 3) Vídeo. Assets já sincronizados reutilizam o video_id confirmado;
+    // uploads locais continuam usando URL pública + dedupe por md5.
+    const videoId = String(resume.videoId || reusableVideoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
     createdIds.videoId = videoId;
     await report({ ...createdIds });
 
