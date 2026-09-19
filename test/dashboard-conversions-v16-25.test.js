@@ -15,6 +15,7 @@ assert(!/DirectGatewayModal[\s\S]{0,180}pixels=\{pixels\}/.test(view), 'modal de
 assert(/<GatewayCard[\s\S]{0,180}pixels=\{pixels\}/.test(view), 'cartão de checkout deve receber Pixels para mostrar vínculos reais')
 assert(gatewayCard.includes('Testar recebimento'), 'teste de checkout deve descrever o recebimento de webhook, não uma integração completa')
 assert(gatewayCard.includes('não envia ao TikTok nem registra receita'), 'teste interno deve deixar claro seu limite')
+assert(gatewayCard.includes('/erro|error|falh|inválid|invalid|rejeitad/i') && gatewayCard.includes('/^ok\\b/i'), 'cartão de checkout deve usar a mesma semântica ampla de erro e sucesso do diagnóstico')
 assert(view.includes('Limpar filtro'), 'estado vazio de entregas filtradas deve ser recuperável')
 
 console.log('[OK] Conversões V16.25 — saúde cronológica, próxima ação e configuração de checkout coerentes.')
