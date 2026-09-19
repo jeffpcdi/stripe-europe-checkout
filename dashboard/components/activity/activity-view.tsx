@@ -248,7 +248,7 @@ export function ActivityView() {
                     </p>
                   ) : <span />}
                   <time dateTime={event.at} className="text-[11px] text-muted-foreground">
-                    {formatDateTime(event.at)}
+                    {formatDateTime(event.at, accountTimeZone)}
                   </time>
                 </div>
               </li>
