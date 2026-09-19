@@ -13,6 +13,7 @@ const { neon } = require('@neondatabase/serverless');
 const config = require('./config');
 const storage = require('./ads-storage');
 const adsProvider = require('./ads-provider');
+const adsOps = require('./ads-ops-store');
 const redisMod = require('./redis');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
@@ -235,6 +236,23 @@ async function downloadFile(accountId, providerName, file, accessToken) {
 async function syncOne(accountId, providerName, advertiserId) {
   providerName = assertProvider(providerName);
   advertiserId = String(advertiserId || '').trim();
+
+  // Upload para o TikTok é escrita remota. O worker precisa respeitar a mesma
+  // política das mutações manuais; caso o Neon/policy esteja indisponível,
+  // getSafetyPolicy falha e a sincronização fecha sem escrever.
+  let policy;
+  try {
+    policy = await adsOps.getSafetyPolicy(accountId);
+  } catch (_) {
+    return { skipped: true, reason: 'safety_policy_unavailable' };
+  }
+  if (!policy || policy.enabled === false) return { skipped: true, reason: 'safety_policy_disabled' };
+  if (policy.killSwitch === true) return { skipped: true, reason: 'kill_switch' };
+  if (policy.dryRun !== false) return { skipped: true, reason: 'dry_run' };
+  if ((policy.blockedAdvertiserIds || []).map(String).includes(advertiserId)) {
+    return { skipped: true, reason: 'advertiser_blocked' };
+  }
+
   await ensureSchema();
   const con = await connection(accountId, providerName);
   if (!con) return { skipped: true, reason: 'not_connected' };
@@ -315,7 +333,7 @@ async function status(accountId) {
     const env = providerEnv(providerName);
     const con = await connection(accountId, providerName).catch(() => null);
     const pref = (config.get(accountId).cloudVideo || {})[providerName] || {};
-    out[providerName] = { configured: !!(env.clientId && env.clientSecret), connected: !!con, enabled: pref.enabled === true, folderId: pref.folderId || '', folderPath: pref.folderPath || '', connectedAt: con && con.updatedAt || null };
+    out[providerName] = { configured: !!(env.clientId && env.clientSecret), connected: !!con, enabled: pref.enabled === true, advertiserId: String(pref.advertiserId || ''), folderId: pref.folderId || '', folderPath: pref.folderPath || '', connectedAt: con && con.updatedAt || null };
   }
   return out;
 }
