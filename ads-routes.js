@@ -430,6 +430,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.status(422).json({ error: 'Tipo de estado anterior não suportado para rollback.', code: 'UNSUPPORTED_STATE' });
       }
       adsSync.syncAfterWrite(req.account.id, advertiserId);
+      for (const item of prepared) {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'system',
+          actorId: req.account.id,
+          action: 'budget_allocator.change',
+          targetType: 'campaign',
+          targetId: item.campaignId,
+          advertiserId,
+          beforeState: { budget: { amount: item.current, type: 'daily' } },
+          afterState: { budget: { amount: item.proposed, type: 'daily' } },
+          reason: 'Profit Allocator aprovado pelo gestor',
+          metadata: { deltaPct: item.deltaPct, idempotencyKey },
+        }).catch(() => {});
+      }
       await adsOps.appendAuditEvent(req.account.id, {
         actorType: 'user', actorId: req.account.id, action: 'rollback',
         targetType: ev.target_type, targetId: ev.target_id, advertiserId,
