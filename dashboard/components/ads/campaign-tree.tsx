@@ -716,6 +716,8 @@ export function CampaignTree({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set())
   const [creativeInspect, setCreativeInspect] = useState<{ campaign: AdsTreeCampaign; group: AdsTreeAdSet; ad: AdsTreeAd } | null>(null)
+  const [entityStatusFilter, setEntityStatusFilter] = useState<'all' | 'active' | 'paused' | 'issues'>('all')
+  const [entitySort, setEntitySort] = useState<'spend_desc' | 'ctr_desc' | 'conversions_desc'>('spend_desc')
   const [bulkBusy, setBulkBusy] = useState(false)
   const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
   
@@ -981,7 +983,7 @@ export function CampaignTree({
   const statusCounts = useMemo(() => campaignStatusCounts(campaigns), [campaigns])
   const adGroupCount = useMemo(() => campaigns.reduce((total, campaign) => total + (campaign.adSets?.length || 0), 0), [campaigns])
   const adCount = useMemo(() => campaigns.reduce((total, campaign) => total + (campaign.adSets || []).reduce((sum, group) => sum + (group.ads?.length || 0), 0), 0), [campaigns])
-  useEffect(() => { setSelectedEntities(new Set()) }, [entityLevel])
+  useEffect(() => { setSelectedEntities(new Set()); setEntityStatusFilter('all'); setEntitySort('spend_desc') }, [entityLevel])
 
   // Aplica busca + "só com gasto" sobre a lista carregada
   const q = normalizeSearch(query.trim())
@@ -1610,6 +1612,31 @@ export function CampaignTree({
     return renderCampaignTableRow(row.c, index)
   }
 
+  function entityStatusMatches(status?: AdsNodeStatus) {
+    if (entityStatusFilter === 'all') return true
+    if (entityStatusFilter === 'issues') return status === 'error' || status === 'rejected' || status === 'pending_review'
+    return status === entityStatusFilter
+  }
+
+  function sortEntityRows<T extends { metrics?: AdsTreeAd['metrics'] }>(rows: T[]) {
+    return [...rows].sort((a, b) => {
+      if (entitySort === 'ctr_desc') return Number(b.metrics?.ctr || 0) - Number(a.metrics?.ctr || 0)
+      if (entitySort === 'conversions_desc') return Number(b.metrics?.conversions || 0) - Number(a.metrics?.conversions || 0)
+      return Number(b.metrics?.spend || 0) - Number(a.metrics?.spend || 0)
+    })
+  }
+
+  function EntityToolbar({ visibleCount, totalCount }: { visibleCount: number; totalCount: number }) {
+    return <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-secondary/5 px-3 py-2.5">
+      <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-background p-1">
+        {([['all', 'Todos'], ['active', 'Ativos'], ['paused', 'Pausados'], ['issues', 'Atenção']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setEntityStatusFilter(value)} className={cn('h-7 rounded-md px-2.5 text-xs font-medium transition-colors', entityStatusFilter === value ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>{label}</button>)}
+      </div>
+      <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 text-xs text-muted-foreground"><ArrowUpDown className="size-3.5" /><select value={entitySort} onChange={(e) => setEntitySort(e.target.value as typeof entitySort)} className="bg-transparent font-medium text-foreground outline-none"><option value="spend_desc">Maior gasto</option><option value="ctr_desc">Maior CTR</option><option value="conversions_desc">Mais conversões</option></select></label>
+      <button type="button" onClick={() => setOnlyWithSpend((value) => !value)} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium', onlyWithSpend ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground')}><DollarSign className="size-3.5" />Com gasto</button>
+      <span className="ml-auto text-xs tabular-nums text-muted-foreground">{visibleCount} de {totalCount}</span>
+    </div>
+  }
+
   function EntityWorkspace() {
     const bulkBar = selectedEntities.size ? <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-primary/20 bg-background/95 px-3 py-2.5 shadow-sm backdrop-blur">
       <span className="text-xs font-semibold text-foreground">{selectedEntities.size} selecionado{selectedEntities.size === 1 ? '' : 's'}</span>
@@ -1620,14 +1647,15 @@ export function CampaignTree({
 
     if (entityLevel === 'campaign') return null
     if (entityLevel === 'adgroup') {
-      const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group }))).filter(({ campaign, group }) => {
+      const allRows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group })))
+      const rows = sortEntityRows(allRows.filter(({ campaign, group }) => {
         if (onlyWithSpend && !(Number(group.metrics?.spend) > 0)) return false
         if (!q || natural.structured) return true
         return normalizeSearch(String(group.adSetName || group.name || group.platformAdSetId)).includes(q)
           || normalizeSearch(String(campaign.campaignName || campaign.platformCampaignId)).includes(q)
-      })
+      }).filter(({ group }) => entityStatusMatches(group.status)).map(({ campaign, group }) => ({ campaign, group, metrics: group.metrics }))).map(({ campaign, group }) => ({ campaign, group }))
       const all = rows.length > 0 && rows.every(({ group }) => selectedEntities.has(String(group.platformAdSetId)))
-      return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[980px]">
+      return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<EntityToolbar visibleCount={rows.length} totalCount={allRows.length} /><div className="min-w-[980px]">
         <div className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ group }) => String(group.platformAdSetId))))} aria-label="Selecionar todos os conjuntos" className="size-3.5 accent-primary" /><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
         {rows.map(({ campaign, group }) => <div key={group.platformAdSetId} className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/40 px-3 py-3 text-xs hover:bg-muted/20">
           <input type="checkbox" checked={selectedEntities.has(String(group.platformAdSetId))} onChange={() => toggleEntitySelection(String(group.platformAdSetId))} aria-label={`Selecionar conjunto ${group.adSetName || group.platformAdSetId}`} className="size-3.5 accent-primary" />
@@ -1637,16 +1665,17 @@ export function CampaignTree({
         </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
       </div></div>
     }
-    const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad })))).filter(({ campaign, group, ad }) => {
+    const allRows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad }))))
+    const rows = sortEntityRows(allRows.filter(({ campaign, group, ad }) => {
       if (onlyWithSpend && !(Number(ad.metrics?.spend) > 0)) return false
       if (!q || natural.structured) return true
       return normalizeSearch(String(ad.name || ad.platformAdId || ad._id)).includes(q)
         || normalizeSearch(String(ad.creative?.body || '')).includes(q)
         || normalizeSearch(String(group.adSetName || group.name || group.platformAdSetId)).includes(q)
         || normalizeSearch(String(campaign.campaignName || campaign.platformCampaignId)).includes(q)
-    })
+    }).filter(({ ad }) => entityStatusMatches(ad.status)).map(({ campaign, group, ad }) => ({ campaign, group, ad, metrics: ad.metrics }))).map(({ campaign, group, ad }) => ({ campaign, group, ad }))
     const all = rows.length > 0 && rows.every(({ ad }) => selectedEntities.has(String(ad.platformAdId || ad._id)))
-    return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[1160px]">
+    return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<EntityToolbar visibleCount={rows.length} totalCount={allRows.length} /><div className="min-w-[1160px]">
       <div className="grid grid-cols-[36px_86px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px_100px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ ad }) => String(ad.platformAdId || ad._id))))} aria-label="Selecionar todos os anúncios" className="size-3.5 accent-primary" /><span>Criativo</span><span>Anúncio</span><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span><span>Sinal</span></div>
       {rows.map(({ campaign, group, ad }) => { const id = String(ad.platformAdId || ad._id); const videoUrl = /^https:\/\//i.test(ad.creative?.videoUrl || '') ? ad.creative?.videoUrl : ''; const imageUrl = /^https:\/\//i.test(ad.creative?.imageUrl || '') ? ad.creative?.imageUrl : ''; const hasAsset = Boolean(videoUrl || imageUrl || ad.creative?.videoId || ad.creative?.imageIds?.length); return <div key={id} className="grid grid-cols-[36px_86px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px_100px] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-xs hover:bg-muted/20">
         <input type="checkbox" checked={selectedEntities.has(id)} onChange={() => toggleEntitySelection(id)} aria-label={`Selecionar anúncio ${ad.name || id}`} className="size-3.5 accent-primary" />
@@ -1689,8 +1718,8 @@ export function CampaignTree({
                 <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={entityLevel === 'campaign' ? 'Buscar campanha ou filtrar por resultado…' : entityLevel === 'adgroup' ? 'Buscar conjunto ou campanha…' : 'Buscar anúncio, copy, conjunto ou campanha…'} aria-label="Buscar campanha ou filtrar por resultado" className="h-10 w-full rounded-lg border border-border/70 bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30" />
                 {query ? <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button> : null}
               </div>
-              <button type="button" onClick={() => setQuickFilter((curr) => curr === 'no_sales' ? 'all' : 'no_sales')} aria-pressed={quickFilter === 'no_sales'} disabled={!decisions} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', quickFilter === 'no_sales' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')} title="Campanhas com gasto e sem vendas"><AlertCircle className="size-3.5" aria-hidden="true" />Gastou sem vender</button>
-              <button type="button" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')}><SlidersHorizontal className="size-3.5" aria-hidden="true" />Filtros</button>
+              <button type="button" onClick={() => setQuickFilter((curr) => curr === 'no_sales' ? 'all' : 'no_sales')} aria-pressed={quickFilter === 'no_sales'} disabled={!decisions || entityLevel !== 'campaign'} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', quickFilter === 'no_sales' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')} title="Campanhas com gasto e sem vendas"><AlertCircle className="size-3.5" aria-hidden="true" />Gastou sem vender</button>
+              <button type="button" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters} disabled={entityLevel !== 'campaign'} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')}><SlidersHorizontal className="size-3.5" aria-hidden="true" />Filtros</button>
             </div>
             {!query && entityLevel === 'campaign' ? <p className="w-full text-xs text-muted-foreground lg:text-right">Ex.: sem venda · ROAS acima de 2 · gasto acima de 100</p> : null}
           </div>
