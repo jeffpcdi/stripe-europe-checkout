@@ -3622,15 +3622,13 @@ body { isolation: isolate; }
   70% { opacity: 1; transform: translateY(0) scale(1.008); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
-.recent-visit-row[data-purchased='true'],
-.activity-event-row[data-event-type='sale'] {
-  animation: roiSaleRowIn 360ms var(--ease) both;
-}
 .activity-event-row[data-event-type='sale'] {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--money) 55%, transparent);
 }
-.activity-event-row[data-event-type='sale'] [data-sensitive].text-success,
-.recent-visit-row[data-purchased='true'] .recent-visit-amount {
+.activity-event-row.activity-sale-arrival {
+  animation: roiSaleRowIn 360ms var(--ease) both;
+}
+.activity-event-row.activity-sale-arrival [data-sensitive].text-success {
   animation: roiAttentionIn 220ms var(--ease) both;
 }
 .recent-visit-place { width: 36px; height: 36px; background: var(--surface-raised); border: 1px solid var(--surface-border); border-radius: 10px; }
