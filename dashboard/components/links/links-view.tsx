@@ -423,12 +423,16 @@ export function LinksView() {
     <div className="flex flex-col gap-5">
       {error && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={() => void mutate()}>Links não atualizados · tentar novamente</button>}
       <div className="flex flex-col gap-4">
-        <div className="flex justify-end">
-          <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">Links de venda</h1>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Crie URLs rastreadas para distribuir tráfego, atribuir vendas e conectar cada jornada ao pixel correto.</p>
+          </div>
+          <button type="button" data-tour="links-new" onClick={() => setCreating(true)} className="btn-primary shrink-0">
             <Plus className="size-4" />
             Novo link
           </button>
-        </div>
+        </header>
 
         <div className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-border/60 py-4 lg:grid-cols-4">
           <div className="min-w-0">
