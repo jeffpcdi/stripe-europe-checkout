@@ -39,6 +39,7 @@ const originalGetSafetyPolicy = adsOps.getSafetyPolicy;
   const saved = fs.readFileSync(require.resolve('../dashboard/components/ads/saved-videos.tsx'), 'utf8');
   const routes = fs.readFileSync(require.resolve('../ads-routes'), 'utf8');
   const view = fs.readFileSync(require.resolve('../dashboard/components/ads/tiktok-ads-view.tsx'), 'utf8');
+  const launcher = fs.readFileSync(require.resolve('../dashboard/components/ads/universal-launcher-dialog.tsx'), 'utf8');
 
   assert.match(panel, /Sincronização automática/);
   assert.match(panel, /Novos vídeos da pasta entram na biblioteca automaticamente/);
@@ -47,11 +48,17 @@ const originalGetSafetyPolicy = adsOps.getSafetyPolicy;
   assert.match(panel, /window\.location\.assign/);
   assert.match(saved, /appearance === 'default'/);
   assert.match(saved, /<CloudVideoSyncPanel advertiserId=\{advertiserId\}/);
+  assert.match(saved, /tiktok_video_id/);
+  assert.match(saved, /Sincronizado no TikTok/);
+  assert.match(saved, /selectedVideoIds/);
   assert.match(routes, /\/dashboard\/ads\/tiktok\?cloudVideo=connected/);
   assert.match(routes, /enabled: current\.enabled === true && Boolean\(String\(current\.advertiserId \|\| ''\)\.trim\(\)\)/,
     'primeira conexão OAuth fica pausada até receber advertiser explícito');
   assert.match(view, /cloudVideo/);
   assert.match(view, /Nuvem conectada/);
+  assert.match(launcher, /videoId: singleItem\.videoId/);
+  assert.match(launcher, /videoId: it\.videoId/);
+  assert.match(launcher, /!i\.videoUrl && !i\.videoId/);
 
   console.log('ads-cloud-video-safety: guardrails, OAuth return e UI contextual OK');
 })().catch(error => {
