@@ -42,6 +42,7 @@ function nativeGroup(event) {
 
 function nativePreferenceEnabled(accountId, event) {
   if (event === 'test') return true;
+  if (event === 'daily') return accountConfig(accountId).settings?.dailyReportEnabled === true;
   const group = nativeGroup(event);
   return group ? nativePreferencesFor(accountId)[group] !== false : false;
 }
