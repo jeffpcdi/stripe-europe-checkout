@@ -737,7 +737,7 @@ export function useAdsDestinationHealth(active: boolean, adAccountId: string) {
   return useSWR<AdsDestinationHealthResponse>(key, fetcher, {
     refreshInterval: 5 * 60_000,
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    keepPreviousData: false,
     shouldRetryOnError: false,
   })
 }
