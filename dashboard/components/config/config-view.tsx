@@ -17,6 +17,7 @@ import {
   Smartphone,
   ChevronRight,
   PlugZap,
+  Eye,
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -368,6 +369,8 @@ function DailyReportCard() {
   const [enabled, setEnabled] = useState(false)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [preview, setPreview] = useState<{ day: string; title: string; body: string } | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   useEffect(() => {
     if (!data || dirty) return
@@ -393,6 +396,21 @@ function DailyReportCard() {
       setSaving(false)
     }
   }
+  async function loadPreview() {
+    setPreviewing(true)
+    setStatus(null)
+    try {
+      const result = await fetcher('/api/reports/daily/preview') as { ok: boolean; day: string; title: string; body: string }
+      setPreview({ day: result.day, title: result.title, body: result.body })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Tente novamente'
+      setStatus(msg)
+      toast.error?.('Não foi possível montar a prévia', { hint: msg })
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
   return (
     <GlassCard className="p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -432,6 +450,30 @@ function DailyReportCard() {
         </fieldset>
         {status && <div role="status" className="mt-2 text-xs text-error">{status}</div>}
       </form>
+
+      <div className="mt-4 border-t border-border/50 pt-4">
+        <button
+          type="button"
+          onClick={() => void loadPreview()}
+          disabled={previewing}
+          className="btn-ghost min-h-9 text-xs"
+        >
+          {previewing ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+          {preview ? 'Atualizar prévia' : 'Ver prévia real'}
+        </button>
+        {preview ? (
+          <div className="mt-3 rounded-xl border border-border/55 bg-secondary/10 p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-foreground">{preview.title}</p>
+              <span className="text-[10px] text-faint">{preview.day.split('-').reverse().join('/')}</span>
+            </div>
+            <div className="mt-2 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+              {preview.body.split('\n').filter(Boolean).map((line) => <p key={line}>{line}</p>)}
+            </div>
+            <p className="mt-3 text-[10px] leading-relaxed text-faint">Esta é a mesma composição usada pelo envio automático; nenhum dado fictício é adicionado à prévia.</p>
+          </div>
+        ) : null}
+      </div>
 
     </GlassCard>
   )
