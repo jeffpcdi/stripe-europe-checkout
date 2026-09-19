@@ -15,6 +15,7 @@ const companionCard = fs.readFileSync(path.join(root, 'dashboard/components/conf
 const widgetSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSWidget/ROINADOSWidget.swift'), 'utf8')
 const soundSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/SaleSoundInstaller.swift'), 'utf8')
 const registerSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/PushRegistration.swift'), 'utf8')
+const companionConfigSwift = fs.readFileSync(path.join(root, 'ios/Shared/CompanionConfig.swift'), 'utf8')
 
 const salePayload = JSON.parse(iosPush._payloadFor({
   event: 'sale',
@@ -40,6 +41,7 @@ assert.strictEqual(breakerPayload.aps['interruption-level'], 'time-sensitive', '
 assert(server.includes("app.get('/api/v1/widget'"), 'backend deve expor snapshot agregado para WidgetKit')
 assert(server.includes("companionApiAccount(req) || publicApiAccount(req)"), 'widget deve aceitar token dedicado do companion')
 assert(server.includes("app.post('/api/v1/companion/register'"), 'companion deve registrar device token APNs')
+assert(server.includes("app.post('/api/companion/test'"), 'dashboard deve testar APNs e o som nativo de venda diretamente')
 assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar token dedicado de pareamento')
 assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
 assert(server.includes("const title = 'Ontem · ' + revenueText + ' em receita'"), 'relatório diário deve usar título executivo curto e factual')
@@ -61,11 +63,15 @@ assert(fanout.includes('companion.preferNativeIOS === true') && fanout.includes(
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
 assert(companionCard.includes('Preferir Companion no iPhone'), 'usuário deve controlar a troca de Web Push para APNs nativo')
+assert(companionCard.includes('Testar som nativo de venda') && companionCard.includes('/api/companion/test'), 'pareamento deve oferecer teste real do chime APNs')
 assert(widgetSwift.includes('Receita, vendas, ROAS e lucro do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])'), 'widget deve cobrir Tela de Início e uma superfície enxuta da Tela Bloqueada')
 assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
+assert(widgetSwift.includes('.widgetURL(CompanionConfig.dashboardURL())'), 'toque no widget deve voltar ao ROI-NADOS')
 assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
+assert(registerSwift.includes('didReceive response') && registerSwift.includes('CompanionConfig.dashboardURL'), 'toque em notificação nativa deve abrir o deep link correto')
+assert(companionConfigSwift.includes('percentEncodedQuery') && companionConfigSwift.includes('maxSplits: 1'), 'deep link nativo deve preservar query como tab=automation')
 
 console.log('[OK] V16.26 — executive brief, APNs nativo, som de venda e WidgetKit coerentes.')
