@@ -36,3 +36,29 @@ jobs:
 
       - name: Production dashboard build
         run: npm run build
+
+
+  ios-source:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Compile Companion and Widget for simulator
+        run: |
+          xcodebuild \
+            -project ios/ROINADOSCompanion.xcodeproj \
+            -scheme ROINADOSCompanion \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
