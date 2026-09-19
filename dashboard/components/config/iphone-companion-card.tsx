@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { Copy, Loader2, Smartphone, Volume2, LayoutGrid } from 'lucide-react'
-import { fetcher } from '@/lib/api'
+import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
+import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/toast'
 
 type CompanionStatus = {
@@ -12,6 +13,7 @@ type CompanionStatus = {
   paired: boolean
   devices: { id: string; name: string; createdAt?: string; updatedAt?: string }[]
   apnsConfigured: boolean
+  preferNativeIOS: boolean
 }
 
 export function IPhoneCompanionCard() {
@@ -33,6 +35,19 @@ export function IPhoneCompanionCard() {
       })
     } finally {
       setLoadingToken(false)
+    }
+  }
+
+  async function setNativePreference(enabled: boolean) {
+    mutate((current) => current ? { ...current, preferNativeIOS: enabled } : current, false)
+    try {
+      await apiSend('/api/companion/preferences', 'POST', { preferNativeIOS: enabled })
+    } catch (error) {
+      toast.error?.('Não foi possível alterar o canal do iPhone', {
+        hint: error instanceof Error ? error.message : 'Tente novamente.',
+      })
+    } finally {
+      await mutate()
     }
   }
 
@@ -108,7 +123,20 @@ export function IPhoneCompanionCard() {
 
       {devices.length > 0 ? (
         <div className="border-t border-border/60 px-5 py-3">
-          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Aparelhos nativos</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-medium text-foreground">Preferir Companion no iPhone</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Quando ligado, o Companion nativo recebe os alertas no iPhone; Web Push continua nos outros aparelhos.
+              </p>
+            </div>
+            <Switch
+              checked={data?.preferNativeIOS === true}
+              onChange={setNativePreference}
+              label="Preferir Companion no iPhone"
+            />
+          </div>
+          <p className="mt-4 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Aparelhos nativos</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {devices.map((device) => (
               <span key={device.id} className="rounded-full border border-border/60 bg-secondary/20 px-2.5 py-1 text-[11px] text-muted-foreground">
