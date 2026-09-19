@@ -21,6 +21,16 @@ enum CompanionConfig {
     static func setAPIBaseURL(_ url: URL) {
         UserDefaults(suiteName: appGroup)?.set(url.absoluteString, forKey: apiBaseKey)
     }
+
+    static func dashboardURL(path: String = "/dashboard") -> URL? {
+        guard let base = apiBaseURL,
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { return nil }
+        components.path = path.hasPrefix("/") ? path : "/" + path
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
 }
 
 enum CompanionCredentials {
