@@ -7,6 +7,8 @@ import {
   ShieldAlert,
   Settings,
   Megaphone,
+  Bell,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -109,5 +111,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   ] },
   { title: 'Conta', items: [
     { id: 'config', label: 'Conta', description: 'Preferências e segurança', icon: Settings, href: '/config' },
+    { id: 'config-alerts', label: 'Alertas', description: 'Resumo diário e push', icon: Bell, href: '/config?tab=notifications' },
+    { id: 'config-security', label: 'Segurança', description: 'Senha, 2FA e sessões', icon: ShieldCheck, href: '/config?tab=security' },
   ] },
 ]
