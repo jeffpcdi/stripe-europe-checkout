@@ -47,7 +47,7 @@ function EventIcon({ type }: { type: string }) {
     case 'visit':
     case 'lead':
       return (
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10 text-indigo-400">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-brand-cyan/20 bg-brand-cyan/10 text-brand-cyan">
           <MousePointerClick className="size-4" />
         </span>
       )
