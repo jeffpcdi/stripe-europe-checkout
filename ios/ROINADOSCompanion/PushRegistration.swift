@@ -64,7 +64,7 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         let rawPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
         guard let url = CompanionConfig.dashboardURL(path: rawPath) else { return }
         Task { @MainActor in
-            await UIApplication.shared.open(url)
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
     }
 }
