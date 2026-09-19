@@ -1370,7 +1370,7 @@ async function handleCloakPublic(req, res) {
   if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
   const { acc, entry, campaign = null } = found;
   const decisionKey = campaign ? 'campaign:' + campaign.id : 'cloak:' + entry.slug;
-  const gatewayRef = campaign ? 'cloak-campaign:' + campaign.id : 'cloak:' + entry.slug;
+  const gatewayRef = 'cloak:' + (campaign ? campaign.id : entry.slug);
   const offer = entry.offerUrl;
   const acctCloak = config.get(acc).cloak || {};
   const white = entry.whitePageUrl || acctCloak.defaultWhitePage || '/_safe';
@@ -1384,9 +1384,10 @@ async function handleCloakPublic(req, res) {
 
   // V16.22: campanhas V2 executam o motor novo SOMENTE em shadow. O V5 abaixo
   // continua sendo a autoridade do redirect nesta versão.
-  const requestedEngineMode = campaign
-    ? String(entry.decisionEngineVersion || process.env.CLOAK_DECISION_ENGINE_DEFAULT || 'v6-shadow')
-    : 'v5';
+  const globalEngineMode = String(process.env.CLOAK_DECISION_ENGINE_MODE || '').trim().toLowerCase();
+  const requestedEngineMode = globalEngineMode === 'v5'
+    ? 'v5'
+    : (campaign ? String(entry.decisionEngineVersion || 'v6-shadow') : 'v5');
   const engineMode = requestedEngineMode === 'v5' ? 'v5' : 'v6-shadow';
   const networkContext = campaign && engineMode === 'v6-shadow'
     ? cloakNetworkContext.fromRequest(req)
@@ -4006,7 +4007,10 @@ app.get('/api/cloak/engine-health', dashboardAuth, (req, res) => {
     ? cloakCampaignStore.list(req.account.id).map((campaign) => ({
         campaignId: campaign.id,
         path: campaign.path,
-        mode: (campaign.settings && campaign.settings.decisionEngineVersion) || 'v6-shadow',
+        configuredMode: (campaign.settings && campaign.settings.decisionEngineVersion) || 'v6-shadow',
+        effectiveMode: String(process.env.CLOAK_DECISION_ENGINE_MODE || '').trim().toLowerCase() === 'v5'
+          ? 'v5'
+          : ((campaign.settings && campaign.settings.decisionEngineVersion) || 'v6-shadow'),
       }))
     : [];
   res.json({
