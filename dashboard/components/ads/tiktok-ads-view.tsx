@@ -876,7 +876,7 @@ export function TikTokAdsView() {
         </Tabs.Root>
       )}
 
-      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} onConfigurePixel={() => { setAudiencesOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }} />
+      <AudiencesDialog key={`AudiencesDialog:${concreteAdvertiser}`} open={audiencesOpen} onClose={() => setAudiencesOpen(false)} advertiserId={concreteAdvertiser} accounts={accounts?.accounts ?? []} onConfigurePixel={() => { setAudiencesOpen(false); requestAnimationFrame(() => document.getElementById('tiktok-pixel-binding')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }} />
       {/* Fluxos de escrita */}
       <UniversalLauncherDialog key={`UniversalLauncherDialog:${concreteAdvertiser}`}
         open={launcherOpen}
