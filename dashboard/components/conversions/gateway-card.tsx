@@ -142,9 +142,9 @@ export function GatewayCard({
           onClick={() => onTestGateway(gateway)}
           disabled={isTesting}
           className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-transparent px-3 text-xs font-medium text-foreground transition-colors hover:border-border hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan/40"
-          title="Valida o processamento interno, sem enviar ao TikTok e sem registrar receita."
+          title="Simula o recebimento de um webhook neste checkout; não envia ao TikTok nem registra receita."
         >
-          {isTesting ? 'Testando…' : 'Testar integração'}
+          {isTesting ? 'Testando…' : 'Testar recebimento'}
         </button>
       </div>
     </article>
