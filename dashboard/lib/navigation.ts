@@ -27,6 +27,8 @@ export type ViewId =
   | 'ads'
   | 'catalog'
   | 'config'
+  | 'config-alerts'
+  | 'config-security'
 
 export interface NavItem {
   id: ViewId
