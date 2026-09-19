@@ -185,6 +185,7 @@ const baseSpec = {
   // ── validações ANTES de qualquer tool call (zero órfãos) ───────────────────
   {
     resetCalls();
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, videoUrl: undefined, videoId: undefined }), /videoUrl HTTPS ou videoId/i, 'sem fonte de criativo falha cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetAmount: 49.99 }), /orçamento mínimo/i, 'orçamento abaixo de 50 é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /não suportado/, 'objetivo fora de conversão é rejeitado');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
