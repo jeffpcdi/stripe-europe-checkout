@@ -4,11 +4,9 @@ import { useEffect } from 'react'
 import { playEventSound, initAudio } from '@/lib/sale-alerts'
 import { isSoundEnabled } from '@/lib/notify-prefs'
 
-/* Som nas notificações push: o service worker (sw.js) recebe o push e manda
-   postMessage({type:'roi-sound', sound, event}) para as abas abertas — aqui
-   tocamos o som DISTINTO por evento via WebAudio (cash/alert/tick/ping/info),
-   respeitando as preferências de som por evento (localStorage, por aparelho).
-   Com o app fechado, o sistema toca o som padrão (limite da Apple no iOS). */
+/* Som local do painel: o service worker recebe o push e avisa as abas abertas.
+   Só tocamos WebAudio quando a dashboard está VISÍVEL; em background/fechada,
+   o navegador e o sistema operacional controlam som, Foco e apresentação. */
 export function PushSound() {
   useEffect(() => {
     // 1. Audio Unlocker (iOS Safari)
@@ -29,7 +27,10 @@ export function PushSound() {
     const onMessage = (event: MessageEvent) => {
       const msg = event.data
       if (msg && msg.type === 'roi-sound' && msg.sound) {
-        // Preferência por evento (localStorage): desligado → silêncio.
+        // Em segundo plano, o SO já decide som/Foco da notificação. Evita
+        // duplicar o alerta com WebAudio em uma aba escondida.
+        if (document.visibilityState !== 'visible') return
+        // Preferência local por aparelho/evento: desligado → silêncio.
         if (!isSoundEnabled(msg.event || '')) return
         playEventSound(msg.sound)
       }
