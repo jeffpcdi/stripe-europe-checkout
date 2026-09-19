@@ -65,6 +65,7 @@ import type {
   AdsBudgetProposal,
   AdsCatalogCapabilitiesResponse,
   AdsCustomAudience,
+  AdsCustomerAudiencePreview,
   CopilotEvent,
 } from './types'
 import { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } from './catalog-run-polling'
@@ -928,6 +929,15 @@ export function useAdsCustomAudiences(active: boolean, adAccountId?: string | nu
     active && adAccountId ? `/api/ads/audiences?adAccountId=${encodeURIComponent(adAccountId)}` : null,
     fetcher,
     { revalidateOnFocus: false, dedupingInterval: 30_000 }
+  )
+}
+
+
+export function useAdsCustomerAudiencePreview(active: boolean, adAccountId?: string | null) {
+  return useSWR<AdsCustomerAudiencePreview>(
+    active && adAccountId ? `/api/ads/audiences/customer-file/preview?adAccountId=${encodeURIComponent(adAccountId)}` : null,
+    fetcher,
+    { revalidateOnFocus: true, dedupingInterval: 60_000, keepPreviousData: false, shouldRetryOnError: false },
   )
 }
 
