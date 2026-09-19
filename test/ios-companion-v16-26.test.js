@@ -16,6 +16,8 @@ const widgetSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSWidget/ROINADOS
 const soundSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/SaleSoundInstaller.swift'), 'utf8')
 const registerSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/PushRegistration.swift'), 'utf8')
 const companionConfigSwift = fs.readFileSync(path.join(root, 'ios/Shared/CompanionConfig.swift'), 'utf8')
+const projectYml = fs.readFileSync(path.join(root, 'ios/project.yml'), 'utf8')
+const appEntitlements = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/ROINADOSCompanion.entitlements'), 'utf8')
 
 const salePayload = JSON.parse(iosPush._payloadFor({
   event: 'sale',
@@ -72,6 +74,9 @@ assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion d
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
 assert(registerSwift.includes('didReceive response') && registerSwift.includes('CompanionConfig.dashboardURL'), 'toque em notificação nativa deve abrir o deep link correto')
+assert(registerSwift.includes('WidgetCenter.shared.reloadAllTimelines()'), 'alerta nativo deve sinalizar atualização dos widgets')
 assert(companionConfigSwift.includes('percentEncodedQuery') && companionConfigSwift.includes('maxSplits: 1'), 'deep link nativo deve preservar query como tab=automation')
+assert(projectYml.includes('APS_ENVIRONMENT: production') && projectYml.includes('APS_ENVIRONMENT: development'), 'Debug e Release devem usar ambientes APNs coerentes')
+assert(appEntitlements.includes('$(APS_ENVIRONMENT)'), 'entitlement APNs não deve ficar fixo em development')
 
 console.log('[OK] V16.26 — executive brief, APNs nativo, som de venda e WidgetKit coerentes.')
