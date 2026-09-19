@@ -458,6 +458,10 @@ export function CampaignWorkspace(props: Props) {
   const activeGroupsWithoutActiveAds = groups.filter(({ group }) =>
     group.status === 'active' && !(group.ads ?? []).some((ad) => ad.status === 'active'),
   )
+  const cboStructureRisks = campaigns.filter((campaign) =>
+    campaign.budgetOwner === 'campaign'
+    && (campaign.adSets ?? []).filter((group) => group.status === 'active').length < 3,
+  )
 
   const insightRows = useMemo(() => campaigns.map((campaign) => {
     const spend = Number(campaign.metrics?.spend) || 0
@@ -1039,6 +1043,12 @@ export function CampaignWorkspace(props: Props) {
               <button type="button" onClick={() => { setLevel('adgroups'); setNodeFilter('active') }} className="mt-3 w-full rounded-xl border border-warning/20 bg-warning/[0.04] px-3 py-2.5 text-left text-xs text-warning">
                 {activeGroupsWithoutActiveAds.length} conjunto{activeGroupsWithoutActiveAds.length === 1 ? '' : 's'} ativo{activeGroupsWithoutActiveAds.length === 1 ? '' : 's'} sem anúncio ativo
               </button>
+            ) : null}
+            {cboStructureRisks.length > 0 ? (
+              <div className="mt-2 rounded-xl border border-border/55 bg-secondary/15 px-3 py-2.5">
+                <p className="text-xs font-medium text-foreground">{cboStructureRisks.length} campanha{cboStructureRisks.length === 1 ? '' : 's'} CBO com menos de 3 conjuntos ativos</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">Sinal estrutural para revisão; o ROI-NADOS não altera a campanha automaticamente.</p>
+              </div>
             ) : null}
           </article>
 
