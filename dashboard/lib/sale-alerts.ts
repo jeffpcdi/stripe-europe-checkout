@@ -1,5 +1,5 @@
 /* Itens 335/336: alertas de venda no feed.
-   - Som: WebAudio puro (dois tons curtos), sem asset externo — não pesa o
+   - Som: WebAudio puro, curto e discreto, sem asset externo — não pesa o
      bundle e não depende de rede.
    - Notificação: só faz sentido com a aba em segundo plano; com a aba
      visível o próprio feed já mostra a venda. */
@@ -28,69 +28,13 @@ export function initAudio() {
 
 export function playSaleSound() {
   try {
-    if (!globalAudioCtx) {
-      initAudio()
-    }
-    const ctx = globalAudioCtx
+    const ctx = getCtx()
     if (!ctx) return
-    
-    if (ctx.state === 'suspended') {
-       ctx.resume()
-    }
 
-    const t = ctx.currentTime
-    
-    // "Ching" - O sino metálico (frequências agudas, ondas mistas)
-    const playBell = (freq: number, startOffset: number, volume: number) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(freq, t + startOffset)
-      
-      gain.gain.setValueAtTime(0, t + startOffset)
-      gain.gain.linearRampToValueAtTime(volume, t + startOffset + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + startOffset + 0.8)
-      
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.start(t + startOffset)
-      osc.stop(t + startOffset + 1.0)
-    }
-
-    // "Cha" - Mecanismo mecânico da gaveta abrindo (Ruído Branco / Noise)
-    const playClick = (startOffset: number, duration: number, volume: number) => {
-      const bufferSize = ctx.sampleRate * duration
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-      const data = buffer.getChannelData(0)
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1 // ruído branco
-      }
-      const noise = ctx.createBufferSource()
-      noise.buffer = buffer
-      
-      // Filtro para não soar como TV fora do ar, mas sim como um mecanismo metálico
-      const filter = ctx.createBiquadFilter()
-      filter.type = 'bandpass'
-      filter.frequency.value = 1500
-      filter.Q.value = 0.5
-      
-      const gain = ctx.createGain()
-      gain.gain.setValueAtTime(volume, t + startOffset)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + startOffset + duration)
-      
-      noise.connect(filter)
-      filter.connect(gain)
-      gain.connect(ctx.destination)
-      noise.start(t + startOffset)
-    }
-
-    // O Ritmo do Cha-Ching:
-    playClick(0, 0.15, 0.4)          // O mecanismo puxa (Cha)
-    playBell(1200, 0.12, 0.15)       // Sino principal (Ching)
-    playBell(1500, 0.12, 0.10)       // Harmônico 1
-    playBell(2400, 0.12, 0.08)       // Harmônico 2
-    playClick(0.12, 0.1, 0.2)        // Barulho da gaveta batendo junto com o sino
-
+    // Confirmação curta e limpa: duas notas, sem ruído mecânico ou cauda longa.
+    // A intenção é sinalizar uma venda sem competir com o trabalho na tela.
+    playTone(ctx, { freq: 880, duration: 0.14, volume: 0.10, type: 'sine' })
+    playTone(ctx, { freq: 1320, startOffset: 0.10, duration: 0.22, volume: 0.08, type: 'sine' })
   } catch {
     // autoplay bloqueado ou WebAudio indisponível: falha em silêncio
   }
@@ -146,13 +90,13 @@ function getCtx(): AudioContext | null {
   return ctx
 }
 
-/** Recusa/reembolso/disputa: dois tons graves descendentes (sério, sem susto). */
+/** Recusa/reembolso/disputa: duas notas curtas e graves, sem alarme agressivo. */
 export function playAlertSound() {
   try {
     const ctx = getCtx()
     if (!ctx) return
-    playTone(ctx, { freq: 440, duration: 0.22, volume: 0.22, type: 'square' })
-    playTone(ctx, { freq: 330, startOffset: 0.22, duration: 0.32, volume: 0.2, type: 'square' })
+    playTone(ctx, { freq: 392, duration: 0.16, volume: 0.11, type: 'triangle' })
+    playTone(ctx, { freq: 294, startOffset: 0.15, duration: 0.22, volume: 0.10, type: 'triangle' })
   } catch {
     // falha em silêncio
   }
@@ -163,7 +107,7 @@ export function playTickSound() {
   try {
     const ctx = getCtx()
     if (!ctx) return
-    playTone(ctx, { freq: 1800, duration: 0.08, volume: 0.12, type: 'triangle', freqEnd: 1400 })
+    playTone(ctx, { freq: 1600, duration: 0.07, volume: 0.07, type: 'triangle', freqEnd: 1350 })
   } catch {
     // falha em silêncio
   }
@@ -174,8 +118,8 @@ export function playPingSound() {
   try {
     const ctx = getCtx()
     if (!ctx) return
-    playTone(ctx, { freq: 880, duration: 0.5, volume: 0.18, type: 'sine' })
-    playTone(ctx, { freq: 1760, duration: 0.4, volume: 0.06, type: 'sine' })
+    playTone(ctx, { freq: 784, duration: 0.22, volume: 0.09, type: 'sine' })
+    playTone(ctx, { freq: 1175, startOffset: 0.08, duration: 0.18, volume: 0.05, type: 'sine' })
   } catch {
     // falha em silêncio
   }
@@ -186,8 +130,8 @@ export function playInfoSound() {
   try {
     const ctx = getCtx()
     if (!ctx) return
-    playTone(ctx, { freq: 523, duration: 0.18, volume: 0.14, type: 'sine' })
-    playTone(ctx, { freq: 659, startOffset: 0.16, duration: 0.28, volume: 0.14, type: 'sine' })
+    playTone(ctx, { freq: 494, duration: 0.14, volume: 0.08, type: 'sine' })
+    playTone(ctx, { freq: 659, startOffset: 0.12, duration: 0.20, volume: 0.08, type: 'sine' })
   } catch {
     // falha em silêncio
   }
