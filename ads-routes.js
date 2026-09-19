@@ -125,7 +125,7 @@ async function inspectAdsDestination(rawUrl) {
 
     // 401/403/405 provam que o host e a rota responderam, mas o checker foi
     // recusado ou HEAD não é permitido. Não classificamos isso como "offline".
-    const reachableRestricted = status === 401 || status === 403 || status === 405;
+    const reachableRestricted = status === 401 || status === 403 || status === 405 || status === 429;
     const ok = (status >= 200 && status < 300) || reachableRestricted;
     return {
       ok,
