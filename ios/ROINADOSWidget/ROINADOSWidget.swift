@@ -37,6 +37,8 @@ struct ROIWidgetView: View {
             if let snapshot = entry.snapshot {
                 if family == .systemSmall {
                     small(snapshot)
+                } else if family == .systemLarge {
+                    large(snapshot)
                 } else if family == .accessoryRectangular {
                     lockScreen(snapshot)
                 } else if family == .accessoryInline {
@@ -128,6 +130,76 @@ struct ROIWidgetView: View {
         }
     }
 
+    private func large(_ snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("ROI-NADOS · HOJE")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
+                        .font(.title.weight(.bold))
+                        .minimumScaleFactor(0.72)
+                }
+                Spacer()
+                if let delta = snapshot.trend?.revenueDeltaPct {
+                    Text(deltaLabel(delta))
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(delta >= 0 ? .green : .red)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                metric("Vendas", "\(snapshot.today.sales)")
+                Spacer()
+                metric("ROAS", ratio(snapshot.media.roas))
+                Spacer()
+                metric("Lucro", money(snapshot.profitability.netProfitCents, currency: snapshot.currency))
+            }
+
+            HStack {
+                metric("TikTok", moneyAmount(snapshot.media.tiktokSpend, currency: snapshot.media.currency ?? snapshot.currency))
+                Spacer()
+                metric("Conversão", String(format: "%.1f%%", snapshot.today.conversion))
+                Spacer()
+                metric("Leads", "\(snapshot.today.leads)")
+            }
+
+            Divider()
+
+            if !snapshot.attention.isEmpty {
+                Label(attentionLabel(snapshot.attention), systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+            } else if let lastSale = snapshot.lastSale {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ÚLTIMA VENDA")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(money(lastSale.amountCents, currency: lastSale.currency))
+                            .font(.headline.weight(.semibold))
+                    }
+                    Spacer()
+                    Text(lastSale.at.formatted(date: .omitted, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Operação estável · aguardando a próxima venda")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+            Text("Atualizado " + entry.date.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
     private func lockScreen(_ snapshot: WidgetSnapshot) -> some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -184,6 +256,21 @@ struct ROIWidgetView: View {
         }
     }
 
+    private func moneyAmount(_ value: Double?, currency: String) -> String {
+        guard let value else { return "—" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? "\(currency) \(Int(value))"
+    }
+
+    private func attentionLabel(_ attention: [String]) -> String {
+        if attention.contains("spend_without_sales") { return "TikTok com gasto sem venda registrada" }
+        if attention.contains("negative_profit") { return "Lucro líquido do dia está negativo" }
+        return "Operação precisa de atenção"
+    }
+
     private func ratio(_ value: Double?) -> String {
         guard let value else { return "—" }
         return String(format: "%.2f×", value)
@@ -207,7 +294,81 @@ struct ROINADOSWidget: Widget {
         }
         .configurationDisplayName("ROI-NADOS")
         .description("Receita, vendas, ROAS, lucro e tendência do dia.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+    }
+}
+
+struct ROINADOSSalesWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: ROIWidgetEntry
+
+    var body: some View {
+        Group {
+            if let snapshot = entry.snapshot {
+                if family == .accessoryInline {
+                    Text("ROI · \(snapshot.today.sales) vendas · \(money(snapshot.today.revenueCents, currency: snapshot.currency))")
+                } else if family == .accessoryRectangular {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("VENDAS HOJE").font(.caption2.weight(.semibold))
+                        Text("\(snapshot.today.sales) · " + money(snapshot.today.revenueCents, currency: snapshot.currency))
+                            .font(.headline.weight(.bold))
+                            .minimumScaleFactor(0.72)
+                        if let lastSale = snapshot.lastSale {
+                            Text("Última " + money(lastSale.amountCents, currency: lastSale.currency) + " · " + lastSale.at.formatted(date: .omitted, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("VENDAS HOJE")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(snapshot.today.sales)")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                        Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
+                            .font(.headline.weight(.semibold))
+                            .minimumScaleFactor(0.75)
+                        Spacer()
+                        if let lastSale = snapshot.lastSale {
+                            Text("Última · " + money(lastSale.amountCents, currency: lastSale.currency))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ROI-NADOS").font(.headline)
+                    Text("Abra o Companion para conectar a conta.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .containerBackground(.fill.tertiary, for: .widget)
+        .widgetURL(CompanionConfig.dashboardURL(path: "/dashboard/activity"))
+    }
+
+    private func money(_ cents: Int, currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? "\(currency) \(cents / 100)"
+    }
+}
+
+struct ROINADOSSalesWidget: Widget {
+    let kind = "ROINADOSSalesWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: ROIWidgetProvider()) { entry in
+            ROINADOSSalesWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Vendas ROI-NADOS")
+        .description("Vendas, receita e última venda do dia.")
+        .supportedFamilies([.systemSmall, .accessoryRectangular, .accessoryInline])
     }
 }
 
@@ -215,5 +376,6 @@ struct ROINADOSWidget: Widget {
 struct ROINADOSWidgetBundle: WidgetBundle {
     var body: some Widget {
         ROINADOSWidget()
+        ROINADOSSalesWidget()
     }
 }
