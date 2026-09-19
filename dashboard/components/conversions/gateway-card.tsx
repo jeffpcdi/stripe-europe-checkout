@@ -40,8 +40,10 @@ export function GatewayCard({
   onEditGateway,
   onDeleteGateway,
 }: GatewayCardProps) {
-  const isGwError = gateway.lastEventStatus === 'error' || gateway.lastEventStatus === 'falhou'
-  const isGwOk = !isGwError && Boolean(gateway.lastEventAt)
+  const lastStatus = String(gateway.lastEventStatus || '')
+  const isGwError = /erro|error|falh|inválid|invalid|rejeitad/i.test(lastStatus)
+  const isGwOk = /^ok\b/i.test(lastStatus)
+  const hasGatewayEvent = Boolean(gateway.lastEventAt)
   const isTesting = testingGwId === gateway.id
   const providerName = PROVIDER_LABELS[gateway.provider] ?? gateway.provider
 
@@ -128,6 +130,11 @@ export function GatewayCard({
             <>
               <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true" />
               <span className="truncate text-muted-foreground">Venda {timeAgo(gateway.lastEventAt!)}</span>
+            </>
+          ) : hasGatewayEvent ? (
+            <>
+              <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true" />
+              <span className="truncate text-muted-foreground" title={lastStatus || undefined}>Webhook {timeAgo(gateway.lastEventAt!)}</span>
             </>
           ) : (
             <>
