@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Search, CornerDownLeft, Filter, BarChart3, Loader2 } from 'lucide-react'
+import { Search, CornerDownLeft, Filter, BarChart3 } from 'lucide-react'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
@@ -26,7 +26,6 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
-  const [running, setRunning] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Atalho global Cmd+K / Ctrl+K
