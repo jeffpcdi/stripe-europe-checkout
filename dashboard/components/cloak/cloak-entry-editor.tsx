@@ -258,7 +258,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
                 </p>
               )}
               {whitePageUrl.trim() === '' && !globalConfig && (
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Se permanecer vazio, o link herdará o destino seguro padrão de Regras.</p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Se permanecer vazio, a campanha herdará o destino seguro padrão da aba Proteção.</p>
               )}
 
               {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
