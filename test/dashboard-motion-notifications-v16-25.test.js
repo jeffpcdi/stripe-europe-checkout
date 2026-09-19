@@ -29,6 +29,7 @@ assert(refinement.includes("html[data-anim='off'] .refined-dashboard .dashboard-
 assert(toaster.includes('roi-toast-in') && !toaster.includes('anim-pop-spring pointer-events-auto'), 'toast deve usar uma única entrada curta')
 assert(toaster.includes('animationDuration: `${t.duration}ms`'), 'barra de vida do toast deve acompanhar a duração real')
 assert(activity.includes('seenEventIdsRef') && activity.includes('activity-sale-arrival'), 'somente vendas novas devem receber feedback visual ao vivo')
+assert(globals.includes('.activity-event-row.activity-sale-arrival') && !globals.includes(".activity-event-row[data-event-type='sale'] {\n  animation:"), 'histórico de vendas não deve reanimar a cada render')
 assert(globals.includes('@keyframes roiSaleArrival') && globals.includes("html[data-anim='off'] .activity-sale-arrival::after"), 'destaque de venda deve ser curto e respeitar redução de movimento')
 assert(globals.includes('@keyframes roiSalePulse') && globals.includes("data-roi-sale-pulse='on'"), 'venda em foreground deve ter um único pulso dentro da dashboard')
 
@@ -39,6 +40,7 @@ assert(pushCard.includes('Sons no painel aberto') && pushCard.includes('O iOS co
 assert(pushCard.includes("key: 'reports'") && pushCard.includes('Relatórios executivos'), 'relatórios devem ter preferência própria no push')
 assert(pushCard.includes('Ouvir som de venda') && pushCard.includes('playSaleSound'), 'usuário deve conseguir ouvir a assinatura sonora da venda')
 assert(configView.includes('<IPhoneCompanionCard />'), 'conectividade nativa do iPhone deve aparecer em Alertas')
+assert(configView.includes('/api/reports/daily/preview') && configView.includes('Ver prévia real'), 'resumo diário deve permitir conferir o conteúdo real antes do agendamento')
 assert(companionCard.includes('/api/companion/status') && companionCard.includes('/api/companion/token'), 'pareamento iPhone deve usar endpoints dedicados e não o token público')
 assert(pushCard.includes('Ajustes → Notificações → ROI-NADOS'), 'permissão negada no iPhone deve ter recuperação clara')
 assert(pushCard.includes('setSupport(checkSupport())'), 'estado de permissão deve ser reavaliado depois do prompt')
@@ -47,6 +49,7 @@ assert(pushSound.includes("document.visibilityState !== 'visible'"), 'WebAudio n
 assert(pushSound.includes("toast.success(title || 'Venda aprovada'") && pushSound.includes("eventName === 'daily'"), 'push em foreground deve virar feedback profissional dentro da dashboard')
 assert(pushSound.includes('dataset.roiSalePulse') && pushSound.includes("roi:foreground-notification"), 'feedback de venda deve animar o painel e avisar métricas em tempo real')
 assert(sw.includes('type: "roi-notification"') && sw.includes('priority: data.priority || "normal"'), 'service worker deve entregar contexto rico ao foreground')
+assert(sw.includes('if (hasVisibleClient)') && sw.includes('else {\n      promises.push(self.registration.showNotification'), 'dashboard visível deve usar feedback interno sem duplicar banner do sistema')
 const saleAlerts = fs.readFileSync(path.join(root, 'dashboard/lib/sale-alerts.ts'), 'utf8')
 assert(!saleAlerts.includes('Math.random() * 2 - 1'), 'som de venda não deve usar ruído branco mecânico')
 assert(saleAlerts.includes("freq: 880") && saleAlerts.includes("freq: 1320") && saleAlerts.includes("freq: 1760"), 'som de venda deve usar a assinatura tonal curta do ROI-NADOS')
