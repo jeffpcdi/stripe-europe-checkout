@@ -4,6 +4,13 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { activeGroup } from '@/lib/navigation'
 
+function normalizeInsightsTab(value: string | null) {
+  if (value === 'campaigns' || value === 'sources') return 'campaigns'
+  if (value === 'funnel') return 'funnel'
+  if (value === 'diagnosis' || value === 'opportunities' || value === 'anomalies' || value === 'quality') return 'diagnosis'
+  return 'performance'
+}
+
 export function SubNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -19,8 +26,8 @@ export function SubNav() {
           let active = false
 
           if (group.id === 'insights') {
-            const expected = new URLSearchParams(tabQuery).get('tab') || 'performance'
-            const current = searchParams.get('tab') || 'performance'
+            const expected = normalizeInsightsTab(new URLSearchParams(tabQuery).get('tab'))
+            const current = normalizeInsightsTab(searchParams.get('tab'))
             active = pathname === '/insights' && current === expected
           } else if (tab.href === '/conversions') {
             active = pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
