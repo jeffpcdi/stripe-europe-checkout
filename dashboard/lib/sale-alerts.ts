@@ -31,7 +31,7 @@ export function playSaleSound() {
     const ctx = getCtx()
     if (!ctx) return
 
-    // Confirmação curta e limpa: duas notas, sem ruído mecânico ou cauda longa.
+    // Confirmação curta e limpa: três notas ascendentes, sem ruído mecânico ou cauda longa.
     // A intenção é sinalizar uma venda sem competir com o trabalho na tela.
     playTone(ctx, { freq: 880, duration: 0.16, volume: 0.09, type: 'triangle' })
     playTone(ctx, { freq: 1320, startOffset: 0.07, duration: 0.22, volume: 0.07, type: 'sine' })
