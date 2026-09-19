@@ -171,6 +171,7 @@ export function ConversionsView() {
   // Validação de sincronização
   const syncValidation = useMemo(() => {
     let lastSuccessDate: Date | null = null
+    let lastFailureDate: Date | null = null
     let failedGateway: Gateway | null = null
     let failedLogRow: ConversionLogRow | null = null
 
@@ -187,18 +188,21 @@ export function ConversionsView() {
 
     const logs = convLog?.log ?? []
     for (const row of logs) {
-      const isErr = conversionStatus(row).kind === 'error'
-
-      if (isErr && !failedLogRow) failedLogRow = row
-      if (conversionStatus(row).kind === 'success' && row.at) {
-        const d = new Date(row.at)
-        if (!isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
-          lastSuccessDate = d
-        }
+      const status = conversionStatus(row).kind
+      const rowAt = row.at ?? (row as any).createdAt
+      const d = rowAt ? new Date(String(rowAt)) : null
+      if (status === 'error' && d && !isNaN(d.getTime()) && (!lastFailureDate || d > lastFailureDate)) {
+        lastFailureDate = d
+        failedLogRow = row
+      }
+      if (status === 'success' && d && !isNaN(d.getTime()) && (!lastSuccessDate || d > lastSuccessDate)) {
+        lastSuccessDate = d
       }
     }
 
-    const hasFailure = Boolean(failedGateway || failedLogRow)
+    const unresolvedLogFailure = Boolean(failedLogRow && lastFailureDate && (!lastSuccessDate || lastFailureDate >= lastSuccessDate))
+    const hasFailure = Boolean(failedGateway || unresolvedLogFailure)
+    if (!unresolvedLogFailure) failedLogRow = null
     let failureDescription = ''
     if (failedGateway) {
       failureDescription = `O checkout "${failedGateway.name}" reportou falha na última notificação.`
@@ -402,6 +406,14 @@ export function ConversionsView() {
     return { label: 'Iniciar', tone: 'default' as const, hint: 'Cadastre o primeiro pixel e conecte um checkout.' }
   }, [activePixels, gateways.length, logSummary.success, syncValidation.hasFailure])
 
+  const trackingNextAction = useMemo(() => {
+    if (syncValidation.hasFailure) return { label: 'Revise a falha mais recente', detail: syncValidation.failureDescription || 'Existe uma entrega que ainda precisa de diagnóstico.', action: 'logs' as const }
+    if (activePixels === 0) return { label: 'Crie ou ative um Pixel', detail: 'Sem um Pixel ativo, o ROI-NADOS não consegue distribuir eventos para o TikTok.', action: 'pixel' as const }
+    if (gateways.length === 0) return { label: 'Conecte um checkout', detail: 'O checkout envia as vendas que alimentam atribuição, ROAS real e automações.', action: 'gateway' as const }
+    if (logSummary.success === 0) return { label: 'Valide a primeira entrega', detail: 'A estrutura está configurada, mas ainda não há uma conversão confirmada neste histórico.', action: 'logs' as const }
+    return null
+  }, [activePixels, gateways.length, logSummary.success, syncValidation.failureDescription, syncValidation.hasFailure])
+
   if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
 
   return (
@@ -460,6 +472,26 @@ export function ConversionsView() {
             </p>
           </div>
         </div>
+
+        {trackingNextAction ? (
+          <div className="flex flex-col gap-2 border-b border-border/45 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">{trackingNextAction.label}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{trackingNextAction.detail}</p>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs font-semibold text-brand-cyan hover:underline"
+              onClick={() => {
+                if (trackingNextAction.action === 'pixel') { selectTab('pixels'); setEditingPixel('new'); return }
+                if (trackingNextAction.action === 'gateway') { selectTab('gateways'); setEditingGateway('new'); return }
+                selectTab('logs')
+              }}
+            >
+              {trackingNextAction.action === 'pixel' ? 'Novo Pixel' : trackingNextAction.action === 'gateway' ? 'Conectar checkout' : 'Ver entregas'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {syncValidation.hasFailure ? (
