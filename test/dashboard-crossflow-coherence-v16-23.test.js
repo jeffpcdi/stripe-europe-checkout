@@ -55,4 +55,10 @@ assert.match(config, /Não altera os links de venda/);
 assert.match(config, /Camadas dos links de venda/);
 assert.doesNotMatch(config, /Compatibilidade com o motor legado/);
 
+const account = read('dashboard/components/config/config-view.tsx');
+assert.match(account, /Apagar histórico de desempenho/);
+assert.match(account, /vendas, falhas, reembolsos e contestações/);
+
+assert.match(server, /const cloakRefs = \[\.\.\.cloakRefsV2, \.\.\.cloakRefsLegacy\]/);
+
 console.log('dashboard-crossflow-coherence-v16-23: domínios, conversões, links e proteção coerentes');
