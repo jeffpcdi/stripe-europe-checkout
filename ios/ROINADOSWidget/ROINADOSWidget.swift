@@ -37,6 +37,8 @@ struct ROIWidgetView: View {
             if let snapshot = entry.snapshot {
                 if family == .systemSmall {
                     small(snapshot)
+                } else if family == .accessoryRectangular {
+                    lockScreen(snapshot)
                 } else {
                     medium(snapshot)
                 }
@@ -99,6 +101,26 @@ struct ROIWidgetView: View {
         }
     }
 
+    private func lockScreen(_ snapshot: WidgetSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ROI-NADOS")
+                    .font(.caption2.weight(.semibold))
+                Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
+                    .font(.headline.weight(.bold))
+                    .minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(snapshot.today.sales) vendas")
+                    .font(.caption.weight(.semibold))
+                Text("ROAS " + ratio(snapshot.media.roas))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var unavailable: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("ROI-NADOS")
@@ -139,7 +161,7 @@ struct ROINADOSWidget: Widget {
         }
         .configurationDisplayName("ROI-NADOS")
         .description("Receita, vendas, ROAS e lucro do dia.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
     }
 }
 
