@@ -10,42 +10,15 @@
 const dns  = require('dns').promises;
 const crypto = require('crypto');
 const uaTools = require('./ua'); // parsing genérico de browser/device e crawlers
+const { DATACENTER_ASNS } = require('./cloak-network-risk');
 // Redis é opcional: cache de ASN entre processos/restarts. Degrada para o Map
 // em memória se o módulo/serviço não estiver disponível.
 let _redis = null;
 try { _redis = require('./redis'); } catch (_) { _redis = null; }
 
 // ─── 1. ASNs de datacenter / hosting / automação ──────────────────────────
-// Lista deliberadamente genérica: provedores de nuvem/VPS e redes de hosting.
-// Não contém ASNs escolhidos por pertencerem a plataformas de anúncios ou
-// empresas de verificação. ASN é apenas um sinal de risco, nunca decisão única.
-const DATACENTER_ASNS = new Set([
-  15169,   // Google / GCP
-  8075,    // Microsoft / Azure
-  16509,   // Amazon AWS
-  14618,   // Amazon AWS
-  16276,   // OVH
-  24940,   // Hetzner
-  14061,   // DigitalOcean
-  20473,   // Vultr
-  63949,   // Linode / Akamai Connected Cloud
-  51167,   // Contabo
-  31898,   // Oracle Cloud
-  45102,   // Alibaba Cloud
-  132203,  // Tencent Cloud
-  37963,   // Alibaba CN
-  60781,   // LeaseWeb
-  8100,    // QuadraNet
-  62240,   // Clouvider
-  9009,    // M247
-  49505,   // Selectel
-  50673,   // Serverius
-  29802,   // HIVELOCITY
-  53667,   // FranTech / BuyVM
-  46844,   // ReliableSite
-  19318,   // Interserver
-  55286,   // ServerMania
-]);
+// A lista genérica vive em cloak-network-risk.js e é compartilhada com o V6,
+// preservando exatamente o mesmo contrato do motor legado.
 
 // ─── 2. Sinais de request HTTP ──────────────────────────────────────────────
 const REQUIRED_BROWSER_HEADERS = ['accept', 'accept-language'];
