@@ -118,7 +118,7 @@ const POOLS = {
 // Em background o service worker pede uma notificação não silenciosa, mas o
 // som efetivo depende do navegador, do sistema, do Foco e das preferências do
 // aparelho. Sons próprios ficam restritos ao painel visível.
-//   cash  = cha-ching (dinheiro entrando)
+//   cash  = confirmação curta de venda
 //   alert = dois tons graves descendentes (recusa/reembolso/disputa/watchdog)
 //   tick  = click sutil agudo (checkout iniciado)
 //   ping  = nota única limpa (login)
