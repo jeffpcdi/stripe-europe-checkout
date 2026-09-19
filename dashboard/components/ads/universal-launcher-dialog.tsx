@@ -29,7 +29,8 @@ import type { AdsBulkStartResponse } from '@/lib/types'
 interface VideoItem {
   key: string
   name: string
-  videoUrl: string
+  videoUrl?: string
+  videoId?: string
   uploading: boolean
   fileName: string
   sizeMb?: string
@@ -153,7 +154,7 @@ export function UniversalLauncherDialog({
     if (!pixelReady) return 'Escolha o Pixel da conta na aba TikTok Ads antes de criar campanhas'
     if (items.length === 0) return 'Selecione ou arraste pelo menos 1 arquivo de vídeo'
     if (uploadingCount > 0) return `Enviando vídeo(s)... (${uploadingCount} restante(s))`
-    if (items.some((i) => !i.videoUrl)) return 'Upload falhou em um dos vídeos. Remova ou envie novamente.'
+    if (items.some((i) => !i.videoUrl && !i.videoId)) return 'Um dos vídeos não está pronto. Remova ou envie novamente.'
     if (!/^https:\/\/\S+/.test(linkUrl.trim())) return 'Informe o link HTTPS da sua página de vendas'
     const b = Number(budget)
     if (!Number.isFinite(b) || b < TIKTOK_MIN_BUDGET) {
@@ -236,6 +237,7 @@ export function UniversalLauncherDialog({
           items: items.map((it) => ({
             name: campaignPrefix ? `${campaignPrefix.trim()} - ${it.name}` : it.name,
             videoUrl: it.videoUrl,
+            videoId: it.videoId,
           })),
         }
 
@@ -278,6 +280,7 @@ export function UniversalLauncherDialog({
         countries: market.countries,
             languages: market.languages,
         videoUrl: singleItem.videoUrl,
+        videoId: singleItem.videoId,
         body: cleanBody,
         linkUrl: cleanLink,
         callToAction: cta === 'AUTO' ? undefined : cta,
@@ -445,7 +448,7 @@ export function UniversalLauncherDialog({
                 <section className="launch-section-card">
                   <div className="launch-section-heading">
                     <div><h3 className="launch-section-title">Criativos</h3><p className="launch-section-copy">Envie até 20 vídeos ou escolha arquivos já salvos. Cada vídeo cria uma campanha própria.</p></div>
-                    {items.length > 0 && <span className="text-xs text-muted-foreground">{items.filter(item => item.videoUrl && !item.error).length}/{items.length} prontos</span>}
+                    {items.length > 0 && <span className="text-xs text-muted-foreground">{items.filter(item => (item.videoUrl || item.videoId) && !item.error).length}/{items.length} prontos</span>}
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -467,7 +470,7 @@ export function UniversalLauncherDialog({
                     <div className="flex min-h-28 flex-col justify-center rounded-xl border border-border/70 bg-secondary/10 p-4">
                       <p className="text-xs font-semibold text-foreground">Biblioteca</p>
                       <p className="mt-1 mb-3 text-xs leading-relaxed text-muted-foreground">Reutilize vídeos enviados anteriormente sem duplicar ou excluir arquivos.</p>
-                      <SavedVideos appearance="creation" advertiserId={advertiserId} selectedUrls={items.map(item => item.videoUrl)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={item => setItems(current => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 120), fileName: item.name, videoUrl: item.url, uploading: false }])} />
+                      <SavedVideos appearance="creation" advertiserId={advertiserId} selectedUrls={items.map(item => item.videoUrl || '').filter(Boolean)} selectedVideoIds={items.map(item => item.videoId || '').filter(Boolean)} disabled={submitting || uploadingCount > 0 || items.length >= 20} onPick={item => setItems(current => [...current, { key: crypto.randomUUID(), name: item.name.replace(/\.[^.]+$/, '').slice(0, 120), fileName: item.name, videoUrl: item.url || undefined, videoId: item.videoId, uploading: false }])} />
                     </div>
                   </div>
 
