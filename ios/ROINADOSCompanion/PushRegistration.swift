@@ -54,4 +54,17 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
     ) {
         completionHandler([.banner, .list, .sound, .badge])
     }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        defer { completionHandler() }
+        let rawPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
+        guard let url = CompanionConfig.dashboardURL(path: rawPath) else { return }
+        Task { @MainActor in
+            await UIApplication.shared.open(url)
+        }
+    }
 }
