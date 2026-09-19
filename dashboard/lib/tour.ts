@@ -37,7 +37,7 @@ const OVERVIEW_TOUR: Tour = {
     {
       target: 'period',
       title: 'Período',
-      body: 'Receita, gasto, ROAS e funil usam a mesma janela no fuso de Brasília: hoje, 7 dias, 30 dias ou tudo.',
+      body: 'Receita, gasto, ROAS e funil usam a mesma janela e o fuso configurado na conta: hoje, 7 dias, 30 dias ou tudo.',
     },
     {
       target: 'confidence',
