@@ -19,7 +19,7 @@ redis.saveBreakerSamples = async () => true;
 automation._internals.actionOutcomes.clear();
 automation._internals.breakerHydrated.clear();
 automation._internals.breakerLastAt.clear();
-const calls = { status: [], budget: [], upserts: [], deletes: [] };
+const calls = { status: [], budget: [], upserts: [], deletes: [], proposals: [] };
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
 provider.getAdvertiserInfo = async () => ({ id: 'adv1', timezone: 'UTC' });
@@ -38,6 +38,11 @@ cache.getSyncState = async () => null;
 let policyOverride = { dryRun: false };
 adsOps.getSafetyPolicy = async () => adsOps.normalizePolicy(policyOverride);
 adsOps.appendAuditEvent = async () => ({ id: 'audit_test' });
+adsOps.createRuleProposal = async (accId, input) => {
+  const row = { id: 'proposal_' + (calls.proposals.length + 1), accId, ...input };
+  calls.proposals.push(row);
+  return row;
+};
 // Contador durável de ações/hora: por padrão zero (sem histórico). Testes do
 // cap sobrescrevem para simular ações já feitas na janela.
 let recentActions = 0;
@@ -61,7 +66,7 @@ function campaign(over = {}) {
     adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }],
   }, over);
 }
-function resetCalls() { calls.status.length = 0; calls.budget.length = 0; calls.upserts.length = 0; calls.deletes.length = 0; }
+function resetCalls() { calls.status.length = 0; calls.budget.length = 0; calls.upserts.length = 0; calls.deletes.length = 0; calls.proposals.length = 0; }
 function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
 function configureRules(accId, rules, advertiserId = 'adv1') {
   const profile = automation.getAutomationProfile(accId, advertiserId);
@@ -202,6 +207,73 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(scheduleActiveNow({ timezone: 'UTC', days: [4], startTime: '22:00', endTime: '02:00' }, after), false, '01:00 não pertence à janela de quinta (ainda não começou)');
     // fuso: 12:00 UTC = 13:00 em Lisboa (verão) — janela 12:30–14:00 Lisboa pega
     assert.strictEqual(scheduleActiveNow({ timezone: 'Europe/Lisbon', days: [0, 1, 2, 3, 4, 5, 6], startTime: '12:30', endTime: '14:00' }, base), true, 'conversão de fuso aplicada');
+  }
+
+  // ── Learning Guardian: autonomia vira proposta enquanto aprende ───────────
+  {
+    const pureRecent = automation.campaignLearningState(campaign({
+      createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 4, impressions: 2000, clicks: 40 },
+    }));
+    assert.strictEqual(pureRecent.protected, true, '2 dias + 4 resultados fica protegido');
+    assert.strictEqual(
+      automation.campaignLearningState(campaign({
+        createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+        metrics: { spend: 20, conversions: 25, impressions: 2000, clicks: 40 },
+      })).protected,
+      false,
+      '25 resultados libera a proteção mesmo antes de 7 dias',
+    );
+    assert.strictEqual(
+      automation.campaignLearningState(campaign({
+        createdAt: new Date(Date.now() - 8 * 864e5).toISOString(),
+        metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+      })).protected,
+      false,
+      'após 7 dias a automação volta ao modo configurado',
+    );
+
+    const acc = 'acc_learning_guard';
+    configureRules(acc, [{
+      id: 'learn-pause',
+      enabled: true,
+      metric: 'spend_no_conv',
+      threshold: 10,
+      lookbackDays: 1,
+      action: 'pause',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({
+      createdAt: new Date(Date.now() - 2 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    let out = await automation.runRulesSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.status.length, 0, 'Learning Guardian não pausa automaticamente');
+    assert.strictEqual(calls.proposals.length, 1, 'ação vira proposta para aprovação');
+    assert.strictEqual(out.executed[0].proposed, true);
+    assert.match(out.executed[0].result, /Learning Guardian/);
+    assert.match(calls.proposals[0].detail, /aprendizado protegido/);
+
+    const matureAcc = 'acc_learning_mature';
+    configureRules(matureAcc, [{
+      id: 'mature-pause',
+      enabled: true,
+      metric: 'spend_no_conv',
+      threshold: 10,
+      lookbackDays: 1,
+      action: 'pause',
+      mode: 'execute',
+    }]);
+    resetCalls(); clearCooldowns(matureAcc);
+    treeCampaigns = [campaign({
+      createdAt: new Date(Date.now() - 8 * 864e5).toISOString(),
+      metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    out = await automation.runRulesSweep(matureAcc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.proposals.length, 0, 'campanha madura não é desviada para proposta');
+    assert.strictEqual(calls.status.length, 1, 'campanha madura executa a regra configurada');
+    assert.strictEqual(calls.status[0].status, 'paused');
   }
 
   // ── ctr_min: guarda de impressões mínimas ─────────────────────────────────
