@@ -31,16 +31,19 @@ assert(pushCard.includes('Ajustes → Notificações → ROI-NADOS'), 'permissã
 assert(pushCard.includes('setSupport(checkSupport())'), 'estado de permissão deve ser reavaliado depois do prompt')
 assert(notifyPrefs.includes('roi-sound-enabled') && notifyPrefs.includes('getSoundMasterEnabled()'), 'som local deve poder ser desligado por aparelho')
 assert(pushSound.includes("document.visibilityState !== 'visible'"), 'WebAudio não deve duplicar alerta quando dashboard está em background')
+const saleAlerts = fs.readFileSync(path.join(root, 'dashboard/lib/sale-alerts.ts'), 'utf8')
+assert(!saleAlerts.includes('Math.random() * 2 - 1'), 'som de venda não deve usar ruído branco mecânico')
+assert(saleAlerts.includes("freq: 880") && saleAlerts.includes("freq: 1320"), 'som de venda deve ser curto e tonal')
 
 assert(sw.includes('data.badge === true') && sw.includes('self.navigator.setAppBadge()'), 'push relevante deve atualizar badge do app instalado')
 assert(sw.includes('self.navigator.clearAppBadge()'), 'toque na notificação deve limpar badge do app')
-assert(sw.includes('deixamos som/Foco nas mãos do SO') && !sw.includes('garante o som padrão do sistema'), 'service worker não deve prometer som que o SO controla')
+assert(sw.includes('omitimos \`silent\` para respeitar o padrão do aparelho/Foco') && sw.includes('options.silent = true'), 'service worker deve silenciar só com painel visível e respeitar o aparelho em background')
 assert(bell.includes('clearAppBadge') && bell.includes('abre a central'), 'central de notificações deve limpar o badge ao ser revisada')
 
 assert(copy.includes("login: '/dashboard/config?tab=security'"), 'login deve abrir Segurança')
 assert(copy.includes("ads_rejected: '/dashboard/ads/tiktok?tab=automation'"), 'reprovação deve abrir Automações')
 assert(copy.includes("ads_breaker: '/dashboard/ads/tiktok?tab=automation'"), 'circuit breaker deve abrir Automações')
 assert(copy.includes("ads_cap: '/dashboard/ads/tiktok?tab=automation'"), 'limite de automação deve abrir Automações')
-assert(copy.includes("test: '/dashboard/config?tab=notifications'"), 'teste deve voltar à configuração de Alertas')
+assert(copy.includes("test: '/dashboard/config?tab=alerts'"), 'teste deve voltar à configuração de Alertas')
 
 console.log('[OK] V16.25 — micro motion, iPhone Web Push, badge e sons locais coerentes.')
