@@ -1865,6 +1865,13 @@ app.get('/api/v1/widget', async (req, res) => {
     const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(tokenAcc, e.at) === dayKey);
     const revenueCents = sales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
     const currency = (sales[0] && sales[0].currency) || accountCurrency(tokenAcc);
+    const previousDayKey = accDay(tokenAcc, new Date(Date.now() - 86400e3));
+    const previousSales = (s.events || []).filter((e) => e.type === 'sale' && accDay(tokenAcc, e.at) === previousDayKey);
+    const previousRevenueCents = previousSales.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
+    const revenueDeltaPct = previousRevenueCents > 0
+      ? Math.round((revenueCents - previousRevenueCents) / previousRevenueCents * 1000) / 10
+      : null;
+    const latestSale = sales.slice().sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())[0] || null;
     const conversion = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
 
     const adsCache = require('./ads-cache-store');
@@ -1913,6 +1920,17 @@ app.get('/api/v1/widget', async (req, res) => {
         netProfitCents: profit.netProfitCents,
         quality: profit.quality,
       },
+      trend: {
+        previousSales: previousSales.length,
+        previousRevenueCents,
+        salesDelta: sales.length - previousSales.length,
+        revenueDeltaPct,
+      },
+      lastSale: latestSale ? {
+        at: latestSale.at,
+        amountCents: Number(latestSale.amount) || 0,
+        currency: latestSale.currency || currency,
+      } : null,
       attention,
     });
   } catch (error) {
