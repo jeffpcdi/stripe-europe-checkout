@@ -1020,6 +1020,42 @@ export interface AdsHealthResponse {
   appealUrl: string
 }
 
+export interface AdsDestinationHealthResponse {
+  advertiserId: string
+  checkedAt: string
+  cached?: boolean
+  pixel: {
+    bound: boolean
+    name: string | null
+    capiReady: boolean
+    runtimeKnown: boolean
+  }
+  summary: {
+    total: number
+    healthy: number
+    warning: number
+    critical: number
+  }
+  destinations: {
+    url: string
+    host: string
+    spend: number
+    campaigns: { id: string; name: string }[]
+    page: {
+      ok: boolean
+      status: number
+      host?: string
+      finalUrl?: string
+      latencyMs?: number
+      error?: string | null
+    }
+    runtimeSeen: boolean | null
+    runtimeVisits: number | null
+    lastSeenAt: string | null
+    severity: 'healthy' | 'warning' | 'critical'
+  }[]
+}
+
 // ── Métricas roladas em cada nível da árvore ──
 export interface AdsMetrics {
   impressions?: number
