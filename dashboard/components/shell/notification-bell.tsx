@@ -137,8 +137,9 @@ export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab
       // Badge interno e badge do ícone PWA somem quando o usuário realmente
       // abre a central; a lista continua preservando o histórico.
       setSeenAt(now)
-      if ('clearAppBadge' in navigator) {
-        navigator.clearAppBadge().catch(() => {})
+      const badgeNavigator = navigator as Navigator & { clearAppBadge?: () => Promise<void> }
+      if (typeof badgeNavigator.clearAppBadge === 'function') {
+        badgeNavigator.clearAppBadge().catch(() => {})
       }
     }
   }
