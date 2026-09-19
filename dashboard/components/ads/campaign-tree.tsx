@@ -1134,16 +1134,25 @@ export function CampaignTree({
                         return (
                           <li key={adKey} className="rounded-xl border border-border/55 bg-background/35 p-3">
                             <div className="flex gap-3">
-                              {(ad.creative?.imageUrl || videoUrl) ? (
-                                <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-black">
+                              {(ad.creative?.imageUrl || videoUrl || ad.creative?.videoId || ad.creative?.imageIds?.length) ? (
+                                <div className="relative flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/50 bg-black">
                                   {videoUrl ? (
                                     <video src={videoUrl} poster={ad.creative?.imageUrl} controls muted playsInline preload="metadata" className="h-full w-full object-cover" aria-label={`Prévia do anúncio ${ad.name || adKey}`} />
-                                  ) : (
+                                  ) : ad.creative?.imageUrl ? (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={ad.creative?.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                    <img src={ad.creative.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex flex-col items-center gap-1 px-2 text-center text-[10px] leading-tight text-white/65" title={ad.creative?.videoId ? `Vídeo TikTok ${ad.creative.videoId}` : 'Asset de imagem do TikTok'}>
+                                      <span className="flex size-7 items-center justify-center rounded-full bg-white/10"><Play className="size-3.5 fill-current" aria-hidden="true" /></span>
+                                      <span>Prévia carregando</span>
+                                    </div>
                                   )}
                                 </div>
-                              ) : null}
+                              ) : (
+                                <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-lg border border-dashed border-border/50 bg-secondary/20 px-2 text-center text-[10px] leading-tight text-muted-foreground">
+                                  Criativo não informado
+                                </div>
+                              )}
 
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-2">
