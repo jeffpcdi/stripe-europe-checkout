@@ -224,6 +224,19 @@ function build(opts) {
     return { ...compactSale(p, meta), url, tag, sound, event };
   }
 
+  // Relatório executivo preserva a copy factual produzida pelo backend.
+  // Mesmo com "tom descontraído" ativo, números e exceções não mudam.
+  if (event === 'daily') {
+    return {
+      title: compactText(p.title || 'Resumo diário', 72),
+      body: compactText(p.text || '', 220),
+      url,
+      tag,
+      sound,
+      event,
+    };
+  }
+
   // Briefing diário é deliberadamente estável: relatório executivo não muda
   // de linguagem por sorteio, mesmo quando o tom descontraído está habilitado.
   if (event === 'daily') {
