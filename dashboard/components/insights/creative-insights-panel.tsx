@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, Clapperboard } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ArrowUpRight, ChevronDown, ChevronUp, Clapperboard, Sparkles } from 'lucide-react'
 import type { AdsMetrics, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { useAdsCreativeInsights } from '@/lib/api'
 
 type CreativeSignal = 'attention' | 'efficient' | 'new' | 'stable' | 'low_volume'
 type CreativeFilter = 'all' | 'attention' | 'efficient'
@@ -153,13 +155,18 @@ export function CreativeInsightsPanel({
   current,
   previous,
   loading,
+  advertiserId,
 }: {
   connected: boolean
   current?: AdsTreeResponse
   previous?: AdsTreeResponse
   loading: boolean
+  advertiserId: string
 }) {
+  const router = useRouter()
   const [filter, setFilter] = useState<CreativeFilter>('all')
+  const [dnaOpen, setDnaOpen] = useState(false)
+  const { data: dna, error: dnaError, isLoading: dnaLoading } = useAdsCreativeInsights(dnaOpen && connected, advertiserId)
 
   const rows = useMemo(() => {
     const previousById = new Map(flatten(previous).map(item => [item.id, item.metrics]))
@@ -190,6 +197,18 @@ export function CreativeInsightsPanel({
     ? rows
     : rows.filter(row => filter === 'attention' ? row.signal === 'attention' : row.signal === 'efficient')
 
+  function prepareVariation(copy: string, basedOn: string) {
+    try {
+      sessionStorage.setItem('roi:ads:creative-draft', JSON.stringify({
+        body: String(copy || '').slice(0, 100),
+        prefix: basedOn ? 'Variação · ' + String(basedOn).slice(0, 70) : 'Variação criativa',
+        source: 'creative-dna',
+        createdAt: Date.now(),
+      }))
+    } catch {}
+    router.push('/ads/tiktok?create=1')
+  }
+
   return (
     <GlassCard className="overflow-hidden">
       <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -197,25 +216,70 @@ export function CreativeInsightsPanel({
           <h2 className="text-[15px] font-semibold text-foreground">Criativos</h2>
           <p className="mt-1 text-xs text-muted-foreground">Comparação com o período anterior usando métricas do TikTok.</p>
         </div>
-        <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-secondary/10 p-1" role="tablist" aria-label="Filtro de criativos">
-          {([
-            ['all', 'Todos'],
-            ['attention', 'Atenção'],
-            ['efficient', 'Eficiência'],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={filter === value}
-              onClick={() => setFilter(value)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filter === value ? 'bg-secondary/70 text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" className="btn-ghost h-9 px-2.5 text-xs" onClick={() => setDnaOpen(value => !value)}>
+            <Sparkles className="size-3.5" aria-hidden="true" />
+            Padrões
+            {dnaOpen ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <ChevronDown className="size-3.5" aria-hidden="true" />}
+          </button>
+          <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-secondary/10 p-1" role="tablist" aria-label="Filtro de criativos">
+            {([
+              ['all', 'Todos'],
+              ['attention', 'Atenção'],
+              ['efficient', 'Eficiência'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={filter === value}
+                onClick={() => setFilter(value)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filter === value ? 'bg-secondary/70 text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {dnaOpen ? (
+        <div className="border-t border-border/60 bg-secondary/[0.04] px-5 py-4">
+          {dnaLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="size-3.5 animate-pulse rounded-full bg-muted-foreground/30" />Analisando padrões…</div>
+          ) : dnaError ? (
+            <p className="text-xs text-muted-foreground">Padrões avançados indisponíveis agora.</p>
+          ) : dna?.insufficient ? (
+            <p className="text-xs text-muted-foreground">Ainda não há volume suficiente para comparar vencedores e perdedores.</p>
+          ) : dna?.patterns ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Creative DNA</p>
+                <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">{dna.patterns}</p>
+              </div>
+              {dna.variations?.length ? (
+                <div className="space-y-2">
+                  {dna.variations.slice(0, 2).map((group, groupIndex) => (
+                    <div key={group.basedOn + groupIndex} className="rounded-xl border border-border/50 bg-background/30 px-3 py-2.5">
+                      <p className="truncate text-[11px] font-medium text-muted-foreground">Baseado em {group.basedOn}</p>
+                      <div className="mt-2 space-y-1.5">
+                        {group.copies.slice(0, 2).map((copy, copyIndex) => (
+                          <div key={copyIndex} className="flex items-center justify-between gap-3">
+                            <p className="min-w-0 truncate text-xs text-foreground" title={copy}>{copy}</p>
+                            <button type="button" className="btn-ghost h-8 shrink-0 px-2 text-[11px]" onClick={() => prepareVariation(copy, group.basedOn)}>
+                              Preparar variação
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {visible.length ? (
         <div className="overflow-x-auto border-t border-border/60">
