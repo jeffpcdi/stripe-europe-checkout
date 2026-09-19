@@ -4919,6 +4919,8 @@ app.get('/api/companion/status', dashboardAuth, (req, res) => {
       customSaleSound: true,
       homeScreenWidget: true,
       lockScreenWidget: true,
+      largeExecutiveWidget: true,
+      salesWidget: true,
       liveActivities: false,
       widgetSnapshotVersion: 2,
     },
