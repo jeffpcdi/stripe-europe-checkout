@@ -80,7 +80,8 @@ function defaults() {
     // APNs registrados. O token pode ser rotacionado sem afetar planilhas.
     companion: {
       token: '',
-      devices: []
+      devices: [],
+      preferNativeIOS: false
     },
     // Custos usados pelo cálculo de lucro líquido. Valores exatos recebidos
     // no webhook sempre têm prioridade; estes defaults cobrem gateways que não
@@ -346,6 +347,7 @@ function prepareSet(accountId, patch) {
     const devices = Array.isArray(source.devices) ? source.devices : [];
     next.companion = {
       token,
+      preferNativeIOS: source.preferNativeIOS === true,
       devices: devices.slice(0, 6).map((device) => ({
         id: String(device && device.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
         token: String(device && device.token || '').replace(/[^a-f0-9]/gi, '').slice(0, 200),
