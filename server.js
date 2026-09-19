@@ -1987,7 +1987,6 @@ async function checkDailyReportFor(accId) {
   const pc = cfg.pushcut || {};
   const settings = cfg.settings || {};
   const whatsapp = require('./whatsapp');
-  const webPushNotify = require('./web-push-notify');
   const reportEnabled = settings.dailyReportEnabled === true || (pc.events || {}).daily === true;
   const pushcutEnabled = reportEnabled && !!pc.url;
   const whatsappEnabled = reportEnabled && !!settings.whatsappTo;
@@ -2032,23 +2031,28 @@ async function checkDailyReportFor(accId) {
       currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
       config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
     });
-    const text = 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur
-      + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '')
-      + '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%'
-      + '\nGasto TikTok: ' + (sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente')
-      + ' · ROAS: ' + (sameCurrency ? roas.toFixed(2) : '—')
-      + '\nLucro líquido: ' + (profit.netProfitCents / 100).toFixed(2) + ' ' + cur
-      + (profit.quality === 'exact' ? '' : ' (custos estimados onde o webhook não informou)');
-    const title = 'Resumo de ' + yKey.split('-').reverse().join('/');
+    const revenueText = (rev / 100).toFixed(2) + ' ' + cur;
+    const spendText = sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente';
+    const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
+    const profitText = (profit.netProfitCents / 100).toFixed(2) + ' ' + cur;
+    const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% receita vs. dia anterior' : null;
+    // Push curto e escaneável: negócio → mídia → eficiência. Detalhes ficam na dashboard.
+    const text = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
+      + (deltaText ? '\n' + deltaText : '')
+      + '\nROAS ' + roasText + ' · TikTok ' + spendText
+      + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
+      + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
+    const title = 'Resumo diário · ' + yKey.split('-').reverse().slice(0, 2).join('/');
     const deliveries = [];
-    if (pushcutEnabled) deliveries.push(sendPushcut('Aprovada', {
+    // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
+    // Uma única chamada evita duplicar a mesma notificação no iPhone.
+    if (pushcutEnabled || webPushEnabled) deliveries.push(sendPushcut('Resumo diário', {
       title,
       text,
       sound: 'system'
-    }, accId).catch(() => false));
-    if (webPushEnabled) deliveries.push(webPushNotify.sendWebPush(accId, {
-      title, body: text, url: '/dashboard', tag: 'daily-report-' + yKey,
-      sound: 'info', event: 'ads', priority: 'normal',
+    }, accId, {
+      event: 'daily',
+      dedupeKey: 'daily-report:' + yKey,
     }).catch(() => false));
     if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + text, [
       yKey.split('-').reverse().join('/'), (rev / 100).toFixed(2) + ' ' + cur,
