@@ -633,7 +633,7 @@ export function TikTokAdsView() {
             <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="flex min-w-0 gap-6 overflow-x-auto">
               {SUBTABS.map((item) => {
                 const attentionCount = item.value === 'automation'
-                  ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
+                  ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0) + adsOperationalSummary.pendingProposals
                   : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                 return (
                   <Tabs.Trigger
@@ -762,7 +762,7 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" data-tour="ads-campaigns" className="space-y-4 outline-none">
-              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0) ? (
+              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0 || adsOperationalSummary.pendingProposals > 0) ? (
                 <section className="border-b border-border/60 pb-4">
                   <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
                   <div className="mt-2 divide-y divide-border/50">
@@ -775,6 +775,12 @@ export function TikTokAdsView() {
                     {(rejections?.open ?? 0) > 0 ? (
                       <button type="button" onClick={() => changeTab('automation')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-error hover:text-foreground">
                         <span>{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'} em aberto</span>
+                        <span className="shrink-0 font-medium">Revisar</span>
+                      </button>
+                    ) : null}
+                    {adsOperationalSummary.pendingProposals > 0 ? (
+                      <button type="button" onClick={() => changeTab('automation')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-warning hover:text-foreground">
+                        <span>{adsOperationalSummary.pendingProposals} proposta{adsOperationalSummary.pendingProposals === 1 ? '' : 's'} da automação aguardando decisão</span>
                         <span className="shrink-0 font-medium">Revisar</span>
                       </button>
                     ) : null}
