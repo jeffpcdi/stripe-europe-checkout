@@ -113,7 +113,7 @@ export function playTickSound() {
   }
 }
 
-/** Login: nota única limpa. */
+/** Login: confirmação curta em duas notas. */
 export function playPingSound() {
   try {
     const ctx = getCtx()
