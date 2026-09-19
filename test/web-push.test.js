@@ -105,7 +105,7 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   config.set('wp-test', {
     webPush: {
       funMode: false,
-      preferences: { sales: true, risks: false, automation: true },
+      preferences: { sales: true, risks: false, automation: true, reports: true },
       subs: [
         { id: 'a', endpoint: 'https://push.example/ok', keys: { p256dh: 'k1', auth: 'a1' } },
         { id: 'b', endpoint: 'http://inseguro.example', keys: { p256dh: 'k2', auth: 'a2' } }, // http → fora
@@ -117,7 +117,7 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   assert.strictEqual(wp.subs.length, 1, 'só a inscrição válida sobrevive');
   assert.strictEqual(wp.subs[0].endpoint, 'https://push.example/ok');
   assert.strictEqual(wp.funMode, false, 'funMode persiste');
-  assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true });
+  assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true, reports: true });
 });
 
 test('notificações nativas: briefing diário respeita o opt-in próprio', () => {
@@ -125,7 +125,7 @@ test('notificações nativas: briefing diário respeita o opt-in próprio', () =
   const config = require('../config');
   config.set('daily-native-off', {
     settings: { dailyReportEnabled: false },
-    webPush: { preferences: { sales: false, risks: false, automation: false } },
+    webPush: { preferences: { sales: false, risks: false, automation: false, reports: true } },
   });
   config.set('daily-native-on', {
     settings: { dailyReportEnabled: true },
@@ -133,6 +133,11 @@ test('notificações nativas: briefing diário respeita o opt-in próprio', () =
   });
   assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-off', 'daily'), false);
   assert.strictEqual(notifications.nativePreferenceEnabled('daily-native-on', 'daily'), true);
+  config.set('daily-push-off', {
+    settings: { dailyReportEnabled: true },
+    webPush: { preferences: { sales: true, risks: true, automation: true, reports: false } },
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('daily-push-off', 'daily'), false);
 });
 
 test('notify-copy: briefing diário permanece executivo mesmo com tom descontraído', () => {
@@ -152,10 +157,10 @@ test('notificações nativas: preferências são simples e independentes do Push
   const notifications = require('../pushcut');
   config.set('native-only', {
     pushcut: { url: '', events: { sale: false } },
-    webPush: { preferences: { sales: true, risks: false, automation: true } },
+    webPush: { preferences: { sales: true, risks: false, automation: true, reports: true } },
   });
   assert.deepStrictEqual(notifications.nativePreferencesFor('native-only'), {
-    sales: true, risks: false, automation: true,
+    sales: true, risks: false, automation: true, reports: true,
   });
   assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'sale'), true);
   assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'dispute'), false);
