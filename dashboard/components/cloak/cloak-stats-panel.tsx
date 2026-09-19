@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, RotateCcw } from 'lucide-react'
-import { useCloakStats, apiSend } from '@/lib/api'
+import { useCloakEntries, useCloakStats, apiSend } from '@/lib/api'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 
@@ -79,14 +79,39 @@ function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white:
 
 export function CloakStatsPanel() {
   const { data, mutate } = useCloakStats()
+  const { data: campaignData } = useCloakEntries()
   // Item 184: confirmação destrutiva padronizada. `key: null` = zerar tudo;
   // string = zerar um link específico.
   const [resetting, setResetting] = useState<{ key: string | null; nome: string } | null>(null)
   const [resetBusy, setResetBusy] = useState(false)
 
-  const agg = data?.aggregate
-  const links = data?.links ?? []
-  const blockPct = agg && agg.total ? Math.round(agg.blockRate * 100) : 0
+  const links = (data?.links ?? []).filter((link) => link.tipo === 'cloak')
+  const campaignById = useMemo(() => {
+    const map = new Map<string, { nome: string; url: string }>()
+    for (const entry of campaignData?.entries ?? []) {
+      const id = entry.id || entry.campaignId
+      if (!id) continue
+      const base = entry.dominio ? `https://${entry.dominio}` : campaignData?.baseUrl || ''
+      map.set(id, { nome: entry.nome, url: entry.linkKit?.url || `${base}/${entry.slug}` })
+    }
+    return map
+  }, [campaignData])
+
+  const agg = useMemo(() => {
+    if (!links.length) return { offer: 0, white: 0, total: 0, blockRate: 0, reasons: {} as Record<string, number> }
+    const out = { offer: 0, white: 0, total: 0, blockRate: 0, reasons: {} as Record<string, number> }
+    for (const link of links) {
+      out.offer += Number(link.offer || 0)
+      out.white += Number(link.white || 0)
+      out.total += Number(link.total || 0)
+      for (const [reason, count] of Object.entries(link.reasons || {})) {
+        out.reasons[reason] = (out.reasons[reason] || 0) + Number(count || 0)
+      }
+    }
+    out.blockRate = out.total ? out.white / out.total : 0
+    return out
+  }, [links])
+  const blockPct = agg.total ? Math.round(agg.blockRate * 100) : 0
 
   async function confirmReset() {
     if (!resetting || resetBusy) return
@@ -94,10 +119,15 @@ export function CloakStatsPanel() {
     setResetBusy(true)
     let reset = false
     try {
-      await apiSend('/api/cloak/stats/reset', 'POST', target.key ? { key: target.key } : {})
+      if (target.key) {
+        await apiSend('/api/cloak/stats/reset', 'POST', { key: target.key })
+      } else {
+        const keys = links.map((link) => link.campaignId ? `campaign:${link.campaignId}` : `cloak:${link.slug}`)
+        await Promise.all([...new Set(keys)].map((key) => apiSend('/api/cloak/stats/reset', 'POST', { key })))
+      }
       reset = true
       setResetting(null)
-      toast.success(target.key ? `Contadores de "${target.nome}" zerados.` : 'Todos os contadores zerados.')
+      toast.success(target.key ? `Contadores de "${target.nome}" zerados.` : 'Contadores das campanhas zerados.')
     } catch (err) {
       toast.error('Falha ao zerar os contadores.', {
         hint: err instanceof Error ? err.message : undefined,
@@ -116,16 +146,19 @@ export function CloakStatsPanel() {
     }
   }
 
-  const reasonsSorted = agg ? Object.entries(agg.reasons).sort((a, b) => b[1] - a[1]) : []
+  const policyReasonKeys = new Set(['pais', 'idioma', 'mobile', 'anuncio'])
+  const reasonsSorted = Object.entries(agg.reasons).sort((a, b) => b[1] - a[1])
+  const policyReasons = reasonsSorted.filter(([reason]) => policyReasonKeys.has(reason))
+  const riskReasons = reasonsSorted.filter(([reason]) => !policyReasonKeys.has(reason))
   const activeLinks = links.filter((link) => link.total > 0).sort((a, b) => b.total - a.total)
 
   return (
     <section>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-foreground">Decisões de tráfego</h2>
+          <h2 className="text-[15px] font-semibold text-foreground">Resultados das campanhas</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Acompanhe os acessos enviados ao destino principal ou à página segura.
+            Acompanhe somente o tráfego das campanhas do Cloaker, separado dos links de checkout.
           </p>
           {data && (
             <p
@@ -162,20 +195,40 @@ export function CloakStatsPanel() {
             </div>
             <div className="min-w-0 pl-3 sm:pl-5">
               <p className="text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{blockPct}%</p>
-              <p className="mt-1 text-xs text-muted-foreground sm:text-[13px]">Bloqueado</p>
+              <p className="mt-1 text-xs text-muted-foreground sm:text-[13px]">Enviados ao seguro</p>
             </div>
           </div>
 
           {reasonsSorted.length > 0 && (
             <section className="mt-6">
-              <h3 className="text-sm font-semibold text-foreground">Motivos de bloqueio</h3>
-              <div className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
-                {reasonsSorted.map(([reason, count]) => (
-                  <div key={reason} className="flex items-center justify-between gap-4 border-b border-border/45 py-2.5 text-[13px]">
-                    <span className="min-w-0 text-muted-foreground">{REASON_LABELS[reason] ?? reason}</span>
-                    <span className="shrink-0 font-medium tabular-nums text-foreground">{count.toLocaleString('pt-BR')}</span>
+              <h3 className="text-sm font-semibold text-foreground">Por que foram ao destino seguro?</h3>
+              <div className="mt-3 grid gap-6 lg:grid-cols-2">
+                {policyReasons.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Regras da campanha</p>
+                    <div className="mt-1">
+                      {policyReasons.map(([reason, count]) => (
+                        <div key={reason} className="flex items-center justify-between gap-4 border-b border-border/45 py-2.5 text-[13px]">
+                          <span className="min-w-0 text-muted-foreground">{REASON_LABELS[reason] ?? reason}</span>
+                          <span className="shrink-0 font-medium tabular-nums text-foreground">{count.toLocaleString('pt-BR')}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
+                )}
+                {riskReasons.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Risco técnico</p>
+                    <div className="mt-1">
+                      {riskReasons.map(([reason, count]) => (
+                        <div key={reason} className="flex items-center justify-between gap-4 border-b border-border/45 py-2.5 text-[13px]">
+                          <span className="min-w-0 text-muted-foreground">{REASON_LABELS[reason] ?? reason}</span>
+                          <span className="shrink-0 font-medium tabular-nums text-foreground">{count.toLocaleString('pt-BR')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -183,7 +236,7 @@ export function CloakStatsPanel() {
       ) : (
         <div className="py-10 text-center">
           <p className="text-sm font-medium text-foreground">Sem decisões registradas ainda.</p>
-          <p className="mt-1 text-sm text-muted-foreground">Os resultados aparecem quando o tráfego chega aos links protegidos.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Os resultados aparecem quando o tráfego chega às campanhas.</p>
         </div>
       )}
 
@@ -206,7 +259,7 @@ export function CloakStatsPanel() {
       {(data?.sticky?.available || (data?.ttclidReplays ?? 0) > 0) && (
         <details className="group mt-6 border-y border-border/60">
           <summary className="flex cursor-pointer select-none items-center justify-between gap-4 py-3 text-[13px] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20 [&::-webkit-details-marker]:hidden">
-            <span className="font-medium text-foreground">Ferramentas</span>
+            <span className="font-medium text-foreground">Diagnóstico avançado</span>
             <span className="flex min-w-0 items-center gap-2 text-right text-xs text-muted-foreground">
               <span className="hidden flex-wrap justify-end gap-x-3 gap-y-1 sm:flex">
                 {data?.sticky?.available && (
@@ -357,7 +410,7 @@ export function CloakStatsPanel() {
 
       {activeLinks.length > 0 && (
         <section className="mt-7">
-          <h3 className="text-sm font-semibold text-foreground">Resultados por link</h3>
+          <h3 className="text-sm font-semibold text-foreground">Resultados por campanha</h3>
           <ul className="mt-2 divide-y divide-border/55 border-y border-border/55">
             {activeLinks.map((link) => {
               const pct = link.total ? Math.round(link.blockRate * 100) : 0
@@ -365,12 +418,16 @@ export function CloakStatsPanel() {
                 <li key={link.tipo + link.slug} className="py-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{link.tipo === 'cloak' ? '/c' : '/go'}</span>
-                      <span className="truncate text-[13px] font-medium text-foreground">{link.nome}</span>
+                      <div className="min-w-0">
+                        <span className="block truncate text-[13px] font-medium text-foreground">{campaignById.get(link.campaignId || '')?.nome || link.nome}</span>
+                        <span className="mt-0.5 block truncate font-mono text-xs text-muted-foreground">
+                          {campaignById.get(link.campaignId || '')?.url || `/${link.slug}`}
+                        </span>
+                      </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setResetting({ key: link.tipo === 'cloak' ? 'cloak:' + link.slug : link.slug, nome: link.nome })}
+                      onClick={() => setResetting({ key: link.campaignId ? 'campaign:' + link.campaignId : 'cloak:' + link.slug, nome: link.nome })}
                       className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/25"
                       aria-label={`Zerar ${link.nome}`}
                     >
@@ -399,12 +456,12 @@ export function CloakStatsPanel() {
 
       <ConfirmDialog
         open={Boolean(resetting)}
-        title={resetting?.key ? `Zerar contadores de "${resetting.nome}"?` : 'Zerar TODOS os contadores?'}
+        title={resetting?.key ? `Zerar contadores de "${resetting.nome}"?` : 'Zerar contadores de todas as campanhas?'}
         description={
           resetting?.key ? (
             <>As decisões de destino principal/seguro registradas deste link serão apagadas. Esta ação não pode ser desfeita.</>
           ) : (
-            <>Todos os contadores de cloaking de todos os links serão apagados. Esta ação não pode ser desfeita.</>
+            <>Todos os contadores das campanhas do Cloaker serão apagados. Os links de checkout não serão afetados.</>
           )
         }
         confirmLabel="Zerar"
