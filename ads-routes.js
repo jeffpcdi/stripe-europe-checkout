@@ -2454,9 +2454,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       await cloudVideo.exchangeCode(req.account.id, providerName, req.query.code, req.query.state);
       await config.setDurable(req.account.id, (latest) => {
         const source = latest.cloudVideo || {};
+        const current = source[providerName] || {};
         return { cloudVideo: {
           ...source,
-          [providerName]: { ...(source[providerName] || {}), enabled: true },
+          [providerName]: {
+            ...current,
+            // Primeira conexão não pode escolher uma conta de anúncios por
+            // heurística. Só permanece ativa se já havia advertiser explícito.
+            enabled: current.enabled === true && Boolean(String(current.advertiserId || '').trim()),
+          },
         } };
       });
       res.redirect('/dashboard/ads/tiktok?cloudVideo=connected');
