@@ -203,6 +203,9 @@ export function CampaignWorkspace(props: Props) {
   const [level, setLevel] = usePersistedState<WorkspaceLevel>('ads:campaign-workspace-level', 'campaigns')
   const [nodeFilter, setNodeFilter] = usePersistedState<NodeFilter>('ads:campaign-workspace-status', 'all')
   const [query, setQuery] = useState('')
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
+  const [selectedAds, setSelectedAds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const campaigns = props.tree?.campaigns ?? []
 
   const groups = useMemo<AdGroupRow[]>(() =>
@@ -259,6 +262,48 @@ export function CampaignWorkspace(props: Props) {
   const noSales = insightRows.filter((row) => row.spend > 0 && row.sales === 0).sort((a, b) => b.spend - a.spend)
   const winners = insightRows.filter((row) => row.roas != null && row.roas >= 2).sort((a, b) => (b.roas || 0) - (a.roas || 0))
   const attention = campaigns.filter((campaign) => ['rejected', 'error', 'pending_review'].includes(String(campaign.status)))
+
+  function toggleSelection(setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
+    setter((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkChildStatus(kind: 'adgroups' | 'ads', status: 'active' | 'paused') {
+    if (bulkBusy) return
+    const selected = kind === 'adgroups' ? selectedGroups : selectedAds
+    if (selected.size === 0) return
+    setBulkBusy(true)
+    try {
+      const advertiserId = campaigns[0]?.platformAdAccountId || ''
+      const result = await apiSend<{
+        dryRun?: boolean
+        simulated?: number
+        totals?: { updated: number; skipped: number; failed: number }
+      }>('/api/ads/entities/bulk-status', 'POST', {
+        ids: [...selected].slice(0, 50),
+        status,
+        adAccountId: advertiserId,
+      })
+      if (result.dryRun) {
+        toast.info('Simulação concluída', { hint: `${result.simulated || selected.size} item(ns) seriam alterados.` })
+      } else if (result.totals?.failed) {
+        toast.error('Parte da seleção não foi alterada', { hint: `${result.totals.updated} atualizados · ${result.totals.failed} falhas.` })
+      } else {
+        toast.info(status === 'paused' ? 'Pausa em lote solicitada' : 'Ativação em lote solicitada', { hint: `${result.totals?.updated || selected.size} item(ns) enviados ao TikTok.` })
+      }
+      if (kind === 'adgroups') setSelectedGroups(new Set())
+      else setSelectedAds(new Set())
+      props.onMutate()
+    } catch (error) {
+      toast.error('Não foi possível concluir a ação em lote', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -341,16 +386,28 @@ export function CampaignWorkspace(props: Props) {
 
       {level === 'adgroups' ? (
         <section className="overflow-hidden rounded-2xl border border-border/65 bg-card/35">
-          <header className="border-b border-border/55 px-4 py-3">
-            <h3 className="text-sm font-semibold text-foreground">Conjuntos de anúncios</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Controle orçamento e veiculação no nível de audiência sem precisar abrir a campanha.</p>
+          <header className="flex flex-col gap-3 border-b border-border/55 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Conjuntos de anúncios</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Controle orçamento e veiculação no nível de audiência sem precisar abrir a campanha.</p>
+            </div>
+            {selectedGroups.size > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">{selectedGroups.size} selecionado{selectedGroups.size === 1 ? '' : 's'}</span>
+                <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('adgroups', 'active')}><Play className="size-3.5" /> Ativar</button>
+                <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('adgroups', 'paused')}><Pause className="size-3.5" /> Pausar</button>
+              </div>
+            ) : null}
           </header>
           {visibleGroups.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum conjunto encontrado.</p> : (
             <div className="divide-y divide-border/45">
               {visibleGroups.map(({ campaign, group }, index) => {
                 const id = group.platformAdSetId || `${campaign.platformCampaignId}:${index}`
                 return (
-                  <div key={id} className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(240px,1.4fr)_110px_110px_90px_150px] lg:items-center">
+                  <div key={id} className="grid gap-3 px-4 py-3 lg:grid-cols-[28px_minmax(240px,1.4fr)_110px_110px_90px_150px] lg:items-center">
+                    <label className="flex items-center">
+                      <input type="checkbox" checked={selectedGroups.has(String(group.platformAdSetId || ''))} disabled={!group.platformAdSetId} onChange={() => group.platformAdSetId && toggleSelection(setSelectedGroups, group.platformAdSetId)} className="size-4 accent-[color:var(--brand-cyan)]" aria-label={`Selecionar conjunto ${group.adSetName || group.name || ''}`} />
+                    </label>
                     <div className="min-w-0">
                       <button type="button" onClick={() => props.onOpenDetail?.(campaign)} className="max-w-full text-left">
                         <p className="truncate text-sm font-semibold text-foreground">{group.adSetName || group.name || 'Conjunto sem nome'}</p>
@@ -373,9 +430,18 @@ export function CampaignWorkspace(props: Props) {
 
       {level === 'ads' ? (
         <section className="overflow-hidden rounded-2xl border border-border/65 bg-card/35">
-          <header className="border-b border-border/55 px-4 py-3">
-            <h3 className="text-sm font-semibold text-foreground">Anúncios</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Veja o criativo e controle cada anúncio independentemente do conjunto.</p>
+          <header className="flex flex-col gap-3 border-b border-border/55 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Anúncios</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Veja o criativo e controle cada anúncio independentemente do conjunto.</p>
+            </div>
+            {selectedAds.size > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">{selectedAds.size} selecionado{selectedAds.size === 1 ? '' : 's'}</span>
+                <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('ads', 'active')}><Play className="size-3.5" /> Ativar</button>
+                <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('ads', 'paused')}><Pause className="size-3.5" /> Pausar</button>
+              </div>
+            ) : null}
           </header>
           {visibleAds.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anúncio encontrado.</p> : (
             <div className="divide-y divide-border/45">
@@ -384,6 +450,10 @@ export function CampaignWorkspace(props: Props) {
                 return (
                   <div key={id} className="flex flex-col gap-3 px-4 py-3 xl:flex-row xl:items-center">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <input type="checkbox" checked={selectedAds.has(String(ad.platformAdId || ad._id || ''))} disabled={!(ad.platformAdId || ad._id)} onChange={() => {
+                        const adId = String(ad.platformAdId || ad._id || '')
+                        if (adId) toggleSelection(setSelectedAds, adId)
+                      }} className="size-4 shrink-0 accent-[color:var(--brand-cyan)]" aria-label={`Selecionar anúncio ${ad.name || ''}`} />
                       <CreativePreview ad={ad} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-foreground">{ad.name || 'Anúncio sem nome'}</p>
