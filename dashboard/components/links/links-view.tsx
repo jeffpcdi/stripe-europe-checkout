@@ -14,7 +14,6 @@ import {
   TriangleAlert,
   Search,
   CopyPlus,
-  ExternalLink,
   Power,
   Download,
   Archive,
