@@ -112,6 +112,9 @@ export function IPhoneCompanionCard() {
   const pairedLabel = devices.length
     ? String(devices.length) + ' pareado' + (devices.length === 1 ? '' : 's')
     : 'Não pareado'
+  const pairingHref = token && typeof window !== 'undefined'
+    ? `roinados://pair?server=${encodeURIComponent(window.location.origin + '/')}&token=${encodeURIComponent(token)}`
+    : ''
 
   return (
     <GlassCard className="overflow-hidden p-0 border-border/60">
@@ -162,8 +165,13 @@ export function IPhoneCompanionCard() {
               {token}
             </code>
             <button type="button" onClick={copyToken} className="btn-secondary min-h-10 text-xs">
-              <Copy className="size-3.5" /> Copiar
+              <Copy className="size-3.5" /> Copiar token
             </button>
+            {pairingHref ? (
+              <a href={pairingHref} className="btn-primary min-h-10 text-xs">
+                <ExternalLink className="size-3.5" /> Abrir no Companion
+              </a>
+            ) : null}
             <button
               type="button"
               onClick={rotateToken}
