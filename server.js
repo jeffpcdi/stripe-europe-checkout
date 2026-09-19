@@ -2023,17 +2023,6 @@ async function checkDailyReport() {
 }
 
 const DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000;
-const dailyReportSweep = setInterval(() => {
-  checkDailyReport().catch((error) => {
-    console.warn('[relatório-diário] sweep falhou:', String(error && error.message || error).slice(0, 180));
-  });
-}, DAILY_REPORT_SWEEP_MS);
-if (dailyReportSweep.unref) dailyReportSweep.unref();
-
-const dailyReportBootCheck = setTimeout(() => {
-  checkDailyReport().catch(() => {});
-}, 30 * 1000);
-if (dailyReportBootCheck.unref) dailyReportBootCheck.unref();
 
 // Item 464: watchdog de anomalia — "zero vendas em X horas" quando o histórico
 // diz que deveria haver. Detecta gateway quebrado/webhook caído ANTES do dono
@@ -7386,9 +7375,14 @@ stats.hydrate()
     // Relatório das 08h é um worker real: continua funcionando mesmo sem
     // visitas, tracking ou dashboard aberta. O marcador por conta garante no
     // máximo um envio confirmado por dia.
-    const dailyReportTimer = setInterval(() => { checkDailyReport().catch(() => {}); }, 5 * 60 * 1000);
+    const dailyReportTimer = setInterval(() => {
+      checkDailyReport().catch((error) => {
+        console.warn('[relatório-diário] sweep falhou:', String(error && error.message || error).slice(0, 180));
+      });
+    }, DAILY_REPORT_SWEEP_MS);
     if (dailyReportTimer.unref) dailyReportTimer.unref();
-    setTimeout(() => { checkDailyReport().catch(() => {}); }, 10 * 1000).unref();
+    const dailyReportBootCheck = setTimeout(() => { checkDailyReport().catch(() => {}); }, 10 * 1000);
+    if (dailyReportBootCheck.unref) dailyReportBootCheck.unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
     //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
     setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 24 * 60 * 60 * 1000).unref();
