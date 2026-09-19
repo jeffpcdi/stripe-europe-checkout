@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { X, Loader2, ExternalLink, ChevronDown, RefreshCw } from 'lucide-react'
 import { apiSend, useCloakConfig, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
@@ -287,7 +288,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               <label className={labelCls} htmlFor="ck-dom">Domínio</label>
               {verifiedDomains.length === 0 && !dominio ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Nenhum domínio dedicado ao Cloaker está pronto. <a href="/domains" className="font-medium text-[color:var(--brand-cyan)] hover:underline">Configurar domínio</a>.
+                  Nenhum domínio dedicado ao Cloaker está pronto. <Link href="/domains?uso=cloaker" className="font-medium text-[color:var(--brand-cyan)] hover:underline">Configurar domínio</Link>.
                 </p>
               ) : (
                 <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
