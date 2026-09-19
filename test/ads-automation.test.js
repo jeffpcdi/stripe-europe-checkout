@@ -192,6 +192,53 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(thirteen.length, 12, 'máximo de 12 regras (13ª é cortada)');
   }
 
+  // ── Learning Guardian também exclui campanhas da autocura ───────────────
+  {
+    const { planSelfHealing } = automation._internals
+    const rule = {
+      threshold: 2,
+      minSales: 2,
+      budgetUtilizationPct: 85,
+      minSpend: 20,
+      donorRoasMax: 0.8,
+      pct: 20,
+      budgetCap: 100,
+    }
+    const oldWinner = campaign({
+      platformCampaignId: 'winner-old',
+      createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      metrics: { spend: 45, conversions: 5, impressions: 5000, clicks: 120 },
+    })
+    const youngWinner = campaign({
+      platformCampaignId: 'winner-young',
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      metrics: { spend: 45, conversions: 5, impressions: 5000, clicks: 120 },
+    })
+    const donor = campaign({
+      platformCampaignId: 'donor-old',
+      createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      metrics: { spend: 30, conversions: 0, impressions: 4000, clicks: 60 },
+    })
+    const oldAttribution = {
+      byCampaign: {
+        'winner-old': { revenueCents: 10000, sales: 5 },
+        'donor-old': { revenueCents: 0, sales: 0 },
+      },
+    }
+    assert.ok(planSelfHealing([oldWinner, donor], oldAttribution, rule, 20), 'autocura continua disponível entre campanhas maduras')
+    const youngAttribution = {
+      byCampaign: {
+        'winner-young': { revenueCents: 10000, sales: 5 },
+        'donor-old': { revenueCents: 0, sales: 0 },
+      },
+    }
+    assert.strictEqual(
+      planSelfHealing([youngWinner, donor], youngAttribution, rule, 20),
+      null,
+      'campanha em aprendizado não participa da transferência automática',
+    )
+  }
+
   // ── dayparting: janela normal / cruzando meia-noite / dias ────────────────
   {
     const { scheduleActiveNow } = automation._internals;
