@@ -16,6 +16,7 @@ const sw = fs.readFileSync(path.join(root, 'dashboard/public/sw.js'), 'utf8')
 const manifest = fs.readFileSync(path.join(root, 'dashboard/app/manifest.ts'), 'utf8')
 const copy = fs.readFileSync(path.join(root, 'notify-copy.js'), 'utf8')
 const bell = fs.readFileSync(path.join(root, 'dashboard/components/shell/notification-bell.tsx'), 'utf8')
+const activity = fs.readFileSync(path.join(root, 'dashboard/components/activity/activity-view.tsx'), 'utf8')
 const configView = fs.readFileSync(path.join(root, 'dashboard/components/config/config-view.tsx'), 'utf8')
 const companionCard = fs.readFileSync(path.join(root, 'dashboard/components/config/iphone-companion-card.tsx'), 'utf8')
 
@@ -27,6 +28,8 @@ assert(refinement.includes('dashboard-page-enter 220ms') && refinement.includes(
 assert(refinement.includes("html[data-anim='off'] .refined-dashboard .dashboard-main > *"), 'entrada de página deve respeitar reduzir animações')
 assert(toaster.includes('roi-toast-in') && !toaster.includes('anim-pop-spring pointer-events-auto'), 'toast deve usar uma única entrada curta')
 assert(toaster.includes('animationDuration: `${t.duration}ms`'), 'barra de vida do toast deve acompanhar a duração real')
+assert(activity.includes('seenEventIdsRef') && activity.includes('activity-sale-arrival'), 'somente vendas novas devem receber feedback visual ao vivo')
+assert(globals.includes('@keyframes roiSaleArrival') && globals.includes("html[data-anim='off'] .activity-sale-arrival::after"), 'destaque de venda deve ser curto e respeitar redução de movimento')
 
 assert(pushClient.includes("platform: 'ios' | 'other'") && pushClient.includes('iOS/iPadOS 16.4'), 'detecção deve explicar requisito real do Web Push no iPhone')
 assert(pushClient.includes("navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1"), 'detecção iPadOS deve cobrir user agent desktop')
