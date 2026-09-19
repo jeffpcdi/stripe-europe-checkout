@@ -52,13 +52,15 @@ assert(!/email|phone|customer|orderId/i.test(widgetBlock), 'snapshot do widget n
 assert(widgetBlock.includes('revenueCents') && widgetBlock.includes('netProfitCents') && widgetBlock.includes('roas'), 'widget deve receber KPIs executivos reais')
 
 assert(config.includes("companion: {") && config.includes("devices: devices.slice(0, 6)"), 'config deve limitar e sanitizar aparelhos nativos')
+assert(config.includes("preferNativeIOS: source.preferNativeIOS === true"), 'preferência pelo canal nativo deve ser explícita e persistida')
 assert(webPush.includes('note && note.skipIOSWebPush'), 'Web Push deve ceder iPhone ao companion nativo para evitar duplicação')
 assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaIOS(notificationName'), 'fan-out deve incluir APNs nativo')
 assert(fanout.includes("event === 'test' || event === 'daily'"), 'brief diário opt-in deve atravessar Web Push/APNs mesmo com grupos desligados')
-assert(fanout.includes('note.skipIOSWebPush'), 'fan-out deve sinalizar supressão do Web Push no iPhone pareado')
+assert(fanout.includes('companion.preferNativeIOS === true') && fanout.includes('note.skipIOSWebPush'), 'Web Push do iPhone só deve ser suprimido por preferência explícita')
 
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
+assert(companionCard.includes('Preferir Companion no iPhone'), 'usuário deve controlar a troca de Web Push para APNs nativo')
 assert(widgetSwift.includes('Receita, vendas, ROAS e lucro do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])'), 'widget deve cobrir Tela de Início e uma superfície enxuta da Tela Bloqueada')
 assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
