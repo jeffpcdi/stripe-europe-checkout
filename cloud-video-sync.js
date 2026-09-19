@@ -365,12 +365,10 @@ async function tick() {
   try {
     await ensureSchema();
     const rows = await sql`SELECT account_id, provider FROM cloud_video_connections ORDER BY updated_at`;
-    const adsCache = require('./ads-cache-store');
     for (const row of rows) {
       const pref = (config.get(row.account_id).cloudVideo || {})[row.provider] || {};
       if (!pref.enabled) continue;
-      const states = await adsCache.listSyncStates(row.account_id).catch(() => []);
-      const advertiserId = String(pref.advertiserId || states[0] && states[0].advertiser_id || '');
+      const advertiserId = String(pref.advertiserId || '').trim();
       if (!advertiserId) continue;
       await syncOne(row.account_id, row.provider, advertiserId).catch((error) => console.warn('[cloud-video] ' + row.provider + ': ' + error.message));
     }
