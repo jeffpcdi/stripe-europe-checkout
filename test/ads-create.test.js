@@ -10,6 +10,19 @@ const path = require('path');
 // do módulo e chama pipeboard.callTool em runtime, então o patch pega tudo
 // (inclusive getAdvertiserInfo/setCampaignStatus internos).
 const mcp = require('../pipeboard-mcp');
+const config = require('../config');
+const testConfig = new Map();
+let durableConfigWrites = 0;
+config.get = (accountId) => testConfig.get(String(accountId || '')) || {};
+config.setDurable = async (accountId, patch) => {
+  durableConfigWrites += 1;
+  const key = String(accountId || '');
+  const current = testConfig.get(key) || {};
+  const resolved = typeof patch === 'function' ? patch({ ...current }) : (patch || {});
+  const next = { ...current, ...resolved };
+  testConfig.set(key, next);
+  return next;
+};
 const toolCalls = [];
 let failOn = null; // nome de tool que deve falhar (simula erro do TikTok)
 const responses = {
@@ -91,15 +104,20 @@ const baseSpec = {
   // ── CTA dinâmico: portfolio verificado + call_to_action_id exclusivo ──────
   {
     resetCalls();
+    durableConfigWrites = 0;
+    testConfig.delete('tenant-cta-test');
     const portfolio = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
     assert.strictEqual(portfolio.id, 'cta_auto_1');
     assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'portfolio é criado uma vez');
     assert.strictEqual(callsTo('get_tiktok_cta_portfolio').length, 1, 'portfolio é verificado antes do uso');
+    assert.strictEqual(durableConfigWrites, 1, 'ID remoto só é considerado pronto após persistência durável');
+    assert.strictEqual(testConfig.get('tenant-cta-test').pipeboardAds.ctaPortfolios['adv1|SHOP_NOW,LEARN_MORE'].id, 'cta_auto_1');
 
     const reused = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
     assert.strictEqual(reused.id, 'cta_auto_1');
     assert.strictEqual(reused.reused, true);
     assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'segunda criação reutiliza o ID persistido');
+    assert.strictEqual(durableConfigWrites, 1, 'reuso não regrava configuração sem necessidade');
 
     resetCalls();
     await provider.createFullAd('adv1', { ...baseSpec, callToAction: 'SHOP_NOW', callToActionId: 'cta_auto_1' });
