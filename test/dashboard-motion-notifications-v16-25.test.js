@@ -30,6 +30,7 @@ assert(toaster.includes('roi-toast-in') && !toaster.includes('anim-pop-spring po
 assert(toaster.includes('animationDuration: `${t.duration}ms`'), 'barra de vida do toast deve acompanhar a duração real')
 assert(activity.includes('seenEventIdsRef') && activity.includes('activity-sale-arrival'), 'somente vendas novas devem receber feedback visual ao vivo')
 assert(globals.includes('@keyframes roiSaleArrival') && globals.includes("html[data-anim='off'] .activity-sale-arrival::after"), 'destaque de venda deve ser curto e respeitar redução de movimento')
+assert(globals.includes('@keyframes roiSalePulse') && globals.includes("data-roi-sale-pulse='on'"), 'venda em foreground deve ter um único pulso dentro da dashboard')
 
 assert(pushClient.includes("platform: 'ios' | 'other'") && pushClient.includes('iOS/iPadOS 16.4'), 'detecção deve explicar requisito real do Web Push no iPhone')
 assert(pushClient.includes("navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1"), 'detecção iPadOS deve cobrir user agent desktop')
@@ -44,10 +45,11 @@ assert(pushCard.includes('setSupport(checkSupport())'), 'estado de permissão de
 assert(notifyPrefs.includes('roi-sound-enabled') && notifyPrefs.includes('getSoundMasterEnabled()'), 'som local deve poder ser desligado por aparelho')
 assert(pushSound.includes("document.visibilityState !== 'visible'"), 'WebAudio não deve duplicar alerta quando dashboard está em background')
 assert(pushSound.includes("toast.success(title || 'Venda aprovada'") && pushSound.includes("eventName === 'daily'"), 'push em foreground deve virar feedback profissional dentro da dashboard')
+assert(pushSound.includes('dataset.roiSalePulse') && pushSound.includes("roi:foreground-notification"), 'feedback de venda deve animar o painel e avisar métricas em tempo real')
 assert(sw.includes('type: "roi-notification"') && sw.includes('priority: data.priority || "normal"'), 'service worker deve entregar contexto rico ao foreground')
 const saleAlerts = fs.readFileSync(path.join(root, 'dashboard/lib/sale-alerts.ts'), 'utf8')
 assert(!saleAlerts.includes('Math.random() * 2 - 1'), 'som de venda não deve usar ruído branco mecânico')
-assert(saleAlerts.includes("freq: 880") && saleAlerts.includes("freq: 1320"), 'som de venda deve ser curto e tonal')
+assert(saleAlerts.includes("freq: 880") && saleAlerts.includes("freq: 1320") && saleAlerts.includes("freq: 1760"), 'som de venda deve usar a assinatura tonal curta do ROI-NADOS')
 assert(!fs.existsSync(path.join(root, 'dashboard/public/cash.mp3')), 'asset legado de áudio não utilizado deve permanecer removido')
 
 assert(sw.includes('data.badge === true') && sw.includes('self.navigator.setAppBadge()'), 'push relevante deve atualizar badge do app instalado')
