@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
-import { apiSend, useCloakTestProfiles } from '@/lib/api'
+import { apiSend, useCloakEntries, useCloakStats, useCloakTestProfiles } from '@/lib/api'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import type { CloakTestResult } from '@/lib/types'
 import { CloakConfigPanel } from './cloak-config-panel'
 import { CloakStatsPanel } from './cloak-stats-panel'
@@ -13,7 +14,14 @@ import { describeSignal, LAYER_META, type SignalLayer } from './signal-labels'
 type CloakTab = 'overview' | 'rules' | 'traffic'
 
 export function CloakView() {
-  const [activeTab, setActiveTab] = useState<CloakTab>('overview')
+  const [activeTab, setActiveTab] = usePersistedState<CloakTab>('cloak:tab', 'traffic')
+  const { data: campaignsData } = useCloakEntries()
+  const { data: statsData } = useCloakStats()
+  const campaigns = campaignsData?.entries ?? []
+  const activeCampaigns = campaigns.filter((campaign) => campaign.enabled).length
+  const totalDecisions = (statsData?.links ?? [])
+    .filter((link) => link.tipo === 'cloak')
+    .reduce((sum, link) => sum + Number(link.total || 0), 0)
   const tabClass = 'relative -mb-px min-h-11 shrink-0 border-b-2 border-transparent px-0.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand-cyan/25 data-[state=active]:border-brand-cyan data-[state=active]:text-foreground'
 
   useEffect(() => {
@@ -23,15 +31,31 @@ export function CloakView() {
     }
     window.addEventListener('roinados:cloak-tab', onTourTab)
     return () => window.removeEventListener('roinados:cloak-tab', onTourTab)
-  }, [])
+  }, [setActiveTab])
+
+  useEffect(() => {
+    if (campaignsData && campaignsData.entries.length === 0 && activeTab !== 'traffic') setActiveTab('traffic')
+  }, [campaignsData, activeTab, setActiveTab])
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
+      <header className="space-y-1">
+        <h1 className="text-lg font-semibold text-foreground">Cloaker</h1>
+        <p className="text-xs leading-relaxed text-muted-foreground">Crie campanhas protegidas, publique a URL no anúncio e acompanhe as decisões de tráfego.</p>
+        {campaignsData && campaigns.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
+            <span><strong className="font-semibold tabular-nums text-foreground">{campaigns.length}</strong> campanha{campaigns.length === 1 ? '' : 's'}</span>
+            <span><strong className="font-semibold tabular-nums text-foreground">{activeCampaigns}</strong> ativa{activeCampaigns === 1 ? '' : 's'}</span>
+            <span><strong className="font-semibold tabular-nums text-foreground">{totalDecisions.toLocaleString('pt-BR')}</strong> decisões</span>
+          </div>
+        )}
+      </header>
+
       <Tabs.Root value={activeTab} onValueChange={(value) => setActiveTab(value as CloakTab)} className="flex flex-col gap-5">
         <Tabs.List className="flex max-w-full items-center gap-6 overflow-x-auto border-b border-border/60" aria-label="Áreas do Cloaker">
+          <Tabs.Trigger value="traffic" className={tabClass}>Campanhas</Tabs.Trigger>
           <Tabs.Trigger value="overview" className={tabClass}>Resultados</Tabs.Trigger>
-          <Tabs.Trigger value="rules" className={tabClass}>Regras</Tabs.Trigger>
-          <Tabs.Trigger value="traffic" className={tabClass}>Links</Tabs.Trigger>
+          <Tabs.Trigger value="rules" className={tabClass}>Proteção</Tabs.Trigger>
         </Tabs.List>
 
         <Tabs.Content value="overview" className="outline-none">

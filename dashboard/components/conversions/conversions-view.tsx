@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useSWRConfig } from 'swr'
 import { Modal } from '@/components/ui/modal'
 import {
@@ -105,8 +106,28 @@ export function ConversionsView() {
   const gateways = gwData?.gateways ?? []
   const providers = gwData?.providers ?? []
 
-  // Navegação por Abas (foco em Pixels e Checkouts)
-  const [activeTab, setActiveTab] = useState<TabKey>('pixels')
+  // Navegação por abas é URL-addressable: redirects, onboarding e diagnósticos
+  // podem abrir diretamente Pixels, Checkouts ou Entregas.
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const initialTab: TabKey = requestedTab === 'gateways' || requestedTab === 'logs' ? requestedTab : 'pixels'
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
+
+  useEffect(() => {
+    const next: TabKey = requestedTab === 'gateways' || requestedTab === 'logs' ? requestedTab : 'pixels'
+    setActiveTab((current) => current === next ? current : next)
+  }, [requestedTab])
+
+  const selectTab = useCallback((next: TabKey) => {
+    setActiveTab(next)
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'pixels') params.delete('tab')
+    else params.set('tab', next)
+    const query = params.toString()
+    router.replace(pathname + (query ? `?${query}` : ''), { scroll: false })
+  }, [pathname, router, searchParams])
 
   // Filtros e Buscas
   const [pixelSearch, setPixelSearch] = useState('')
@@ -397,8 +418,9 @@ export function ConversionsView() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight text-foreground">Pixel &amp; Conversões</h1>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Configure pixels, conecte checkouts e acompanhe a entrega real das conversões.</p>
           </div>
           <button
             type="button"
@@ -460,7 +482,7 @@ export function ConversionsView() {
                 {testingGwId === syncValidation.failedGateway.id ? 'Testando…' : 'Testar novamente'}
               </button>
             ) : null}
-            <button type="button" onClick={() => setActiveTab('logs')} className="text-xs font-medium text-foreground transition-colors hover:text-brand-cyan">
+            <button type="button" onClick={() => selectTab('logs')} className="text-xs font-medium text-foreground transition-colors hover:text-brand-cyan">
               Ver entregas
             </button>
           </div>
@@ -473,7 +495,7 @@ export function ConversionsView() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'pixels'}
-            onClick={() => setActiveTab('pixels')}
+            onClick={() => selectTab('pixels')}
             className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'pixels' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <span>Pixels</span>
@@ -485,7 +507,7 @@ export function ConversionsView() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'gateways'}
-            onClick={() => setActiveTab('gateways')}
+            onClick={() => selectTab('gateways')}
             className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'gateways' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <span>Checkouts</span>
@@ -497,7 +519,7 @@ export function ConversionsView() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'logs'}
-            onClick={() => setActiveTab('logs')}
+            onClick={() => selectTab('logs')}
             className={`relative flex shrink-0 items-center gap-2 py-3 text-sm font-medium transition-colors ${activeTab === 'logs' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <span>Entregas</span>

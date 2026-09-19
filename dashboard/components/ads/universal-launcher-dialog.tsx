@@ -1,6 +1,7 @@
 'use client'
 
 import { SavedVideos } from './saved-videos'
+import { AdDestinationField } from './ad-destination-field'
 import { creativeFileError } from '@/lib/ads-upload'
 
 import { MarketSelector, defaultMarket } from './market-selector'
@@ -10,7 +11,6 @@ import { MoneyField } from '@/components/ui/money-field'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  X,
   UploadCloud,
   Loader2,
   Trash2,
@@ -18,7 +18,6 @@ import {
   ChevronUp,
   CheckCircle2,
   AlertCircle,
-  Link as LinkIcon,
   RotateCcw,
 } from 'lucide-react'
 import { apiSend, adsUpload, useAdsBulkJob, useAdsTikTokPixels } from '@/lib/api'
@@ -500,15 +499,15 @@ export function UniversalLauncherDialog({
                   <h3 className="launch-section-title">Destino e mercado</h3>
                   <p className="launch-section-copy">Defina para onde o clique vai e em qual mercado a campanha poderá entregar.</p>
                   <div className="mt-4 space-y-4">
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-medium text-foreground">Página de vendas</span>
-                      <div className="relative">
-                        <LinkIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <input id="launcher-link" type="url" value={linkUrl} onChange={e => { setLinkUrl(e.target.value); setLaunchError(null) }} placeholder="https://meusite.com/produto" className="launch-input pl-10 pr-16" />
-                        {!linkUrl ? <button type="button" onClick={async () => { try { const value = await navigator.clipboard.readText(); if (value) setLinkUrl(value.trim()) } catch {} }} className="absolute right-2 top-1/2 min-h-10 -translate-y-1/2 rounded-md px-2 text-xs font-medium text-primary">Colar</button> : <button type="button" onClick={() => setLinkUrl('')} className="absolute right-2 top-1/2 min-h-10 -translate-y-1/2 p-1 text-muted-foreground" aria-label="Limpar link"><X className="size-4" /></button>}
-                      </div>
-                      {destinationInvalid && <span className="mt-1.5 block text-xs text-error">Use uma URL HTTPS válida.</span>}
-                    </label>
+                    <AdDestinationField
+                      id="launcher-link"
+                      value={linkUrl}
+                      onChange={(value) => { setLinkUrl(value); setLaunchError(null) }}
+                      disabled={submitting || localUploadBusy}
+                      label="Página de vendas"
+                      cloakTrafficSource="tiktok_standard"
+                    />
+                    {destinationInvalid && <span className="-mt-2 block text-xs text-error">Use uma URL HTTPS válida.</span>}
                     <MarketSelector appearance="creation" value={market} onChange={setMarket} disabled={submitting} />
                   </div>
                 </section>

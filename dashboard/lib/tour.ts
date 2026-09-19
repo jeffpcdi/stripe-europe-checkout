@@ -37,7 +37,7 @@ const OVERVIEW_TOUR: Tour = {
     {
       target: 'period',
       title: 'Período',
-      body: 'Receita, gasto, ROAS e funil usam a mesma janela no fuso de Brasília: hoje, 7 dias, 30 dias ou tudo.',
+      body: 'Receita, gasto, ROAS e funil usam a mesma janela e o fuso configurado na conta: hoje, 7 dias, 30 dias ou tudo.',
     },
     {
       target: 'confidence',
@@ -57,7 +57,7 @@ const OVERVIEW_TOUR: Tour = {
     {
       target: 'live-badge',
       title: 'Ao vivo',
-      body: 'Este ponto verde pulsa quando o rastreamento está saudável. Toque para ver visitantes em tempo real.',
+      body: 'Este indicador mostra quantos visitantes estão ativos agora. O botão ao lado atualiza presença e indicadores da Visão Geral.',
     },
   ],
 }
@@ -126,7 +126,7 @@ const LINKS_TOUR: Tour = {
     {
       target: 'links-list',
       title: 'Seus links',
-      body: 'Cada card mostra cliques, o destino e o domínio usado. Toque para editar destino, split A/B e cloak.',
+      body: 'Cada card mostra cliques, conversões, destino e domínio. Abra Detalhes para revisar split A/B, pixel e destino seguro.',
     },
     {
       target: 'links-qr',
@@ -195,7 +195,7 @@ const DOMAINS_TOUR: Tour = {
     {
       target: 'domains-add',
       title: 'Adicionar domínio',
-      body: 'Digite um subdomínio seu. Depois do cadastro, os registros DNS aparecem e a verificação acompanha o progresso automaticamente.',
+      body: 'Digite um subdomínio seu e escolha se ele será dedicado aos Links de venda ou ao Cloaker. Depois, acompanhe DNS e HTTPS.',
     },
     {
       target: 'domains-list',
@@ -214,13 +214,13 @@ const CLOAK_TOUR: Tour = {
     {
       target: 'cloak-stats',
       title: 'Resultados',
-      body: 'Veja quantos acessos seguiram para o destino principal ou seguro, os principais motivos de desvio e quais links concentram essas decisões.',
+      body: 'Veja quantos acessos seguiram para o destino principal ou seguro, os motivos de desvio e quais campanhas concentram essas decisões.',
       activate: { event: 'roinados:cloak-tab', value: 'overview' },
     },
     {
       target: 'cloak-config',
       title: 'Configurar proteção',
-      body: 'Ative a proteção, escolha o comportamento para acessos suspeitos, ajuste a sensibilidade e defina o destino seguro padrão. As opções técnicas ficam em Configurações avançadas.',
+      body: 'Revise os controles da conta: proteção dos links de venda, observação das campanhas Cloaker, destino seguro padrão e opções avançadas.',
       activate: { event: 'roinados:cloak-tab', value: 'rules' },
     },
     {
@@ -231,8 +231,8 @@ const CLOAK_TOUR: Tour = {
     },
     {
       target: 'cloak-links',
-      title: 'Links protegidos',
-      body: 'Crie URLs com destinos e regras próprias. Cada link mostra a proteção efetiva, sensibilidade, segmentação, testes e histórico.',
+      title: 'Campanhas',
+      body: 'Crie campanhas com URL pública, destinos e proteção própria. Depois use “Usar no anúncio” para copiar URL e parâmetros.',
       activate: { event: 'roinados:cloak-tab', value: 'traffic' },
     },
   ],
@@ -310,7 +310,7 @@ export function tourForPath(pathname: string, search = ''): Tour | null {
   // Conversões funde Gateways+Pixels; o tour segue o segmento aberto (?tab=).
   if (pathname.startsWith('/conversions')) {
     const seg = new URLSearchParams(search).get('tab')
-    return seg === 'pixels' ? PIXELS_TOUR : GATEWAYS_TOUR
+    return seg === 'gateways' ? GATEWAYS_TOUR : PIXELS_TOUR
   }
   if (pathname.startsWith('/pixels')) return PIXELS_TOUR
   if (pathname.startsWith('/gateways')) return GATEWAYS_TOUR

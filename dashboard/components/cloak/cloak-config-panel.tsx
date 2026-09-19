@@ -184,9 +184,9 @@ export function CloakConfigPanel() {
   return (
     <section className="[&_[role=switch]]:shadow-none">
       <header className="mb-6">
-        <h2 className="text-base font-semibold text-foreground">Proteção global</h2>
+        <h2 className="text-base font-semibold text-foreground">Proteção da conta</h2>
         <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-          Defina como os links protegidos tratam acessos considerados suspeitos.
+          Links de venda e campanhas do Cloaker usam escopos diferentes. Cada controle abaixo indica exatamente onde é aplicado.
         </p>
       </header>
 
@@ -194,30 +194,24 @@ export function CloakConfigPanel() {
         <section aria-labelledby="cloak-protection-state">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h3 id="cloak-protection-state" className="text-sm font-medium text-foreground">Proteção</h3>
+              <h3 id="cloak-protection-state" className="text-sm font-medium text-foreground">Proteção dos links de venda</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">{cfg.enabled ? 'Ativa' : 'Desligada'}</p>
             </div>
-            <Switch checked={cfg.enabled} onChange={(v) => patch({ enabled: v })} label="Cloaking ativado" />
+            <Switch checked={cfg.enabled} onChange={(v) => patch({ enabled: v })} label="Proteção dos links de venda" />
           </div>
 
           <p
-            className={`mt-3 text-sm leading-relaxed ${
-              !cfg.enabled || cfg.shadowMode ? 'text-warning' : 'text-muted-foreground'
-            }`}
+            className={`mt-3 text-sm leading-relaxed ${!cfg.enabled ? 'text-warning' : 'text-muted-foreground'}`}
           >
             {!cfg.enabled
-              ? 'Proteção desligada · todos os acessos seguem para o destino principal.'
-              : cfg.shadowMode
-                ? 'Modo observação · os acessos são classificados, mas não são redirecionados.'
-                : 'Acessos considerados suspeitos seguem para o destino seguro.'}
+              ? 'Os links de venda deixam de aplicar o filtro de tráfego. As campanhas do Cloaker mantêm a configuração própria.'
+              : 'Os links de venda aplicam a sensibilidade e as camadas configuradas nesta página.'}
           </p>
         </section>
 
         <fieldset>
-          <legend className="text-sm font-medium text-foreground">Quando um acesso for considerado suspeito</legend>
-          {!cfg.enabled && (
-            <p className="mt-1 text-xs text-muted-foreground">Esta escolha será usada quando a proteção estiver ativa.</p>
-          )}
+          <legend className="text-sm font-medium text-foreground">Observação das campanhas Cloaker</legend>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Quando ativado, força todas as campanhas do Cloaker a apenas classificar e registrar, sem redirecionar acessos suspeitos. Não altera os links de venda.</p>
           <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
             <label className="flex cursor-pointer items-start gap-3 py-3.5">
               <input
@@ -228,9 +222,9 @@ export function CloakConfigPanel() {
                 className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
               />
               <span>
-                <span className="block text-sm font-medium text-foreground">Enviar para o destino seguro</span>
+                <span className="block text-sm font-medium text-foreground">Usar a decisão de cada campanha</span>
                 <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                  A proteção redireciona o acesso suspeito.
+                  Cada campanha do Cloaker decide entre observar ou enviar acessos suspeitos ao destino seguro.
                 </span>
               </span>
             </label>
@@ -243,9 +237,9 @@ export function CloakConfigPanel() {
                 className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
               />
               <span>
-                <span className="block text-sm font-medium text-foreground">Somente observar</span>
+                <span className="block text-sm font-medium text-foreground">Forçar somente observação</span>
                 <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                  Classifica o acesso, mas mantém o destino principal.
+                  Classifica e registra, mas mantém todos os acessos no destino principal.
                 </span>
               </span>
             </label>
@@ -253,9 +247,9 @@ export function CloakConfigPanel() {
         </fieldset>
 
         <fieldset>
-          <legend className="text-sm font-medium text-foreground">Sensibilidade</legend>
+          <legend className="text-sm font-medium text-foreground">Sensibilidade dos links de venda</legend>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Limites menores tornam a proteção mais sensível; limites maiores reduzem falsos positivos.
+            Controla o filtro aplicado nos links de checkout rastreados. Campanhas do Cloaker possuem sensibilidade própria.
           </p>
 
           <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
@@ -302,7 +296,7 @@ export function CloakConfigPanel() {
         <label className="block">
           <span className="text-sm font-medium text-foreground">Destino seguro padrão</span>
           <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-            Usado quando um link protegido não possui destino seguro próprio. Deixe vazio para usar a página neutra do ROI-NADOS.
+            Usado por links de venda e campanhas do Cloaker quando não existe um destino seguro próprio. Deixe vazio para usar a página neutra do ROI-NADOS.
           </span>
           <input
             value={cfg.defaultWhitePage ?? ''}
@@ -322,7 +316,7 @@ export function CloakConfigPanel() {
             <span>
               <span className="block text-sm font-semibold text-foreground">Configurações avançadas</span>
               <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                Limites por IP, bloqueios recorrentes e camadas técnicas de detecção.
+                Limites das campanhas Cloaker e camadas técnicas dos links de venda.
               </span>
             </span>
             <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -332,7 +326,7 @@ export function CloakConfigPanel() {
             <section>
               <h3 className="text-sm font-medium text-foreground">Limite de acessos por IP</h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Aplica a política de proteção quando o mesmo IP ultrapassa o volume configurado dentro da janela.
+                Nas campanhas do Cloaker, eleva o risco quando o mesmo IP ultrapassa o volume configurado dentro da janela.
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label>
@@ -375,7 +369,7 @@ export function CloakConfigPanel() {
                 <div className="min-w-0">
                   <h3 className="text-sm font-medium text-foreground">Bloqueio automático por anúncio</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Bloqueia temporariamente o mesmo IP quando ele acumula acessos de alto risco no mesmo anúncio.
+                    Nas campanhas do Cloaker, bloqueia temporariamente o mesmo IP quando ele acumula acessos de alto risco no mesmo anúncio.
                   </p>
                 </div>
                 <Switch
@@ -431,9 +425,9 @@ export function CloakConfigPanel() {
             </section>
 
             <section className="border-t border-border/60 pt-5">
-              <h3 className="text-sm font-medium text-foreground">Camadas de detecção</h3>
+              <h3 className="text-sm font-medium text-foreground">Camadas dos links de venda</h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Ajustes técnicos do motor. As configurações padrão atendem à maioria das operações.
+                Ajustes técnicos usados pelo filtro dos links de checkout. As campanhas do Cloaker mantêm suas próprias camadas de proteção.
               </p>
 
               <div className="mt-3 grid gap-x-6 sm:grid-cols-2">

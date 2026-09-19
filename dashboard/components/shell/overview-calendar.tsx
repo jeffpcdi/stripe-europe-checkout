@@ -11,7 +11,7 @@ export function OverviewCalendar() {
   const label = PERIODS.find(item => item.id === period)?.label
   return <DropdownMenu.Root>
     <DropdownMenu.Trigger asChild>
-      <button type="button" className="premium-navbar__calendar" aria-label={`Período global da dashboard: ${label}`}>
+      <button type="button" data-tour="period" className="premium-navbar__calendar" aria-label={`Período global da dashboard: ${label}`}>
         <CalendarDays size={18} aria-hidden="true" /><span>{label}</span><ChevronDown size={14} aria-hidden="true" />
       </button>
     </DropdownMenu.Trigger>

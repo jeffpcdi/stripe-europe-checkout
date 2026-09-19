@@ -7,6 +7,8 @@ import {
   ShieldAlert,
   Settings,
   Megaphone,
+  Bell,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -25,6 +27,8 @@ export type ViewId =
   | 'ads'
   | 'catalog'
   | 'config'
+  | 'config-alerts'
+  | 'config-security'
 
 export interface NavItem {
   id: ViewId
@@ -52,7 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Visão geral',
     icon: LayoutDashboard,
     href: '/',
-    routes: ['/'],
+    routes: ['/', '/activity', '/funnel', '/geo', '/live'],
   },
   // Fase 3: grupo "Análises" (Funil + Atividade) removido da navegação — o
   // funil compacto e o ranking de campanhas agora vivem na Visão Geral. As
@@ -68,7 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Links', href: '/links' },
       { label: 'Cloaker', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Pixel', href: '/conversions' },
+      { label: 'Conversões', href: '/conversions' },
     ],
   },
   {
@@ -102,12 +106,14 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     { id: 'ads', label: 'TikTok Ads', description: 'Campanhas e automações', icon: Megaphone, href: '/ads/tiktok' },
   ] },
   { title: 'Rastreamento', items: [
-    { id: 'conversions', label: 'Pixel', description: 'Pixels e checkouts', icon: CreditCard, href: '/conversions' },
+    { id: 'conversions', label: 'Conversões', description: 'Pixels, checkouts e entregas', icon: CreditCard, href: '/conversions' },
     { id: 'links', label: 'Links', description: 'Links e destinos', icon: Link2, href: '/links' },
     { id: 'domains', label: 'Domínios', description: 'Endereços próprios dos seus links', icon: Globe, href: '/domains' },
     { id: 'cloak', label: 'Cloaker', description: 'Filtro de acessos', icon: ShieldAlert, href: '/cloak' },
   ] },
   { title: 'Conta', items: [
     { id: 'config', label: 'Conta', description: 'Preferências e segurança', icon: Settings, href: '/config' },
+    { id: 'config-alerts', label: 'Alertas', description: 'Resumo diário e push', icon: Bell, href: '/config?tab=notifications' },
+    { id: 'config-security', label: 'Segurança', description: 'Senha, 2FA e sessões', icon: ShieldCheck, href: '/config?tab=security' },
   ] },
 ]

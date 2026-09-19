@@ -6,12 +6,13 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Menu, X } from 'lucide-react'
-import { NAV_SECTIONS } from '@/lib/navigation'
+import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 export function MobileNav() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+  const group = activeGroup(pathname)
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -40,7 +41,15 @@ export function MobileNav() {
                 <p className="mb-1.5 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{section.title}</p>
                 <ul className="flex flex-col gap-0.5">
                   {section.items.map((item) => {
-                    const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+                    const active = item.id === 'overview'
+                      ? group.id === 'overview'
+                      : item.id === 'ads'
+                        ? group.id === 'ads'
+                        : item.id === 'config'
+                          ? group.id === 'config'
+                          : item.href === '/conversions'
+                            ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+                            : pathname.startsWith(item.href)
                     return (
                       <li key={item.id}>
                         <Link href={item.href} onClick={() => setOpen(false)} aria-current={active ? 'page' : undefined} className={cn('flex min-h-[44px] items-center gap-3 rounded-[12px] px-3 py-2.5 text-[15px] font-medium transition-colors duration-150', active ? 'bg-brand-cyan/10 text-white shadow-[inset_2px_0_0_#25f4ee]' : 'text-muted-foreground hover:bg-white/5 hover:text-white')}>

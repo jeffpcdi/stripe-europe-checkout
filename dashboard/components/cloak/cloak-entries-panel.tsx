@@ -22,6 +22,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/toast'
 import { CloakEntryEditor } from './cloak-entry-editor'
 import { CloakDecisionLog } from './cloak-decision-log'
+import { CloakLinkKitDialog } from './cloak-link-kit-dialog'
 
 // Espelha os thresholds usados pelo motor. `custom` usa o threshold gravado no entry.
 const SENS_THRESHOLD: Record<string, number> = { strict: 30, balanced: 40, loose: 55 }
@@ -53,6 +54,7 @@ export function CloakEntriesPanel() {
   const [deleting, setDeleting] = useState<CloakEntry | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [logOpen, setLogOpen] = useState<string | null>(null)
+  const [publishing, setPublishing] = useState<CloakEntry | null>(null)
 
   const entries = data?.entries ?? []
   const baseUrl = data?.baseUrl ?? ''
@@ -72,10 +74,12 @@ export function CloakEntriesPanel() {
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
   }, [])
 
-  const statBySlug = useMemo(() => {
+  const statByCampaign = useMemo(() => {
     const m: Record<string, { offer: number; white: number; total: number; blockRate: number }> = {}
     for (const l of statsData?.links ?? []) {
-      if (l.tipo === 'cloak') m[l.slug] = { offer: l.offer, white: l.white, total: l.total, blockRate: l.blockRate }
+      if (l.tipo !== 'cloak') continue
+      const key = l.campaignId ? `campaign:${l.campaignId}` : `legacy:${l.slug}`
+      m[key] = { offer: l.offer, white: l.white, total: l.total, blockRate: l.blockRate }
     }
     return m
   }, [statsData])
@@ -87,6 +91,11 @@ export function CloakEntriesPanel() {
 
   function campaignIdFor(e: CloakEntry) {
     return e.id || e.campaignId || ''
+  }
+
+  function campaignKeyFor(e: CloakEntry) {
+    const id = campaignIdFor(e)
+    return id ? `campaign:${id}` : `legacy:${e.slug}`
   }
 
   function historyKeyFor(e: CloakEntry) {
@@ -120,19 +129,10 @@ export function CloakEntriesPanel() {
   }
 
   function handleCopy(e: CloakEntry) {
+    const key = campaignKeyFor(e)
     navigator.clipboard.writeText(urlFor(e)).then(() => {
-      setCopied(e.slug)
+      setCopied('url:' + key)
       setCopyAnnounce(`URL da campanha ${e.nome} copiada para a área de transferência.`)
-      setTimeout(() => setCopied(null), 2000)
-    })
-  }
-
-  function handleCopyParams(e: CloakEntry) {
-    const params = e.linkKit?.urlParams
-    if (!params) return
-    navigator.clipboard.writeText(params).then(() => {
-      setCopied('params:' + e.slug)
-      setCopyAnnounce(`Parâmetros da campanha ${e.nome} copiados para a área de transferência.`)
       setTimeout(() => setCopied(null), 2000)
     })
   }
@@ -150,9 +150,9 @@ export function CloakEntriesPanel() {
       await apiSend(endpoint, 'DELETE')
       removed = true
       setDeleting(null)
-      toast.success(`Link protegido "${target.nome}" removido.`)
+      toast.success(`Campanha "${target.nome}" removida.`)
     } catch (err) {
-      toast.error('Falha ao remover o link.', {
+      toast.error('Falha ao remover a campanha.', {
         hint: err instanceof Error ? err.message : undefined,
       })
     } finally {
@@ -162,7 +162,7 @@ export function CloakEntriesPanel() {
       try {
         await mutate()
       } catch (error) {
-        toast.info('Link removido, mas a lista não atualizou completamente', {
+        toast.info('Campanha removida, mas a lista não atualizou completamente', {
           hint: error instanceof Error ? error.message : undefined,
         })
       }
@@ -171,10 +171,11 @@ export function CloakEntriesPanel() {
 
   async function handleTest(e: CloakEntry) {
     if (testing) return
-    setTesting(e.slug)
+    const key = campaignKeyFor(e)
+    setTesting(key)
     try {
       const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', { slug: e.slug, campaignId: campaignIdFor(e) || undefined })
-      setTestResult((prev) => ({ ...prev, [e.slug]: r }))
+      setTestResult((prev) => ({ ...prev, [key]: r }))
     } catch (err) {
       toast.error(`Falha ao testar "${e.nome}"`, {
         hint: err instanceof Error ? err.message : undefined,
@@ -184,12 +185,12 @@ export function CloakEntriesPanel() {
     }
   }
 
-  // Liga/desliga somente a proteção. A URL /c continua funcionando quando disabled.
+  // Liga/desliga somente a proteção da campanha; a URL pública continua existindo quando disabled.
   async function toggleEnabled(e: CloakEntry) {
     const next = !e.enabled
     const previous = data
     await mutate(
-      data ? { ...data, entries: entries.map((x) => (x.slug === e.slug ? { ...x, enabled: next } : x)) } : data,
+      data ? { ...data, entries: entries.map((x) => (campaignKeyFor(x) === campaignKeyFor(e) ? { ...x, enabled: next } : x)) } : data,
       { revalidate: false },
     )
     try {
@@ -214,11 +215,11 @@ export function CloakEntriesPanel() {
     }
   }
 
-  function toggleSelect(slug: string) {
+  function toggleSelect(key: string) {
     setSelected((prev) => {
       const n = new Set(prev)
-      if (n.has(slug)) n.delete(slug)
-      else n.add(slug)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
       return n
     })
   }
@@ -229,14 +230,14 @@ export function CloakEntriesPanel() {
     const pending = [...selected]
     const failed = new Set<string>()
     try {
-      for (const slug of pending) {
-        const current = entries.find((entry) => entry.slug === slug)
+      for (const key of pending) {
+        const current = entries.find((entry) => campaignKeyFor(entry) === key)
         try {
           if (!current) throw new Error('campanha não encontrada')
           await apiSend(mutationEndpoint(current), 'POST', {
             id: campaignIdFor(current) || undefined,
             campaignId: campaignIdFor(current) || undefined,
-            slug,
+            slug: current.slug,
             dominio: current.dominio,
             nome: current.nome,
             offerUrl: current.offerUrl,
@@ -246,17 +247,17 @@ export function CloakEntriesPanel() {
             _baseUpdatedAt: current.updatedAt,
           })
         } catch {
-          failed.add(slug)
+          failed.add(key)
         }
       }
       setSelected(failed)
       await mutate()
       if (failed.size) {
-        toast.error('Alguns links não foram atualizados', {
+        toast.error('Algumas campanhas não foram atualizadas', {
           hint: `${pending.length - failed.size} concluído(s) · ${failed.size} falhou(aram). Os que falharam continuam selecionados.`,
         })
       } else {
-        toast.success(enabled ? 'Proteção ativada nos links selecionados' : 'Proteção desativada nos links selecionados')
+        toast.success(enabled ? 'Proteção ativada nas campanhas selecionadas' : 'Proteção desativada nas campanhas selecionadas')
       }
     } finally {
       setBulkBusy(false)
@@ -269,29 +270,29 @@ export function CloakEntriesPanel() {
     const pending = [...selected]
     const failed = new Set<string>()
     try {
-      for (const slug of pending) {
-        const current = entries.find((entry) => entry.slug === slug)
+      for (const key of pending) {
+        const current = entries.find((entry) => campaignKeyFor(entry) === key)
         try {
           if (!current) throw new Error('campanha não encontrada')
           const revision = current.updatedAt ? `?baseUpdatedAt=${encodeURIComponent(current.updatedAt)}` : ''
           const campaignId = campaignIdFor(current)
           const endpoint = campaignId
             ? `/api/cloak/campaigns/${encodeURIComponent(campaignId)}${revision}`
-            : `/api/cloak/entries/${encodeURIComponent(slug)}${revision}`
+            : `/api/cloak/entries/${encodeURIComponent(current.slug)}${revision}`
           await apiSend(endpoint, 'DELETE')
         } catch {
-          failed.add(slug)
+          failed.add(key)
         }
       }
       setSelected(failed)
       setConfirmingBulkDelete(false)
       await mutate()
       if (failed.size) {
-        toast.error('Alguns links não puderam ser removidos', {
+        toast.error('Algumas campanhas não puderam ser removidas', {
           hint: `${pending.length - failed.size} removido(s) · ${failed.size} falhou(aram). Os que falharam continuam selecionados.`,
         })
       } else {
-        toast.success('Links removidos')
+        toast.success('Campanhas removidas')
       }
     } finally {
       setBulkBusy(false)
@@ -312,10 +313,10 @@ export function CloakEntriesPanel() {
     }
     const sorted = [...list]
     if (sort === 'nome') sorted.sort((a, b) => a.nome.localeCompare(b.nome))
-    else if (sort === 'trafego') sorted.sort((a, b) => (statBySlug[b.slug]?.total ?? 0) - (statBySlug[a.slug]?.total ?? 0))
+    else if (sort === 'trafego') sorted.sort((a, b) => (statByCampaign[campaignKeyFor(b)]?.total ?? 0) - (statByCampaign[campaignKeyFor(a)]?.total ?? 0))
     else sorted.sort((a, b) => (b.criadoEm > a.criadoEm ? 1 : -1))
     return sorted
-  }, [entries, query, sort, statBySlug])
+  }, [entries, query, sort, statByCampaign])
 
   const showControls = entries.length >= 2
 
@@ -341,9 +342,9 @@ export function CloakEntriesPanel() {
 
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Links protegidos</h2>
+          <h2 className="text-base font-semibold text-foreground">Campanhas</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            Crie URLs com regras próprias de proteção, segmentação e destino.
+            Crie campanhas protegidas e gere a URL pronta para usar nos anúncios.
           </p>
           {entries.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -360,7 +361,7 @@ export function CloakEntriesPanel() {
           onClick={() => setCreating(true)}
           className="inline-flex h-10 self-start items-center justify-center gap-2 rounded-lg bg-[color:var(--brand-cyan)] px-4 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30"
         >
-          <Plus className="size-4" /> Novo link protegido
+          <Plus className="size-4" /> Nova campanha
         </button>
       </header>
 
@@ -371,7 +372,7 @@ export function CloakEntriesPanel() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nome, slug, destino ou domínio"
+              placeholder="Buscar por nome, endereço, destino ou domínio"
               className="h-10 w-full rounded-lg border border-border bg-secondary/35 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none focus:ring-2 focus:ring-brand-cyan/10"
             />
           </div>
@@ -379,7 +380,7 @@ export function CloakEntriesPanel() {
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
             className="h-10 rounded-lg border border-border bg-secondary/35 px-3 text-sm text-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none focus:ring-2 focus:ring-brand-cyan/10"
-            aria-label="Ordenar links protegidos"
+            aria-label="Ordenar campanhas"
           >
             <option value="recentes">Mais recentes</option>
             <option value="nome">Nome (A–Z)</option>
@@ -432,19 +433,20 @@ export function CloakEntriesPanel() {
 
       {entries.length === 0 ? (
         <div className="py-12 text-center sm:text-left">
-          <p className="text-sm font-medium text-foreground">Nenhum link protegido</p>
+          <p className="text-sm font-medium text-foreground">Nenhuma campanha criada</p>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Crie um link para definir destino principal, proteção e segmentação próprias.
+            Crie sua primeira campanha para receber uma URL pública e os parâmetros prontos para o anúncio.
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nenhum link corresponde à busca.</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">Nenhuma campanha corresponde à busca.</p>
       ) : (
         <ul className="divide-y divide-border/60 border-y border-border/60">
           {visible.map((e) => {
-            const st = statBySlug[e.slug]
+            const campaignKey = campaignKeyFor(e)
+            const st = statByCampaign[campaignKey]
             const sens = e.sensitivity ?? 'balanced'
-            const tr = testResult[e.slug]
+            const tr = testResult[campaignKey]
             const effectiveShadow = e.shadowMode === true || globalConfig?.shadowMode === true
             const safeUrl = effectiveSafeUrl(e)
             const segmentMeta = [
@@ -454,15 +456,15 @@ export function CloakEntriesPanel() {
             ].filter(Boolean) as string[]
 
             return (
-              <li key={e.slug} className="py-4">
+              <li key={campaignKey} className="py-4">
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-2.5">
                       {showControls && (
                         <input
                           type="checkbox"
-                          checked={selected.has(e.slug)}
-                          onChange={() => toggleSelect(e.slug)}
+                          checked={selected.has(campaignKey)}
+                          onChange={() => toggleSelect(campaignKey)}
                           className="mt-1 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
                           aria-label={`Selecionar ${e.nome}`}
                         />
@@ -558,17 +560,17 @@ export function CloakEntriesPanel() {
                       />
                       {e.enabled ? 'Proteção ativa' : 'Proteção desativada'}
                     </span>
-                    <button type="button" onClick={() => handleTest(e)} disabled={testing === e.slug} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50">
-                      {testing === e.slug ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Testar
+                    <button type="button" onClick={() => handleTest(e)} disabled={testing === campaignKey} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50">
+                      {testing === campaignKey ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Testar
                     </button>
-                    <button type="button" onClick={() => handleCopy(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                      {copied === e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === e.slug ? 'Copiado' : 'Copiar URL'}
-                    </button>
-                    {e.linkKit?.urlParams && (
-                      <button type="button" onClick={() => handleCopyParams(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                        {copied === 'params:' + e.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === 'params:' + e.slug ? 'Copiado' : 'Copiar parâmetros'}
+                    {e.linkKit && (
+                      <button type="button" onClick={() => setPublishing(e)} className="inline-flex items-center gap-1.5 rounded-md bg-secondary/55 px-2.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary">
+                        <ExternalLink className="size-3.5" /> Usar no anúncio
                       </button>
                     )}
+                    <button type="button" onClick={() => handleCopy(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                      {copied === 'url:' + campaignKey ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />} {copied === 'url:' + campaignKey ? 'Copiada' : 'Copiar URL'}
+                    </button>
                     <button type="button" onClick={() => setEditing(e)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                       <Pencil className="size-3.5" /> Editar
                     </button>
@@ -629,9 +631,9 @@ export function CloakEntriesPanel() {
         open={confirmingBulkDelete && selected.size > 0}
         appearance="quiet"
         tone="danger"
-        title={`Remover ${selected.size} ${selected.size === 1 ? 'link protegido' : 'links protegidos'}?`}
-        description={<>As URLs selecionadas deixam de funcionar. Esta ação não pode ser desfeita.</>}
-        confirmLabel={selected.size === 1 ? 'Remover link' : 'Remover links'}
+        title={`Remover ${selected.size} ${selected.size === 1 ? 'campanha' : 'campanhas'}?`}
+        description={<>As URLs das campanhas selecionadas deixam de funcionar. Esta ação não pode ser desfeita.</>}
+        confirmLabel={selected.size === 1 ? 'Remover campanha' : 'Remover campanhas'}
         busy={bulkBusy}
         onConfirm={bulkDelete}
         onClose={() => setConfirmingBulkDelete(false)}
@@ -643,17 +645,17 @@ export function CloakEntriesPanel() {
         tone="danger"
         title={deleting ? `Remover "${deleting.nome}"?` : ''}
         description={
-          deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? (
+          deleting && (statByCampaign[campaignKeyFor(deleting)]?.total ?? 0) > 0 ? (
             <>
-              Este link já tem <strong className="text-foreground">{statBySlug[deleting.slug].total} decisões registradas</strong>.
-              Ao remover, a URL /{deleting.slug} para de funcionar e os contadores desse link se perdem.
+              Esta campanha já tem <strong className="text-foreground">{statByCampaign[campaignKeyFor(deleting)].total} decisões registradas</strong>.
+              Ao remover, a URL /{deleting.slug} deixa de funcionar e os contadores desta campanha são removidos.
             </>
           ) : (
             <>A URL /{deleting?.slug} deixa de funcionar imediatamente. Esta ação não pode ser desfeita.</>
           )
         }
-        confirmLabel="Remover"
-        confirmText={deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? deleting.nome : undefined}
+        confirmLabel="Remover campanha"
+        confirmText={deleting && (statByCampaign[campaignKeyFor(deleting)]?.total ?? 0) > 0 ? deleting.nome : undefined}
         busy={deleteBusy}
         onConfirm={confirmDelete}
         onClose={() => setDeleting(null)}
@@ -668,14 +670,18 @@ export function CloakEntriesPanel() {
             setEditing(null)
             setInitialDomain('')
           }}
-          onSaved={() => {
+          onSaved={(savedEntry) => {
+            const wasCreating = creating
             setCreating(false)
             setEditing(null)
             setInitialDomain('')
+            if (wasCreating) setPublishing(savedEntry)
             mutate()
           }}
         />
       )}
+
+      <CloakLinkKitDialog campaign={publishing} onClose={() => setPublishing(null)} />
     </section>
   )
 }

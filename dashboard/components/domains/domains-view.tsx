@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Plus, RefreshCw, Trash2, Copy, Loader2, ArrowUpRight, Stethoscope, Check, ChevronDown } from 'lucide-react'
 import { ApiError, useDomains, apiSend, fetcher } from '@/lib/api'
-import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult, DomainDiagnostics, DomainDnsGuide } from '@/lib/types'
+import type { DomainAddResponse, DomainDnsRecords, DomainVerifyResult, DomainDiagnostics, DomainDnsGuide, DomainUso } from '@/lib/types'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -107,6 +108,7 @@ function DnsInstructions({ dns, manual = false, guide, guideLoading = false }: {
 export function DomainsView() {
   const { data, isLoading, mutate, error: loadError } = useDomains()
   const [host, setHost] = useState('')
+  const [usage, setUsage] = useState<Exclude<DomainUso, 'ambos'>>('checkout')
   const [adding, setAdding] = useState(false)
   const [verifying, setVerifying] = useState<Record<string, boolean>>({})
   const [diagnosing, setDiagnosing] = useState<Record<string, boolean>>({})
@@ -119,13 +121,21 @@ export function DomainsView() {
   const [expandedHost, setExpandedHost] = useState<string | null>(null)
   const [guides, setGuides] = useState<Record<string, DomainDnsGuide>>({})
   const [guideLoading, setGuideLoading] = useState<Record<string, boolean>>({})
+  const [usageChanging, setUsageChanging] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const requested = params.get('uso')
+    if (requested === 'cloaker' || requested === 'checkout') setUsage(requested)
+  }, [])
+
   async function add() {
     const invalid = hostInvalidReason(host)
     if (invalid || adding) { setError(invalid); return }
     setAdding(true); setError(null)
     const normalized = normalizeHostInput(host)
     try {
-      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: 'ambos' })
+      const result = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host: normalized, uso: usage })
       if (!result.ok) throw new Error(result.providerNote || 'Não foi possível cadastrar o domínio.')
       setAddedDns(previous => ({ ...previous, [normalized]: result.dnsRecords }))
       setHost('')
@@ -186,6 +196,23 @@ export function DomainsView() {
       setDiagnosing(previous => ({ ...previous, [domain]: false }))
     }
   }
+
+  async function changeUsage(domain: string, nextUsage: Exclude<DomainUso, 'ambos'>) {
+    if (usageChanging[domain]) return
+    setUsageChanging(previous => ({ ...previous, [domain]: true }))
+    try {
+      await apiSend(`/api/domains/${encodeURIComponent(domain)}/usage`, 'POST', {
+        uso: nextUsage,
+        _baseUpdatedAt: data?.configUpdatedAt || undefined,
+      })
+      toast.success(nextUsage === 'cloaker' ? 'Domínio dedicado ao Cloaker' : 'Domínio dedicado aos Links')
+      await mutate()
+    } catch (err) {
+      toast.error('Não foi possível alterar o uso do domínio', { hint: apiErrorHint(err) })
+    } finally {
+      setUsageChanging(previous => ({ ...previous, [domain]: false }))
+    }
+  }
   async function remove() {
     if (!deleting || deleteBusy) return
     const removed = deleting
@@ -227,6 +254,11 @@ export function DomainsView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Domínios</h1>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Conecte domínios próprios e defina claramente se cada endereço será usado em Links ou no Cloaker.</p>
+      </header>
+
       {domains.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-[13px]">
           <span><strong className="font-semibold tabular-nums text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>
@@ -242,10 +274,22 @@ export function DomainsView() {
           <p className="text-xs text-muted-foreground">Publique seus links sem precisar acessar a infraestrutura. O ROI-NADOS acompanha DNS e HTTPS para você.</p>
         </div>
 
-        <form className="flex max-w-2xl flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); void add() }}>
-          <label className="min-w-0 flex-1">
+        <form className="grid max-w-3xl gap-2 sm:grid-cols-[minmax(0,1fr)_190px_auto]" onSubmit={event => { event.preventDefault(); void add() }}>
+          <label className="min-w-0">
             <span className="mb-1.5 block text-xs font-medium text-foreground">Seu domínio</span>
             <input className="input h-10 w-full rounded-lg border border-border/80 bg-secondary/30 px-3 text-sm text-foreground outline-none transition-colors hover:border-border focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/20" value={host} onChange={event => setHost(event.target.value)} onBlur={() => host && setHost(normalizeHostInput(host))} placeholder="oferta.sualoja.com" disabled={adding} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-xs font-medium text-foreground">Usar em</span>
+            <select
+              className="input h-10 w-full rounded-lg border border-border/80 bg-secondary/30 px-3 text-sm text-foreground outline-none transition-colors hover:border-border focus:border-brand-cyan/60 focus:ring-1 focus:ring-brand-cyan/20"
+              value={usage}
+              onChange={event => setUsage(event.target.value as Exclude<DomainUso, 'ambos'>)}
+              disabled={adding}
+            >
+              <option value="checkout">Links de venda</option>
+              <option value="cloaker">Cloaker</option>
+            </select>
           </label>
           <button type="submit" className="btn-primary mt-auto h-10 shrink-0 px-4 text-sm" disabled={adding || !host.trim() || data?.autoProvision === false}>
             {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
@@ -286,6 +330,8 @@ export function DomainsView() {
                   ? 'Atenção'
                   : 'Aguardando DNS'
             const usageLabel = domain.uso === 'checkout' ? 'Links' : domain.uso === 'cloaker' ? 'Cloaker' : 'Links + Cloaker'
+            const currentUsage = domain.uso || 'ambos'
+            const changingUsage = !!usageChanging[domain.host]
             const statusDotClass = ready ? 'bg-success' : domain.status === 'error' ? 'bg-destructive' : 'bg-warning'
             const statusTextClass = ready ? 'text-success' : domain.status === 'error' ? 'text-destructive' : 'text-warning'
             const infrastructureReady = !!(domain.providerId || dns)
@@ -306,6 +352,7 @@ export function DomainsView() {
                       <span className={`inline-flex items-center gap-1.5 font-medium ${statusTextClass}`}><span className={`size-1.5 shrink-0 rounded-full ${statusDotClass}`} />{statusLabel}</span>
                       <span className="text-border">·</span>
                       <span className="text-muted-foreground">{usageLabel}</span>
+                      {currentUsage === 'ambos' && <span className="text-warning">· defina um uso para novas campanhas</span>}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -340,6 +387,30 @@ export function DomainsView() {
                   <p className="flex items-start gap-2 text-[13px] leading-5 text-warning"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" /><span>{domain.lastError || domain.providerNote}</span></p>
                 ) : null}
 
+                {ready && (
+                  <div className="flex flex-wrap items-end gap-3 border-t border-border/50 pt-3">
+                    <label className="min-w-44">
+                      <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Uso deste domínio</span>
+                      <select
+                        className="input h-9 w-full rounded-lg border border-border/70 bg-secondary/25 px-2.5 text-xs text-foreground outline-none focus:border-brand-cyan/60"
+                        value={currentUsage}
+                        disabled={changingUsage}
+                        onChange={event => {
+                          const next = event.target.value
+                          if (next === 'checkout' || next === 'cloaker') void changeUsage(domain.host, next)
+                        }}
+                      >
+                        {currentUsage === 'ambos' && <option value="ambos">Links + Cloaker (legado)</option>}
+                        <option value="checkout">Links de venda</option>
+                        <option value="cloaker">Cloaker</option>
+                      </select>
+                    </label>
+                    <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
+                      Novas campanhas do Cloaker precisam de um domínio dedicado. A troca é bloqueada se este domínio ainda estiver em uso na outra área.
+                    </p>
+                  </div>
+                )}
+
                 <details className="group border-t border-border/50 pt-3" open={expandedHost === domain.host} onToggle={(event) => {
                   const open = event.currentTarget.open
                   setExpandedHost(open ? domain.host : null)
@@ -362,8 +433,8 @@ export function DomainsView() {
                         try { await navigator.clipboard.writeText(domain.host); toast.success('Domínio copiado') }
                         catch { toast.error('Não foi possível copiar o domínio') }
                       }}><Copy className="size-3" />Copiar domínio</button>
-                      {domain.uso !== 'cloaker' ? <a href={`/links?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar em Links <ArrowUpRight className="size-3" /></a> : null}
-                      {domain.uso !== 'checkout' ? <a href={`/cloak?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar no Cloaker <ArrowUpRight className="size-3" /></a> : null}
+                      {currentUsage === 'checkout' || currentUsage === 'ambos' ? <Link href={`/links?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar em Links <ArrowUpRight className="size-3" /></Link> : null}
+                      {currentUsage === 'cloaker' ? <Link href={`/cloak?novo=1&dominio=${encodeURIComponent(domain.host)}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Usar no Cloaker <ArrowUpRight className="size-3" /></Link> : null}
                     </div>
                   ) : null}
                 </div>

@@ -1,5 +1,30 @@
 # CLAUDE.md — ROI-NADOS
 
+## Coerência global da dashboard — V16.23 (2026-09-19)
+- Escopo ampliado para a dashboard inteira: Visão Geral, Rastreamento, Atividade, TikTok Ads, Conta e navegação global.
+- `NAV_GROUPS` é a fonte de verdade do TopNav/SubNav; `/activity`, `/funnel`, `/geo` e `/live` permanecem sob Visão Geral.
+- Domínios novos exigem uso explícito (`checkout` ou `cloaker`). Troca de uso é persistida por `POST /api/domains/:host/usage` e é bloqueada enquanto o host ainda tiver Links ou campanhas do outro escopo.
+- Links usam `/api/links.baseUrl` como base pública real; nunca usar o CNAME técnico de DNS para montar URL/QR. Domínios não ativos não podem ser selecionados em novos Links.
+- `/conversions?tab=gateways|logs`, `/activity?f=...` e `/config?tab=...` são deep-links reais e sincronizam URL↔estado; páginas com `useSearchParams` ficam sob `Suspense`.
+- Atividade respeita o fuso da conta e oferece filtros de reembolso/contestação usados pelos drill-downs da Visão Geral/Funil.
+- Visão Geral voltou a renderizar `SetupGuide`; os targets do tour foram restaurados e os textos do tour refletem o fuso da conta e o comportamento real do indicador ao vivo.
+- Conta voltou a renderizar `SectionIntro` e os hints do resumo. TikTok Ads deixou de apontar para `/dashboard/pixels`; o atalho de Pixel abre `/conversions?tab=pixels`.
+- A falha atual de preview Vercel no PR #146 é externa ao código: o bot informa “There is no GitHub account connected to this Vercel account.” Não usar esse status como evidência de erro TS/Next.
+- Regressões novas: `test/dashboard-crossflow-coherence-v16-23.test.js` e `test/dashboard-project-coherence-v16-23.test.js`.
+
+## Alinhamento de UX e fluxos da dashboard — V16.23 (2026-09-19)
+- Cloaker virou campaign-first (`Campanhas → Resultados → Proteção`) e usa `campaignId` como identidade estável; slug/path fica como endereço público e fallback legado. Resultados e resets V2 usam `campaign:<id>` e não misturam checkout `/go`.
+- Domínios agora exigem uso explícito (`checkout` ou `cloaker`) para novas conexões. Troca de uso é durável e fail-closed: o backend bloqueia enquanto houver Links, campanhas V2 ou entradas Cloaker legadas referenciando o host.
+- Links usam `baseUrl` pública real do backend, só oferecem domínios prontos e impedem salvar um domínio indisponível. O CNAME técnico não é mais apresentado como URL pública de fallback.
+- Pixel & Conversões honra `?tab=pixels|gateways|logs`; Atividade honra `?f=` incluindo falhas, reembolsos e contestações e renderiza horário no fuso configurado da conta.
+- Visão Geral voltou a exibir o guia compacto de configuração e recuperou os alvos do tour. O período global só aparece nas áreas que realmente o consomem (Visão Geral/análises e TikTok Ads).
+- TikTok Ads pode escolher destinos já salvos em Links ou campanhas Cloaker. Cloaker usa `combinedUrl` do Link Kit, preservando token/macros, e o seletor filtra Standard vs Smart+ para não misturar contratos de parâmetros.
+- Navegação de topo usa `NAV_GROUPS` como fonte de verdade; drill-downs de Visão Geral permanecem no grupo correto. Atalhos/tours foram alinhados às rotas atuais.
+- A Zona de Perigo descreve corretamente `/api/reset-stats`: apaga leads e eventos de desempenho (visitas, checkouts, vendas, falhas, reembolsos e contestações), mantendo as configurações cadastradas.
+- Regressões: `test/cloak-ux-alignment-v16-23.test.js`, `test/dashboard-crossflow-coherence-v16-23.test.js`, `test/dashboard-project-coherence-v16-23.test.js` e `test/dashboard-navigation-and-ads-v16-23.test.js`.
+- O status de preview da Vercel no PR pode aparecer vermelho por integração da conta GitHub/Vercel; o bot reportou “There is no GitHub account connected to this Vercel account”. Não interpretar esse status isoladamente como erro de TypeScript.
+
+
 > **Instruções para IAs (LEIA PRIMEIRO):** Este arquivo é o mapa mental completo do projeto.
 > Leia-o inteiro antes de mexer em qualquer coisa. É a fonte de verdade sobre stack,
 > arquitetura, convenções e armadilhas. Regras que **quebram o projeto** se ignoradas:

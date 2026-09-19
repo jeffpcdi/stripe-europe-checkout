@@ -101,6 +101,8 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   const previewSlug = normalizePublicSlug(slug) || 'seu-link'
   const previewHost = dominio || appHost || 'seu-dominio.com'
   const previewUrl = `https://${previewHost}/${previewSlug}`
+  const selectedDomain = dominio ? domains.find((domain) => domain.host === dominio) : null
+  const selectedDomainUnavailable = Boolean(selectedDomain && (!selectedDomain.verificado || (selectedDomain.status && selectedDomain.status !== 'active')))
   const experimentAvailable = variantes.length >= 2
   const confidencePct = Math.round((link?.experiment?.confidence ?? 0.95) * 100)
   const winnerName = link?.experiment?.winnerId
@@ -136,8 +138,14 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 <span className={labelCls}>Domínio</span>
                 <select className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
                   <option value="">Domínio padrão</option>
-                  {domains.map((d) => <option key={d.host} value={d.host}>{d.host}</option>)}
+                  {domains.map((d) => {
+                    const ready = d.verificado && (!d.status || d.status === 'active')
+                    return <option key={d.host} value={d.host} disabled={!ready}>{d.host}{ready ? '' : ' · não está pronto'}</option>
+                  })}
                 </select>
+                {selectedDomainUnavailable && (
+                  <span className="text-xs leading-relaxed text-warning">Este domínio não está ativo. Escolha outro domínio ou conclua a ativação em Domínios antes de salvar.</span>
+                )}
               </label>
               <div className="flex flex-col gap-2">
                 <span className={labelCls}>Endereço do link</span>
@@ -179,7 +187,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
             </div>
 
             <label className="flex flex-col gap-2">
-              <span className={labelCls}>Página segura opcional</span>
+              <span className={labelCls}>Destino seguro próprio (opcional)</span>
               <input
                 className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive focus:border-destructive focus:ring-destructive/30' : ''}`}
                 value={urlWhitePage}
@@ -297,7 +305,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida}
+              disabled={saving || !nome.trim() || variantes.some((variant) => !variant.url.trim()) || temUrlInvalida || selectedDomainUnavailable}
               className="btn-primary h-10 rounded-lg px-4 text-sm disabled:pointer-events-none disabled:opacity-50"
             >
               {saving ? 'Salvando...' : link ? 'Salvar alterações' : 'Criar Link de venda'}

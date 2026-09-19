@@ -19,6 +19,7 @@ import {
   PlugZap,
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
 import { fetcher, apiSend, useAccount, useAccountSettings } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
@@ -34,18 +35,43 @@ import { toast } from '@/lib/toast'
 
 export function ConfigView() {
   const { prefs, update } = usePrefs()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const validTabs = ['prefs', 'integrations', 'notifications', 'security', 'data'] as const
+  type SettingsTabKey = (typeof validTabs)[number]
+  const normalizedTab: SettingsTabKey = validTabs.includes(requestedTab as SettingsTabKey)
+    ? requestedTab as SettingsTabKey
+    : 'prefs'
+  const [activeTab, setActiveTab] = useState<SettingsTabKey>(normalizedTab)
+
+  useEffect(() => {
+    setActiveTab((current) => current === normalizedTab ? current : normalizedTab)
+  }, [normalizedTab])
+
+  function selectTab(next: string) {
+    const tab = validTabs.includes(next as SettingsTabKey) ? next as SettingsTabKey : 'prefs'
+    setActiveTab(tab)
+    const params = new URLSearchParams(searchParams.toString())
+    if (tab === 'prefs') params.delete('tab')
+    else params.set('tab', tab)
+    const query = params.toString()
+    router.replace(pathname + (query ? `?${query}` : ''), { scroll: false })
+  }
 
   return (
     <div className="operation-settings flex flex-col gap-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-2xl">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Conta</h1>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Preferências, integrações, alertas, segurança e dados da operação em um único lugar.</p>
         </div>
       </div>
 
       <SettingsOverview />
 
-      <Tabs.Root defaultValue="prefs" className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
+      <Tabs.Root value={activeTab} onValueChange={selectTab} className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
         <Tabs.List
           aria-label="Configurações da conta"
           className="settings-tabs hide-scrollbar"
@@ -132,7 +158,7 @@ export function ConfigView() {
                   </span>
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">Cópia dos dados</h2>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Baixe links e configurações da conta em um único arquivo JSON.</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Baixe perfil, configurações, Links, Pixels, Checkouts, domínios, leads, eventos e auditoria em um único arquivo JSON.</p>
                   </div>
                 </div>
                 <a href="/api/account/export" download className="btn-secondary shrink-0 text-xs">
@@ -150,7 +176,7 @@ export function ConfigView() {
   )
 }
 
-function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
+function SettingsTab({ value, icon: Icon, title, description }: { value: string; icon: typeof SlidersHorizontal; title: string; description: string }) {
   return (
     <Tabs.Trigger
       value={value}
@@ -161,14 +187,21 @@ function SettingsTab({ value, icon: Icon, title }: { value: string; icon: typeof
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold text-foreground">{title}</span>
+        <span className="mt-0.5 hidden text-[10px] leading-tight text-muted-foreground xl:block">{description}</span>
       </span>
       <ChevronRight className="settings-tabs__chevron" aria-hidden="true" />
     </Tabs.Trigger>
   )
 }
 
-function SectionIntro(_props: { eyebrow: string; title: string; description: string }) {
-  return null
+function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return (
+    <div className="px-0.5">
+      <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
+      <h2 className="mt-1 text-sm font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">{description}</p>
+    </div>
+  )
 }
 
 function SettingsOverview() {
@@ -211,13 +244,14 @@ function SettingsOverview() {
   return (
     <GlassCard className="p-3 sm:p-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, icon: Icon, tone }) => (
+        {cards.map(({ label, value, hint, icon: Icon, tone }) => (
           <div key={label} className={`rounded-2xl border p-3.5 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
                 <p className="mt-2 truncate text-sm font-semibold text-foreground">{value}</p>
-                              </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
+              </div>
               <span className={`flex size-8 shrink-0 items-center justify-center rounded-xl border ${tone === 'success' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : tone === 'warning' ? 'border-warning/20 bg-warning/10 text-warning' : 'border-white/5 bg-black/20 text-brand-cyan'}`}>
                 <Icon className="size-3.5" />
               </span>
@@ -425,9 +459,9 @@ function DangerCard() {
             <Trash2 className="size-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Apagar estatísticas</h2>
-            <p className="text-xs text-muted-foreground">
-              Limpa o histórico de cliques e visitas. Links, checkouts e pixels cadastrados são mantidos.
+            <h2 className="text-sm font-semibold text-foreground">Apagar histórico de desempenho</h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Remove leads e eventos usados por Visão Geral, Funil e Atividade — incluindo visitas, checkouts, vendas, falhas, reembolsos e contestações. As configurações de Links, Pixels, Checkouts e Domínios são mantidas.
             </p>
           </div>
         </div>
@@ -456,7 +490,7 @@ function DangerCard() {
             ) : done ? (
               <ShieldCheck className="size-3.5" />
             ) : null}
-            {done ? 'Zerado' : confirming ? 'Confirmar e Zerar Agora' : 'Zerar Histórico'}
+            {done ? 'Apagado' : confirming ? 'Confirmar exclusão do histórico' : 'Apagar histórico'}
           </button>
         </div>
       </div>

@@ -29,6 +29,7 @@ import { HeroGlobe, type GlobePurchase } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelGauge } from './funnel-gauge'
 import { EmqGauge } from './emq-gauge'
+import { SetupGuide } from './setup-guide'
 import { ErrorState } from '@/components/error-state'
 import { ArrowUpRight } from 'lucide-react'
 
@@ -269,6 +270,7 @@ export function OverviewView() {
     >
       {/* Métricas e presença compartilham a composição, não a janela de dados. */}
       {(error || overviewAnalyticsError || roasError || profitabilityError || decisionsError || emqError || overviewHealthError) && <button type="button" className="btn-ghost self-start text-xs text-warning" onClick={handleRefreshAll}>Alguns indicadores não foram atualizados · tentar novamente</button>}
+      <SetupGuide health={overviewHealth} />
       <HeroGlobe
         focusCode={focusCountry}
         purchases={globePurchases}
@@ -458,7 +460,7 @@ export function OverviewView() {
         </GlassCard>
 
         {/* Dados */}
-        <GlassCard variant="thick" className="overview-insight-card flex flex-col justify-between p-5">
+        <GlassCard variant="thick" data-tour="confidence" className="overview-insight-card flex flex-col justify-between p-5">
           <div className="overview-insight-heading overview-data-heading">
             <span className="text-sm font-semibold text-foreground">Dados</span>
             {overviewHealth ? (

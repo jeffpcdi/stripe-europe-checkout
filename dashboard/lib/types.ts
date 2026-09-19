@@ -316,6 +316,8 @@ export interface CheckoutLink {
 
 export interface LinksResponse {
   links: CheckoutLink[]
+  /** Base pública real do app para links sem domínio próprio. Nunca é o CNAME técnico de DNS. */
+  baseUrl?: string
 }
 
 // ── /api/domains — domínios personalizados (server.js) ──
@@ -715,7 +717,7 @@ export interface CloakTestProfileMeta {
   hint: string
 }
 
-// ── /api/cloak/stats — offer vs white por link ──
+// ── /api/cloak/stats — decisões por campanha Cloaker (e legado compatível) ──
 export interface CloakStatItem {
   tipo: 'go' | 'cloak'
   campaignId?: string
@@ -748,7 +750,7 @@ export interface CloakStatsResponse {
   challenge?: { beacons: number; lastAt: number | null }
 }
 
-// ── /api/cloak/entries — links de cloaking dedicados (URL pública /:slug; /c/:slug legado) ──
+// ── /api/cloak/campaigns — campanhas Cloaker com ID permanente e URL pública /:slug ──
 export interface CloakEntry {
   id?: string
   campaignId?: string
@@ -787,7 +789,7 @@ export interface CloakEntriesResponse {
   baseUrl: string
 }
 
-// ── /api/cloak/decisions — histórico das últimas N decisões por link (item 170) ──
+// ── /api/cloak/decisions — histórico das últimas N decisões por campanha (item 170) ──
 // IP já vem MASCARADO do backend (último octeto → x); nunca há PII aqui.
 export interface CloakDecisionRow {
   at: number // epoch ms

@@ -88,12 +88,12 @@ export function HeroGlobe({ focusCode, purchases = [], metrics, onRefresh, refre
     ])
   }
 
-  return <section className="overview-observatory overview-observatory--premium" aria-label="Visão geral da operação">
+  return <section className="overview-observatory overview-observatory--premium" data-tour="chart" aria-label="Visão geral da operação">
     <div className="observatory-environment" aria-hidden="true"><i /><i /></div>
 
     <OverviewMetrics {...metrics} globe={
       <>
-        <div className="observatory-globe-live" aria-live="polite" aria-label={live.fresh ? `${live.online ?? 0} visitantes ao vivo` : 'Visitantes ao vivo sem atualização'}>
+        <div className="observatory-globe-live" data-tour="live-badge" aria-live="polite" aria-label={live.fresh ? `${live.online ?? 0} visitantes ao vivo` : 'Visitantes ao vivo sem atualização'}>
           <span className="observatory-status-dot" data-fresh={live.fresh} aria-hidden="true" />
           <strong>{live.online?.toLocaleString('pt-BR') ?? '—'}</strong>
           <span>{live.fresh ? 'ao vivo' : 'sem atualização'}</span>

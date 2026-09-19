@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { X, Loader2, ExternalLink, ChevronDown, RefreshCw } from 'lucide-react'
 import { apiSend, useCloakConfig, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
@@ -47,7 +48,7 @@ interface Props {
   entry: CloakEntry | null
   initialDomain?: string
   onClose: () => void
-  onSaved: () => void
+  onSaved: (entry: CloakEntry) => void
 }
 
 export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }: Props) {
@@ -77,7 +78,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
 
   const { data: domainsData } = useDomains()
   const { data: globalConfig } = useCloakConfig()
-  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && (entry ? d.uso !== 'checkout' : d.uso === 'cloaker'))
+  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado && (!d.status || d.status === 'active') && (d.uso === 'cloaker' || (entry && d.host === entry.dominio)))
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
   const globalSafePage = globalConfig?.defaultWhitePage?.trim() ?? ''
   const globalShadowMode = globalConfig?.shadowMode === true
@@ -109,7 +110,9 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
     savingRef.current = true
     setSaving(true)
     try {
-      await apiSend('/api/cloak/campaigns', 'POST', {
+      const durableCampaign = !entry || Boolean(entry.id || entry.campaignId)
+      const endpoint = durableCampaign ? '/api/cloak/campaigns' : '/api/cloak/entries'
+      const saved = await apiSend<{ ok: boolean; entry: CloakEntry }>(endpoint, 'POST', {
         id: entry?.id ?? entry?.campaignId,
         campaignId: entry?.campaignId ?? entry?.id,
         slug,
@@ -130,7 +133,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
         paises,
         idiomas,
       })
-      onSaved()
+      onSaved(saved.entry)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar')
     } finally {
@@ -155,15 +158,15 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={entry ? 'Editar link protegido' : 'Novo link protegido'}
+        aria-label={entry ? 'Editar campanha' : 'Nova campanha'}
         className="drawer-in h-full w-full max-w-xl overflow-y-auto border-l border-border bg-card shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-card px-6 py-4">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{entry ? 'Editar link protegido' : 'Novo link protegido'}</h2>
+            <h2 className="text-base font-semibold text-foreground">{entry ? 'Editar campanha' : 'Nova campanha'}</h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Defina os destinos e o comportamento específico deste link.
+              Configure o endereço público, os destinos e a proteção da campanha.
             </p>
           </div>
           <button
@@ -179,17 +182,17 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
         <div className="flex flex-col gap-8 px-6 py-6">
           <section aria-labelledby="cloak-entry-destinations" className="space-y-5">
             <div>
-              <h3 id="cloak-entry-destinations" className="text-sm font-semibold text-foreground">Identificação e destinos</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Defina como identificar o link e para onde cada tipo de acesso será enviado.</p>
+              <h3 id="cloak-entry-destinations" className="text-sm font-semibold text-foreground">Campanha e destinos</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Defina o endereço público e para onde cada tipo de acesso será enviado.</p>
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-nome">Nome do link</label>
+              <label className={labelCls} htmlFor="ck-nome">Nome da campanha</label>
               <input id="ck-nome" className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Campanha BR - Oferta X" />
             </div>
 
             <div>
-              <label className={labelCls} htmlFor="ck-slug">Endereço do link</label>
+              <label className={labelCls} htmlFor="ck-slug">Endereço público</label>
               <div className="flex gap-2">
                 <input
                   id="ck-slug"
@@ -211,7 +214,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               <p className="mt-2 break-all text-xs font-medium text-[color:var(--brand-cyan)]">{previewUrl}</p>
               {entry && previewSlug !== entry.slug && (
                 <p className="mt-2 text-xs leading-relaxed text-warning">
-                  Alterar o endereço pode fazer links já publicados pararem de funcionar. O endereço anterior não vira alias automaticamente.
+                  Alterar o endereço pode interromper anúncios que ainda usam a URL anterior. O endereço antigo deixa de funcionar.
                 </p>
               )}
             </div>
@@ -235,7 +238,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             <div>
               <label className={labelCls} htmlFor="ck-white">Destino seguro</label>
               <p className={`${hintCls} mb-2`}>
-                Deixe vazio para usar o destino seguro padrão configurado em Regras. Se não houver um padrão, o ROI-NADOS usa a página neutra.
+                Deixe vazio para usar o destino seguro padrão configurado em Proteção. Se não houver um padrão, o ROI-NADOS usa a página neutra.
               </p>
               <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
 
@@ -258,7 +261,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
                 </p>
               )}
               {whitePageUrl.trim() === '' && !globalConfig && (
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Se permanecer vazio, o link herdará o destino seguro padrão de Regras.</p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Se permanecer vazio, a campanha herdará o destino seguro padrão da aba Proteção.</p>
               )}
 
               {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
@@ -285,7 +288,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               <label className={labelCls} htmlFor="ck-dom">Domínio</label>
               {verifiedDomains.length === 0 && !dominio ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Nenhum domínio dedicado ao Cloaker está pronto. Cadastre ou ajuste um domínio em <span className="font-medium text-foreground">Domínios</span> antes de criar a campanha.
+                  Nenhum domínio dedicado ao Cloaker está pronto. <Link href="/domains?uso=cloaker" className="font-medium text-[color:var(--brand-cyan)] hover:underline">Configurar domínio</Link>.
                 </p>
               ) : (
                 <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
@@ -314,26 +317,38 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               >
                 <option value="tiktok_standard">TikTok Standard</option>
                 <option value="tiktok_smart_plus">TikTok Smart+</option>
-                <option value="custom">Personalizada</option>
+                {trafficSource === 'custom' && <option value="custom">Personalizada (existente)</option>}
               </select>
             </div>
           </section>
 
-          <section aria-labelledby="cloak-entry-protection" className="border-t border-border/60 pt-6">
+          <details className="group border-t border-border/60 pt-5" defaultOpen={Boolean(entry)}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Proteção e segmentação</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  {enabled ? (sensitivity === 'custom' ? 'Personalizada' : selectedSensitivity?.label || 'Equilibrada') : 'Proteção desativada'} · {segmentBits.length > 0 ? segmentBits.join(' · ') : 'sem restrições de público'}
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+
+            <div className="mt-5 space-y-6">
+              <section aria-labelledby="cloak-entry-protection">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h3 id="cloak-entry-protection" className="text-sm font-semibold text-foreground">Proteção deste link</h3>
+                <h3 id="cloak-entry-protection" className="text-sm font-semibold text-foreground">Proteção da campanha</h3>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   {enabled
-                    ? 'A proteção avalia os acessos e pode enviá-los ao destino seguro.'
+                    ? 'A proteção avalia os acessos desta campanha e pode enviá-los ao destino seguro.'
                     : 'Todos os acessos seguem diretamente para o destino principal.'}
                 </p>
               </div>
-              <Switch checked={enabled} onChange={setEnabled} label="Proteção deste link" />
+              <Switch checked={enabled} onChange={setEnabled} label="Proteção da campanha" />
             </div>
 
             <fieldset className="mt-5">
-              <legend className="text-sm font-medium text-foreground">Quando este link detectar um acesso suspeito</legend>
+              <legend className="text-sm font-medium text-foreground">Quando a campanha detectar um acesso suspeito</legend>
               {!enabled && <p className="mt-1 text-xs text-muted-foreground">Esta escolha será usada quando a proteção estiver ativa.</p>}
               <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
                 <label className="flex cursor-pointer items-start gap-3 py-3.5">
@@ -367,7 +382,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
 
             {globalShadowMode && !shadowMode && (
               <p className="mt-3 text-xs leading-relaxed text-warning">
-                O modo observação global está ativo. Enquanto ele permanecer ligado, este link também apenas observará, mesmo com “Enviar para o destino seguro” selecionado aqui.
+                O modo observação da conta está ativo. Enquanto ele permanecer ligado, esta campanha também apenas observará, mesmo com “Enviar para o destino seguro” selecionado aqui.
               </p>
             )}
 
@@ -499,6 +514,8 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               </div>
             </div>
           </details>
+            </div>
+          </details>
 
           {error && <p className="text-sm leading-relaxed text-destructive">{error}</p>}
         </div>
@@ -518,7 +535,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30 disabled:opacity-50"
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
-            {entry ? 'Salvar' : 'Criar link'}
+            {entry ? 'Salvar alterações' : 'Criar campanha'}
           </button>
         </div>
       </div>

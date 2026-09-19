@@ -1,7 +1,7 @@
 'use client'
 
-// Histórico operacional das últimas decisões de um link de cloaking.
-// O backend já mascara o IP e limita o histórico por conta+slug.
+// Histórico operacional das últimas decisões de uma campanha de Cloaker.
+// O backend mascara o IP e, para campanhas V2, usa campaignId como identidade estável.
 
 import { useState } from 'react'
 import { ChevronDown, Loader2, RefreshCw, X } from 'lucide-react'
@@ -61,7 +61,7 @@ function DecisionRow({ row, entryKey }: { row: CloakDecisionRow; entryKey: strin
         hint: 'O teste usa seu acesso atual; ele não reproduz o visitante histórico.',
       })
     } catch (err) {
-      toast.error('Não foi possível testar o link com seu acesso.', {
+      toast.error('Não foi possível testar a campanha com seu acesso.', {
         hint: err instanceof Error ? err.message : undefined,
       })
     } finally {
@@ -140,7 +140,7 @@ function DecisionRow({ row, entryKey }: { row: CloakDecisionRow; entryKey: strin
             type="button"
             onClick={rerun}
             disabled={rerunning}
-            title="Testar este link com o seu acesso atual"
+            title="Testar esta campanha com o seu acesso atual"
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20 disabled:opacity-50"
           >
             {rerunning && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
@@ -208,7 +208,7 @@ export function CloakDecisionLog({ entryKey, onClose }: { entryKey: string; onCl
           <div className="py-3">
             <p className="text-sm font-medium text-foreground">Nenhuma decisão registrada ainda.</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              A atividade aparecerá aqui quando este link receber acessos.
+              A atividade aparecerá aqui quando esta campanha receber acessos.
             </p>
           </div>
         ) : (
@@ -223,7 +223,7 @@ export function CloakDecisionLog({ entryKey, onClose }: { entryKey: string; onCl
       {data?.source && (
         <p className="mt-4 border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
           {durable
-            ? 'IPs anonimizados · até 50 decisões por link · retenção de 30 dias.'
+            ? 'IPs anonimizados · até 50 decisões por campanha · retenção de 30 dias.'
             : 'IPs anonimizados · até 50 decisões nesta instância · histórico perdido em reinícios.'}
         </p>
       )}
