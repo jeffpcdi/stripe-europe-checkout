@@ -138,6 +138,7 @@ function mergeDefaults(stored) {
   out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
   out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
   out.webPush = Object.assign({}, base.webPush, (stored && stored.webPush) || {});
+  out.companion = Object.assign({}, base.companion, (stored && stored.companion) || {});
   out.profitability = Object.assign({}, base.profitability, (stored && stored.profitability) || {});
   out.cloudVideo = {
     googleDrive: Object.assign({}, base.cloudVideo.googleDrive, stored && stored.cloudVideo && stored.cloudVideo.googleDrive || {}),
