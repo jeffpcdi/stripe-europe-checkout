@@ -18,7 +18,6 @@ export function InsightsDiagnosisPanel({
   currentRevenue,
   previousRevenue,
   bottleneck,
-  sourceConcentration,
 }: {
   current: OverviewPeriodMetrics
   previous: OverviewPeriodMetrics | null
@@ -26,7 +25,6 @@ export function InsightsDiagnosisPanel({
   currentRevenue: number
   previousRevenue: number | null
   bottleneck?: { from: string; to: string; drop: number; lost: number } | null
-  sourceConcentration?: number | null
 }) {
   const [filter, setFilter] = useState<Filter>('all')
 
@@ -37,7 +35,6 @@ export function InsightsDiagnosisPanel({
     currentRevenue,
     previousRevenue,
     bottleneck,
-    sourceConcentration,
   }), [current, previous, health, currentRevenue, previousRevenue, bottleneck, sourceConcentration])
 
   const opportunities = useMemo(() => buildInsightOpportunities({
