@@ -261,7 +261,18 @@ export function CatalogList({
     linked: statusCounts.linked || 0,
     attention: statusCounts.needs_attention || 0,
     review: statusCounts.in_review || 0,
-  }), [statusCounts])
+    products: catalogs.reduce((sum, catalog) => sum + catalogProductCount(catalog).count, 0),
+  }), [catalogs, statusCounts])
+
+  const nextCatalogAction = useMemo(() => {
+    if (!catalogs.length) return { label: 'Crie o primeiro catálogo', detail: 'Um link de produto é o caminho mais rápido para começar.', action: 'magic' as const }
+    if (catalogSummary.attention > 0) return { label: 'Revise catálogos com atenção', detail: `${catalogSummary.attention} catálogo${catalogSummary.attention === 1 ? '' : 's'} precisa${catalogSummary.attention === 1 ? '' : 'm'} de ajuste antes de anunciar.`, action: 'attention' as const }
+    const empty = catalogs.find((catalog) => catalogProductCount(catalog).count === 0)
+    if (empty) return { label: 'Adicione produtos', detail: 'Há catálogo sem produto; ele ainda não está pronto para sincronizar.', action: 'open' as const, id: empty.id }
+    if (catalogSummary.review > 0) return { label: 'Acompanhe a análise do TikTok', detail: `${catalogSummary.review} catálogo${catalogSummary.review === 1 ? '' : 's'} ainda em processamento.`, action: 'review' as const }
+    if (catalogSummary.linked === catalogs.length) return { label: 'Catálogos prontos para anunciar', detail: 'Produtos e vínculo com o TikTok estão sincronizados.', action: 'none' as const }
+    return { label: 'Conclua a sincronização', detail: 'Abra um catálogo pendente para revisar produtos e publicar no TikTok.', action: 'draft' as const }
+  }, [catalogs, catalogSummary])
 
   const filteredCatalogs = useMemo(() => {
     return catalogs
@@ -348,6 +359,20 @@ export function CatalogList({
               </p>
             </div>
           </div>
+
+          {catalogs.length > 0 ? <div className="flex flex-col gap-2 border-y border-border/50 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">{nextCatalogAction.label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{nextCatalogAction.detail}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+              <span><strong className="font-semibold text-foreground">{catalogSummary.products}</strong> produtos</span>
+              {nextCatalogAction.action === 'attention' ? <button type="button" onClick={() => setStatusFilter('needs_attention')} className="font-semibold text-warning hover:underline">Revisar</button> : null}
+              {nextCatalogAction.action === 'open' ? <button type="button" onClick={() => nextCatalogAction.id && onOpen(nextCatalogAction.id)} className="font-semibold text-primary hover:underline">Adicionar produtos</button> : null}
+              {nextCatalogAction.action === 'review' ? <button type="button" onClick={() => setStatusFilter('in_review')} className="font-semibold text-primary hover:underline">Ver análise</button> : null}
+              {nextCatalogAction.action === 'draft' ? <button type="button" onClick={() => setStatusFilter('draft')} className="font-semibold text-primary hover:underline">Continuar</button> : null}
+            </div>
+          </div> : null}
 
           <div className="campaign-search-row flex flex-col gap-2 sm:flex-row sm:items-center">
             <label className="campaign-search flex-1">
