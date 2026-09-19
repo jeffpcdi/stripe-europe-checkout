@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { ArrowUpRight, Download, Loader2, Scale } from 'lucide-react'
 import type { AdsCampaignDecisionsResponse, AdsTreeCampaign, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
@@ -106,6 +106,7 @@ export function InsightsCampaignsPanel({
   const [exporting, setExporting] = useState(false)
   const [allocatorOpen, setAllocatorOpen] = useState(false)
   const [applyingAllocator, setApplyingAllocator] = useState(false)
+  const allocatorAttemptRef = useRef<{ signature: string; key: string } | null>(null)
   const { data: allocator, error: allocatorError, isLoading: allocatorLoading, mutate: mutateAllocator } = useAdsBudgetProposal(
     allocatorOpen && connected,
     advertiserId,
@@ -133,6 +134,22 @@ export function InsightsCampaignsPanel({
     if (!advertiserId || applyingAllocator || !allocator?.changes?.length) return
     setApplyingAllocator(true)
     try {
+      const signature = JSON.stringify({
+        advertiserId,
+        currency,
+        days: 7,
+        changes: allocator.changes.map(change => ({
+          campaignId: change.campaignId,
+          current: change.current,
+          proposed: change.proposed,
+        })),
+      })
+      if (!allocatorAttemptRef.current || allocatorAttemptRef.current.signature !== signature) {
+        allocatorAttemptRef.current = {
+          signature,
+          key: `profit-allocator:${advertiserId}:${crypto.randomUUID()}`,
+        }
+      }
       const result = await apiSend<{ dryRun?: boolean; updated?: number }>(
         '/api/ads/budget/proposal/apply',
         'POST',
@@ -140,7 +157,7 @@ export function InsightsCampaignsPanel({
           adAccountId: advertiserId,
           currency,
           days: 7,
-          idempotencyKey: `profit-allocator:${advertiserId}:${crypto.randomUUID()}`,
+          idempotencyKey: allocatorAttemptRef.current.key,
         },
       )
       if (result.dryRun) toast.info('Simulação concluída. Nenhum orçamento foi alterado.')
