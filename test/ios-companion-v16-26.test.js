@@ -1,0 +1,65 @@
+'use strict'
+
+const fs = require('fs')
+const path = require('path')
+const assert = require('assert')
+
+const root = path.join(__dirname, '..')
+const iosPush = require('../ios-push')
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8')
+const config = fs.readFileSync(path.join(root, 'config.js'), 'utf8')
+const webPush = fs.readFileSync(path.join(root, 'web-push-notify.js'), 'utf8')
+const fanout = fs.readFileSync(path.join(root, 'pushcut.js'), 'utf8')
+const settings = fs.readFileSync(path.join(root, 'dashboard/components/config/config-view.tsx'), 'utf8')
+const companionCard = fs.readFileSync(path.join(root, 'dashboard/components/config/iphone-companion-card.tsx'), 'utf8')
+const widgetSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSWidget/ROINADOSWidget.swift'), 'utf8')
+const soundSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/SaleSoundInstaller.swift'), 'utf8')
+const registerSwift = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/PushRegistration.swift'), 'utf8')
+
+const salePayload = JSON.parse(iosPush._payloadFor({
+  event: 'sale',
+  title: 'Venda aprovada · R$ 197,00',
+  body: 'Produto · Gateway',
+  url: '/dashboard/activity',
+  badge: true,
+  priority: 'normal',
+}))
+assert.strictEqual(salePayload.aps.sound, 'roi-sale.wav', 'venda nativa deve usar o som ROI-NADOS')
+assert.strictEqual(salePayload.aps['interruption-level'], 'active', 'venda comum não deve fingir alerta crítico Apple')
+assert.strictEqual(salePayload.aps.badge, 1, 'venda acionável deve marcar o app')
+
+const breakerPayload = JSON.parse(iosPush._payloadFor({
+  event: 'ads_breaker',
+  title: 'Automação pausada',
+  body: 'Revise no painel.',
+  priority: 'critical',
+}))
+assert.strictEqual(breakerPayload.aps.sound, 'default', 'som customizado é reservado para venda/teste')
+assert.strictEqual(breakerPayload.aps['interruption-level'], 'time-sensitive', 'falha crítica interna pode usar Time Sensitive, não Critical Alert')
+
+assert(server.includes("app.get('/api/v1/widget'"), 'backend deve expor snapshot agregado para WidgetKit')
+assert(server.includes("companionApiAccount(req) || publicApiAccount(req)"), 'widget deve aceitar token dedicado do companion')
+assert(server.includes("app.post('/api/v1/companion/register'"), 'companion deve registrar device token APNs')
+assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar token dedicado de pareamento')
+assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
+assert(server.includes("Resumo diário · "), 'relatório diário deve usar título curto de executive brief')
+assert(server.includes('Atenção: houve gasto no TikTok sem venda registrada.'), 'brief diário deve destacar exceção factual útil')
+
+const widgetBlock = server.slice(server.indexOf("app.get('/api/v1/widget'"), server.indexOf("app.post('/api/v1/companion/register'"))
+assert(!/email|phone|customer|orderId/i.test(widgetBlock), 'snapshot do widget não deve expor PII de cliente')
+assert(widgetBlock.includes('revenueCents') && widgetBlock.includes('netProfitCents') && widgetBlock.includes('roas'), 'widget deve receber KPIs executivos reais')
+
+assert(config.includes("companion: {") && config.includes("devices: devices.slice(0, 6)"), 'config deve limitar e sanitizar aparelhos nativos')
+assert(webPush.includes('note && note.skipIOSWebPush'), 'Web Push deve ceder iPhone ao companion nativo para evitar duplicação')
+assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaIOS(notificationName'), 'fan-out deve incluir APNs nativo')
+assert(fanout.includes('note.skipIOSWebPush'), 'fan-out deve sinalizar supressão do Web Push no iPhone pareado')
+
+assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
+assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
+assert(widgetSwift.includes('Receita, vendas, ROAS e lucro do dia.'), 'widget deve focar KPIs executivos')
+assert(widgetSwift.includes('.supportedFamilies([.systemSmall, .systemMedium])'), 'widget deve começar pequeno e médio, sem proliferar formatos')
+assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
+assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
+assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
+
+console.log('[OK] V16.26 — executive brief, APNs nativo, som de venda e WidgetKit coerentes.')
