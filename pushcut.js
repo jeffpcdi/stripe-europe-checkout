@@ -94,7 +94,9 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
     note.dedupeKey = meta && meta.dedupeKey ? String(meta.dedupeKey).slice(0, 160) : '';
 
-    if (shouldRecord(event)) {
+    const recordInCenter = shouldRecord(event);
+    note.badge = recordInCenter;
+    if (recordInCenter) {
       try { await require('./redis').pushNotifLog(accountId, note); } catch (_) {}
     }
 
