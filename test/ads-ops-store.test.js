@@ -28,6 +28,7 @@ assert.strictEqual(ops.normalizePolicy({ dailySpendCap: '' }).dailySpendCap, nul
 assert.strictEqual(ops.normalizePolicy({ dailySpendCap: 0 }).dailySpendCap, 0, '0 explícito é um teto de gasto real');
 const storeSource = fs.readFileSync(path.join(__dirname, '..', 'ads-ops-store.js'), 'utf8');
 assert.match(storeSource, /'smart_plus_appeal'/, 'auto-recurso Smart+ entra no cap durável de ações por hora');
+assert.match(storeSource, /'budget_allocator\.change'/, 'cada mutação do Profit Allocator entra no cap durável de ações por hora');
 // kill switch também é barrado por assertMutationAllowed via política normalizada
 assert.throws(() => ops.assertMutationAllowed(ops.normalizePolicy({ killSwitch: true }), { advertiserId: 'a', idempotencyKey: 'k' }), /Kill switch/, 'política normalizada com kill switch bloqueia mutação');
 
