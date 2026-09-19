@@ -65,6 +65,7 @@ export function ConfigView() {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-2xl">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Conta</h1>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Preferências, integrações, alertas, segurança e dados da operação em um único lugar.</p>
         </div>
       </div>
 
@@ -243,13 +244,14 @@ function SettingsOverview() {
   return (
     <GlassCard className="p-3 sm:p-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, icon: Icon, tone }) => (
+        {cards.map(({ label, value, hint, icon: Icon, tone }) => (
           <div key={label} className={`rounded-2xl border p-3.5 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
                 <p className="mt-2 truncate text-sm font-semibold text-foreground">{value}</p>
-                              </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
+              </div>
               <span className={`flex size-8 shrink-0 items-center justify-center rounded-xl border ${tone === 'success' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : tone === 'warning' ? 'border-warning/20 bg-warning/10 text-warning' : 'border-white/5 bg-black/20 text-brand-cyan'}`}>
                 <Icon className="size-3.5" />
               </span>
