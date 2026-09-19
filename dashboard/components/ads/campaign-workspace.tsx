@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import {
   ArrowUpDown,
   BarChart3,
@@ -37,7 +37,7 @@ import { CampaignTree } from './campaign-tree'
 import { AdEditDialog } from './ad-edit-dialog'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 
-type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'playbooks'
+type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'approvals' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
 type MetricPreset = 'performance' | 'delivery' | 'cost'
 type ChildSort = 'spend_desc' | 'ctr_desc' | 'conversions_desc' | 'name'
@@ -59,6 +59,8 @@ type Props = {
   onOpenDetail?: (campaign: AdsTreeCampaign) => void
   onDuplicate?: (campaign: AdsTreeCampaign) => void
   decisions?: AdsCampaignDecisionsResponse
+  approvals?: ReactNode
+  approvalsCount?: number
   onOpenAutomations?: () => void
 }
 
@@ -80,6 +82,7 @@ const LEVELS: { value: WorkspaceLevel; label: string; icon: typeof Megaphone }[]
   { value: 'ads', label: 'Anúncios', icon: Play },
   { value: 'creatives', label: 'Criativos', icon: Film },
   { value: 'insights', label: 'Oportunidades', icon: Sparkles },
+  { value: 'approvals', label: 'Aprovações', icon: TriangleAlert },
   { value: 'playbooks', label: 'Playbooks', icon: Bot },
 ]
 
@@ -541,7 +544,8 @@ export function CampaignWorkspace(props: Props) {
                 : item.value === 'adgroups' ? groups.length
                   : item.value === 'ads' ? ads.length
                     : item.value === 'creatives' ? videoAds
-                      : null
+                      : item.value === 'approvals' ? (props.approvalsCount || null)
+                        : null
               return (
                 <button
                   key={item.value}
@@ -860,6 +864,26 @@ export function CampaignWorkspace(props: Props) {
                   </article>
                 )
               })}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {level === 'approvals' ? (
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-border/65 bg-card/40 p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-warning/25 bg-warning/[0.06] text-warning"><TriangleAlert className="size-4" /></span>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Central de aprovações</h3>
+                <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">Itens que a automação não deve decidir sozinha aparecem aqui: propostas, reprovações, alertas de conta e exceções operacionais.</p>
+              </div>
+            </div>
+          </div>
+          {props.approvals || (
+            <div className="rounded-2xl border border-border/65 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">Nada aguardando decisão</p>
+              <p className="mt-1 text-xs text-muted-foreground">A operação pode continuar sem intervenção manual neste momento.</p>
             </div>
           )}
         </section>
