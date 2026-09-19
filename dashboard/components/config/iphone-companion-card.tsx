@@ -19,6 +19,8 @@ type CompanionStatus = {
     customSaleSound: boolean
     homeScreenWidget: boolean
     lockScreenWidget: boolean
+    largeExecutiveWidget?: boolean
+    salesWidget?: boolean
     liveActivities: boolean
     widgetSnapshotVersion: number
   }
@@ -134,7 +136,7 @@ export function IPhoneCompanionCard() {
               Camada nativa para widgets do iPhone e som próprio de venda em notificações APNs.
             </p>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5"><LayoutGrid className="size-3.5" /> Widgets na Tela de Início e Tela Bloqueada</span>
+              <span className="inline-flex items-center gap-1.5"><LayoutGrid className="size-3.5" /> Widgets executivo e Vendas na Tela de Início/Tela Bloqueada</span>
               <span className="inline-flex items-center gap-1.5"><Volume2 className="size-3.5" /> Som ROI-NADOS em venda aprovada</span>
             </div>
           </div>
@@ -144,7 +146,7 @@ export function IPhoneCompanionCard() {
           <span className={data?.apnsConfigured ? 'rounded-full bg-success/10 px-2.5 py-1 text-[10px] font-semibold text-success' : 'rounded-full bg-warning/10 px-2.5 py-1 text-[10px] font-semibold text-warning'}>
             {data?.apnsConfigured ? 'APNs pronto' : 'APNs pendente'}
           </span>
-          {data?.capabilities?.homeScreenWidget ? <span className="rounded-full bg-brand-cyan/10 px-2.5 py-1 text-[10px] font-semibold text-brand-cyan">Widget pronto</span> : null}
+          {data?.capabilities?.salesWidget ? <span className="rounded-full bg-brand-cyan/10 px-2.5 py-1 text-[10px] font-semibold text-brand-cyan">2 widgets</span> : data?.capabilities?.homeScreenWidget ? <span className="rounded-full bg-brand-cyan/10 px-2.5 py-1 text-[10px] font-semibold text-brand-cyan">Widget pronto</span> : null}
         </div>
       </div>
 
