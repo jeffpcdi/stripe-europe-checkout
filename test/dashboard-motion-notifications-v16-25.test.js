@@ -1,0 +1,44 @@
+'use strict'
+
+const fs = require('fs')
+const path = require('path')
+const assert = require('assert')
+
+const root = path.join(__dirname, '..')
+const globals = fs.readFileSync(path.join(root, 'dashboard/app/globals.css'), 'utf8')
+const refinement = fs.readFileSync(path.join(root, 'dashboard/app/dashboard-refinement.css'), 'utf8')
+const toaster = fs.readFileSync(path.join(root, 'dashboard/components/shell/toaster.tsx'), 'utf8')
+const pushSound = fs.readFileSync(path.join(root, 'dashboard/components/shell/push-sound.tsx'), 'utf8')
+const pushCard = fs.readFileSync(path.join(root, 'dashboard/components/config/web-push-card.tsx'), 'utf8')
+const pushClient = fs.readFileSync(path.join(root, 'dashboard/lib/web-push.ts'), 'utf8')
+const notifyPrefs = fs.readFileSync(path.join(root, 'dashboard/lib/notify-prefs.ts'), 'utf8')
+const sw = fs.readFileSync(path.join(root, 'dashboard/public/sw.js'), 'utf8')
+const manifest = fs.readFileSync(path.join(root, 'dashboard/app/manifest.ts'), 'utf8')
+const copy = fs.readFileSync(path.join(root, 'notify-copy.js'), 'utf8')
+const bell = fs.readFileSync(path.join(root, 'dashboard/components/shell/notification-bell.tsx'), 'utf8')
+
+assert(globals.includes('.roi-toast-in') && globals.includes('roiAttentionIn'), 'micro motion deve ficar restrito a feedback e atenção')
+assert(globals.includes('@media (prefers-reduced-motion: reduce)') && globals.includes("html[data-anim='off'] .roi-toast-in"), 'novos efeitos devem respeitar redução de movimento do SO e da conta')
+assert(refinement.includes('navbar-popover-in 140ms') && !refinement.includes('translateY(-4px) scale(.985)'), 'popover deve entrar curto sem escalar texto')
+assert(toaster.includes('roi-toast-in') && !toaster.includes('anim-pop-spring pointer-events-auto'), 'toast deve usar uma única entrada curta')
+assert(toaster.includes('animationDuration: `${t.duration}ms`'), 'barra de vida do toast deve acompanhar a duração real')
+
+assert(pushClient.includes("platform: 'ios' | 'other'") && pushClient.includes('iOS/iPadOS 16.4'), 'detecção deve explicar requisito real do Web Push no iPhone')
+assert(pushClient.includes("navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1"), 'detecção iPadOS deve cobrir user agent desktop')
+assert(manifest.includes('id: "/dashboard"') && manifest.includes('display: "standalone"'), 'PWA deve ter identidade estável e modo standalone')
+assert(pushCard.includes('Sons no painel aberto') && pushCard.includes('O iOS controla som, Foco e estilo do alerta'), 'configuração deve separar som local do comportamento do iPhone')
+assert(pushCard.includes('Ajustes → Notificações → ROI-NADOS'), 'permissão negada no iPhone deve ter recuperação clara')
+assert(notifyPrefs.includes('roi-sound-enabled') && notifyPrefs.includes('getSoundMasterEnabled()'), 'som local deve poder ser desligado por aparelho')
+assert(pushSound.includes("document.visibilityState !== 'visible'"), 'WebAudio não deve duplicar alerta quando dashboard está em background')
+
+assert(sw.includes('data.badge === true') && sw.includes('self.navigator.setAppBadge()'), 'push relevante deve atualizar badge do app instalado')
+assert(sw.includes('self.navigator.clearAppBadge()'), 'toque na notificação deve limpar badge do app')
+assert(sw.includes('o SO/navegador ainda') && !sw.includes('garante o som padrão do sistema'), 'service worker não deve prometer som que o SO controla')
+assert(bell.includes('clearAppBadge') && bell.includes('abre a central'), 'central de notificações deve limpar o badge ao ser revisada')
+
+assert(copy.includes("login: '/dashboard/config?tab=security'"), 'login deve abrir Segurança')
+assert(copy.includes("ads_rejected: '/dashboard/ads/tiktok?tab=automation'"), 'reprovação deve abrir Automações')
+assert(copy.includes("ads_breaker: '/dashboard/ads/tiktok?tab=automation'"), 'circuit breaker deve abrir Automações')
+assert(copy.includes("test: '/dashboard/config?tab=notifications'"), 'teste deve voltar à configuração de Alertas')
+
+console.log('[OK] V16.25 — micro motion, iPhone Web Push, badge e sons locais coerentes.')
