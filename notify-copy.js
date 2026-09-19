@@ -223,8 +223,8 @@ function build(opts) {
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
   const tag = tagFor(event);
-  // Som distinto por evento (mapa SOUNDS acima) — tocado pelo painel aberto
-  // via WebAudio; no push fechado o sistema toca o som padrão.
+  // Som distinto por evento (mapa SOUNDS acima) — usado apenas como feedback
+  // local com o painel visível; em background o aparelho decide o alerta.
   const sound = SOUNDS[event] || '';
 
   if (event === 'sale') {
