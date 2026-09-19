@@ -78,7 +78,7 @@ export function UniversalLauncherDialog({
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [campaignPrefix, setCampaignPrefix] = useState('')
   const [bodyText, setBodyText] = useState('')
-  const [cta, setCta] = useState('SHOP_NOW')
+  const [cta, setCta] = useState('AUTO')
 
   // Lista de vídeos
   const [items, setItems] = useState<VideoItem[]>([])
@@ -542,7 +542,7 @@ export function UniversalLauncherDialog({
                 </div>
                 {!pixelReady && !pixelLoading && <div className="launch-inline-warning"><span>Configure o Pixel da conta antes de criar campanhas de conversão.</span>{onConfigurePixel && <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={onConfigurePixel} disabled={submitting || localUploadBusy}>Configurar Pixel</button>}</div>}
                 <div className="launch-review-list">
-                  <div className="launch-review-row"><span>Formato</span><strong>Conversão (CBO)</strong></div>
+                  <div className="launch-review-row"><span>Formato</span><strong>{cta === 'AUTO' ? 'Conversão (CBO) · CTA auto' : 'Conversão (CBO)'}</strong></div>
                   <div className="launch-review-row"><span>Campanhas</span><strong>{items.length || 0}</strong></div>
                   <div className="launch-review-row"><span>Mercado</span><strong>{market.countries.join(', ') || '—'}</strong></div>
                   <div className="launch-review-row"><span>Idioma</span><strong>{market.languages.join(', ') || 'Todos'}</strong></div>
