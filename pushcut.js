@@ -59,10 +59,14 @@ function nativePreferenceEnabled(accountId, event) {
 // execuções automáticas bem-sucedidas continuam nos seus painéis próprios.
 function shouldRecord(event) {
   return [
-    'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog',
+    'sale', 'pix_pending', 'failed', 'refund', 'dispute', 'login', 'watchdog', 'daily',
     'ads_attention', 'ads_rejected', 'ads_proposal', 'ads_failure',
     'ads_breaker', 'ads_cap',
   ].includes(event);
+}
+
+function shouldBadge(event) {
+  return shouldRecord(event) && event !== 'daily';
 }
 
 function pushcutEventEnabled(accountId, event) {
@@ -143,7 +147,7 @@ async function sendViaIOS(notificationName, payload, accountId, meta) {
     const event = note.event || '';
     if (!nativePreferenceEnabled(accountId, event)) return false;
     note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
-    note.badge = shouldRecord(event);
+    note.badge = shouldBadge(event);
 
     const iosPush = require('./ios-push');
     const result = await iosPush.sendToDevices(devices, note);
@@ -239,4 +243,5 @@ module.exports = {
   nativePreferenceEnabled,
   _nativeGroup: nativeGroup,
   _shouldRecord: shouldRecord,
+  _shouldBadge: shouldBadge,
 };
