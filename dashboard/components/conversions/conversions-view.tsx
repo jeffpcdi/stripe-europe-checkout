@@ -418,8 +418,9 @@ export function ConversionsView() {
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight text-foreground">Pixel &amp; Conversões</h1>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Configure pixels, conecte checkouts e acompanhe a entrega real das conversões.</p>
           </div>
           <button
             type="button"
