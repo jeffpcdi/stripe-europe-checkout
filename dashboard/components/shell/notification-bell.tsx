@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, Info } from 'lucide-react'
+import { ArrowRight, Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, FileText, Info } from 'lucide-react'
 import { fetcher } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -66,6 +66,8 @@ function EventIcon({ event }: { event: string }) {
       return <Gavel className={cn(cls, 'text-error')} aria-hidden="true" />
     case 'login':
       return <LogIn className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
+    case 'daily':
+      return <FileText className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
     case 'ads':
     case 'ads_attention':
     case 'ads_rejected':
