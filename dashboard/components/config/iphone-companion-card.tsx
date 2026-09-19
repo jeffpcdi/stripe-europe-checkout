@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Copy, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw } from 'lucide-react'
+import { Copy, ExternalLink, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Switch } from '@/components/ui/switch'
