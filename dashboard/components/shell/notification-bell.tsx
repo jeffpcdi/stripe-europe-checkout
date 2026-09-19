@@ -103,7 +103,7 @@ function toHref(url: string): string {
 }
 
 export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab' }) {
-  const { data } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
+  const { data, mutate } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
     refreshInterval: 30_000,
     revalidateOnFocus: true,
     keepPreviousData: true,
@@ -114,6 +114,12 @@ export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab
   useEffect(() => {
     setSeenAt(lastSeen())
   }, [])
+
+  useEffect(() => {
+    const refresh = () => { void mutate() }
+    window.addEventListener('roi:foreground-notification', refresh)
+    return () => window.removeEventListener('roi:foreground-notification', refresh)
+  }, [mutate])
 
   useEffect(() => {
     function syncSeen(event: Event) {
