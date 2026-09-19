@@ -3316,6 +3316,7 @@ module.exports = {
   validateRules,
   computeAttribution,
   resolveAdvertiserTimeZone,
+  campaignLearningState,
   runAlertSweep,
   runRulesSweep,
   runScheduleSweep,
