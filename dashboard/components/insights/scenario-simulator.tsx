@@ -1,181 +1,130 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { RotateCcw, SlidersHorizontal, TrendingUp, Users } from 'lucide-react'
-import type { OverviewPeriodMetrics } from '@/lib/types'
-import { fmtDelta, fmtInt, fmtPercent, formatMoney } from '@/lib/format'
+import { RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { fmtDelta, fmtInt, fmtSpend, formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
 export function ScenarioSimulator({
-  current,
+  currency,
   currentRevenue,
+  currentSales,
+  baselineSpend,
+  baselineCpa,
 }: {
-  current: OverviewPeriodMetrics
+  currency: string
   currentRevenue: number
+  currentSales: number
+  baselineSpend: number | null
+  baselineCpa: number | null
 }) {
-  const [trafficDelta, setTrafficDelta] = useState(0)
-  const [conversionDelta, setConversionDelta] = useState(0)
+  const [spendDelta, setSpendDelta] = useState(0)
+  const [cpaDelta, setCpaDelta] = useState(0)
 
   const model = useMemo(() => {
-    const baselineVisits = current.visits
-    const baselinePurchases = current.purchased
-    const baselineConversion = baselineVisits > 0 ? (baselinePurchases / baselineVisits) * 100 : 0
-    const revenueSales = current.revenueSales > 0 ? current.revenueSales : baselinePurchases
-    const averageTicket = revenueSales > 0 ? currentRevenue / revenueSales : 0
-
-    const projectedVisits = Math.max(0, Math.round(baselineVisits * (1 + trafficDelta / 100)))
-    const projectedConversion = clamp(baselineConversion + conversionDelta, 0, 100)
-    const projectedPurchases = Math.max(0, Math.round(projectedVisits * (projectedConversion / 100)))
-    const projectedRevenue = Math.round(projectedPurchases * averageTicket)
+    const averageTicket = currentSales > 0 ? currentRevenue / currentSales : 0
+    const spend = baselineSpend ?? 0
+    const cpa = baselineCpa ?? 0
+    const projectedSpend = Math.max(0, spend * (1 + spendDelta / 100))
+    const projectedCpa = Math.max(0.01, cpa * (1 + cpaDelta / 100))
+    const projectedSales = projectedSpend > 0 && projectedCpa > 0 ? Math.max(0, Math.round(projectedSpend / projectedCpa)) : 0
+    const projectedRevenue = Math.round(projectedSales * averageTicket)
+    const projectedRoas = projectedSpend > 0 ? (projectedRevenue / 100) / projectedSpend : null
     const revenueDelta = currentRevenue > 0 ? ((projectedRevenue - currentRevenue) / currentRevenue) * 100 : null
+    return { averageTicket, projectedSpend, projectedCpa, projectedSales, projectedRevenue, projectedRoas, revenueDelta }
+  }, [baselineSpend, baselineCpa, currentRevenue, currentSales, spendDelta, cpaDelta])
 
-    return {
-      baselineVisits,
-      baselinePurchases,
-      baselineConversion,
-      averageTicket,
-      projectedVisits,
-      projectedConversion,
-      projectedPurchases,
-      projectedRevenue,
-      revenueDelta,
-    }
-  }, [current.visits, current.purchased, current.revenueSales, currentRevenue, trafficDelta, conversionDelta])
-
-  const ready = model.baselineVisits > 0 && model.averageTicket > 0
+  const ready = (baselineSpend ?? 0) > 0 && (baselineCpa ?? 0) > 0 && model.averageTicket > 0
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-      <GlassCard className="p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="size-4 text-brand-cyan" aria-hidden="true" />
-              <h2 className="text-sm font-semibold text-foreground">Hipóteses</h2>
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Ajuste tráfego e conversão para visualizar um cenário matemático usando o ticket médio atual.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setTrafficDelta(0)
-              setConversionDelta(0)
-            }}
-            className="btn-ghost px-2.5 py-2 text-xs"
-            disabled={trafficDelta === 0 && conversionDelta === 0}
-          >
-            <RotateCcw className="size-3.5" aria-hidden="true" />
-            Resetar
-          </button>
-        </div>
-
-        <div className="mt-6 grid gap-6">
-          <label className="grid gap-3">
-            <span className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-foreground">Variação de tráfego</span>
-              <span className="rounded-lg border border-border/60 bg-secondary/20 px-2 py-1 text-xs font-semibold tabular-nums text-foreground">
-                {trafficDelta > 0 ? '+' : ''}{trafficDelta}%
-              </span>
-            </span>
-            <input
-              type="range"
-              min="-50"
-              max="200"
-              step="5"
-              value={trafficDelta}
-              onChange={event => setTrafficDelta(Number(event.target.value))}
-              className="w-full accent-cyan-400"
-              aria-label="Variação de tráfego em porcentagem"
-            />
-            <span className="text-[10px] text-muted-foreground">De −50% a +200% sobre as visitas do período atual.</span>
-          </label>
-
-          <label className="grid gap-3">
-            <span className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-foreground">Variação de conversão</span>
-              <span className="rounded-lg border border-border/60 bg-secondary/20 px-2 py-1 text-xs font-semibold tabular-nums text-foreground">
-                {conversionDelta > 0 ? '+' : ''}{conversionDelta.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} p.p.
-              </span>
-            </span>
-            <input
-              type="range"
-              min="-5"
-              max="10"
-              step="0.5"
-              value={conversionDelta}
-              onChange={event => setConversionDelta(Number(event.target.value))}
-              className="w-full accent-cyan-400"
-              aria-label="Variação de conversão em pontos percentuais"
-            />
-            <span className="text-[10px] text-muted-foreground">Ajuste absoluto em pontos percentuais sobre a conversão atual.</span>
-          </label>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-border/60 bg-secondary/10 p-3">
-            <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Conversão base</p>
-            <p className="mt-1 text-sm font-semibold text-foreground">{fmtPercent(model.baselineConversion)}</p>
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-secondary/10 p-3">
-            <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Ticket médio</p>
-            <p className="mt-1 text-sm font-semibold text-foreground" data-private="true">{formatMoney(model.averageTicket, current.mainCur)}</p>
-          </div>
-        </div>
-      </GlassCard>
-
-      <GlassCard className="p-4 sm:p-5">
+    <GlassCard className="overflow-hidden">
+      <div className="flex items-center justify-between gap-4 px-5 py-4">
         <div className="flex items-center gap-2">
-          <TrendingUp className="size-4 text-brand-cyan" aria-hidden="true" />
-          <h2 className="text-sm font-semibold text-foreground">Cenário projetado</h2>
+          <SlidersHorizontal className="size-4 text-brand-cyan" aria-hidden="true" />
+          <h2 className="text-[15px] font-semibold text-foreground">Simular orçamento</h2>
         </div>
+        <button
+          type="button"
+          onClick={() => { setSpendDelta(0); setCpaDelta(0) }}
+          className="btn-ghost px-2.5 py-2 text-xs"
+          disabled={spendDelta === 0 && cpaDelta === 0}
+        >
+          <RotateCcw className="size-3.5" aria-hidden="true" />
+          Resetar
+        </button>
+      </div>
 
-        {!ready ? (
-          <div className="mt-5 rounded-2xl border border-dashed border-border/70 p-8 text-center">
-            <Users className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
-            <p className="mt-2 text-sm font-medium text-foreground">Base insuficiente para simular</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">É necessário ter visitas e receita no período para calcular ticket médio e projeção.</p>
+      {!ready ? (
+        <div className="border-t border-border/60 px-5 py-10 text-center text-sm text-muted-foreground">
+          O simulador precisa de gasto, CPA e vendas do período.
+        </div>
+      ) : (
+        <div className="grid border-t border-border/60 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="grid gap-6 border-b border-border/60 p-5 xl:border-b-0 xl:border-r">
+            <label className="grid gap-3">
+              <span className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-medium text-foreground">Investimento</span>
+                <span className="font-semibold tabular-nums text-foreground">{spendDelta > 0 ? '+' : ''}{spendDelta}%</span>
+              </span>
+              <input
+                type="range"
+                min="-50"
+                max="100"
+                step="5"
+                value={spendDelta}
+                onChange={event => setSpendDelta(Number(event.target.value))}
+                className="w-full accent-cyan-400"
+                aria-label="Variação de investimento"
+              />
+            </label>
+
+            <label className="grid gap-3">
+              <span className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-medium text-foreground">CPA</span>
+                <span className="font-semibold tabular-nums text-foreground">{cpaDelta > 0 ? '+' : ''}{cpaDelta}%</span>
+              </span>
+              <input
+                type="range"
+                min="-30"
+                max="50"
+                step="5"
+                value={cpaDelta}
+                onChange={event => setCpaDelta(Number(event.target.value))}
+                className="w-full accent-cyan-400"
+                aria-label="Variação de CPA"
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-muted-foreground">Gasto base</span>
+                <p className="mt-1 font-semibold text-foreground">{fmtSpend(baselineSpend, currency)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">CPA base</span>
+                <p className="mt-1 font-semibold text-foreground">{fmtSpend(baselineCpa, currency)}</p>
+              </div>
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-border/60 bg-secondary/10 p-4">
-                <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Visitas</p>
-                <p className="mt-2 text-xl font-semibold text-foreground">{fmtInt(model.projectedVisits)}</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">base: {fmtInt(model.baselineVisits)}</p>
-              </div>
-              <div className="rounded-2xl border border-border/60 bg-secondary/10 p-4">
-                <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Conversão</p>
-                <p className="mt-2 text-xl font-semibold text-foreground">{fmtPercent(model.projectedConversion)}</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">base: {fmtPercent(model.baselineConversion)}</p>
-              </div>
-              <div className="rounded-2xl border border-brand-cyan/15 bg-brand-cyan/[0.04] p-4">
-                <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Compras estimadas</p>
-                <p className="mt-2 text-xl font-semibold text-brand-cyan">{fmtInt(model.projectedPurchases)}</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">base: {fmtInt(model.baselinePurchases)}</p>
-              </div>
-              <div className="rounded-2xl border border-brand-cyan/15 bg-brand-cyan/[0.04] p-4">
-                <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Receita estimada</p>
-                <p className="mt-2 text-xl font-semibold text-brand-cyan" data-private="true">{formatMoney(model.projectedRevenue, current.mainCur)}</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {model.revenueDelta == null ? 'sem base comparável' : `${fmtDelta(model.revenueDelta)} vs. atual`}
-                </p>
-              </div>
-            </div>
 
-            <div className="mt-4 rounded-2xl border border-border/60 bg-secondary/10 p-4">
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Simulação determinística: mantém o ticket médio constante e aplica apenas as duas hipóteses acima. Não considera mudanças de mix, custo, sazonalidade ou comportamento de pagamento.
-              </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4">
+            {[
+              ['Investimento', fmtSpend(model.projectedSpend, currency)],
+              ['Compras', fmtInt(model.projectedSales)],
+              ['Receita', formatMoney(model.projectedRevenue, currency)],
+              ['ROAS', model.projectedRoas == null ? '—' : `${model.projectedRoas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`],
+            ].map(([label, value], index) => (
+              <div key={label} className={`p-5 ${index % 2 === 0 ? 'border-r border-border/40' : ''} ${index < 2 ? 'border-b border-border/40 sm:border-b-0' : ''} sm:border-r sm:last:border-r-0`}>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="mt-2 text-xl font-semibold tracking-tight text-foreground" data-private={label === 'Receita' ? 'true' : undefined}>{value}</p>
+              </div>
+            ))}
+            <div className="col-span-2 border-t border-border/40 px-5 py-3 text-xs text-muted-foreground sm:col-span-4">
+              {model.revenueDelta == null ? 'Projeção simples.' : `${fmtDelta(model.revenueDelta)} de receita vs. atual.`} Mantém ticket médio constante e não estima saturação do leilão.
             </div>
-          </>
-        )}
-      </GlassCard>
-    </div>
+          </div>
+        </div>
+      )}
+    </GlassCard>
   )
 }
