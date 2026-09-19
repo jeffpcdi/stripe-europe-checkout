@@ -1293,6 +1293,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!(bidAmount > 0)) return { error: 'Estratégia "custo-alvo" exige um valor de lance (bidAmount) maior que zero' };
     }
 
+    const normalizedLinkUrl = /^https:\/\/[^\s]+/.test(String(b.linkUrl || '').trim())
+      ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500))
+      : '';
+    if (!normalizedLinkUrl) return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+
     const payload = {
       accountId: st.accountId,
       adAccountId,
@@ -1307,7 +1312,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       imageUrl: videoUrl || undefined,
       videoId: videoId || undefined,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
-      linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
+      linkUrl: normalizedLinkUrl,
       callToAction: b.dynamicCallToAction === true ? undefined : (CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined),
       dynamicCallToAction: b.dynamicCallToAction === true,
       countries: Array.isArray(b.countries)
