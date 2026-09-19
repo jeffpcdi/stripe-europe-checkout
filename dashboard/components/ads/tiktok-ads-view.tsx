@@ -378,9 +378,7 @@ export function TikTokAdsView() {
     let revenue = 0
     let comparable = true
     let noSalesWithSpend = 0
-    let highRoas = 0
     let pendingProposals = 0
-    let bestRoas: { id: string; name: string; value: number } | null = null
 
     for (const campaign of campaigns) {
       if (campaign.status === 'active') active += 1
@@ -395,13 +393,6 @@ export function TikTokAdsView() {
       if (cents > 0 && sameCurrency) revenue += cents / 100
       else if (cents > 0 && !sameCurrency) comparable = false
       if (campaignSpend > 0 && campaignSales === 0) noSalesWithSpend += 1
-      const campaignRoas = campaignSpend > 0 && cents > 0 && sameCurrency ? (cents / 100) / campaignSpend : null
-      if (campaignRoas !== null && campaignRoas >= 2) {
-        highRoas += 1
-        if (!bestRoas || campaignRoas > bestRoas.value) {
-          bestRoas = { id: campaign.platformCampaignId, name: campaign.campaignName || campaign.platformCampaignId, value: campaignRoas }
-        }
-      }
       if (decision?.automation.pendingProposal) pendingProposals += 1
     }
 
@@ -412,9 +403,7 @@ export function TikTokAdsView() {
       sales,
       roas: campaignDecisions && spend > 0 && comparable ? revenue / spend : null,
       noSalesWithSpend,
-      highRoas,
       pendingProposals,
-      bestRoas,
     }
   }, [tree, campaignDecisions, currency])
 
@@ -793,15 +782,6 @@ export function TikTokAdsView() {
                 </section>
               ) : null}
 
-              {adsOperationalSummary.highRoas > 0 ? (
-                <section className="border-b border-border/60 pb-4">
-                  <h2 className="text-sm font-semibold text-foreground">Oportunidades</h2>
-                  <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="mt-2 flex w-full items-center justify-between gap-3 py-2 text-left text-xs text-success hover:text-foreground">
-                    <span>{adsOperationalSummary.highRoas} campanha{adsOperationalSummary.highRoas === 1 ? '' : 's'} com ROAS acima de 2×</span>
-                    <span className="shrink-0 font-medium">Ver campanhas</span>
-                  </button>
-                </section>
-              ) : null}
               <NeedsYouInbox
                 key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
                 active={treeActive}
