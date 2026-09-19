@@ -34,6 +34,16 @@ import { ErrorState } from '@/components/error-state'
 import { ArrowUpRight } from 'lucide-react'
 
 // ── Formatação de Moeda e Data ───────────────────────────────────────────
+function overviewCampaignStatus(status?: string | null) {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'active' || normalized === 'enable' || normalized === 'enabled') return { label: 'Ativa', active: true }
+  if (normalized === 'paused' || normalized === 'disable' || normalized === 'disabled') return { label: 'Pausada', active: false }
+  if (normalized === 'rejected') return { label: 'Rejeitada', active: false }
+  if (normalized === 'error') return { label: 'Erro', active: false }
+  if (normalized === 'pending_review' || normalized === 'review') return { label: 'Em análise', active: false }
+  return { label: status ? String(status) : 'Desconhecido', active: false }
+}
+
 function fmtAdsMoney(v: number, currency: string): string {
   try {
     return new Intl.NumberFormat('pt-BR', {
@@ -360,14 +370,14 @@ export function OverviewView() {
               </div>
               <div className="overview-campaign-table-body" role="rowgroup">
                 {tikTokCampaigns.slice(0, 4).map((c) => {
-                  const isActive = c.status === 'active' || c.status === 'ENABLE'
+                  const campaignStatus = overviewCampaignStatus(c.status)
                   return (
                     <div key={c.id || c.name} className="overview-campaign-row overview-campaign-grid overview-campaign-grid--tiktok" role="row">
                       <div className="overview-campaign-name-cell" role="cell">
                         <span className="overview-campaign-name" title={c.name}>{c.name}</span>
-                        <span className={`overview-campaign-status ${isActive ? 'is-active' : 'is-paused'}`}>
+                        <span className={`overview-campaign-status ${campaignStatus.active ? 'is-active' : 'is-paused'}`}>
                           <span className="overview-campaign-status-dot" aria-hidden="true" />
-                          {isActive ? 'Ativa' : 'Pausada'}
+                          {campaignStatus.label}
                         </span>
                       </div>
                       <span className="overview-campaign-value" role="cell">{c.spend == null ? '—' : fmtAdsMoney(c.spend, roas?.currency || 'BRL')}</span>
