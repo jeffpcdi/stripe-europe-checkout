@@ -1,5 +1,15 @@
 # CLAUDE.md — ROI-NADOS
 
+## Cloaker UX alinhado às campanhas — V16.23 (2026-09-19)
+- A aba Cloaker é campaign-first: ordem `Campanhas → Resultados → Proteção`, com cabeçalho próprio e preferência de aba persistida. Conta sem campanhas abre diretamente em Campanhas.
+- Frontend usa `campaignId` como identidade estável para seleção, optimistic update, teste, ordenação por tráfego, histórico e keys React. Slug/path fica somente como endereço público e fallback legado.
+- Resultados da aba Cloaker filtram apenas `tipo='cloak'`; checkout `/go` não entra no agregado nem no reset global da tela. Campanhas V2 zeram stats via `campaign:<id>`.
+- O editor usa linguagem de campanha, exige domínio dedicado para novas associações, mantém domínio legado atual editável e recolhe proteção/segmentação avançada na criação.
+- Ao criar uma campanha, o frontend abre o `CloakLinkKitDialog` com URL e parâmetros separados para publicação no anúncio. Edições comuns não forçam esse passo novamente.
+- `Proteção da conta` diferencia controles realmente compartilhados (shadow, destino seguro, velocity/auto-block) de compatibilidade global/legada; não afirmar que o master global desativa campanhas V2.
+- Teste de regressão: `test/cloak-ux-alignment-v16-23.test.js`.
+
+
 > **Instruções para IAs (LEIA PRIMEIRO):** Este arquivo é o mapa mental completo do projeto.
 > Leia-o inteiro antes de mexer em qualquer coisa. É a fonte de verdade sobre stack,
 > arquitetura, convenções e armadilhas. Regras que **quebram o projeto** se ignoradas:
