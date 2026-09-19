@@ -881,6 +881,22 @@ export function CampaignTree({
     }
   }
 
+  async function setEntityStatus(id: string, status: 'active' | 'paused', label: string) {
+    if (busyId || bulkBusy) return
+    setBusyId(id)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; simulated?: boolean }>(`/api/ads/${encodeURIComponent(id)}`, 'PUT', { status })
+      if (result.dryRun || result.simulated) toast.info('Simulação concluída', { hint: `${label} não foi alterado no TikTok.` })
+      else toast.info(status === 'paused' ? 'Pausa solicitada' : 'Ativação solicitada', { hint: `${label} será atualizado após a sincronização.` })
+      actionFeedback()
+      onMutate()
+    } catch (e) {
+      toast.error('Falha ao alterar status', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function handleDeleteAd() {
     const ad = deleteAd?.ad
     const adId = ad?.platformAdId || ad?._id
@@ -1549,7 +1565,7 @@ export function CampaignTree({
         <div className="grid grid-cols-[minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
         {rows.map(({ campaign, group }) => <div key={group.platformAdSetId} className="grid grid-cols-[minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] gap-3 border-b border-border/40 px-3 py-3 text-xs hover:bg-muted/20">
           <div className="min-w-0"><p className="truncate font-semibold text-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="mt-0.5 text-muted-foreground">{group.ads?.length || 0} anúncio{(group.ads?.length || 0) === 1 ? '' : 's'}</p></div>
-          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><StatusInline status={group.status} />
+          <p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle status={group.status} busy={busyId === group.platformAdSetId} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(group.platformAdSetId, group.status === 'active' ? 'paused' : 'active', 'Conjunto')} name={group.adSetName || group.platformAdSetId} />
           <p className="text-right tabular-nums text-foreground">{group.budget?.amount != null ? fmtMoney(Number(group.budget.amount), campaign.currency || currency) : '—'}</p><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(group.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(group.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
         </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
       </div></div>
@@ -1559,7 +1575,7 @@ export function CampaignTree({
       <div className="grid grid-cols-[96px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><span>Criativo</span><span>Anúncio</span><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
       {rows.map(({ campaign, group, ad }) => { const videoUrl = /^https:\/\//i.test(ad.creative?.videoUrl || '') ? ad.creative?.videoUrl : ''; const imageUrl = /^https:\/\//i.test(ad.creative?.imageUrl || '') ? ad.creative?.imageUrl : ''; const hasAsset = Boolean(videoUrl || imageUrl || ad.creative?.videoId || ad.creative?.imageIds?.length); return <div key={ad.platformAdId || ad._id} className="grid grid-cols-[96px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px] items-center gap-3 border-b border-border/40 px-3 py-2.5 text-xs hover:bg-muted/20">
         <div className="flex h-14 w-10 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-black">{videoUrl ? <video src={videoUrl} poster={imageUrl || undefined} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : imageUrl ? <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" /> : hasAsset ? <Play className="size-4 text-white/70" aria-label="Asset TikTok identificado; prévia pendente" /> : <span className="text-[9px] text-white/45">—</span>}</div>
-        <div className="min-w-0"><p className="truncate font-semibold text-foreground">{ad.name || ad.platformAdId}</p><p className="mt-0.5 truncate text-muted-foreground">{ad.creative?.body || (hasAsset ? 'Asset TikTok identificado' : 'Sem criativo informado')}</p></div><p className="truncate text-muted-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><StatusInline status={ad.status} /><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(ad.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
+        <div className="min-w-0"><p className="truncate font-semibold text-foreground">{ad.name || ad.platformAdId}</p><p className="mt-0.5 truncate text-muted-foreground">{ad.creative?.body || (hasAsset ? 'Asset TikTok identificado' : 'Sem criativo informado')}</p></div><p className="truncate text-muted-foreground">{group.adSetName || group.name || group.platformAdSetId}</p><p className="truncate text-muted-foreground">{cleanCampaignName(campaign.campaignName || campaign.platformCampaignId)}</p><CampaignActivationToggle status={ad.status} busy={busyId === (ad.platformAdId || ad._id)} disabled={Boolean(busyId) || bulkBusy} onToggle={() => void setEntityStatus(String(ad.platformAdId || ad._id), ad.status === 'active' ? 'paused' : 'active', 'Anúncio')} name={ad.name || ad.platformAdId} /><p className="text-right tabular-nums text-foreground">{fmtMoney(Number(ad.metrics?.spend || 0), campaign.currency || currency)}</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.ctr || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</p><p className="text-right tabular-nums text-foreground">{Number(ad.metrics?.conversions || 0).toLocaleString('pt-BR')}</p>
       </div>})}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum anúncio disponível nesta conta.</p> : null}
     </div></div>
   }
