@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import {
   BarChart3,
   Bot,
-  Check,
   ChevronRight,
   Film,
   Layers3,
@@ -31,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { CampaignTree } from './campaign-tree'
 
 type WorkspaceLevel = 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights'
+type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
 
 type Props = {
   tree?: AdsTreeResponse
@@ -201,6 +201,7 @@ function CreativePreview({ ad, large = false }: { ad: AdsTreeAd; large?: boolean
 
 export function CampaignWorkspace(props: Props) {
   const [level, setLevel] = usePersistedState<WorkspaceLevel>('ads:campaign-workspace-level', 'campaigns')
+  const [nodeFilter, setNodeFilter] = usePersistedState<NodeFilter>('ads:campaign-workspace-status', 'all')
   const [query, setQuery] = useState('')
   const campaigns = props.tree?.campaigns ?? []
 
@@ -213,23 +214,33 @@ export function CampaignWorkspace(props: Props) {
   [groups])
 
   const q = query.trim().toLowerCase()
-  const visibleGroups = groups.filter(({ campaign, group }) => !q || [
-    campaign.campaignName,
-    campaign.platformCampaignId,
-    group.adSetName,
-    group.name,
-    group.platformAdSetId,
-  ].some((value) => String(value || '').toLowerCase().includes(q)))
+  const matchesNodeStatus = (status?: AdsNodeStatus) => {
+    if (nodeFilter === 'all') return true
+    if (nodeFilter === 'active') return status === 'active'
+    if (nodeFilter === 'paused') return status === 'paused'
+    return ['rejected', 'error', 'pending_review'].includes(String(status || ''))
+  }
+  const visibleGroups = groups.filter(({ campaign, group }) =>
+    matchesNodeStatus(group.status) && (!q || [
+      campaign.campaignName,
+      campaign.platformCampaignId,
+      group.adSetName,
+      group.name,
+      group.platformAdSetId,
+    ].some((value) => String(value || '').toLowerCase().includes(q))),
+  )
 
-  const visibleAds = ads.filter(({ campaign, group, ad }) => !q || [
-    campaign.campaignName,
-    campaign.platformCampaignId,
-    group.adSetName,
-    group.name,
-    ad.name,
-    ad.platformAdId,
-    ad.creative?.body,
-  ].some((value) => String(value || '').toLowerCase().includes(q)))
+  const visibleAds = ads.filter(({ campaign, group, ad }) =>
+    matchesNodeStatus(ad.status) && (!q || [
+      campaign.campaignName,
+      campaign.platformCampaignId,
+      group.adSetName,
+      group.name,
+      ad.name,
+      ad.platformAdId,
+      ad.creative?.body,
+    ].some((value) => String(value || '').toLowerCase().includes(q))),
+  )
 
   const activeGroups = groups.filter(({ group }) => group.status === 'active').length
   const activeAds = ads.filter(({ ad }) => ad.status === 'active').length
@@ -283,15 +294,38 @@ export function CampaignWorkspace(props: Props) {
           </div>
 
           {level !== 'campaigns' && level !== 'insights' ? (
-            <label className="relative min-w-0 xl:w-72">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={level === 'adgroups' ? 'Buscar conjunto ou campanha' : level === 'ads' ? 'Buscar anúncio, conjunto ou campanha' : 'Buscar criativo'}
-                className="h-10 w-full rounded-lg border border-border/70 bg-background/45 pl-9 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-brand-cyan/50"
-              />
-            </label>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border/65 bg-background/35 p-1" role="group" aria-label="Filtrar por status">
+                {([
+                  ['all', 'Todos'],
+                  ['active', 'Ativos'],
+                  ['paused', 'Pausados'],
+                  ['attention', 'Problemas'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setNodeFilter(value)}
+                    aria-pressed={nodeFilter === value}
+                    className={cn(
+                      'min-h-8 rounded-md px-2 text-[11px] font-medium transition-colors',
+                      nodeFilter === value ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <label className="relative min-w-0 sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={level === 'adgroups' ? 'Buscar conjunto ou campanha' : level === 'ads' ? 'Buscar anúncio, conjunto ou campanha' : 'Buscar criativo'}
+                  className="h-10 w-full rounded-lg border border-border/70 bg-background/45 pl-9 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-brand-cyan/50"
+                />
+              </label>
+            </div>
           ) : null}
         </div>
 
