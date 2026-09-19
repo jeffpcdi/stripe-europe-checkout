@@ -57,7 +57,11 @@ for (const label of ['Gasto', 'Receita', 'Compras', 'CPA', 'ROAS']) {
   assert.match(campaigns, new RegExp(label))
 }
 assert.match(campaigns, /formatMoney\(Math\.round\(row\.spend \* 100\), row\.spendCurrency\)/)
-assert.match(campaigns, /Ritmo hoje/)\nassert.match(campaigns, /Exportar/)\nassert.match(campaigns, /\\/api\\/ads\\/reports\\/export/)\nassert.match(campaigns, /fromDate/)\nassert.match(campaigns, /toDate/)
+assert.match(campaigns, /Ritmo hoje/)
+assert.match(campaigns, /Exportar/)
+assert.match(campaigns, /\/api\/ads\/reports\/export/)
+assert.match(campaigns, /fromDate/)
+assert.match(campaigns, /toDate/)
 assert.match(campaigns, /dailyBudget/)
 assert.match(campaigns, /pacingView/)
 assert.match(campaigns, /Acima do ritmo/)
