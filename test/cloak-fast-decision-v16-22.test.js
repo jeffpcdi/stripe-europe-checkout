@@ -221,7 +221,17 @@ const goodHeaders = {
   const goStart = server.indexOf('async function handleCheckoutPublic');
   const goEnd = server.indexOf("app.get('/go/:slug'", goStart);
   assert.ok(goStart >= 0 && goEnd > goStart);
-  assert.doesNotMatch(server.slice(goStart, goEnd), /cloakDecisionEngine/);
+  const goBlock = server.slice(goStart, goEnd);
+  assert.doesNotMatch(goBlock, /cloakDecisionEngine/);
+  assert.doesNotMatch(goBlock, /roiNetworkContext/);
+  assert.doesNotMatch(goBlock, /observedCountry\(\)/);
+
+  const cloakStart = server.indexOf('async function handleCloakPublic');
+  const cloakEnd = server.indexOf("app.get('/c/:slug'", cloakStart);
+  assert.ok(cloakStart >= 0 && cloakEnd > cloakStart);
+  const cloakBlock = server.slice(cloakStart, cloakEnd);
+  assert.match(cloakBlock, /roiNetworkContext: networkContext && networkContext\.networkVerified/);
+  assert.match(cloakBlock, /geoCountry: observedCountry\(\)/);
 
   assert.match(worker, /const VERSION = 'v2'/);
   assert.match(worker, /X-ROI-Edge-Client-IP/);
