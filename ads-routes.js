@@ -2796,6 +2796,157 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+
+  app.post('/api/ads/budget/proposal/apply', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const body = req.body || {};
+      const advertiserId = await resolveAdv(req, String(body.adAccountId || '').trim());
+      const days = Math.max(3, Math.min(30, parseInt(body.days, 10) || 7));
+      const currency = String(body.currency || 'USD').slice(0, 5);
+      const idempotencyKey = String(body.idempotencyKey || '').trim().slice(0, 200);
+      const proposal = await adsAi.budgetProposal(req.account.id, advertiserId, currency, days);
+      const changes = Array.isArray(proposal && proposal.changes) ? proposal.changes : [];
+      if (!changes.length) {
+        return res.status(409).json({ error: proposal && proposal.message || 'Nenhuma realocação relevante agora.', code: 'BUDGET_PLAN_EMPTY' });
+      }
+
+      const maxDeltaPct = Math.max(...changes.map((item) => Math.abs(Number(item.deltaPct) || 0)));
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const guard = adsOps.assertMutationAllowed(policy, {
+        advertiserId,
+        idempotencyKey,
+        budgetChangePct: maxDeltaPct,
+      });
+
+      if (policy.dailySpendCap != null && Number(proposal.totalBudget) > Number(policy.dailySpendCap)) {
+        return res.status(409).json({
+          error: 'O orçamento diário atual já está acima do teto definido na política de segurança.',
+          code: 'DAILY_SPEND_CAP_EXCEEDED',
+        });
+      }
+
+      const actionsInLastHour = policy.maxActionsPerHour > 0
+        ? await adsOps.countRecentEngineActions(req.account.id, 3600e3, advertiserId)
+        : 0;
+      if (!guard.dryRun && policy.maxActionsPerHour > 0
+        && actionsInLastHour + changes.length > policy.maxActionsPerHour) {
+        return res.status(409).json({
+          error: 'O plano excede o limite de ações por hora da política de segurança.',
+          code: 'ADS_ACTION_CAP_EXCEEDED',
+        });
+      }
+
+      const classified = await adsCache.classifyEntities(
+        req.account.id,
+        advertiserId,
+        changes.map((item) => String(item.campaignId || '')),
+      );
+      const prepared = [];
+      for (const change of changes) {
+        const id = String(change.campaignId || '');
+        const entity = classified.get(id);
+        if (!entity || entity.type !== 'campaign') {
+          return res.status(409).json({ error: 'A campanha ' + id + ' não está mais disponível no espelho.', code: 'BUDGET_PLAN_STALE' });
+        }
+        if (entity.budgetOwner && entity.budgetOwner !== 'campaign') {
+          return res.status(409).json({ error: 'A campanha "' + change.name + '" agora usa orçamento no conjunto (ABO). Recalcule o plano.', code: 'BUDGET_PLAN_STALE' });
+        }
+        prepared.push({
+          ...change,
+          entity,
+          current: Number(change.current),
+          proposed: Number(change.proposed),
+        });
+      }
+
+      if (guard.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'budget_allocator.apply',
+          targetType: 'campaign',
+          advertiserId,
+          metadata: { days, currency, changes: prepared.map((item) => ({ id: item.campaignId, from: item.current, to: item.proposed })) },
+          title: 'Profit Allocator · ' + prepared.length + ' ajuste(s)',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: prepared.length, proposal });
+      }
+
+      // Reduz primeiro e só depois aumenta. Em uma falha, tenta restaurar tudo
+      // que já foi aplicado em ordem inversa para não deixar o portfólio torto.
+      const ordered = prepared.slice().sort((a, b) => {
+        const aDown = a.proposed < a.current ? 0 : 1;
+        const bDown = b.proposed < b.current ? 0 : 1;
+        return aDown - bDown || Math.abs(b.deltaPct) - Math.abs(a.deltaPct);
+      });
+      const applied = [];
+      try {
+        for (const item of ordered) {
+          await updateEntityBudget(
+            item.entity,
+            { kind: 'campaign', id: item.campaignId },
+            { amount: item.proposed, type: 'daily' },
+          );
+          applied.push(item);
+        }
+      } catch (error) {
+        const rollbackErrors = [];
+        for (const item of applied.slice().reverse()) {
+          try {
+            await updateEntityBudget(
+              item.entity,
+              { kind: 'campaign', id: item.campaignId },
+              { amount: item.current, type: 'daily' },
+            );
+          } catch (rollbackError) {
+            rollbackErrors.push(String(rollbackError && rollbackError.message || rollbackError).slice(0, 160));
+          }
+        }
+        const err = new Error(
+          rollbackErrors.length
+            ? 'A realocação falhou e parte do rollback também falhou. Revise os orçamentos antes de continuar.'
+            : 'A realocação falhou e as alterações aplicadas foram revertidas.',
+        );
+        err.status = 502;
+        err.code = rollbackErrors.length ? 'BUDGET_ALLOCATOR_PARTIAL_ROLLBACK' : 'BUDGET_ALLOCATOR_ROLLED_BACK';
+        err.retryable = rollbackErrors.length === 0;
+        err.rollbackErrors = rollbackErrors;
+        throw err;
+      }
+
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user',
+        actorId: req.account.id,
+        action: 'budget_allocator.applied',
+        targetType: 'campaign',
+        targetId: 'allocator:' + Date.now(),
+        advertiserId,
+        beforeState: { totalBudget: proposal.totalBudget },
+        afterState: { totalBudget: proposal.totalBudget },
+        reason: 'Profit Allocator aprovado pelo gestor',
+        metadata: {
+          days,
+          currency,
+          idempotencyKey,
+          changes: prepared.map((item) => ({
+            id: item.campaignId,
+            name: item.name,
+            from: item.current,
+            to: item.proposed,
+            deltaPct: item.deltaPct,
+          })),
+        },
+      }).catch(() => {});
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] Profit Allocator aplicado: ' + prepared.length + ' orçamento(s)',
+      });
+      res.json({ ok: true, updated: prepared.length, proposal });
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/alerts', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
