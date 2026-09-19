@@ -2177,11 +2177,16 @@ async function checkDailyReportFor(accId) {
       currency: cur, fromDate: yKey, toDate: yKey, timeZone: accountTz(accId),
       config: cfg.profitability || {}, adSpendExact: sameCurrency && !!adCurrency,
     });
-    const revenueText = (rev / 100).toFixed(2) + ' ' + cur;
-    const spendText = sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente';
+    const briefMoney = (value) => new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: cur,
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+    const revenueText = briefMoney(rev / 100);
+    const spendText = sameCurrency ? briefMoney(spend) : 'moeda divergente';
     const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
-    const profitText = (profit.netProfitCents / 100).toFixed(2) + ' ' + cur;
-    const aovText = sales.length ? (rev / 100 / sales.length).toFixed(2) + ' ' + cur : '—';
+    const profitText = briefMoney(profit.netProfitCents / 100);
+    const aovText = sales.length ? briefMoney(rev / 100 / sales.length) : '—';
     const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
     const exception = sameCurrency && spend > 0 && sales.length === 0
       ? 'Gasto no TikTok sem venda registrada.'
