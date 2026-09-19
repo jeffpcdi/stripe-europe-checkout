@@ -1249,10 +1249,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!(bidAmount > 0)) return { error: 'Estratégia "custo-alvo" exige um valor de lance (bidAmount) maior que zero' };
     }
 
-    const normalizedLinkUrl = /^https:\/\/[^\s]+/.test(String(b.linkUrl || '').trim())
-      ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500))
-      : '';
-    if (!normalizedLinkUrl) return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+    const rawLinkUrl = String(b.linkUrl || '').trim().slice(0, 500);
+    let normalizedLinkUrl = '';
+    try {
+      const parsedLink = new URL(rawLinkUrl);
+      if (parsedLink.protocol !== 'https:' || parsedLink.username || parsedLink.password) {
+        return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+      }
+      normalizedLinkUrl = withAdsTracking(parsedLink.href);
+    } catch (_) {
+      return { error: 'Conversão exige uma URL HTTPS de destino válida' };
+    }
 
     const payload = {
       accountId: st.accountId,
