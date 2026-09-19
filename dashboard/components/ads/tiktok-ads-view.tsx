@@ -370,69 +370,6 @@ export function TikTokAdsView() {
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'BRL'
   }, [accounts, concreteAdvertiser, tree])
 
-  const adsOperationalSummary = useMemo(() => {
-    const campaigns = tree?.campaigns ?? []
-    let active = 0
-    let spend = 0
-    let sales = 0
-    let revenue = 0
-    let comparable = true
-    let noSalesWithSpend = 0
-    let highRoas = 0
-    let pendingProposals = 0
-    let bestRoas: { id: string; name: string; value: number } | null = null
-
-    for (const campaign of campaigns) {
-      if (campaign.status === 'active') active += 1
-      const campaignSpend = Number(campaign.metrics?.spend) || 0
-      spend += campaignSpend
-      const decision = campaignDecisions?.byCampaign[campaign.platformCampaignId]
-      const campaignSales = Number(decision?.sales) || 0
-      sales += campaignSales
-      const cents = Number(decision?.revenueCents) || 0
-      const campaignCurrency = campaign.currency || currency
-      const sameCurrency = !decision?.currency || decision.currency === campaignCurrency
-      if (cents > 0 && sameCurrency) revenue += cents / 100
-      else if (cents > 0 && !sameCurrency) comparable = false
-      if (campaignSpend > 0 && campaignSales === 0) noSalesWithSpend += 1
-      const campaignRoas = campaignSpend > 0 && cents > 0 && sameCurrency ? (cents / 100) / campaignSpend : null
-      if (campaignRoas !== null && campaignRoas >= 2) {
-        highRoas += 1
-        if (!bestRoas || campaignRoas > bestRoas.value) {
-          bestRoas = { id: campaign.platformCampaignId, name: campaign.campaignName || campaign.platformCampaignId, value: campaignRoas }
-        }
-      }
-      if (decision?.automation.pendingProposal) pendingProposals += 1
-    }
-
-    return {
-      total: campaigns.length,
-      active,
-      spend,
-      sales,
-      roas: campaignDecisions && spend > 0 && comparable ? revenue / spend : null,
-      noSalesWithSpend,
-      highRoas,
-      pendingProposals,
-      bestRoas,
-    }
-  }, [tree, campaignDecisions, currency])
-
-  function formatAdsMoney(value: number) {
-    try {
-      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
-    } catch {
-      return `${currency} ${value.toFixed(0)}`
-    }
-  }
-
-  function applyCampaignShortcut(query: string) {
-    changeTab('campaigns')
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('roi:ads-filter', { detail: query }))
-    }, 0)
-  }
-
   async function commitAdvertiserChange(id: string) {
     if (!id || switchingAccount || String(id) === String(concreteAdvertiser)) return
     setSwitchingAccount(true)
