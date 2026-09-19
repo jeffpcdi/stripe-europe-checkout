@@ -105,6 +105,14 @@ struct ROIWidgetView: View {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundStyle(.orange)
                         .accessibilityLabel("Operação precisa de atenção")
+                } else if let lastSale = snapshot.lastSale {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("ÚLTIMA VENDA")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(money(lastSale.amountCents, currency: lastSale.currency))
+                            .font(.caption.weight(.semibold))
+                    }
                 }
             }
 
