@@ -15,7 +15,7 @@ assert.match(view, /approvalsCount=/);
 assert.match(view, /approvals=\{\(/);
 
 const workspace = read('dashboard/components/ads/campaign-workspace.tsx');
-for (const label of ['Visão', 'Campanhas', 'Conjuntos', 'Anúncios', 'Criativos', 'Oportunidades', 'Aprovações', 'Playbooks']) {
+for (const label of ['Operação', 'Campanhas', 'Conjuntos', 'Anúncios', 'Criativos', 'Oportunidades', 'Aprovações', 'Playbooks']) {
   assert.match(workspace, new RegExp(`label: '${label}'`));
 }
 assert.match(workspace, /ads:campaign-workspace-level/);
@@ -53,6 +53,7 @@ assert.match(workspace, /useAdsRules/);
 assert.match(workspace, /Creative Intelligence/);
 assert.match(workspace, /Playbooks de operação/);
 assert.match(workspace, /modo proposta/);
+assert.match(workspace, /escopo campanhas/);
 assert.match(workspace, /setSelectedGroups\(new Set\(\)\)/);
 assert.match(workspace, /setSelectedAds\(new Set\(\)\)/);
 
