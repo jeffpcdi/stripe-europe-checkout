@@ -4,6 +4,30 @@ import UserNotifications
 import WidgetKit
 
 enum CompanionPushRegistrar {
+    static func configureCategories() {
+        let openSales = UNNotificationAction(
+            identifier: "OPEN_SALES",
+            title: "Ver vendas",
+            options: [.foreground]
+        )
+        let openDaily = UNNotificationAction(
+            identifier: "OPEN_DAILY",
+            title: "Abrir resumo",
+            options: [.foreground]
+        )
+        let openAutomation = UNNotificationAction(
+            identifier: "OPEN_AUTOMATION",
+            title: "Revisar",
+            options: [.foreground]
+        )
+        let categories: Set<UNNotificationCategory> = [
+            UNNotificationCategory(identifier: "ROI_SALE", actions: [openSales], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "ROI_DAILY", actions: [openDaily], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "ROI_AUTOMATION", actions: [openAutomation], intentIdentifiers: [], options: []),
+        ]
+        UNUserNotificationCenter.current().setNotificationCategories(categories)
+    }
+
     @MainActor
     static func registerIfAuthorized(application: UIApplication = .shared) async -> Bool {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -60,6 +84,7 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         SaleSoundInstaller.installIfNeeded()
+        CompanionPushRegistrar.configureCategories()
         UNUserNotificationCenter.current().delegate = self
 
         Task { @MainActor in
