@@ -72,7 +72,7 @@ export function CommandPalette() {
     if (/receita.*hoje|vendas?.*hoje/i.test(q)) {
       matches.unshift({
         id: 'command-revenue-today', label: 'Ver receita de hoje',
-        description: 'Abre a Visão geral no período de hoje.', href: '/',
+        description: 'Abre a Visão geral no período de hoje.', href: '/?p=today',
         section: 'Atalho', icon: BarChart3, kind: 'navigate' as const,
       })
     }
