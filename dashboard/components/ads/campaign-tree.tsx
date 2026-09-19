@@ -880,6 +880,31 @@ export function CampaignTree({
     }
   }
 
+  async function setChildStatus(entityId: string, status: 'active' | 'paused', adAccountId: string, label: string) {
+    if (!entityId || busyId || bulkBusy) return false
+    setBusyId(entityId)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; simulated?: boolean }>(
+        `/api/ads/${encodeURIComponent(entityId)}`,
+        'PUT',
+        { status, adAccountId },
+      )
+      if (result.dryRun || result.simulated) {
+        toast.info('Simulação concluída', { hint: `${label} não foi alterado no TikTok.` })
+      } else {
+        toast.info(status === 'paused' ? 'Pausa solicitada' : 'Ativação solicitada', { hint: `${label} será atualizado após a sincronização.` })
+        actionFeedback()
+      }
+      onMutate()
+      return true
+    } catch (error) {
+      toast.error('Falha ao alterar status', { hint: error instanceof Error ? error.message : undefined })
+      return false
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function handleDeleteAd() {
     const ad = deleteAd?.ad
     const adId = ad?.platformAdId || ad?._id
@@ -1110,18 +1135,36 @@ export function CampaignTree({
                         {c.budgetOwner === 'campaign' ? <><span aria-hidden="true">·</span><span>Orçamento controlado pela campanha</span></> : null}
                       </div>
                     </div>
-                    {c.budgetOwner !== 'campaign' && group.platformAdSetId && group.budget?.amount != null ? (
-                      <BudgetControl
-                        entityId={group.platformAdSetId}
-                        amount={Number(group.budget.amount)}
-                        type={group.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
-                        adAccountId={c.platformAdAccountId || ''}
-                        currency={c.currency || currency}
-                        label="Orçamento do conjunto"
-                        onSaved={onMutate}
-                        compact
-                      />
-                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {c.budgetOwner !== 'campaign' && group.platformAdSetId && group.budget?.amount != null ? (
+                        <BudgetControl
+                          entityId={group.platformAdSetId}
+                          amount={Number(group.budget.amount)}
+                          type={group.budget.type === 'lifetime' ? 'lifetime' : 'daily'}
+                          adAccountId={c.platformAdAccountId || ''}
+                          currency={c.currency || currency}
+                          label="Orçamento do conjunto"
+                          onSaved={onMutate}
+                          compact
+                        />
+                      ) : null}
+                      {group.platformAdSetId && (group.status === 'active' || group.status === 'paused') ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            'inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors disabled:opacity-50',
+                            group.status === 'active'
+                              ? 'border-success/25 bg-success/8 text-success hover:bg-success/15'
+                              : 'border-border/70 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground',
+                          )}
+                          disabled={busyId === group.platformAdSetId}
+                          onClick={() => void setChildStatus(group.platformAdSetId!, group.status === 'active' ? 'paused' : 'active', c.platformAdAccountId || '', 'Conjunto')}
+                        >
+                          {busyId === group.platformAdSetId ? <Loader2 className="size-3 animate-spin" /> : group.status === 'active' ? <Pause className="size-3" /> : <Play className="size-3" />}
+                          {group.status === 'active' ? 'Ativo' : 'Pausado'}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
 
                   {ads.length === 0 ? (
@@ -1154,7 +1197,24 @@ export function CampaignTree({
                                       {ad.adType === 'boost' ? <><span aria-hidden="true">·</span><span>Spark</span></> : null}
                                     </div>
                                   </div>
-                                  <DropdownMenu.Root>
+                                  <div className="flex shrink-0 items-center gap-1">
+                                    {(ad.platformAdId || ad._id) && (ad.status === 'active' || ad.status === 'paused') ? (
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          'inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition-colors disabled:opacity-50',
+                                          ad.status === 'active'
+                                            ? 'border-success/25 bg-success/8 text-success hover:bg-success/15'
+                                            : 'border-border/70 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground',
+                                        )}
+                                        disabled={busyId === (ad.platformAdId || ad._id)}
+                                        onClick={() => void setChildStatus(String(ad.platformAdId || ad._id), ad.status === 'active' ? 'paused' : 'active', c.platformAdAccountId || '', 'Anúncio')}
+                                      >
+                                        {busyId === (ad.platformAdId || ad._id) ? <Loader2 className="size-3 animate-spin" /> : ad.status === 'active' ? <Pause className="size-3" /> : <Play className="size-3" />}
+                                        {ad.status === 'active' ? 'Ativo' : 'Pausado'}
+                                      </button>
+                                    ) : null}
+                                    <DropdownMenu.Root>
                                     <DropdownMenu.Trigger asChild>
                                       <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground" aria-label={`Ações do anúncio ${ad.name || adKey}`}>
                                         <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -1179,6 +1239,7 @@ export function CampaignTree({
                                       </DropdownMenu.Content>
                                     </DropdownMenu.Portal>
                                   </DropdownMenu.Root>
+                                  </div>
                                 </div>
 
                                 {ad.creative?.body ? <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{ad.creative.body}</p> : null}
