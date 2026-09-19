@@ -1428,6 +1428,94 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Pausar/ativar conjuntos e anúncios em lote ─────────────────────────────
+  app.post('/api/ads/entities/bulk-status', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const b = req.body || {};
+      const status = b.status === 'paused' ? 'paused' : b.status === 'active' ? 'active' : '';
+      if (!status) return res.status(400).json({ error: 'status deve ser active ou paused' });
+
+      const ids = [...new Set((Array.isArray(b.ids) ? b.ids : [])
+        .slice(0, 50)
+        .map((id) => String(id || '').trim().slice(0, 60))
+        .filter(Boolean))];
+      if (!ids.length) return res.status(400).json({ error: 'Nenhuma entidade informada' });
+
+      const advertiserHint = String(b.adAccountId || '').trim();
+      const advertiserId = advertiserHint
+        ? (await requireAdvertiser(req.account.id, null, advertiserHint, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+
+      const classifiedMap = await adsCache.classifyEntities(req.account.id, advertiserId, ids);
+      const entities = ids.map((id) => classifiedMap.get(id)).filter(Boolean);
+      const eligible = entities.filter((entity) => entity.type === 'adgroup' || entity.type === 'ad');
+      const skippedIds = ids.filter((id) => {
+        const entity = classifiedMap.get(id);
+        return !entity || (entity.type !== 'adgroup' && entity.type !== 'ad');
+      });
+
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'entity_bulk_status',
+          targetType: 'mixed',
+          advertiserId,
+          metadata: { status, ids: eligible.map((entity) => entity.type === 'adgroup' ? entity.adGroupId : entity.adId) },
+          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + eligible.length + ' conjunto(s)/anúncio(s)',
+        });
+        return res.json({
+          dryRun: true,
+          simulated: eligible.length,
+          totals: { updated: 0, skipped: ids.length, failed: 0 },
+          skippedIds,
+        });
+      }
+
+      const results = [];
+      for (const entity of eligible) {
+        const id = entity.type === 'adgroup' ? entity.adGroupId : entity.adId;
+        try {
+          await setEntityStatus(entity, status);
+          results.push({ id, type: entity.type, ok: true });
+        } catch (error) {
+          results.push({ id, type: entity.type, ok: false, error: String(error && error.message || error) });
+        }
+      }
+
+      const updated = results.filter((item) => item.ok).length;
+      const failed = results.length - updated;
+      if (updated > 0) adsSync.syncAfterWrite(req.account.id, advertiserId);
+
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user',
+        actorId: req.account.id,
+        action: 'entity_bulk_status',
+        targetType: 'mixed',
+        targetId: null,
+        advertiserId,
+        beforeState: null,
+        afterState: { status, ids: results.filter((item) => item.ok).map((item) => item.id) },
+        reason: 'Alteração em lote de conjuntos/anúncios',
+        metadata: { status, results, skippedIds },
+      }).catch(() => {});
+
+      stats.logEvent(failed ? 'warn' : 'info', {
+        acc: req.account.id,
+        title: 'Entidades TikTok em lote: ' + updated + ' atualizadas, ' + skippedIds.length + ' ignoradas, ' + failed + ' falhas',
+      });
+
+      res.json({
+        ok: failed === 0,
+        totals: { updated, skipped: skippedIds.length, failed },
+        results,
+        skippedIds,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Atualizar orçamento de campanhas em lote ──────────────────────────────
   // O front calcula o novo valor (percentual/fixo), mas a validação real fica
   // no servidor: escopo do advertiser, tipo da entidade, dono do orçamento,
