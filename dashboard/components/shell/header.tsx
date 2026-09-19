@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import Image from 'next/image'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { LogOut, Eye, EyeOff, Settings } from 'lucide-react'
@@ -68,9 +69,15 @@ function UserMenu() {
 }
 
 export function Header() {
+  const pathname = usePathname()
+  const showPeriod = pathname === '/'
+    || pathname.startsWith('/activity')
+    || pathname.startsWith('/funnel')
+    || pathname.startsWith('/ads')
+
   return (
     <div className="premium-navbar__actions">
-      <OverviewCalendar />
+      {showPeriod ? <OverviewCalendar /> : null}
       <NotificationBell />
       <UserMenu />
     </div>
