@@ -27,6 +27,9 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); asserts += 1; };
   ok(/const scopeKey = String\(accId\) \+ '\|' \+ String\(advertiserId\)/.test(src), 'briefing diário é idempotente por conta + advertiser');
   ok(/listBriefings\(accId, advertiserId, 'daily'/.test(src), 'briefing diário consulta apenas o advertiser atual');
   ok(/listBriefings\(accId, advertiserId, 'creatives'/.test(src), 'insights criativos consultam apenas o advertiser atual');
+  ok(/campaignName: String\(c\.campaignName \|\| c\.name/.test(src), 'Creative DNA preserva o nome real da campanha');
+  ok(/body: String\(ad\.creative && ad\.creative\.body/.test(src), 'Creative DNA recebe a copy real do anúncio');
+  ok(/Não invente conteúdo visual, falas, áudio, hook, ângulo ou CTA/.test(src), 'prompt proíbe inferências criativas não observadas');
   console.log('A. regra de ouro (zero Pipeboard em ads-ai.js) OK');
 }
 
