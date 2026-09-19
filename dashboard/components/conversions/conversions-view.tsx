@@ -714,7 +714,8 @@ export function ConversionsView() {
                 <GatewayCard
                   key={gw.id}
                   gateway={gw}
-                            copiedId={copiedId}
+                  pixels={pixels}
+                  copiedId={copiedId}
                   testingGwId={testingGwId}
                   onCopyText={copyText}
                   onTestGateway={handleTestGateway}
@@ -947,7 +948,6 @@ export function ConversionsView() {
         <DirectGatewayModal
           gateway={editingGateway === 'new' ? null : editingGateway}
           providers={providers}
-          pixels={pixels}
           onClose={() => setEditingGateway(null)}
           onSaved={() => {
             setEditingGateway(null)
@@ -1442,7 +1442,9 @@ function DirectGatewayModal({
     }
   }
 
-  const selectedProviderLabel = providers.find(item => item.id === provider)?.label || 'a plataforma'
+  const selectedProvider = providers.find(item => item.id === provider)
+  const selectedProviderLabel = selectedProvider?.label || 'a plataforma'
+  const secretLabel = selectedProvider?.secretLabel || ''
   const helpText = PROVIDER_HELP[provider] || PROVIDER_HELP.generic
   const inputCls =
     'h-11 w-full rounded-lg border border-border/70 bg-input/70 px-3.5 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-brand-cyan/60 focus:outline-none focus:ring-1 focus:ring-brand-cyan/25'
@@ -1504,8 +1506,49 @@ function DirectGatewayModal({
           <p className="text-xs leading-5 text-muted-foreground">Use um nome para diferenciar este checkout.</p>
         </div>
 
+        {secretLabel ? (
+          <section className="border-t border-border/50 pt-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setShowAdvanced((value) => !value)}
+              aria-expanded={showAdvanced}
+            >
+              <span>
+                <span className="block text-[13px] font-medium text-foreground">Assinatura do webhook</span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">{gateway?.hasSecret ? 'Há uma credencial salva. Deixe em branco para mantê-la.' : 'Opcional na maioria dos provedores; adiciona uma validação extra ao webhook.'}</span>
+              </span>
+              <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${showAdvanced ? 'rotate-180' : ''}`} aria-hidden="true" />
+            </button>
+            {showAdvanced ? (
+              <div className="mt-3">
+                <label htmlFor="gateway-secret" className="text-[13px] font-medium text-foreground">{secretLabel}</label>
+                <div className="relative mt-2">
+                  <input
+                    id="gateway-secret"
+                    type={showSecret ? 'text' : 'password'}
+                    className={`${inputCls} pr-11 font-mono`}
+                    value={secret}
+                    onChange={(event) => setSecret(event.target.value)}
+                    placeholder={gateway?.hasSecret ? 'Credencial salva · informe apenas para substituir' : secretLabel}
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret((value) => !value)}
+                    className="absolute inset-y-0 right-2 flex items-center px-1 text-muted-foreground hover:text-foreground"
+                    aria-label={showSecret ? 'Ocultar credencial' : 'Mostrar credencial'}
+                  >
+                    {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <p className="text-[13px] leading-5 text-muted-foreground">
-          Depois de conectar, você pode vincular este checkout aos Pixels que devem receber as vendas.
+          Depois de conectar, vincule este checkout aos Pixels que devem receber as vendas.
         </p>
 
         {error && (
