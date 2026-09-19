@@ -19,9 +19,8 @@ self.addEventListener("push", (event) => {
   }
 
   const title = data.title || "ROI-NADOS"
-  // Haptics/Vibração distinta por tipo de som (Android/desktop; iOS ignora):
-  // cash = ritmo de caixa registradora; alert = longa e insistente;
-  // tick/ping = toque único curto; info = padrão suave.
+  // Haptics são best-effort fora do iOS. O iPhone controla o feedback físico
+  // e pode ignorar totalmente a opção vibrate de Web Notifications.
   const VIBRATE = {
     cash: [200, 100, 200, 100, 400],
     alert: [400, 150, 400, 150, 600],
@@ -35,36 +34,48 @@ self.addEventListener("push", (event) => {
     badge: "/dashboard/badge-96.png",
     tag: data.tag || undefined, // agrupa notificações do mesmo evento
     data: { url: data.url || "/dashboard" },
-    // silent:false garante o som padrão do sistema (iOS/Android/desktop).
-    // Som customizado em push fechado não é permitido pela Apple — os sons
-    // por evento tocam nas abas abertas via postMessage abaixo.
+    // silent:false pede uma notificação não silenciosa; o SO/navegador ainda
+    // decide se haverá som conforme Foco, modo silencioso e preferências locais.
+    // O ROI-NADOS nunca promete som customizado em background.
     silent: false,
     vibrate: data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [150]),
+    // "critical" é prioridade interna do ROI-NADOS e NÃO equivale ao
+    // entitlement Apple Critical Alerts; aqui apenas solicita maior urgência.
     renotify: data.priority === "critical" && Boolean(data.tag),
-    // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
+    // Ações são best-effort; plataformas que não suportam simplesmente ignoram.
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
   }
 
-  event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, options),
+  const promises = [
+    self.registration.showNotification(title, options),
       // Avisa as abas abertas do painel para tocar o som do evento
       // (ex.: 'cash' = cha-ching de dinheiro quando cai venda).
-      data.sound
-        ? self.clients
-            .matchAll({ type: "window", includeUncontrolled: true })
-            .then((clients) => {
-              for (const client of clients) {
-                client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
-              }
-            })
-        : Promise.resolve(),
-    ]),
-  )
+    data.sound
+      ? self.clients
+          .matchAll({ type: "window", includeUncontrolled: true })
+          .then((clients) => {
+            for (const client of clients) {
+              client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
+            }
+          })
+      : Promise.resolve(),
+  ]
+
+  // iOS/iPadOS Home Screen web apps suportam Badging API. Um ponto é mais
+  // honesto que um contador inventado: indica "há algo novo" sem manter estado
+  // duplicado no service worker.
+  if ("setAppBadge" in self.navigator) {
+    promises.push(self.navigator.setAppBadge().catch(() => {}))
+  }
+
+  event.waitUntil(Promise.all(promises))
 })
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
+  if ("clearAppBadge" in self.navigator) {
+    event.waitUntil(self.navigator.clearAppBadge().catch(() => {}))
+  }
   // Deep link: ação clicada > url do payload > painel
   const action = (event.notification.data || {}).url || "/dashboard"
   const url = event.action
