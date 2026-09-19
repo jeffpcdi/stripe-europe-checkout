@@ -876,7 +876,7 @@ async function countPurchasedEmails(accountId, days) {
               THEN (data->>'purchasedAt')::timestamptz
             WHEN COALESCE(data->>'convertedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
               THEN (data->>'convertedAt')::timestamptz
-            ELSE updated_at
+            ELSE created_at
           END AS purchased_at
         FROM leads
         WHERE account_id = ${accountId}
@@ -909,7 +909,7 @@ async function listPurchasedEmails(accountId, days, limit) {
               THEN (data->>'purchasedAt')::timestamptz
             WHEN COALESCE(data->>'convertedAt','') ~ '^\\d{4}-\\d{2}-\\d{2}T'
               THEN (data->>'convertedAt')::timestamptz
-            ELSE updated_at
+            ELSE created_at
           END AS purchased_at
         FROM leads
         WHERE account_id = ${accountId}
