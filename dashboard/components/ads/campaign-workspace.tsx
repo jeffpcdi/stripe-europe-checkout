@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import {
+  ArrowUpDown,
   BarChart3,
   Bot,
   ChevronRight,
+  ExternalLink,
   Film,
   Layers3,
   Loader2,
   Megaphone,
   Pause,
+  Pencil,
   Play,
   Search,
   Sparkles,
@@ -31,10 +34,12 @@ import type {
 } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CampaignTree } from './campaign-tree'
+import { AdEditDialog } from './ad-edit-dialog'
 
-type WorkspaceLevel = 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'playbooks'
+type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
 type MetricPreset = 'performance' | 'delivery' | 'cost'
+type ChildSort = 'spend_desc' | 'ctr_desc' | 'conversions_desc' | 'name'
 
 type Props = {
   tree?: AdsTreeResponse
@@ -68,11 +73,12 @@ type AdRow = {
 }
 
 const LEVELS: { value: WorkspaceLevel; label: string; icon: typeof Megaphone }[] = [
+  { value: 'overview', label: 'Visão', icon: BarChart3 },
   { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { value: 'adgroups', label: 'Conjuntos', icon: Layers3 },
   { value: 'ads', label: 'Anúncios', icon: Play },
   { value: 'creatives', label: 'Criativos', icon: Film },
-  { value: 'insights', label: 'Insights', icon: Sparkles },
+  { value: 'insights', label: 'Oportunidades', icon: Sparkles },
   { value: 'playbooks', label: 'Playbooks', icon: Bot },
 ]
 
@@ -242,10 +248,12 @@ function CreativePreview({ ad, large = false }: { ad: AdsTreeAd; large?: boolean
 }
 
 export function CampaignWorkspace(props: Props) {
-  const [level, setLevel] = usePersistedState<WorkspaceLevel>('ads:campaign-workspace-level', 'campaigns')
+  const [level, setLevel] = usePersistedState<WorkspaceLevel>('ads:campaign-workspace-level', 'overview')
   const [nodeFilter, setNodeFilter] = usePersistedState<NodeFilter>('ads:campaign-workspace-status', 'all')
   const [metricPreset, setMetricPreset] = usePersistedState<MetricPreset>('ads:campaign-workspace-metrics', 'performance')
+  const [childSort, setChildSort] = usePersistedState<ChildSort>('ads:campaign-workspace-sort', 'spend_desc')
   const [query, setQuery] = useState('')
+  const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; advertiserId: string } | null>(null)
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
   const [selectedAds, setSelectedAds] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -293,6 +301,27 @@ export function CampaignWorkspace(props: Props) {
     ].some((value) => String(value || '').toLowerCase().includes(q))),
   )
 
+  const sortMetricRows = <T extends AdGroupRow | AdRow>(rows: T[], metricsFor: (row: T) => AdsMetrics | undefined, nameFor: (row: T) => string) =>
+    [...rows].sort((a, b) => {
+      if (childSort === 'name') return nameFor(a).localeCompare(nameFor(b), 'pt-BR')
+      const am = metricsFor(a)
+      const bm = metricsFor(b)
+      if (childSort === 'ctr_desc') return (Number(bm?.ctr) || 0) - (Number(am?.ctr) || 0)
+      if (childSort === 'conversions_desc') return (Number(bm?.conversions) || 0) - (Number(am?.conversions) || 0)
+      return (Number(bm?.spend) || 0) - (Number(am?.spend) || 0)
+    })
+
+  const orderedGroups = sortMetricRows(
+    visibleGroups,
+    (row) => row.group.metrics,
+    (row) => row.group.adSetName || row.group.name || '',
+  )
+  const orderedAds = sortMetricRows(
+    visibleAds,
+    (row) => row.ad.metrics,
+    (row) => row.ad.name || '',
+  )
+
   const activeGroups = groups.filter(({ group }) => group.status === 'active').length
   const activeAds = ads.filter(({ ad }) => ad.status === 'active').length
   const videoAds = ads.filter(({ ad }) => /^https:\/\//i.test(ad.creative?.videoUrl || '')).length
@@ -317,8 +346,8 @@ export function CampaignWorkspace(props: Props) {
   const totalRevenue = comparableRevenue ? insightRows.reduce((sum, row) => sum + Number(row.revenue || 0), 0) : null
   const realRoas = totalRevenue != null && totalSpend > 0 ? totalRevenue / totalSpend : null
 
-  const groupSelectionScope = visibleGroups.map(({ group }) => group.platformAdSetId).filter(Boolean).sort().join('|')
-  const adSelectionScope = visibleAds.map(({ ad }) => ad.platformAdId || ad._id).filter(Boolean).sort().join('|')
+  const groupSelectionScope = orderedGroups.map(({ group }) => group.platformAdSetId).filter(Boolean).sort().join('|')
+  const adSelectionScope = orderedAds.map(({ ad }) => ad.platformAdId || ad._id).filter(Boolean).sort().join('|')
 
   useEffect(() => {
     setSelectedGroups(new Set())
@@ -380,7 +409,7 @@ export function CampaignWorkspace(props: Props) {
     if (selected.size === 0) return
     setBulkBusy(true)
     try {
-      const advertiserId = campaigns[0]?.platformAdAccountId || ''
+      const advertiserId = props.adAccountId || campaigns[0]?.platformAdAccountId || ''
       const result = await apiSend<{
         dryRun?: boolean
         simulated?: number
@@ -440,8 +469,25 @@ export function CampaignWorkspace(props: Props) {
             })}
           </div>
 
-          {level !== 'campaigns' && level !== 'insights' ? (
+          {(['adgroups', 'ads', 'creatives'] as WorkspaceLevel[]).includes(level) ? (
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="shrink-0">
+                <span className="sr-only">Ordenar itens</span>
+                <div className="relative">
+                  <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <select
+                    value={childSort}
+                    onChange={(event) => setChildSort(event.target.value as ChildSort)}
+                    className="h-10 rounded-lg border border-border/65 bg-background/35 pl-8 pr-2.5 text-[11px] font-medium text-foreground outline-none focus:border-brand-cyan/50"
+                    aria-label="Ordenar itens"
+                  >
+                    <option value="spend_desc">Maior gasto</option>
+                    <option value="ctr_desc">Maior CTR</option>
+                    <option value="conversions_desc">Mais conversões</option>
+                    <option value="name">Nome</option>
+                  </select>
+                </div>
+              </label>
               <label className="shrink-0">
                 <span className="sr-only">Visualização de métricas</span>
                 <select
@@ -489,15 +535,78 @@ export function CampaignWorkspace(props: Props) {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-border/45 md:grid-cols-3 xl:grid-cols-6">
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{campaigns.filter((c) => c.status === 'active').length}</p><p className="text-[11px] text-muted-foreground">Campanhas ativas</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{activeGroups}</p><p className="text-[11px] text-muted-foreground">Conjuntos ativos</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{activeAds}</p><p className="text-[11px] text-muted-foreground">Anúncios ativos</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{money(totalSpend, props.currency)}</p><p className="text-[11px] text-muted-foreground">Gasto TikTok</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-success">{totalSales == null ? '—' : totalSales.toLocaleString('pt-BR')}</p><p className="text-[11px] text-muted-foreground">Vendas reais</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className={cn('text-lg font-semibold tabular-nums', realRoas != null && realRoas >= 2 ? 'text-success' : 'text-foreground')}>{realRoas == null ? '—' : `${realRoas.toFixed(2)}×`}</p><p className="text-[11px] text-muted-foreground">ROAS real</p></div>
-        </div>
       </section>
+
+      {level === 'overview' ? (
+        <section className="space-y-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border/65 bg-border/45 md:grid-cols-3 xl:grid-cols-6">
+            <div className="bg-card/55 px-4 py-4"><p className="text-xl font-semibold tabular-nums text-foreground">{campaigns.filter((c) => c.status === 'active').length}</p><p className="mt-1 text-[11px] text-muted-foreground">Campanhas ativas</p></div>
+            <div className="bg-card/55 px-4 py-4"><p className="text-xl font-semibold tabular-nums text-foreground">{activeGroups}</p><p className="mt-1 text-[11px] text-muted-foreground">Conjuntos ativos</p></div>
+            <div className="bg-card/55 px-4 py-4"><p className="text-xl font-semibold tabular-nums text-foreground">{activeAds}</p><p className="mt-1 text-[11px] text-muted-foreground">Anúncios ativos</p></div>
+            <div className="bg-card/55 px-4 py-4"><p className="text-xl font-semibold tabular-nums text-foreground">{money(totalSpend, props.currency)}</p><p className="mt-1 text-[11px] text-muted-foreground">Gasto TikTok</p></div>
+            <div className="bg-card/55 px-4 py-4"><p className="text-xl font-semibold tabular-nums text-success">{totalSales == null ? '—' : totalSales.toLocaleString('pt-BR')}</p><p className="mt-1 text-[11px] text-muted-foreground">Vendas reais</p></div>
+            <div className="bg-card/55 px-4 py-4"><p className={cn('text-xl font-semibold tabular-nums', realRoas != null && realRoas >= 2 ? 'text-success' : 'text-foreground')}>{realRoas == null ? '—' : `${realRoas.toFixed(2)}×`}</p><p className="mt-1 text-[11px] text-muted-foreground">ROAS real</p></div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+            <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Agora na operação</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">O que merece ação antes de abrir o TikTok Ads Manager.</p>
+                </div>
+                <Sparkles className="size-4 text-brand-cyan" />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <button type="button" onClick={() => setLevel('insights')} className="rounded-xl border border-warning/25 bg-warning/[0.05] p-3 text-left transition-colors hover:bg-warning/10">
+                  <p className="text-lg font-semibold tabular-nums text-warning">{noSales.length}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground">Gastando sem venda</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Revisar ou automatizar.</p>
+                </button>
+                <button type="button" onClick={() => setLevel('insights')} className="rounded-xl border border-success/25 bg-success/[0.05] p-3 text-left transition-colors hover:bg-success/10">
+                  <p className="text-lg font-semibold tabular-nums text-success">{winners.length}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground">Vencedoras</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">ROAS real acima de 2×.</p>
+                </button>
+                <button type="button" onClick={() => setLevel('insights')} className="rounded-xl border border-error/20 bg-error/[0.04] p-3 text-left transition-colors hover:bg-error/10">
+                  <p className="text-lg font-semibold tabular-nums text-error">{attention.length}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground">Com atenção</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Revisão, rejeição ou erro.</p>
+                </button>
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div><h3 className="text-sm font-semibold text-foreground">Operação autônoma</h3><p className="mt-1 text-xs text-muted-foreground">Playbooks monitoram sinais e propõem ações com guardrails.</p></div>
+                <Bot className="size-4 text-brand-cyan" />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setLevel('playbooks')} className="btn-secondary min-h-10 text-xs"><Bot className="size-3.5" /> Ver playbooks</button>
+                {props.onOpenAutomations ? <button type="button" onClick={props.onOpenAutomations} className="btn-secondary min-h-10 text-xs"><Sparkles className="size-3.5" /> Automações</button> : null}
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">A execução direta continua condicionada ao modo de autonomia, kill switch e política de segurança da conta.</p>
+            </article>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
+              <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-foreground">Top vencedoras</h3><button type="button" onClick={() => setLevel('insights')} className="text-xs font-medium text-brand-cyan hover:underline">Ver oportunidades</button></div>
+              <div className="mt-3 divide-y divide-border/45">
+                {winners.slice(0, 4).map((row) => <button key={row.campaign.platformCampaignId} type="button" onClick={() => props.onOpenDetail?.(row.campaign)} className="flex w-full items-center justify-between gap-3 py-2.5 text-left"><span className="truncate text-xs text-foreground">{row.campaign.campaignName || row.campaign.platformCampaignId}</span><span className="shrink-0 text-xs font-semibold tabular-nums text-success">{row.roas?.toFixed(2)}×</span></button>)}
+                {winners.length === 0 ? <p className="py-4 text-xs text-muted-foreground">Ainda não há vencedoras suficientes neste período.</p> : null}
+              </div>
+            </article>
+            <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
+              <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-foreground">Maior desperdício</h3><button type="button" onClick={() => setLevel('insights')} className="text-xs font-medium text-brand-cyan hover:underline">Revisar</button></div>
+              <div className="mt-3 divide-y divide-border/45">
+                {noSales.slice(0, 4).map((row) => <button key={row.campaign.platformCampaignId} type="button" onClick={() => props.onOpenDetail?.(row.campaign)} className="flex w-full items-center justify-between gap-3 py-2.5 text-left"><span className="truncate text-xs text-foreground">{row.campaign.campaignName || row.campaign.platformCampaignId}</span><span className="shrink-0 text-xs font-semibold tabular-nums text-warning">{money(row.spend, row.campaign.currency || props.currency)}</span></button>)}
+                {noSales.length === 0 ? <p className="py-4 text-xs text-muted-foreground">Nenhum gasto sem venda identificado.</p> : null}
+              </div>
+            </article>
+          </div>
+        </section>
+      ) : null}
 
       {level === 'campaigns' ? <CampaignTree {...props} /> : null}
 
@@ -508,17 +617,20 @@ export function CampaignWorkspace(props: Props) {
               <h3 className="text-sm font-semibold text-foreground">Conjuntos de anúncios</h3>
               <p className="mt-1 text-xs text-muted-foreground">Controle orçamento e veiculação no nível de audiência sem precisar abrir a campanha.</p>
             </div>
-            {selectedGroups.size > 0 ? (
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {orderedGroups.length > 0 ? <button type="button" className="btn-ghost min-h-9 px-2.5 text-xs" onClick={() => setSelectedGroups(new Set(orderedGroups.map(({ group }) => group.platformAdSetId).filter(Boolean) as string[]))}>Selecionar visíveis</button> : null}
+              {selectedGroups.size > 0 ? (
+              <>
                 <span className="text-xs font-medium text-muted-foreground">{selectedGroups.size} selecionado{selectedGroups.size === 1 ? '' : 's'}</span>
                 <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('adgroups', 'active')}><Play className="size-3.5" /> Ativar</button>
                 <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('adgroups', 'paused')}><Pause className="size-3.5" /> Pausar</button>
-              </div>
-            ) : null}
+              </>
+              ) : null}
+            </div>
           </header>
-          {visibleGroups.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum conjunto encontrado.</p> : (
+          {orderedGroups.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum conjunto encontrado.</p> : (
             <div className="divide-y divide-border/45">
-              {visibleGroups.map(({ campaign, group }, index) => {
+              {orderedGroups.map(({ campaign, group }, index) => {
                 const id = group.platformAdSetId || `${campaign.platformCampaignId}:${index}`
                 return (
                   <div key={id} className="grid gap-3 px-4 py-3 lg:grid-cols-[28px_minmax(240px,1.4fr)_110px_110px_90px_150px] lg:items-center">
@@ -553,17 +665,20 @@ export function CampaignWorkspace(props: Props) {
               <h3 className="text-sm font-semibold text-foreground">Anúncios</h3>
               <p className="mt-1 text-xs text-muted-foreground">Veja o criativo e controle cada anúncio independentemente do conjunto.</p>
             </div>
-            {selectedAds.size > 0 ? (
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {orderedAds.length > 0 ? <button type="button" className="btn-ghost min-h-9 px-2.5 text-xs" onClick={() => setSelectedAds(new Set(orderedAds.map(({ ad }) => ad.platformAdId || ad._id).filter(Boolean) as string[]))}>Selecionar visíveis</button> : null}
+              {selectedAds.size > 0 ? (
+              <>
                 <span className="text-xs font-medium text-muted-foreground">{selectedAds.size} selecionado{selectedAds.size === 1 ? '' : 's'}</span>
                 <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('ads', 'active')}><Play className="size-3.5" /> Ativar</button>
                 <button type="button" className="btn-secondary min-h-9 px-3 text-xs" disabled={bulkBusy} onClick={() => void bulkChildStatus('ads', 'paused')}><Pause className="size-3.5" /> Pausar</button>
-              </div>
-            ) : null}
+              </>
+              ) : null}
+            </div>
           </header>
-          {visibleAds.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anúncio encontrado.</p> : (
+          {orderedAds.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anúncio encontrado.</p> : (
             <div className="divide-y divide-border/45">
-              {visibleAds.map(({ campaign, group, ad }, index) => {
+              {orderedAds.map(({ campaign, group, ad }, index) => {
                 const id = ad.platformAdId || ad._id || `${campaign.platformCampaignId}:${index}`
                 return (
                   <div key={id} className="flex flex-col gap-3 px-4 py-3 xl:flex-row xl:items-center">
@@ -584,8 +699,10 @@ export function CampaignWorkspace(props: Props) {
                         <div key={cell.label}><p className="text-[10px] uppercase tracking-wide text-muted-foreground">{cell.label}</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{cell.value}</p></div>
                       ))}
                     </div>
-                    <div className="xl:w-32 xl:text-right">
-                      <EntityStatusToggle id={ad.platformAdId || ad._id} status={ad.status} advertiserId={campaign.platformAdAccountId} label="anúncio" onMutate={props.onMutate} />
+                    <div className="flex items-center gap-1.5 xl:w-52 xl:justify-end">
+                      <button type="button" onClick={() => setEditAd({ ad, advertiserId: campaign.platformAdAccountId || props.adAccountId })} className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label={`Editar anúncio ${ad.name || id}`} title="Editar anúncio"><Pencil className="size-3.5" /></button>
+                      {ad.creative?.linkUrl ? <a href={ad.creative.linkUrl} target="_blank" rel="noopener noreferrer" className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Abrir destino do anúncio" title="Abrir destino"><ExternalLink className="size-3.5" /></a> : null}
+                      <EntityStatusToggle id={ad.platformAdId || ad._id} status={ad.status} advertiserId={campaign.platformAdAccountId || props.adAccountId} label="anúncio" onMutate={props.onMutate} />
                     </div>
                   </div>
                 )
@@ -623,7 +740,7 @@ export function CampaignWorkspace(props: Props) {
           </div>
           {visibleAds.length === 0 ? <div className="rounded-2xl border border-border/65 py-10 text-center text-sm text-muted-foreground">Nenhum criativo encontrado.</div> : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {visibleAds.map(({ campaign, group, ad }, index) => {
+              {orderedAds.map(({ campaign, group, ad }, index) => {
                 const id = ad.platformAdId || ad._id || `creative:${index}`
                 return (
                   <article key={id} className="overflow-hidden rounded-2xl border border-border/65 bg-card/40">
@@ -641,9 +758,10 @@ export function CampaignWorkspace(props: Props) {
                         <div><p className="text-[10px] text-muted-foreground">CTR</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{pct(ad.metrics?.ctr)}</p></div>
                         <div><p className="text-[10px] text-muted-foreground">Conv.</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{compact(ad.metrics?.conversions)}</p></div>
                       </div>
-                      <button type="button" onClick={() => props.onOpenDetail?.(campaign)} className="mt-3 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">
-                        Abrir campanha <ChevronRight className="size-3" />
-                      </button>
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <button type="button" onClick={() => setEditAd({ ad, advertiserId: campaign.platformAdAccountId || props.adAccountId })} className="inline-flex min-h-9 items-center gap-1 text-xs font-medium text-foreground hover:text-brand-cyan"><Pencil className="size-3" /> Editar anúncio</button>
+                        <button type="button" onClick={() => props.onOpenDetail?.(campaign)} className="inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Campanha <ChevronRight className="size-3" /></button>
+                      </div>
                     </div>
                   </article>
                 )
@@ -741,6 +859,16 @@ export function CampaignWorkspace(props: Props) {
           </article>
         </section>
       ) : null}
+
+      <AdEditDialog
+        ad={editAd?.ad ?? null}
+        adAccountId={editAd?.advertiserId || props.adAccountId}
+        onClose={() => setEditAd(null)}
+        onSaved={() => {
+          setEditAd(null)
+          props.onMutate()
+        }}
+      />
     </div>
   )
 }
