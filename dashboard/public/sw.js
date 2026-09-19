@@ -48,7 +48,7 @@ self.addEventListener("push", (event) => {
       renotify: !hasVisibleClient && data.priority === "critical" && Boolean(data.tag),
       actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
     }
-    if (hasVisibleClient) {
+    if (hasVisibleClient || data.event === "daily") {
       options.silent = true
     } else {
       options.vibrate = data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [70])
