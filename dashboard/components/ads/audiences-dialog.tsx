@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Loader2, RefreshCw, Trash2, X } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DialogPortal } from '@/components/ui/dialog-portal'
-import { apiSend, useAdsCustomAudiences, useAdsTikTokPixels } from '@/lib/api'
+import { apiSend, useAdsCustomAudiences, useAdsCustomerAudiencePreview, useAdsTikTokPixels } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAdvertiser, AdsCustomAudience } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -44,6 +44,7 @@ export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], on
   const ref = useRef<HTMLDivElement>(null)
   const { data, isLoading, mutate, error } = useAdsCustomAudiences(open, advertiserId)
   const { data: pixelState, isLoading: pixelLoading } = useAdsTikTokPixels(open && Boolean(advertiserId), advertiserId)
+  const { data: buyerPreview, mutate: mutateBuyerPreview } = useAdsCustomerAudiencePreview(open, advertiserId)
   const audiences = data?.audiences || []
   const availableSources = useMemo(() => audiences.filter(audience => audience.isValid && !audience.type.toUpperCase().includes('LOOKALIKE')), [audiences])
   const readyAudiences = audiences.filter(audience => audience.isValid).length
@@ -62,9 +63,12 @@ export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], on
   const [shareAudience, setShareAudience] = useState<AdsCustomAudience | null>(null)
   const [shareTargetId, setShareTargetId] = useState('')
   const [sharing, setSharing] = useState(false)
+  const [showBuyerAudience, setShowBuyerAudience] = useState(false)
+  const [buyerConsent, setBuyerConsent] = useState(false)
+  const [creatingBuyerAudience, setCreatingBuyerAudience] = useState(false)
   const shareTargets = accounts.filter(account => String(account.id) !== String(advertiserId))
 
-  const busy = creatingPreset !== null || deletingId !== null || creatingLookalike || sharing
+  const busy = creatingPreset !== null || deletingId !== null || creatingLookalike || sharing || creatingBuyerAudience
   useModalA11y(open, ref, busy ? () => {} : onClose)
 
   if (!open) return null
@@ -142,6 +146,35 @@ export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], on
     }
   }
 
+  async function handleCreateBuyerAudience() {
+    if (!buyerConsent || creatingBuyerAudience) return
+    setCreatingBuyerAudience(true)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; eligibleCount?: number }>('/api/ads/audiences/customer-file', 'POST', {
+        adAccountId: advertiserId,
+        confirm: true,
+        name: 'Compradores ROI-NADOS — 180 dias',
+      })
+      if (result.dryRun) {
+        toast.info('Simulação concluída. Nenhuma base foi enviada ao TikTok.')
+      } else {
+        toast.success('Base de compradores enviada', {
+          hint: 'O TikTok pode levar 24–48h para calcular e liberar a audiência.',
+        })
+        await mutate()
+      }
+      setShowBuyerAudience(false)
+      setBuyerConsent(false)
+      await mutateBuyerPreview()
+    } catch (err) {
+      toast.error('Não foi possível criar o público de compradores', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setCreatingBuyerAudience(false)
+    }
+  }
+
   async function handleDelete(id: string) {
     if (busy || deletingId) return
     setDeletingId(id)
@@ -199,6 +232,29 @@ export function AudiencesDialog({ open, onClose, advertiserId, accounts = [], on
                 </button>
               </div>)}
             </div>
+            {buyerPreview?.canCreate ? <div className="mt-3 rounded-xl border border-border/70 bg-secondary/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Base própria · 180 dias</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{buyerPreview.eligibleCount.toLocaleString('pt-BR')} compradores com e-mail elegível.</p>
+                </div>
+                <button type="button" className="btn-secondary min-h-10 shrink-0 text-xs" disabled={busy} onClick={() => { setShowBuyerAudience(value => !value); if (showBuyerAudience) setBuyerConsent(false) }}>
+                  {showBuyerAudience ? 'Recolher' : 'Criar público'}
+                </button>
+              </div>
+              {showBuyerAudience ? <div className="mt-3 border-t border-border/60 pt-3">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">Os e-mails são normalizados e transformados em SHA-256 no servidor antes do envio. Nenhum e-mail é exibido nesta tela.</p>
+                <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" className="mt-0.5 size-4" checked={buyerConsent} onChange={(event) => setBuyerConsent(event.target.checked)} disabled={creatingBuyerAudience} />
+                  <span>Confirmo que posso usar estes contatos para criar uma audiência no TikTok.</span>
+                </label>
+                <div className="mt-3 flex justify-end">
+                  <button type="button" className="btn-primary min-h-10 text-xs" disabled={!buyerConsent || creatingBuyerAudience} onClick={() => void handleCreateBuyerAudience()}>
+                    {creatingBuyerAudience && <Loader2 className="size-3.5 animate-spin" />}Enviar base
+                  </button>
+                </div>
+              </div> : null}
+            </div> : null}
           </section>
 
           <section className="border-b border-border/60 pb-5">
