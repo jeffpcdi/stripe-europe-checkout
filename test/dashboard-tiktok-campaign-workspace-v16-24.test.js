@@ -12,10 +12,13 @@ const adsView = fs.readFileSync(path.join(root, 'dashboard/components/ads/tiktok
 const automation = fs.readFileSync(path.join(root, 'dashboard/components/ads/automation-panel.tsx'), 'utf8')
 const magicOps = fs.readFileSync(path.join(root, 'dashboard/components/ads/magic-ops-panel.tsx'), 'utf8')
 const catalogList = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-list.tsx'), 'utf8')
+const routes = fs.readFileSync(path.join(root, 'ads-routes.js'), 'utf8')
 
 assert(tree.includes("useState<'campaign' | 'adgroup' | 'ad'>('campaign')"), 'workspace deve preservar os três níveis operacionais')
 assert(tree.includes("'Campanhas', campaigns.length") && tree.includes("'Conjuntos', adGroupCount") && tree.includes("'Anúncios', adCount"), 'seletor deve expor campanhas, conjuntos e anúncios')
 assert(tree.includes('selectedEntities') && tree.includes('applyEntityBulkStatus'), 'conjuntos e anúncios devem suportar seleção e status em lote')
+assert(tree.includes("'/api/ads/entities/bulk-status'") && !tree.includes("for (const id of selectedEntities)"), 'status em lote de conjunto/anúncio deve usar uma única chamada ao backend')
+assert(routes.includes("app.post('/api/ads/entities/bulk-status'") && routes.includes('classifyEntities') && routes.includes('setSmartPlusAdGroupStatus') && routes.includes('setAdStatus'), 'backend deve agrupar entidades por nível e tipo antes de atualizar')
 assert(tree.includes("'Buscar anúncio, copy, conjunto ou campanha…'"), 'busca de anúncios deve procurar também por contexto e copy')
 assert(tree.includes('function EntityToolbar') && tree.includes("'Maior gasto'") && tree.includes("'Maior CTR'") && tree.includes("'Mais conversões'"), 'conjuntos e anúncios devem ter ordenação operacional própria')
 assert(tree.includes('const commandCenter = useMemo') && tree.includes('Propostas ROI NADOS') && tree.includes('Precisa de atenção'), 'workspace deve expor command center contextual')
