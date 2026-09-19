@@ -174,7 +174,7 @@ export function CloakStatsPanel() {
         {agg && agg.total > 0 && (
           <button
             type="button"
-            onClick={() => setResetting({ key: null, nome: 'todos os links' })}
+            onClick={() => setResetting({ key: null, nome: 'todas as campanhas' })}
             className="flex min-h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30"
           >
             <RotateCcw className="size-3.5" aria-hidden="true" /> Zerar tudo
@@ -247,10 +247,10 @@ export function CloakStatsPanel() {
           className="mt-5 border-y border-warning/25 py-3 text-[13px] leading-relaxed"
           title={'Sem o snippet, as camadas de WebGL, fuso horário, comportamento e entropia ficam desligadas e o julgamento usa só rede e cabeçalhos. Instale <script src="https://SEU-DOMINIO/t.js" defer></script> no <head> das páginas de destino.'}
         >
-          <p className="font-medium text-warning">
-            Proteção reduzida · <code className="font-mono text-[12px]">/t.js</code> não detectado nas páginas de destino.
+          <p className="font-medium text-warning">Proteção do navegador ainda não confirmada</p>
+          <p className="mt-0.5 text-muted-foreground">
+            O Cloaker continua funcionando, mas os sinais avançados do navegador ainda não chegaram. Verifique a instalação do <code className="font-mono text-[12px]">/t.js</code> nas páginas de destino.
           </p>
-          <p className="mt-0.5 text-muted-foreground">WebGL, fuso horário, comportamento e entropia não estão sendo coletados.</p>
         </div>
       )}
 
@@ -415,7 +415,7 @@ export function CloakStatsPanel() {
             {activeLinks.map((link) => {
               const pct = link.total ? Math.round(link.blockRate * 100) : 0
               return (
-                <li key={link.tipo + link.slug} className="py-4">
+                <li key={link.campaignId ? 'campaign:' + link.campaignId : 'legacy:' + link.slug} className="py-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="min-w-0">
@@ -459,7 +459,7 @@ export function CloakStatsPanel() {
         title={resetting?.key ? `Zerar contadores de "${resetting.nome}"?` : 'Zerar contadores de todas as campanhas?'}
         description={
           resetting?.key ? (
-            <>As decisões de destino principal/seguro registradas deste link serão apagadas. Esta ação não pode ser desfeita.</>
+            <>As decisões de destino principal/seguro registradas desta campanha serão apagadas. Esta ação não pode ser desfeita.</>
           ) : (
             <>Todos os contadores das campanhas do Cloaker serão apagados. Os links de checkout não serão afetados.</>
           )
