@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { apiSend, useAdsTikTokPixels } from '@/lib/api'
@@ -9,6 +10,7 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
   const { data, error, isLoading, mutate } = useAdsTikTokPixels(active, advertiserId)
   const [pixelId, setPixelId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [creating, setCreating] = useState(false)
   const choices = data?.pixels ?? []
 
   useEffect(() => {
@@ -17,7 +19,7 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
 
   useEffect(() => setPixelId(''), [advertiserId])
 
-  if (!active || isLoading || (data?.ready && !error)) return null
+  if (!active || isLoading || (data?.ready && data?.capiReady && !error)) return null
 
   async function save() {
     if (!pixelId) return
@@ -35,13 +37,60 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
     }
   }
 
+  async function createPixel() {
+    setCreating(true)
+    try {
+      const result = await apiSend<{
+        ok: boolean
+        dryRun?: boolean
+        reused?: boolean
+        localPixelCreated?: boolean
+      }>('/api/ads/pixels', 'POST', {
+        adAccountId: advertiserId,
+        pixelName: 'ROI-NADOS — Vendas',
+      })
+      if (result.dryRun) {
+        toast.info('Modo simulação: nenhum Pixel foi criado no TikTok.')
+        return
+      }
+      await mutate()
+      toast.success(result.reused ? 'Pixel existente vinculado' : 'Pixel criado e vinculado', {
+        hint: 'Conclua o server-side em Conversões para ativar a Events API.',
+      })
+    } catch (createError) {
+      toast.error('Não foi possível criar o Pixel', {
+        hint: createError instanceof Error ? createError.message : undefined,
+      })
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  if (data?.ready && !data.capiReady && !error) {
+    return (
+      <section className="border-b border-border/60 pb-4" aria-label="Prontidão do Pixel">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-foreground">Pixel vinculado</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Campanhas prontas. Falta concluir o envio server-side para a configuração recomendada.
+            </p>
+          </div>
+          <Link href="/conversions?tab=pixels" className="btn-secondary h-10 shrink-0 text-sm">
+            Concluir server-side
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="border-b border-border/60 pb-4" aria-label="Vínculo do Pixel">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-foreground">Antes de criar campanhas</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Escolha o Pixel que esta conta utilizará nas campanhas.
+            {choices.length ? 'Escolha o Pixel que esta conta utilizará.' : 'Nenhum Pixel disponível nesta conta.'}
           </p>
         </div>
         {choices.length > 0 ? (
@@ -53,11 +102,9 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
               onChange={(event) => setPixelId(event.target.value)}
             >
               <option value="">Selecione o Pixel</option>
-              {choices.map((pixel) => (
-                <option key={pixel.id} value={pixel.id}>{pixel.name}</option>
-              ))}
+              {choices.map((pixel) => <option key={pixel.id} value={pixel.id}>{pixel.name}</option>)}
             </select>
-            <button type="button" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50" disabled={!pixelId || saving} onClick={() => void save()}>
+            <button type="button" className="btn-primary h-10 text-sm" disabled={!pixelId || saving} onClick={() => void save()}>
               {saving && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
               Usar Pixel
             </button>
@@ -67,7 +114,10 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
             Tentar novamente
           </button>
         ) : (
-          <p className="text-xs text-muted-foreground">Compartilhe um Pixel com esta conta no TikTok Ads Manager.</p>
+          <button type="button" className="btn-primary h-10 shrink-0 text-sm" disabled={creating} onClick={() => void createPixel()}>
+            {creating && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            Criar Pixel
+          </button>
         )}
       </div>
       {error && <p className="mt-2 text-xs text-error">Não foi possível conferir os Pixels desta conta agora.</p>}
