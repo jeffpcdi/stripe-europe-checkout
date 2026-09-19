@@ -309,6 +309,7 @@ export function InsightsView() {
           current={creativeTree}
           previous={previousCreativeTree}
           loading={creativeTreeLoading}
+          advertiserId={adAccountId}
         />
       ) : null}
 
