@@ -61,6 +61,7 @@ assert(webPush.includes('note && note.skipIOSWebPush'), 'Web Push deve ceder iPh
 assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaIOS(notificationName'), 'fan-out deve incluir APNs nativo')
 assert(fanout.includes("event === 'daily'") && fanout.includes('dailyReportEnabled === true'), 'brief diário deve atravessar canais nativos apenas quando opt-in estiver ativo')
 assert(fanout.includes('companion.preferNativeIOS === true') && fanout.includes('note.skipIOSWebPush'), 'Web Push do iPhone só deve ser suprimido por preferência explícita')
+assert(fanout.includes("companion.preferNativeIOS !== true) return false"), 'APNs de produção também deve depender da preferência explícita para evitar duplicação')
 
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
