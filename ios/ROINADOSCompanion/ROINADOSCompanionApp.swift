@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import WidgetKit
 
 @main
@@ -17,6 +18,7 @@ struct CompanionSetupView: View {
     @State private var token = CompanionCredentials.token() ?? ""
     @State private var status = ""
     @State private var saving = false
+    @State private var notificationNeedsSettings = false
 
     var body: some View {
         NavigationStack {
@@ -46,6 +48,13 @@ struct CompanionSetupView: View {
                     Label("Widgets: Receita, Vendas, ROAS e Lucro", systemImage: "rectangle.3.group")
                     Label("Venda: som próprio ROI-NADOS", systemImage: "speaker.wave.2")
                     Label("Alertas: APNs nativo", systemImage: "bell.badge")
+
+                    if notificationNeedsSettings {
+                        Button("Abrir Ajustes de notificações") {
+                            guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(settingsURL)
+                        }
+                    }
                 }
             }
             .navigationTitle("ROI-NADOS")
