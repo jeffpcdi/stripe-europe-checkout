@@ -50,6 +50,8 @@ function pacingView(spend: number | null, budget: number | null, timeZone: strin
 }
 
 function learningState(campaign: AdsTreeCampaign) {
+  const effectiveStatus = String(campaign.childStatus || campaign.status || '').toLowerCase()
+  if (effectiveStatus !== 'active' && effectiveStatus !== 'enable') return null
   const raw = campaign.createdAt || (campaign as AdsTreeCampaign & { createTime?: string; created_at?: string }).createTime || (campaign as AdsTreeCampaign & { created_at?: string }).created_at
   if (!raw) return null
   const created = new Date(raw)
@@ -246,9 +248,9 @@ export function InsightsCampaignsPanel({
 
   return (
     <GlassCard className="overflow-hidden">
-      <div className="flex items-center justify-between gap-4 px-5 py-4">
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-[15px] font-semibold text-foreground">Campanhas</h2>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={!rows.length} onClick={() => setAllocatorOpen(value => !value)}>
             <Scale className="size-3.5" aria-hidden="true" />
             Redistribuir
