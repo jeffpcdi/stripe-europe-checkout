@@ -15,11 +15,14 @@ assert(tree.includes('selectedEntities') && tree.includes('applyEntityBulkStatus
 assert(tree.includes('entityLabel="conjunto"') && tree.includes('entityLabel="anúncio"'), 'toggles independentes devem identificar o nível correto')
 assert(tree.includes('Central do criativo') && tree.includes('setCreativeInspect'), 'anúncio deve abrir central contextual do criativo')
 assert(tree.includes('ROI NADOS Control') && tree.includes('Configurar autonomia'), 'workspace deve expor o estado real da automação sem card decorativo')
+assert(tree.includes('function creativeSignal') && tree.includes("'Aprendendo'") && tree.includes("'Convertendo'") && tree.includes("'Atenção'"), 'anúncios devem expor sinais conservadores baseados em métricas reais')
+assert(!tree.includes("'Fadiga detectada'"), 'UI não deve inventar fadiga sem série temporal')
 
 assert(provider.includes('async function resolveVideoCreativeAssets'), 'provider deve enriquecer assets de vídeo')
 assert(provider.includes("'get_tiktok_video_info'"), 'resolver deve usar metadados canônicos do TikTok')
 assert(provider.includes('offset += 50'), 'resolver deve agrupar IDs e evitar N+1 por anúncio')
 assert(provider.includes("videoAssets.get(ad.videoId)?.coverUrl"), 'árvore deve usar capa resolvida')
+assert(provider.includes('const smartVideoIds = ads.map'), 'Smart+ também deve resolver previews em lote')
 assert(!provider.includes("'tiktok:video:' + ad.videoId"), 'árvore não pode voltar a publicar pseudo-URL de vídeo')
 assert(!provider.includes("'tiktok:image:' + ad.imageIds[0]"), 'árvore não pode voltar a publicar pseudo-URL de imagem')
 
