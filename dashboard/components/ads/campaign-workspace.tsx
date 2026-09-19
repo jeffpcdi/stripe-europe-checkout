@@ -20,6 +20,7 @@ import { toast } from '@/lib/toast'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import type {
   AdsCampaignDecisionsResponse,
+  AdsMetrics,
   AdsNodeStatus,
   AdsTreeAd,
   AdsTreeAdSet,
@@ -31,6 +32,7 @@ import { CampaignTree } from './campaign-tree'
 
 type WorkspaceLevel = 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
+type MetricPreset = 'performance' | 'delivery' | 'cost'
 
 type Props = {
   tree?: AdsTreeResponse
@@ -85,6 +87,28 @@ function compact(value: number | undefined) {
 
 function pct(value: number | undefined) {
   return `${(Number(value) || 0).toFixed(2).replace('.', ',')}%`
+}
+
+function metricCells(metrics: AdsMetrics | undefined, currency: string, preset: MetricPreset) {
+  if (preset === 'delivery') {
+    return [
+      { label: 'Impressões', value: compact(metrics?.impressions) },
+      { label: 'Cliques', value: compact(metrics?.clicks) },
+      { label: 'Alcance', value: compact(metrics?.reach) },
+    ]
+  }
+  if (preset === 'cost') {
+    return [
+      { label: 'CPM', value: money(metrics?.cpm, currency) },
+      { label: 'CPC', value: money(metrics?.cpc, currency) },
+      { label: 'Gasto', value: money(metrics?.spend, currency) },
+    ]
+  }
+  return [
+    { label: 'Gasto', value: money(metrics?.spend, currency) },
+    { label: 'CTR', value: pct(metrics?.ctr) },
+    { label: 'Conv.', value: compact(metrics?.conversions) },
+  ]
 }
 
 function statusMeta(status?: AdsNodeStatus) {
@@ -202,6 +226,7 @@ function CreativePreview({ ad, large = false }: { ad: AdsTreeAd; large?: boolean
 export function CampaignWorkspace(props: Props) {
   const [level, setLevel] = usePersistedState<WorkspaceLevel>('ads:campaign-workspace-level', 'campaigns')
   const [nodeFilter, setNodeFilter] = usePersistedState<NodeFilter>('ads:campaign-workspace-status', 'all')
+  const [metricPreset, setMetricPreset] = usePersistedState<MetricPreset>('ads:campaign-workspace-metrics', 'performance')
   const [query, setQuery] = useState('')
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
   const [selectedAds, setSelectedAds] = useState<Set<string>>(new Set())
@@ -340,6 +365,19 @@ export function CampaignWorkspace(props: Props) {
 
           {level !== 'campaigns' && level !== 'insights' ? (
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="shrink-0">
+                <span className="sr-only">Visualização de métricas</span>
+                <select
+                  value={metricPreset}
+                  onChange={(event) => setMetricPreset(event.target.value as MetricPreset)}
+                  className="h-10 rounded-lg border border-border/65 bg-background/35 px-2.5 text-[11px] font-medium text-foreground outline-none focus:border-brand-cyan/50"
+                  aria-label="Visualização de métricas"
+                >
+                  <option value="performance">Performance</option>
+                  <option value="delivery">Entrega</option>
+                  <option value="cost">Custos</option>
+                </select>
+              </label>
               <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border/65 bg-background/35 p-1" role="group" aria-label="Filtrar por status">
                 {([
                   ['all', 'Todos'],
@@ -414,8 +452,9 @@ export function CampaignWorkspace(props: Props) {
                         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{campaign.campaignName || campaign.platformCampaignId}</p>
                       </button>
                     </div>
-                    <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Gasto</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{money(group.metrics?.spend, campaign.currency || props.currency)}</p></div>
-                    <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">CTR</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{pct(group.metrics?.ctr)}</p></div>
+                    {metricCells(group.metrics, campaign.currency || props.currency, metricPreset).slice(0, 2).map((cell) => (
+                      <div key={cell.label}><p className="text-[10px] uppercase tracking-wide text-muted-foreground">{cell.label}</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{cell.value}</p></div>
+                    ))}
                     <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Anúncios</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{group.ads?.length ?? 0}</p></div>
                     <div className="flex justify-start lg:justify-end">
                       <EntityStatusToggle id={group.platformAdSetId} status={group.status} advertiserId={campaign.platformAdAccountId} label="conjunto" onMutate={props.onMutate} />
@@ -462,9 +501,9 @@ export function CampaignWorkspace(props: Props) {
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-4 xl:w-[330px]">
-                      <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Gasto</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{money(ad.metrics?.spend, campaign.currency || props.currency)}</p></div>
-                      <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">CTR</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{pct(ad.metrics?.ctr)}</p></div>
-                      <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Conv.</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{compact(ad.metrics?.conversions)}</p></div>
+                      {metricCells(ad.metrics, campaign.currency || props.currency, metricPreset).map((cell) => (
+                        <div key={cell.label}><p className="text-[10px] uppercase tracking-wide text-muted-foreground">{cell.label}</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{cell.value}</p></div>
+                      ))}
                     </div>
                     <div className="xl:w-32 xl:text-right">
                       <EntityStatusToggle id={ad.platformAdId || ad._id} status={ad.status} advertiserId={campaign.platformAdAccountId} label="anúncio" onMutate={props.onMutate} />
