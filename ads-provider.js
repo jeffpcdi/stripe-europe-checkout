@@ -927,6 +927,7 @@ async function getDashboardTree(accountId, opts = {}) {
         // pelo ads-sync). O motor de automação usa este campo para rotear a ação
         // de status ao provider certo e pular ajustes de orçamento no Smart+.
         campaignKind: 'auction',
+        createdAt: c.createTime || undefined,
         budgetOwner,
         budgetOptimizeOn: c.budgetOptimizeOn,
         platformCampaignStatus: platformStatus,
@@ -4238,6 +4239,7 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
     return {
       platformCampaignId: campaign.campaignId,
       campaignName: campaign.name,
+      createdAt: campaign.createTime || undefined,
       status,
       childStatus,
       campaignKind: 'smart_plus',
