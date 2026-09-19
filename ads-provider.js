@@ -4928,6 +4928,31 @@ async function shareCustomAudiences(advertiserId, audienceIds, sharedAdvertiserI
   return out;
 }
 
+
+async function uploadCustomerFileAudience(advertiserId, input = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const name = String(input.name || '').trim().slice(0, 128);
+  if (!name) throw badRequest('Nome do público é obrigatório');
+  const retention = Math.max(1, Math.min(365, Math.round(Number(input.retentionDays) || 180)));
+  const fileContent = String(input.fileContent || '');
+  if (!fileContent.startsWith('Email_SHA256\n')) throw badRequest('Arquivo de audiência inválido');
+  const entries = fileContent.split('\n').slice(1).filter(Boolean);
+  if (entries.length < 1000) throw badRequest('O TikTok exige pelo menos 1.000 identificadores no arquivo de clientes');
+  if (entries.length > 250000) throw badRequest('A base excede o limite seguro desta versão');
+
+  const out = await pipeboard.callTool('upload_tiktok_customer_file_audience', {
+    advertiser_id: adv,
+    custom_audience_name: name,
+    file_content: fileContent,
+    file_name: 'roi-nados-buyers.csv',
+    calculate_type: 'EMAIL_SHA256',
+    retention_in_days: retention,
+  }, { timeoutMs: 120000 });
+  cacheBust('audiences:' + adv);
+  return out;
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -4947,6 +4972,7 @@ module.exports = {
   createLookalikeAudience,
   deleteCustomAudiences,
   shareCustomAudiences,
+  uploadCustomerFileAudience,
   // árvore
   getCampaigns,
   getAdGroups,
