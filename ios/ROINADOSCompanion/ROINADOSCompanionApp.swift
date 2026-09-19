@@ -19,7 +19,6 @@ struct CompanionSetupView: View {
     @State private var status = ""
     @State private var saving = false
     @State private var notificationNeedsSettings = false
-    @State private var notificationNeedsSettings = false
 
     var body: some View {
         NavigationStack {
@@ -98,10 +97,15 @@ struct CompanionSetupView: View {
             CompanionConfig.setAPIBaseURL(url)
             try CompanionCredentials.save(token: token.trimmingCharacters(in: .whitespacesAndNewlines))
             let snapshot = try await ROIAPIClient.widgetSnapshot()
-            status = "\(snapshot.today.sales) venda(s) hoje · conexão ativa."
             SaleSoundInstaller.installIfNeeded()
             WidgetCenter.shared.reloadAllTimelines()
-            UIApplication.shared.registerForRemoteNotifications()
+
+            let notificationsReady = await CompanionPushRegistrar.requestAuthorizationAndRegister()
+            let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
+            notificationNeedsSettings = notificationSettings.authorizationStatus == .denied
+            status = notificationsReady
+                ? "\(snapshot.today.sales) venda(s) hoje · widgets e alertas ativos."
+                : "\(snapshot.today.sales) venda(s) hoje · widgets ativos; alertas desativados."
         } catch {
             status = "Não foi possível validar o token/servidor."
         }
