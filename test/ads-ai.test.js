@@ -2,7 +2,7 @@
 // A. REGRA DE OURO — ads-ai.js não importa pipeboard-mcp/ads-provider (fonte)
 // B. detectAnomalies — z-score, mínimos anti-ruído, direção/severidade
 // C. validateProposedAction — schema, clamps, IDs contra o espelho
-// D. budgetProposal — guardas: teto global, mín. 2 vendas, ±30%, exclusões
+// D. budgetProposal — guardas: teto global, mín. 2 vendas, política, exclusões
 // Nenhum teste toca rede/Neon/IA: cache e atribuição são stubs.
 const assert = require('assert');
 require('./helpers/test-env').isolateUnitTest('ads-ai-');
@@ -109,7 +109,7 @@ function day(d, spend, impressions, clicks, conversions) {
   ok(!adsAi.validateProposedAction({ type: 'pause', params: { campaignIds: many } }, null).ok, 'mais de 20 IDs rejeitado');
 
   // budget fora do intervalo → rejeita; dentro → passa com clamp de 2 casas
-  ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 3 } }, known).ok, 'budget < 5 rejeitado');
+  ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 30 } }, known).ok, 'budget abaixo do mínimo TikTok rejeitado');
   ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 20000 } }, known).ok, 'budget > 10000 rejeitado');
   const v3 = adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 33.333 } }, known);
   ok(v3.ok && v3.params.budget === 33.33, 'budget válido normalizado para 2 casas');
@@ -168,7 +168,7 @@ function day(d, spend, impressions, clicks, conversions) {
     ok(total <= p.totalBudget + 0.01, 'teto global respeitado (realocar nunca aumenta o total)');
     for (const ch of p.changes) {
       ok(ch.proposed >= ch.current * 0.7 - 0.01 && ch.proposed <= ch.current * 1.3 + 0.01, 'ajuste dentro de ±30%: ' + ch.name);
-      ok(ch.proposed >= 5, 'piso de 5 respeitado');
+      ok(ch.proposed >= 50, 'mínimo TikTok de 50 respeitado');
     }
     const winner = p.changes.find((c) => c.campaignId === '1111111111');
     if (winner) ok(winner.deltaPct > 0, 'vencedora (2+ vendas) recebe verba');
