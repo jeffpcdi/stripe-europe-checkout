@@ -254,6 +254,11 @@ const baseSpec = {
     assert.match(routes, /videoId: payload\.videoId/, 'criação unitária preserva videoId sincronizado');
     assert.match(routes, /videoId: p\.videoId/, 'worker de lote preserva videoId sincronizado');
     assert.match(routes, /videoId: it\.videoId/, 'entrada do lote aceita videoId sincronizado');
+    const buildStart = routes.indexOf('function buildCreatePayload');
+    const buildEnd = routes.indexOf('async function prepareManualCampaign', buildStart);
+    const buildCreatePayloadSource = routes.slice(buildStart, buildEnd);
+    assert.match(buildCreatePayloadSource, /const parsedLink = new URL\(rawLinkUrl\)/, 'destino é parseado como URL real antes do preflight');
+    assert.match(buildCreatePayloadSource, /parsedLink\.protocol !== 'https:'/, 'backend exige HTTPS depois do parse, não só por regex');
   }
 
   console.log('ads-create (F1): todos os testes passaram');
