@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Copy, Loader2, Smartphone, Volume2, LayoutGrid } from 'lucide-react'
+import { Copy, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Switch } from '@/components/ui/switch'
@@ -23,6 +23,8 @@ export function IPhoneCompanionCard() {
   const [token, setToken] = useState('')
   const [loadingToken, setLoadingToken] = useState(false)
   const [testingNative, setTestingNative] = useState(false)
+  const [rotatingToken, setRotatingToken] = useState(false)
+  const [confirmRotate, setConfirmRotate] = useState(false)
 
   async function revealToken() {
     setLoadingToken(true)
@@ -74,6 +76,27 @@ export function IPhoneCompanionCard() {
       toast.success('Token do Companion copiado.')
     } catch {
       toast.error?.('Não foi possível copiar o token.')
+    }
+  }
+
+  async function rotateToken() {
+    if (!confirmRotate) {
+      setConfirmRotate(true)
+      return
+    }
+    setRotatingToken(true)
+    try {
+      const result = await apiSend<{ ok: boolean; token: string }>('/api/companion/token/rotate', 'POST', {})
+      setToken(result.token || '')
+      setConfirmRotate(false)
+      await mutate()
+      toast.success('Código renovado. Os iPhones anteriores foram desconectados.')
+    } catch (error) {
+      toast.error?.('Não foi possível renovar o pareamento', {
+        hint: error instanceof Error ? error.message : 'Tente novamente.',
+      })
+    } finally {
+      setRotatingToken(false)
     }
   }
 
@@ -130,10 +153,19 @@ export function IPhoneCompanionCard() {
             <button type="button" onClick={copyToken} className="btn-secondary min-h-10 text-xs">
               <Copy className="size-3.5" /> Copiar
             </button>
+            <button
+              type="button"
+              onClick={rotateToken}
+              disabled={rotatingToken}
+              className={`btn-ghost min-h-10 text-xs ${confirmRotate ? 'text-warning' : 'text-muted-foreground'}`}
+            >
+              {rotatingToken ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+              {confirmRotate ? 'Confirmar renovação' : 'Renovar código'}
+            </button>
           </div>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
-          Use este token somente no app Companion. Ele pode ser revogado sem afetar planilhas, BI ou Web Push.
+          Use este token somente no app Companion. Renovar o código desconecta os iPhones nativos atuais sem afetar planilhas, BI ou Web Push.
         </p>
       </div>
 
