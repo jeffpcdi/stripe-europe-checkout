@@ -4,13 +4,15 @@ import { useState } from 'react'
 import { useAdsLibrary } from '@/lib/api'
 import type { AdsLibraryItem } from '@/lib/types'
 import { Check, Film, Loader2 } from 'lucide-react'
+import { CloudVideoSyncPanel } from './cloud-video-sync-panel'
 
 // Seleção sem exclusão: reutilizar um vídeo nunca altera a biblioteca.
-export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'default' }: {
+export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'default', advertiserId }: {
   selectedUrls: string[]
   onPick: (item: AdsLibraryItem) => void
   disabled?: boolean
   appearance?: 'default' | 'creation'
+  advertiserId?: string
 }) {
   const [open, setOpen] = useState(false)
   const { data, error, isLoading, mutate } = useAdsLibrary(open)
@@ -56,6 +58,7 @@ export function SavedVideos({ selectedUrls, onPick, disabled, appearance = 'defa
             </button></li>
           })}
         </ul>}
+      {advertiserId ? <CloudVideoSyncPanel advertiserId={advertiserId} onSynced={() => void mutate()} /> : null}
     </div>}
   </div>
 }
