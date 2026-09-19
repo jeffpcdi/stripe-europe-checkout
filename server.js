@@ -4983,7 +4983,7 @@ app.post('/api/webpush/funmode', dashboardAuth, async (req, res) => {
   res.json({ ok: true, funMode });
 });
 
-const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation'];
+const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation', 'reports'];
 
 app.post('/api/webpush/preferences', dashboardAuth, async (req, res) => {
   const body = (req.body || {}).preferences || {};
@@ -5004,7 +5004,7 @@ app.get('/api/webpush/events', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ ok: true, events: {
     sale: p.sales, failed: p.risks, refund: p.risks, dispute: p.risks,
-    checkout: false, login: p.risks, ads: p.automation, system: p.risks,
+    checkout: false, login: p.risks, ads: p.automation, system: p.risks, daily: p.reports,
   } });
 });
 
@@ -5017,6 +5017,7 @@ app.post('/api/webpush/events', dashboardAuth, async (req, res) => {
     preferences.risks = [body.failed, body.refund, body.dispute, body.login, body.system].some((v) => v === true);
   }
   if (typeof body.ads === 'boolean') preferences.automation = body.ads;
+  if (typeof body.daily === 'boolean') preferences.reports = body.daily;
   try { await config.setDurable(req.account.id, { webPush: Object.assign({}, wp, { preferences }) }); }
   catch (err) { return configMutationError(res, err); }
   res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
