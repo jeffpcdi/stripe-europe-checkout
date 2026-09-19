@@ -7,7 +7,7 @@ export interface OverviewHealthData {
   setup?: {
     links?: { total?: number; active?: number }
     pixels?: { total?: number; active?: number; ready?: number; incomplete?: number }
-    gateways?: { total?: number; lastEventAt?: string | null; lastEventStatus?: string | null }
+    gateways?: { total?: number; lastEventAt?: string | null; lastEventStatus?: string | null; validated?: boolean }
   }
   guide?: {
     completed?: number
@@ -22,7 +22,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
   const hasLink = (health.setup.links?.total ?? 0) > 0
   const hasPixel = (health.setup.pixels?.ready ?? 0) > 0
   const hasGateway = (health.setup.gateways?.total ?? 0) > 0
-  const gatewayValidated = Boolean(health.setup.gateways?.lastEventAt && /^ok\b/i.test(String(health.setup.gateways?.lastEventStatus || '')))
+  const gatewayValidated = health.setup.gateways?.validated === true
 
   const steps = [
     {
