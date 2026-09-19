@@ -371,40 +371,22 @@ export function TikTokAdsView() {
 
   const adsOperationalSummary = useMemo(() => {
     const campaigns = tree?.campaigns ?? []
-    let active = 0
-    let spend = 0
-    let sales = 0
-    let revenue = 0
-    let comparable = true
     let noSalesWithSpend = 0
     let pendingProposals = 0
 
     for (const campaign of campaigns) {
-      if (campaign.status === 'active') active += 1
       const campaignSpend = Number(campaign.metrics?.spend) || 0
-      spend += campaignSpend
       const decision = campaignDecisions?.byCampaign[campaign.platformCampaignId]
       const campaignSales = Number(decision?.sales) || 0
-      sales += campaignSales
-      const cents = Number(decision?.revenueCents) || 0
-      const campaignCurrency = campaign.currency || currency
-      const sameCurrency = !decision?.currency || decision.currency === campaignCurrency
-      if (cents > 0 && sameCurrency) revenue += cents / 100
-      else if (cents > 0 && !sameCurrency) comparable = false
       if (campaignSpend > 0 && campaignSales === 0) noSalesWithSpend += 1
       if (decision?.automation.pendingProposal) pendingProposals += 1
     }
 
     return {
-      total: campaigns.length,
-      active,
-      spend,
-      sales,
-      roas: campaignDecisions && spend > 0 && comparable ? revenue / spend : null,
       noSalesWithSpend,
       pendingProposals,
     }
-  }, [tree, campaignDecisions, currency])
+  }, [tree, campaignDecisions])
 
   function applyCampaignShortcut(query: string) {
     changeTab('campaigns')
