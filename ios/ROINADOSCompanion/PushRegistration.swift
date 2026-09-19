@@ -132,7 +132,18 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         Task {
             try? await UNUserNotificationCenter.current().setBadgeCount(0)
         }
-        let rawPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
+        let payloadPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
+        let rawPath: String
+        switch response.actionIdentifier {
+        case "OPEN_SALES":
+            rawPath = "/dashboard/activity"
+        case "OPEN_DAILY":
+            rawPath = "/dashboard"
+        case "OPEN_AUTOMATION":
+            rawPath = "/dashboard/ads/tiktok?tab=automation"
+        default:
+            rawPath = payloadPath
+        }
         guard let url = CompanionConfig.dashboardURL(path: rawPath) else { return }
         Task { @MainActor in
             UIApplication.shared.open(url, options: [:], completionHandler: nil)
