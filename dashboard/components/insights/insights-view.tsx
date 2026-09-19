@@ -22,11 +22,12 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { AnomaliesPanel } from './anomalies-panel'
 import { OpportunitiesPanel } from './opportunities-panel'
+import { ScenarioSimulator } from './scenario-simulator'
 
-type InsightTab = 'performance' | 'funnel' | 'sources' | 'opportunities' | 'anomalies' | 'quality'
+type InsightTab = 'performance' | 'funnel' | 'sources' | 'opportunities' | 'simulator' | 'anomalies' | 'quality'
 
 function normalizeTab(value: string | null): InsightTab {
-  if (value === 'funnel' || value === 'sources' || value === 'opportunities' || value === 'anomalies' || value === 'quality') return value
+  if (value === 'funnel' || value === 'sources' || value === 'opportunities' || value === 'simulator' || value === 'anomalies' || value === 'quality') return value
   return 'performance'
 }
 
@@ -443,6 +444,13 @@ export function InsightsView() {
           previousRevenue={computed.previousRevenue}
           purchaseCoverageRate={health?.coverage.purchases.rate ?? null}
           attributionRate={health?.coverage.attribution.rate ?? null}
+        />
+      ) : null}
+
+      {tab === 'simulator' ? (
+        <ScenarioSimulator
+          current={current}
+          currentRevenue={computed.currentRevenue}
         />
       ) : null}
 
