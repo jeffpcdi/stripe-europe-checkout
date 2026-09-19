@@ -64,7 +64,7 @@ self.addEventListener("push", (event) => {
   // iOS/iPadOS Home Screen web apps suportam Badging API. Um ponto é mais
   // honesto que um contador inventado: indica "há algo novo" sem manter estado
   // duplicado no service worker.
-  if ("setAppBadge" in self.navigator) {
+  if (data.badge === true && "setAppBadge" in self.navigator) {
     promises.push(self.navigator.setAppBadge().catch(() => {}))
   }
 
