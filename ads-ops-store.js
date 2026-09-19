@@ -643,8 +643,8 @@ async function countRecentEngineActions(accountId, sinceMs, advertiserId) {
   // ('rule_proposal.created') NÃO entram: nada foi executado.
   const adv = advertiserId ? String(advertiserId).slice(0, 120) : null;
   const rows = adv
-    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal') AND created_at > now() - make_interval(secs => ${seconds})`
-    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal') AND created_at > now() - make_interval(secs => ${seconds})`;
+    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal', 'budget_allocator.change') AND created_at > now() - make_interval(secs => ${seconds})`
+    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal', 'budget_allocator.change') AND created_at > now() - make_interval(secs => ${seconds})`;
   return rows.length ? Number(rows[0].n) || 0 : 0;
 }
 
