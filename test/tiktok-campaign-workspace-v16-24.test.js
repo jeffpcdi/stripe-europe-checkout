@@ -46,6 +46,7 @@ assert.match(workspace, /Saúde dos conjuntos/);
 assert.match(workspace, /Playbooks ativos/);
 assert.match(workspace, /Aguardando decisão/);
 assert.match(workspace, /sem anúncio ativo/);
+assert.match(workspace, /campanha.*CBO com menos de 3 conjuntos ativos/);
 assert.match(workspace, /useAdsCreativeInsights/);
 assert.match(workspace, /useAdsRulePresets/);
 assert.match(workspace, /useAdsRules/);
