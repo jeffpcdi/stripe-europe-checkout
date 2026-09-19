@@ -343,8 +343,8 @@ function ActionFeedbackPreference() {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-border/55 bg-secondary/15 p-4 transition-colors hover:border-border hover:bg-secondary/25">
       <span>
-        <span className="block text-sm font-medium text-foreground">Confirmação de ações</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">Som e vibração quando uma alteração importante é salva.</span>
+        <span className="block text-sm font-medium text-foreground">Feedback ao salvar</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">Som curto e, quando suportado, vibração após alterações importantes. Não muda o som das notificações.</span>
       </span>
       <Switch
         checked={enabled}
@@ -352,7 +352,7 @@ function ActionFeedbackPreference() {
           setEnabled(next)
           localStorage.setItem('roi_action_feedback', next ? 'on' : 'off')
         }}
-        label="Feedback sonoro e tátil"
+        label="Feedback ao salvar"
       />
     </label>
   )
