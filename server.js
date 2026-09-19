@@ -2847,7 +2847,11 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
 
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ links: linkStore.list(req.account.id) });
+  const host = trustedRequestHost(req) || publicAppHost(req);
+  res.json({
+    links: linkStore.list(req.account.id),
+    baseUrl: host ? 'https://' + host : '',
+  });
 });
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
