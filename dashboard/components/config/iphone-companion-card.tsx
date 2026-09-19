@@ -194,7 +194,7 @@ export function IPhoneCompanionCard() {
             <div>
               <p className="text-xs font-medium text-foreground">Preferir Companion no iPhone</p>
               <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                Quando ligado, o Companion nativo recebe os alertas no iPhone; Web Push continua nos outros aparelhos.
+                Quando ligado, APNs vira o canal dos dispositivos Apple desta conta e o Web Push continua em desktop/Android. Pareie os iPhones/iPads que devem continuar recebendo alertas.
               </p>
             </div>
             <Switch
