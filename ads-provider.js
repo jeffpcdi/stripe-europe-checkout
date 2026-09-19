@@ -1532,10 +1532,19 @@ async function getOrCreateTikTokCtaPortfolio(accountId, advertiserId, callToActi
     creative_portfolio_id: id,
   });
 
-  const nextStored = { ...stored, [key]: { id, actions, createdAt: new Date().toISOString() } };
-  const entries = Object.entries(nextStored);
-  const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : nextStored;
-  setState(acc, { ctaPortfolios: bounded });
+  const createdAt = new Date().toISOString();
+  await config.setDurable(acc, (latest) => {
+    const currentAds = latest && latest.pipeboardAds && typeof latest.pipeboardAds === 'object'
+      ? latest.pipeboardAds
+      : {};
+    const currentPortfolios = currentAds.ctaPortfolios && typeof currentAds.ctaPortfolios === 'object'
+      ? currentAds.ctaPortfolios
+      : {};
+    const merged = { ...currentPortfolios, [key]: { id, actions, createdAt } };
+    const entries = Object.entries(merged);
+    const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : merged;
+    return { pipeboardAds: { ...currentAds, ctaPortfolios: bounded } };
+  });
   return { id, actions, reused: false };
 }
 
