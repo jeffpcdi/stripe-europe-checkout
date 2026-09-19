@@ -8,6 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "ROI-NADOS",
     description: "Painel de vendas, tracking e TikTok Ads",
     // O Next roda com basePath /dashboard — assets ficam sob esse prefixo.
+    id: "/dashboard",
     start_url: "/dashboard",
     scope: "/dashboard",
     display: "standalone",
