@@ -111,8 +111,8 @@ function day(d, spend, impressions, clicks, conversions) {
   // budget fora do intervalo → rejeita; dentro → passa com clamp de 2 casas
   ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 30 } }, known).ok, 'budget abaixo do mínimo TikTok rejeitado');
   ok(!adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 20000 } }, known).ok, 'budget > 10000 rejeitado');
-  const v3 = adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 33.333 } }, known);
-  ok(v3.ok && v3.params.budget === 33.33, 'budget válido normalizado para 2 casas');
+  const v3 = adsAi.validateProposedAction({ type: 'budget', params: { campaignId: '1111111111', budget: 53.333 } }, known);
+  ok(v3.ok && v3.params.budget === 53.33, 'budget válido normalizado para 2 casas');
 
   // duplicate não existe mais (backend 501) → rejeita
   ok(!adsAi.validateProposedAction({ type: 'duplicate', params: { campaignId: '1111111111' } }, known).ok, 'duplicate não é mais um tipo válido');
@@ -173,6 +173,9 @@ function day(d, spend, impressions, clicks, conversions) {
     const winner = p.changes.find((c) => c.campaignId === '1111111111');
     if (winner) ok(winner.deltaPct > 0, 'vencedora (2+ vendas) recebe verba');
     eq(p.rationale, '', 'sem credenciais de IA o rationale fica vazio (proposta continua válida)');
+
+    const pPolicy = await adsAi.budgetProposal('acc1', 'adv1', 'USD', 7, 20);
+    ok((pPolicy.changes || []).every((change) => Math.abs(change.deltaPct) <= 20.01), 'allocator respeita maxBudgetChangePct da política');
 
     // Menos de 2 elegíveis → insufficient
     treeCampaigns = [camp('1111111111', 'Única', 100, 200)];
