@@ -126,11 +126,7 @@ export function InsightsView() {
       return { from: from.label, to: stage.label, rate, drop: Math.max(0, 100 - rate), lost: Math.max(0, from.value - stage.value) }
     })
     const bottleneck = [...transitions].sort((a, b) => b.drop - a.drop)[0] ?? null
-    const campaigns = [...(current.topCampaigns || [])].filter(item => item.leads > 0).sort((a, b) => b.purchased - a.purchased || b.conv - a.conv)
-    const campaignPurchases = campaigns.reduce((sum, item) => sum + item.purchased, 0)
-    const concentration = campaignPurchases > 0 && campaigns[0] ? (campaigns[0].purchased / campaignPurchases) * 100 : null
-
-    return { current, previous, currentRevenue, previousRevenue, stages, transitions, bottleneck, concentration }
+    return { current, previous, currentRevenue, previousRevenue, stages, transitions, bottleneck }
   }, [analytics])
 
   if (analyticsError && !analytics) {
@@ -157,7 +153,9 @@ export function InsightsView() {
   const revenueDelta = relativeDelta(computed.currentRevenue, computed.previousRevenue)
   const healthActions = health?.actions ?? []
   const spendCurrency = roas?.currency || current.mainCur
+  const revenueCurrency = roas?.revenueCurrency || spendCurrency
   const profitCurrency = profitability?.currency || current.mainCur
+  const attributedRevenue = adsConnected ? roas?.revenueCents ?? null : computed.currentRevenue
 
   const summarySignals = [
     revenueDelta == null ? null : {
@@ -208,8 +206,8 @@ export function InsightsView() {
           <GlassCard className="grid overflow-hidden sm:grid-cols-2 xl:grid-cols-5">
             <KpiCell
               label="Faturamento"
-              value={formatMoney(computed.currentRevenue, current.mainCur)}
-              detail={revenueDelta == null ? null : `${fmtDelta(revenueDelta)} vs. anterior`}
+              value={attributedRevenue == null ? '—' : formatMoney(attributedRevenue, adsConnected ? revenueCurrency : current.mainCur)}
+              detail={adsConnected ? 'TikTok atribuído' : revenueDelta == null ? null : `${fmtDelta(revenueDelta)} vs. anterior`}
               privateValue
             />
             <KpiCell
@@ -244,10 +242,10 @@ export function InsightsView() {
           {showSimulator ? (
             <ScenarioSimulator
               currency={spendCurrency}
-              currentRevenue={computed.currentRevenue}
-              currentSales={current.revenueSales || current.purchased}
-              baselineSpend={roas?.spend ?? null}
-              baselineCpa={roas?.cpa ?? null}
+              currentRevenue={roas?.revenueCents ?? 0}
+              currentSales={roas?.sales ?? 0}
+              baselineSpend={roas && !roas.currencyMismatch ? roas.spend : null}
+              baselineCpa={roas && !roas.currencyMismatch ? roas.cpa : null}
             />
           ) : null}
 
@@ -320,7 +318,6 @@ export function InsightsView() {
           currentRevenue={computed.currentRevenue}
           previousRevenue={computed.previousRevenue}
           bottleneck={computed.bottleneck}
-          sourceConcentration={computed.concentration}
         />
       ) : null}
     </div>
