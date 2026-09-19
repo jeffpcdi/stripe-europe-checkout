@@ -69,6 +69,8 @@ assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve exp
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
 assert(companionCard.includes('Preferir Companion no iPhone'), 'usuário deve controlar a troca de Web Push para APNs nativo')
 assert(companionCard.includes('Testar som nativo de venda') && companionCard.includes('/api/companion/test'), 'pareamento deve oferecer teste real do chime APNs')
+assert(companionCard.includes('roinados://pair?server=') && companionCard.includes('Abrir no Companion'), 'pareamento no iPhone deve ter fluxo de um toque')
+assert(server.includes('widgetSnapshotVersion: 2') && server.includes('lockScreenWidget: true'), 'status do companion deve declarar capacidades reais')
 assert(companionCard.includes('Confirmar renovação') && companionCard.includes('/api/companion/token/rotate'), 'rotação do token deve existir na UI com confirmação antes de desconectar iPhones')
 assert(widgetSwift.includes('Receita, vendas, ROAS, lucro e tendência do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.accessoryRectangular') && widgetSwift.includes('.accessoryInline') && widgetSwift.includes('.accessoryCircular'), 'widget deve cobrir Tela de Início e superfícies úteis da Tela Bloqueada')
@@ -81,6 +83,9 @@ assert(registerSwift.includes('didReceive response') && registerSwift.includes('
 assert(registerSwift.includes('WidgetCenter.shared.reloadAllTimelines()'), 'alerta nativo deve sinalizar atualização dos widgets')
 assert(companionConfigSwift.includes('percentEncodedQuery') && companionConfigSwift.includes('maxSplits: 1'), 'deep link nativo deve preservar query como tab=automation')
 assert(projectYml.includes('APS_ENVIRONMENT: production') && projectYml.includes('APS_ENVIRONMENT: development'), 'Debug e Release devem usar ambientes APNs coerentes')
+assert(projectYml.includes('CFBundleURLSchemes:') && projectYml.includes('- roinados'), 'Companion deve registrar o scheme de pareamento')
 assert(appEntitlements.includes('$(APS_ENVIRONMENT)'), 'entitlement APNs não deve ficar fixo em development')
+const companionApp = fs.readFileSync(path.join(root, 'ios/ROINADOSCompanion/ROINADOSCompanionApp.swift'), 'utf8')
+assert(companionApp.includes('.onOpenURL') && companionApp.includes('handlePairingURL'), 'app deve consumir o link de pareamento e validar a conta')
 
 console.log('[OK] V16.26 — executive brief, APNs nativo, som de venda e WidgetKit coerentes.')
