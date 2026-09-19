@@ -231,6 +231,12 @@ function build(opts) {
     return { ...compactSale(p, meta), url, tag, sound, event };
   }
 
+  // Briefing diário é deliberadamente estável: relatório executivo não muda
+  // de linguagem por sorteio, mesmo quando o tom descontraído está habilitado.
+  if (event === 'daily') {
+    return { title: compactText(p.title || 'Resumo diário', 60), body: compactText(p.text || '', 180), url, tag, sound, event };
+  }
+
   // Modo sóbrio ou evento desconhecido: título/texto originais.
   if (funMode === false || !event || !POOLS[event]) {
     return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event: event || '' };
