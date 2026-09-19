@@ -14,7 +14,7 @@ function compactSale(payload, meta) {
   const p = payload || {};
   const data = meta || {};
   const valor = compactText(data.valor, 32);
-  const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' — ' + valor : ''));
+  const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' · ' + valor : ''));
   const produto = compactText(data.produto, 48);
   const gateway = compactText(data.gateway, 24);
   const body = [produto, gateway].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
