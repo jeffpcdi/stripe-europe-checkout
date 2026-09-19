@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
-import type { CheckoutLink } from '@/lib/types'
+import type { CheckoutLink, CustomDomain } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { Skeleton } from '@/components/skeleton'
 import { SectionTitle } from '@/components/section-title'
@@ -83,10 +83,16 @@ export function LinksView() {
     }
   }, [])
 
-  const appHost = domainsData?.appHost || (typeof window !== 'undefined' ? window.location.host : '')
+  const publicBaseUrl = String(data?.baseUrl || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '')
+  const appHost = (() => {
+    try { return publicBaseUrl ? new URL(publicBaseUrl).host : '' } catch { return '' }
+  })()
   const links = data?.links ?? []
-  const checkoutDomains = (domainsData?.domains ?? []).filter((domain) => (domain.uso ?? 'ambos') !== 'cloaker')
-  const verifiedHosts = new Set((domainsData?.domains ?? []).filter((d) => d.verificado).map((d) => d.host))
+  const domainReady = (domain: CustomDomain) => domain.verificado && (!domain.status || domain.status === 'active')
+  const checkoutDomains = (domainsData?.domains ?? []).filter((domain) =>
+    (domain.uso ?? 'ambos') !== 'cloaker' && (domainReady(domain) || domain.host === editing?.dominio)
+  )
+  const verifiedHosts = new Set((domainsData?.domains ?? []).filter(domainReady).map((domain) => domain.host))
   // Item 68: mapa slug → pixel para checar existência/estado do pixel do link
   const pixelBySlug = new Map((pixelsData?.pixels ?? []).map((p) => [p.slug, p]))
 
@@ -316,7 +322,7 @@ export function LinksView() {
     }
     const link = links.find((l) => l.slug === qrFor)
     if (!link) return
-    const url = `https://${link.dominio || appHost}/${link.slug}`
+    const url = publicUrl(link)
     let alive = true
     QRCodeLib.toDataURL(url, {
       width: 140,
@@ -335,8 +341,8 @@ export function LinksView() {
   }, [qrFor, appHost, links])
 
   function publicUrl(l: CheckoutLink) {
-    const host = l.dominio || appHost
-    return `https://${host}/${l.slug}`
+    const base = l.dominio ? `https://${l.dominio}` : publicBaseUrl
+    return `${base}/${l.slug}`
   }
 
   async function copyUrl(l: CheckoutLink) {
@@ -660,7 +666,7 @@ export function LinksView() {
                         </summary>
                         <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 border-l border-border/50 pl-3">
                           <span>{l.variantes.length} versão{l.variantes.length === 1 ? '' : 'ões'}</span>
-                          {l.urlWhitePage ? <span>Cloaker ativo</span> : null}
+                          {l.urlWhitePage ? <span>Destino seguro próprio</span> : null}
                           {l.pixelSlug ? (
                             <span className={pixelMissing || pixelPaused ? 'text-[color:var(--warning)]' : ''}>
                               Pixel: {l.pixelSlug}{pixelMissing ? ' · não existe' : pixelPaused ? ' · pausado' : ''}
