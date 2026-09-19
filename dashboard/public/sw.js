@@ -59,7 +59,15 @@ self.addEventListener("push", (event) => {
     if (hasVisibleClient && data.sound) {
       promises.push(Promise.resolve().then(() => {
         for (const client of visibleClients) {
-          client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
+          client.postMessage({
+            type: "roi-notification",
+            sound: data.sound,
+            event: data.event || "",
+            title,
+            body: data.body || "",
+            url: data.url || "/dashboard",
+            priority: data.priority || "normal",
+          })
         }
       }))
     }
