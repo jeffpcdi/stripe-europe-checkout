@@ -763,6 +763,16 @@ async function insightsById(advertiserId, level, dimKey, startDate, endDate) {
       cpc: r.cpc,
       conversions: r.conversions,
       reach: r.reach,
+      frequency: r.frequency,
+      videoViews: r.videoViews,
+      videoPlayActions: r.videoPlayActions,
+      videoWatched2s: r.videoWatched2s,
+      videoWatched6s: r.videoWatched6s,
+      videoViewsP25: r.videoViewsP25,
+      videoViewsP50: r.videoViewsP50,
+      videoViewsP75: r.videoViewsP75,
+      videoViewsP100: r.videoViewsP100,
+      averageVideoPlay: r.averageVideoPlay,
     });
   }
   return map;
