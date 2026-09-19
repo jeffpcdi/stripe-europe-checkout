@@ -20,7 +20,8 @@
 // Escrita:
 //   POST   /api/ads/create               → campanha completa (vídeo)
 //   POST   /api/ads/boost                → Spark Ads
-//   POST   /api/ads/campaigns/bulk-status→ pausa/ativa em lote
+//   POST   /api/ads/campaigns/bulk-status→ pausa/ativa campanhas em lote
+//   POST   /api/ads/entities/bulk-status → pausa/ativa campanha/conjunto/anúncio em lote
 //   POST   /api/ads/campaigns/bulk-budget→ orçamento em lote, validado no servidor
 //   POST   /api/ads/duplicate            → duplicação durável (1–50 cópias)
 //   PUT    /api/ads/:adId                → status/budget/creative
