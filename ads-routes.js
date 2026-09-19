@@ -1362,7 +1362,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       err.status = 400;
       throw err;
     }
-    return { advertiserId: selected.advertiserId, payload: built.payload };
+    return { advertiserId: selected.advertiserId, payload: built.payload, pixel };
   }
 
   // Valida todo o formulário e o escopo da conta sem criar recursos no TikTok.
@@ -1371,9 +1371,42 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const prepared = await prepareManualCampaign(req, req.body);
+
+      // Launch Guardian: valida tudo que consegue sem criar recurso. Assets já
+      // sincronizados no TikTok são conferidos aqui para falhar antes do clique
+      // final; upload por URL é validado novamente no createFullAd.
+      let creativeDetail = 'Vídeo HTTPS pronto para envio';
+      if (prepared.payload.videoId) {
+        await pipeboard.verifyReusableVideoAsset(prepared.advertiserId, prepared.payload.videoId);
+        creativeDetail = 'Criativo já disponível no TikTok';
+      }
+
+      const pxContext = await pixelContext(req.account.id, prepared.advertiserId).catch(() => null);
+      const capiReady = Boolean(pxContext && pxContext.binding && pxContext.matches.some((item) => (
+        item.remote.id === pxContext.binding.pixelId && item.local.hasToken
+      )));
+      const checks = [
+        { id: 'account', label: 'Conta de anúncios', status: 'ready', detail: 'Escopo autorizado' },
+        { id: 'pixel', label: 'Pixel', status: 'ready', detail: prepared.pixel.pixelName || prepared.pixel.pixelId },
+        {
+          id: 'server_side',
+          label: 'Server-side',
+          status: capiReady ? 'ready' : 'recommended',
+          detail: capiReady ? 'Pixel + Events API' : 'Events API pendente em Conversões',
+        },
+        { id: 'destination', label: 'Destino', status: 'ready', detail: new URL(prepared.payload.linkUrl).hostname },
+        { id: 'creative', label: 'Criativo', status: 'ready', detail: creativeDetail },
+        { id: 'budget', label: 'Orçamento', status: 'ready', detail: String(prepared.payload.budgetAmount) },
+        { id: 'delivery', label: 'Publicação', status: 'ready', detail: 'Será criada pausada para revisão' },
+      ];
       res.json({
         ok: true,
         advertiserId: prepared.advertiserId,
+        guardian: {
+          ready: true,
+          recommendations: checks.filter((item) => item.status === 'recommended').length,
+          checks,
+        },
         summary: {
           goal: prepared.payload.goal,
           budgetType: prepared.payload.budgetType,
