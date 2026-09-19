@@ -1375,6 +1375,15 @@ async function createTikTokPixel(advertiserId, input = {}) {
   );
 
   if (/^\d{5,30}$/.test(rawId)) {
+    // O ID pode propagar antes do pixel_code. Uma releitura barata evita criar
+    // um espelho local incompleto e mandar o usuário para um fluxo sem código.
+    if (!rawCode) {
+      cacheBust('pixels:' + adv);
+      const refreshed = (await listTikTokPixels(adv)).find(
+        (pixel) => pixel.id === rawId || String(pixel.name || '').trim().toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'),
+      );
+      if (refreshed) return { reused: false, raw, pixel: refreshed };
+    }
     return {
       reused: false,
       raw,
