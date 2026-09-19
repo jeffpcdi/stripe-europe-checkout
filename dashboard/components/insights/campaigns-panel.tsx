@@ -55,9 +55,8 @@ function learningState(campaign: AdsTreeCampaign) {
   const created = new Date(raw)
   if (!Number.isFinite(created.getTime())) return null
   const ageDays = Math.max(0, (Date.now() - created.getTime()) / 86400000)
-  const results = Math.max(0, Number(campaign.metrics?.conversions) || 0)
-  if (ageDays >= 7 || results >= 25) return null
-  return { ageDays, results }
+  if (ageDays >= 7) return null
+  return { ageDays }
 }
 
 function statusLabel(status?: string) {
@@ -316,7 +315,7 @@ export function InsightsCampaignsPanel({
                 <tr key={row.id || row.name} className="border-b border-border/40 last:border-0 hover:bg-secondary/10">
                   <td className="max-w-[320px] px-5 py-3.5">
                     <span className="block truncate text-[13px] font-medium text-foreground" title={row.name}>{row.name}</span>
-                    {row.learning ? <span className="mt-0.5 block text-[11px] text-brand-cyan">Aprendizado protegido · {row.learning.results} resultado(s)</span> : null}
+                    {row.learning ? <span className="mt-0.5 block text-[11px] text-muted-foreground">Learning Guardian · fase inicial</span> : null}
                   </td>
                   <td className={`px-4 py-3.5 text-xs font-medium ${statusClass(row.status)}`}>{statusLabel(row.status)}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.spend == null ? '—' : formatMoney(Math.round(row.spend * 100), row.spendCurrency)}</td>
