@@ -125,6 +125,8 @@ assert.match(layout, /<Suspense fallback=\{null\}><SubNav \/><\/Suspense>/)
 
 assert.match(api, /useAdsDestinationHealth/)
 assert.match(launcher, /Launch Guardian/)
+assert.match(launcher, /guardianDraft/)
+assert.match(launcher, /900/)
 assert.match(launcher, /initialVideoId/)
 assert.match(launcher, /initialLinkUrl/)
 assert.match(tiktokView, /creativeDraft/)
@@ -140,6 +142,7 @@ assert.match(routes, /Destination Sentinel/)
 assert.match(routes, /hostSeguro/)
 assert.match(routes, /\/api\/ads\/budget\/proposal\/apply/)
 assert.match(routes, /budget_allocator\.applied/)
+assert.match(routes, /budget_allocator\.change/)
 assert.match(routes, /guardian:/)
 const destinationRoute = routes.slice(
   routes.indexOf("app.get('/api/ads/destinations/health'"),
