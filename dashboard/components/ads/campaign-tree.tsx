@@ -1620,7 +1620,12 @@ export function CampaignTree({
 
     if (entityLevel === 'campaign') return null
     if (entityLevel === 'adgroup') {
-      const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group })))
+      const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).map((group) => ({ campaign, group }))).filter(({ campaign, group }) => {
+        if (onlyWithSpend && !(Number(group.metrics?.spend) > 0)) return false
+        if (!q || natural.structured) return true
+        return normalizeSearch(String(group.adSetName || group.name || group.platformAdSetId)).includes(q)
+          || normalizeSearch(String(campaign.campaignName || campaign.platformCampaignId)).includes(q)
+      })
       const all = rows.length > 0 && rows.every(({ group }) => selectedEntities.has(String(group.platformAdSetId)))
       return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[980px]">
         <div className="grid grid-cols-[36px_minmax(240px,1.5fr)_minmax(220px,1.2fr)_110px_120px_100px_100px_110px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ group }) => String(group.platformAdSetId))))} aria-label="Selecionar todos os conjuntos" className="size-3.5 accent-primary" /><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Orçamento</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span></div>
@@ -1632,7 +1637,14 @@ export function CampaignTree({
         </div>)}{!rows.length ? <p className="px-3 py-10 text-center text-sm text-muted-foreground">Nenhum conjunto disponível nesta conta.</p> : null}
       </div></div>
     }
-    const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad }))))
+    const rows = campaigns.flatMap((campaign) => (campaign.adSets || []).flatMap((group) => (group.ads || []).map((ad) => ({ campaign, group, ad })))).filter(({ campaign, group, ad }) => {
+      if (onlyWithSpend && !(Number(ad.metrics?.spend) > 0)) return false
+      if (!q || natural.structured) return true
+      return normalizeSearch(String(ad.name || ad.platformAdId || ad._id)).includes(q)
+        || normalizeSearch(String(ad.creative?.body || '')).includes(q)
+        || normalizeSearch(String(group.adSetName || group.name || group.platformAdSetId)).includes(q)
+        || normalizeSearch(String(campaign.campaignName || campaign.platformCampaignId)).includes(q)
+    })
     const all = rows.length > 0 && rows.every(({ ad }) => selectedEntities.has(String(ad.platformAdId || ad._id)))
     return <div className="overflow-x-auto border-b border-border/60">{bulkBar}<div className="min-w-[1160px]">
       <div className="grid grid-cols-[36px_86px_minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_100px_90px_90px_110px_100px] items-center gap-3 border-b border-border/60 px-3 py-2.5 text-xs font-medium text-muted-foreground"><input type="checkbox" checked={all} onChange={() => setSelectedEntities(all ? new Set() : new Set(rows.map(({ ad }) => String(ad.platformAdId || ad._id))))} aria-label="Selecionar todos os anúncios" className="size-3.5 accent-primary" /><span>Criativo</span><span>Anúncio</span><span>Conjunto</span><span>Campanha</span><span>Status</span><span className="text-right">Gasto</span><span className="text-right">CTR</span><span className="text-right">Conversões</span><span>Sinal</span></div>
@@ -1674,17 +1686,17 @@ export function CampaignTree({
             <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2">
               <div className="relative min-w-[220px] flex-1 lg:max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar campanha ou filtrar por resultado…" aria-label="Buscar campanha ou filtrar por resultado" className="h-10 w-full rounded-lg border border-border/70 bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={entityLevel === 'campaign' ? 'Buscar campanha ou filtrar por resultado…' : entityLevel === 'adgroup' ? 'Buscar conjunto ou campanha…' : 'Buscar anúncio, copy, conjunto ou campanha…'} aria-label="Buscar campanha ou filtrar por resultado" className="h-10 w-full rounded-lg border border-border/70 bg-background pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30" />
                 {query ? <button type="button" onClick={() => setQuery('')} aria-label="Limpar busca" className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button> : null}
               </div>
               <button type="button" onClick={() => setQuickFilter((curr) => curr === 'no_sales' ? 'all' : 'no_sales')} aria-pressed={quickFilter === 'no_sales'} disabled={!decisions} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', quickFilter === 'no_sales' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')} title="Campanhas com gasto e sem vendas"><AlertCircle className="size-3.5" aria-hidden="true" />Gastou sem vender</button>
               <button type="button" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters} className={cn('inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors', showFilters ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/70 bg-background text-muted-foreground hover:text-foreground')}><SlidersHorizontal className="size-3.5" aria-hidden="true" />Filtros</button>
             </div>
-            {!query ? <p className="w-full text-xs text-muted-foreground lg:text-right">Ex.: sem venda · ROAS acima de 2 · gasto acima de 100</p> : null}
+            {!query && entityLevel === 'campaign' ? <p className="w-full text-xs text-muted-foreground lg:text-right">Ex.: sem venda · ROAS acima de 2 · gasto acima de 100</p> : null}
           </div>
         </div>
 
-        {showFilters ? (
+        {showFilters && entityLevel === 'campaign' ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
             <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por status">
               {STATUS_FILTERS.map((filter) => {
@@ -1781,7 +1793,7 @@ export function CampaignTree({
       )}
 
       {/* Paginação */}
-      {pagination && pagination.pages > 1 && (
+      {entityLevel === 'campaign' && pagination && pagination.pages > 1 && (
         <div className="flex items-center justify-between border-t border-border/60 py-3 text-xs text-muted-foreground">
           <span>
             Página {pagination.page} de {pagination.pages} · {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
@@ -1860,7 +1872,7 @@ export function CampaignTree({
       />
 
       {/* Barra de ações em lote */}
-      {selected.size > 0 && (
+      {entityLevel === 'campaign' && selected.size > 0 && (
         <div className="campaign-bulk-actions fixed bottom-5 left-1/2 z-40 flex max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 shadow-lg sm:gap-3 sm:px-4">
           <span className="text-xs font-semibold text-foreground">{selected.size} selecionada{selected.size === 1 ? '' : 's'}</span>
           <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => void bulkStatus('paused')} disabled={bulkBusy || selectedActiveCampaigns.length === 0} title={selectedActiveCampaigns.length === 0 ? 'Nenhuma campanha ativa selecionada' : `Pausar ${selectedActiveCampaigns.length} campanha${selectedActiveCampaigns.length === 1 ? '' : 's'} ativa${selectedActiveCampaigns.length === 1 ? '' : 's'}`}><Pause className="size-3.5" />Pausar{selectedActiveCampaigns.length ? ` · ${selectedActiveCampaigns.length}` : ''}</button>
