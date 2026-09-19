@@ -139,7 +139,7 @@ const SOUNDS = {
   ads_rejected: 'alert',
   ads_proposal: 'ping',
   ads_failure: 'alert',
-  ads_breaker: 'info',
+  ads_breaker: 'alert',
   ads_cap: 'info',
   ads_briefing: 'info',
   ads_routine: 'info'
