@@ -3569,7 +3569,9 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const cloakRefsV2 = cloakCampaignStore.isReady()
     ? cloakCampaignStore.list(req.account.id).filter((campaign) => campaign.domainHost === host)
     : [];
-  const cloakRefs = cloakRefsV2.length ? cloakRefsV2 : cloakRefsLegacy;
+  // Durante a migração, V1 e V2 podem coexistir. A remoção deve falhar se
+  // QUALQUER geração ainda referenciar o domínio.
+  const cloakRefs = [...cloakRefsV2, ...cloakRefsLegacy];
   if (checkoutRefs.length || cloakRefs.length) {
     const refs = [];
     if (checkoutRefs.length) refs.push(checkoutRefs.length + ' link' + (checkoutRefs.length === 1 ? '' : 's') + ' de venda');
