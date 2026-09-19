@@ -151,4 +151,23 @@ const destinationRoute = routes.slice(
 assert.match(destinationRoute, /adsCache\.readTree/)
 assert.doesNotMatch(destinationRoute, /req\.body[^\n]*url/, 'Destination Sentinel não aceita URL arbitrária do navegador')
 
+const rollbackRoute = routes.slice(
+  routes.indexOf("app.post('/api/ads/ops/audit/:auditId/rollback'"),
+  routes.indexOf("\n  //", routes.indexOf("app.post('/api/ads/ops/audit/:auditId/rollback'") + 20),
+)
+assert.doesNotMatch(rollbackRoute, /budget_allocator\.change/, 'audit do allocator nunca entra na rota de rollback')
+assert.doesNotMatch(rollbackRoute, /\bprepared\b/, 'rollback não referencia estado local do allocator')
+
+const allocatorRoute = routes.slice(
+  routes.indexOf("app.post('/api/ads/budget/proposal/apply'"),
+  routes.indexOf("app.get('/api/ads/alerts'", routes.indexOf("app.post('/api/ads/budget/proposal/apply'")),
+)
+assert.match(allocatorRoute, /budget_allocator\.change/)
+assert.match(allocatorRoute, /reserveIdempotentOperation/)
+assert.ok(
+  allocatorRoute.indexOf('reserveIdempotentOperation') < allocatorRoute.indexOf('updateEntityBudget'),
+  'allocator reserva a idempotência antes da primeira mutação externa',
+)
+assert.match(allocatorRoute, /BUDGET_ALLOCATOR_IN_PROGRESS/)
+
 console.log('dashboard insights v16.24: ok')
