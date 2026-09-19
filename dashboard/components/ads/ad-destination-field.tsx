@@ -8,6 +8,7 @@ interface DestinationOption {
   key: string
   label: string
   url: string
+  displayUrl: string
   kind: 'link' | 'cloak'
 }
 
@@ -42,19 +43,22 @@ export function AdDestinationField({
         key: `link:${link.slug}`,
         label: link.nome,
         url: `${root}/${link.slug}`,
+        displayUrl: `${root}/${link.slug}`,
         kind: 'link',
       })
     }
 
     for (const campaign of cloakData?.entries ?? []) {
       if (!campaign.enabled) continue
-      const url = campaign.linkKit?.url
+      const publicUrl = campaign.linkKit?.url
         || (campaign.dominio ? `https://${campaign.dominio}/${campaign.slug}` : '')
+      const url = campaign.linkKit?.combinedUrl || publicUrl
       if (!/^https:\/\//.test(url)) continue
       rows.push({
         key: `cloak:${campaign.id || campaign.campaignId || campaign.slug}`,
         label: campaign.nome,
         url,
+        displayUrl: publicUrl,
         kind: 'cloak',
       })
     }
@@ -89,14 +93,14 @@ export function AdDestinationField({
           {options.some((option) => option.kind === 'link') && (
             <optgroup label="Links de venda">
               {options.filter((option) => option.kind === 'link').map((option) => (
-                <option key={option.key} value={option.key}>{option.label} · {option.url.replace(/^https?:\/\//, '')}</option>
+                <option key={option.key} value={option.key}>{option.label} · {option.displayUrl.replace(/^https?:\/\//, '')}</option>
               ))}
             </optgroup>
           )}
           {options.some((option) => option.kind === 'cloak') && (
             <optgroup label="Campanhas Cloaker">
               {options.filter((option) => option.kind === 'cloak').map((option) => (
-                <option key={option.key} value={option.key}>{option.label} · {option.url.replace(/^https?:\/\//, '')}</option>
+                <option key={option.key} value={option.key}>{option.label} · {option.displayUrl.replace(/^https?:\/\//, '')}</option>
               ))}
             </optgroup>
           )}
@@ -123,7 +127,7 @@ export function AdDestinationField({
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         {matched
           ? matched.kind === 'cloak'
-            ? 'Campanha Cloaker selecionada. O ROI-NADOS usa a URL pública configurada e adiciona a atribuição da campanha no envio ao TikTok.'
+            ? 'Campanha Cloaker selecionada. O ROI-NADOS envia o Link Kit completo, incluindo token e macros de atribuição compatíveis com a fonte configurada.'
             : 'Link de venda selecionado. O ROI-NADOS usa a URL rastreada e adiciona a atribuição da campanha no envio ao TikTok.'
           : options.length
             ? 'Escolha um destino já configurado no ROI-NADOS ou informe uma URL HTTPS personalizada.'
