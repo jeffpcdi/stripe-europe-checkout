@@ -44,3 +44,24 @@ struct WidgetSnapshot: Codable {
     let lastSale: LastSale?
     let attention: [String]
 }
+
+
+enum WidgetSnapshotCache {
+    private static let key = "roi.widget.snapshot.v2"
+
+    static func save(_ snapshot: WidgetSnapshot) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot) else { return }
+        UserDefaults(suiteName: CompanionConfig.appGroup)?.set(data, forKey: key)
+    }
+
+    static func load() -> WidgetSnapshot? {
+        guard let data = UserDefaults(suiteName: CompanionConfig.appGroup)?.data(forKey: key) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(WidgetSnapshot.self, from: data)
+    }
+}
