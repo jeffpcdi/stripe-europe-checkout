@@ -15,10 +15,14 @@ const context = {
   requireCampaignPixel: async () => { if (pixelFailure) throw Error('Pixel indisponível'); return { pixelId: 'central-pixel' }; },
   killSwitchActive: async () => !!policy.killSwitch,
   KILL_SWITCH_BODY: { error: 'Ações bloqueadas' },
-  adsOps: { getSafetyPolicy: async () => policy },
+  adsOps: { getSafetyPolicy: async () => policy, appendAuditEvent: async () => {} },
   auditSimulated: async () => {},
-  pipeboard: Object.fromEntries(['createCustomAudience','createLookalikeAudience','deleteCustomAudiences'].map(method => [method, async (...args) => { calls.push([method, ...args]); return { id:'created' }; }])),
-  fail: (res, error) => res.status(400).json({error:error.message}),
+  pipeboard: {
+    ...Object.fromEntries(['createCustomAudience','createLookalikeAudience','deleteCustomAudiences','shareCustomAudiences'].map(method => [method, async (...args) => { calls.push([method, ...args]); return { id:'created' }; }])),
+    listAdvertiserIds: async () => ['allowed','target'],
+  },
+  stats: { logEvent() {} },
+  fail: (res, error) => res.status(error.status || 400).json({error:error.message}),
 };
 vm.runInNewContext(section, context);
 async function invoke(key, body = {}) {
@@ -27,7 +31,7 @@ async function invoke(key, body = {}) {
   return res;
 }
 (async () => {
-  for (const key of ['post/api/ads/audiences','post/api/ads/audiences/lookalike','delete/api/ads/audiences']) {
+  for (const key of ['post/api/ads/audiences','post/api/ads/audiences/lookalike','delete/api/ads/audiences','post/api/ads/audiences/share']) {
     for (const next of [{enabled:true,dryRun:true}, {enabled:true,killSwitch:true}, {enabled:false}, {enabled:true,blockedAdvertiserIds:['allowed']}]) {
       policy=next; calls=[];
       const res=await invoke(key);
@@ -37,11 +41,19 @@ async function invoke(key, body = {}) {
     policy={enabled:true,dryRun:false}; calls=[];
     assert.equal((await invoke(key, {adAccountId:'foreign'})).statusCode,400);
     assert.equal(calls.length,0,'outra conta é recusada');
-    await invoke(key, {pixelId:'untrusted'});
+    const validBody = key === 'post/api/ads/audiences/share'
+      ? { pixelId:'untrusted', sharedAdvertiserId:'target' }
+      : { pixelId:'untrusted' };
+    await invoke(key, validBody);
     assert.equal(calls.length,1);
     assert.equal(calls[0][1],'allowed');
     if(key === 'post/api/ads/audiences') assert.equal(calls[0][2].pixelId,'central-pixel');
+    if(key === 'post/api/ads/audiences/share') assert.deepEqual(calls[0][3],['target']);
   }
+  policy={enabled:true,dryRun:false}; calls=[];
+  assert.equal((await invoke('post/api/ads/audiences/share',{sharedAdvertiserId:'foreign'})).statusCode,403);
+  assert.equal(calls.length,0,'destino não autorizado não recebe público');
+
   pixelFailure=true; calls=[];
   assert.equal((await invoke('post/api/ads/audiences')).statusCode,400);
   assert.equal(calls.length,0,'sem Pixel não cria público de site');
@@ -59,5 +71,11 @@ async function invoke(key, body = {}) {
   assert.equal(audiences[0].isValid,false,'string false não significa pronto');
   assert.equal(audiences[1].isValid,true);
   await assert.rejects(provider.deleteCustomAudiences('allowed',[null,undefined,'']), /IDs/);
-  console.log('ads-audiences-integrity: simulação, bloqueio, escopo, Pixel e paginação OK');
+  let sharedArgs=null;
+  mcp.callTool=async (name,args)=>{ sharedArgs={name,args}; return { ok:true }; };
+  await provider.shareCustomAudiences('allowed',['aud-1','aud-1'],['target','allowed']);
+  assert.equal(sharedArgs.name,'share_tiktok_custom_audience');
+  assert.deepEqual(sharedArgs.args.custom_audience_ids,['aud-1']);
+  assert.deepEqual(sharedArgs.args.shared_advertiser_ids,['target']);
+  console.log('ads-audiences-integrity: simulação, bloqueio, escopo, Pixel, compartilhamento e paginação OK');
 })().catch(error => { console.error(error); process.exitCode=1; });
