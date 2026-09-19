@@ -1,7 +1,7 @@
 import Foundation
 
 enum SaleSoundInstaller {
-    static let fileName = "roi-sale.wav"
+    static let fileName = "roi-sale-v2.wav"
 
     static func installIfNeeded() {
         do {
