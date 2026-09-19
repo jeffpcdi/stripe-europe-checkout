@@ -33,6 +33,7 @@ assert.strictEqual(salePayload.aps.sound, 'roi-sale.wav', 'venda nativa deve usa
 assert.strictEqual(salePayload.aps['interruption-level'], 'active', 'venda comum não deve fingir alerta crítico Apple')
 assert.strictEqual(salePayload.aps.badge, 1, 'venda acionável deve marcar o app')
 assert.strictEqual(salePayload.aps['content-available'], 1, 'venda deve solicitar atualização de dados do widget em background')
+assert.strictEqual(salePayload.aps.category, 'ROI_SALE', 'venda nativa deve oferecer ação contextual')
 
 const breakerPayload = JSON.parse(iosPush._payloadFor({
   event: 'ads_breaker',
@@ -42,6 +43,7 @@ const breakerPayload = JSON.parse(iosPush._payloadFor({
 }))
 assert.strictEqual(breakerPayload.aps.sound, 'default', 'som customizado é reservado para venda/teste')
 assert.strictEqual(breakerPayload.aps['interruption-level'], 'time-sensitive', 'falha crítica interna pode usar Time Sensitive, não Critical Alert')
+assert.strictEqual(breakerPayload.aps.category, 'ROI_AUTOMATION', 'alerta de automação deve oferecer revisão contextual')
 
 const dailyPayload = JSON.parse(iosPush._payloadFor({
   event: 'daily',
@@ -51,6 +53,7 @@ const dailyPayload = JSON.parse(iosPush._payloadFor({
 }))
 assert.strictEqual(dailyPayload.aps['interruption-level'], 'passive', 'brief diário deve informar sem interromper')
 assert.strictEqual(dailyPayload.aps.sound, undefined, 'brief diário passivo não deve tocar som')
+assert.strictEqual(dailyPayload.aps.category, 'ROI_DAILY', 'brief diário deve oferecer ação para abrir o resumo')
 const iosPushSource = fs.readFileSync(path.join(root, 'ios-push.js'), 'utf8')
 assert(iosPushSource.includes("event === 'daily' ? '5' : '10'"), 'APNs deve usar prioridade econômica no brief diário')
 assert(iosPushSource.includes("24 * 3600") && iosPushSource.includes("6 * 3600") && iosPushSource.includes("3600"), 'APNs deve manter TTL por severidade em vez de descartar offline')
@@ -62,10 +65,11 @@ assert(server.includes("app.post('/api/v1/companion/register'"), 'companion deve
 assert(server.includes("app.post('/api/companion/test'"), 'dashboard deve testar APNs e o som nativo de venda diretamente')
 assert(server.includes("app.get('/api/companion/token'"), 'dashboard deve gerar token dedicado de pareamento')
 assert(server.includes("app.post('/api/companion/token/rotate'"), 'token do companion deve ser revogável sem afetar BI')
-assert(server.includes("const title = 'Resumo de ontem · ' + revenueText"), 'relatório diário deve usar título executivo curto e factual')
+assert(server.includes("const title = 'Ontem · ' + revenueText"), 'relatório diário deve usar título executivo curto e factual')
 assert(server.includes('DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000') && server.includes('dailyReportBootCheck'), 'brief diário deve rodar por scheduler e não depender de tráfego')
 assert(server.includes("' · Ticket ' + aovText") && server.includes("'Atenção: ' + exception"), 'brief diário deve incluir ticket médio e exceção factual útil')
 assert(server.includes("'Próximo passo: ' + nextAction"), 'brief diário excepcional deve terminar com próxima ação operacional')
+assert(server.includes("'Mais vendido: ' + topProductText"), 'brief diário deve incluir produto líder quando houver dado real')
 assert(server.includes("NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation', 'reports']"), 'relatórios devem ter preferência nativa própria')
 assert(server.includes("new Intl.NumberFormat('pt-BR'"), 'brief diário deve formatar moeda para leitura humana')
 
@@ -88,15 +92,19 @@ assert(fanout.includes("companion.preferNativeIOS !== true) return false"), 'APN
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
 assert(server.includes("code: 'companion_device_required'") && server.includes("code: 'apns_not_configured'"), 'backend deve bloquear handoff nativo sem aparelho/APNs prontos')
 assert(companionCard.includes('APNs pronto') && companionCard.includes('Token do Companion copiado.'), 'card deve mostrar prontidão e pareamento sem ruído')
+assert(companionCard.includes('2 widgets') && companionCard.includes('Widgets executivo e Vendas'), 'dashboard deve explicar as opções reais de WidgetKit')
 assert(companionCard.includes('Preferir Companion no iPhone'), 'usuário deve controlar a troca de Web Push para APNs nativo')
 assert(companionCard.includes("disabled={!data?.apnsConfigured && data?.preferNativeIOS !== true}"), 'UI deve impedir ativar handoff nativo enquanto APNs estiver pendente')
 assert(companionCard.includes('Web Push do iPhone continua sendo o fallback'), 'UI deve explicar a recuperação automática do canal')
 assert(companionCard.includes('Testar som nativo de venda') && companionCard.includes('/api/companion/test'), 'pareamento deve oferecer teste real do chime APNs')
 assert(companionCard.includes('roinados://pair?server=') && companionCard.includes('Abrir no Companion'), 'pareamento no iPhone deve ter fluxo de um toque')
 assert(server.includes('widgetSnapshotVersion: 2') && server.includes('lockScreenWidget: true'), 'status do companion deve declarar capacidades reais')
+assert(server.includes('largeExecutiveWidget: true') && server.includes('salesWidget: true'), 'status deve declarar os widgets adicionais reais')
 assert(companionCard.includes('Confirmar renovação') && companionCard.includes('/api/companion/token/rotate'), 'rotação do token deve existir na UI com confirmação antes de desconectar iPhones')
 assert(widgetSwift.includes('Receita, vendas, ROAS, lucro e tendência do dia.'), 'widget deve focar KPIs executivos')
 assert(widgetSwift.includes('.accessoryRectangular') && widgetSwift.includes('.accessoryInline') && widgetSwift.includes('.accessoryCircular'), 'widget deve cobrir Tela de Início e superfícies úteis da Tela Bloqueada')
+assert(widgetSwift.includes('.systemLarge') && widgetSwift.includes('private func large'), 'widget executivo deve aproveitar formato grande do iPhone')
+assert(widgetSwift.includes('ROINADOSSalesWidget') && widgetSwift.includes('Vendas ROI-NADOS'), 'Companion deve oferecer widget dedicado a vendas')
 assert(widgetSwift.includes('private func lockScreen'), 'widget da Tela Bloqueada deve ter composição própria e glanceable')
 assert(widgetSwift.includes('ÚLTIMA VENDA') && widgetSwift.includes('snapshot.lastSale'), 'widget médio deve mostrar a última venda sem poluir quando não há alerta')
 assert(widgetSwift.includes('WidgetSnapshotCache.load()'), 'widget deve cair para o último snapshot válido quando a rede falhar')
@@ -105,7 +113,9 @@ assert(apiClientSwift.includes('WidgetSnapshotCache.save(snapshot)'), 'refresh b
 assert(widgetSwift.includes('.widgetURL(CompanionConfig.dashboardURL())'), 'toque no widget deve voltar ao ROI-NADOS')
 assert(soundSwift.includes('static let fileName = "roi-sale.wav"'), 'companion deve instalar som de venda nativo')
 assert(soundSwift.includes('Library') || soundSwift.includes('libraryDirectory'), 'som customizado deve viver no container permitido pelo iOS')
+assert(soundSwift.includes('880') && soundSwift.includes('1320') && soundSwift.includes('1760'), 'som nativo deve usar a mesma assinatura tonal da dashboard')
 assert(registerSwift.includes('registerForRemoteNotifications') && registerSwift.includes('/api/v1/companion/register'), 'app nativo deve registrar APNs no backend ROI-NADOS')
+assert(registerSwift.includes('configureCategories') && registerSwift.includes('ROI_SALE') && registerSwift.includes('ROI_DAILY') && registerSwift.includes('ROI_AUTOMATION'), 'Companion deve registrar ações contextuais das notificações')
 assert(registerSwift.includes('requestAuthorizationAndRegister') && registerSwift.includes('registerIfAuthorized'), 'permissão de notificação deve ser pedida em contexto, não automaticamente no primeiro launch')
 assert(registerSwift.includes('didReceiveRemoteNotification') && registerSwift.includes('reloadAllTimelines'), 'venda recebida em background deve sinalizar atualização do WidgetKit')
 assert(registerSwift.includes('didReceive response') && registerSwift.includes('CompanionConfig.dashboardURL'), 'toque em notificação nativa deve abrir o deep link correto')
