@@ -55,7 +55,7 @@ export function InsightsDiagnosisPanel({
       const campaigns = destination.campaigns.length
       if (destination.severity === 'critical') {
         return [{
-          id: 'destination-critical:' + destination.host,
+          id: 'destination-critical:' + destination.url,
           title: 'Destino do anúncio indisponível',
           detail: `${destination.host} ${destination.page.error ? '· ' + destination.page.error : 'não respondeu corretamente'}. ${campaigns} campanha${campaigns === 1 ? '' : 's'} ativa${campaigns === 1 ? '' : 's'} usa${campaigns === 1 ? '' : 'm'} esta página.`,
           metric: destination.page.status > 0 ? `HTTP ${destination.page.status}` : 'Offline',
@@ -66,7 +66,7 @@ export function InsightsDiagnosisPanel({
         }]
       }
       return [{
-        id: 'destination-runtime:' + destination.host,
+        id: 'destination-runtime:' + destination.url,
         title: 'Pixel sem sinal recente no destino',
         detail: `${destination.host} está online, mas o Pixel vinculado não apareceu neste host nas últimas 24h. Revise a instalação antes de aumentar o investimento.`,
         metric: '24h',
@@ -187,7 +187,7 @@ export function InsightsDiagnosisPanel({
               className={`text-xs font-semibold ${destinationHealth.summary.critical > 0 ? 'text-destructive' : destinationHealth.summary.warning > 0 ? 'text-warning' : 'text-success'}`}
             >
               {destinationHealth.summary.critical > 0
-                ? `${destinationHealth.summary.critical} indisponível${destinationHealth.summary.critical === 1 ? '' : 'is'}`
+                ? (destinationHealth.summary.critical === 1 ? '1 indisponível' : `${destinationHealth.summary.critical} indisponíveis`)
                 : destinationHealth.summary.warning > 0
                   ? `${destinationHealth.summary.warning} sem sinal recente`
                   : `${destinationHealth.summary.healthy}/${destinationHealth.summary.total} saudáveis`}
