@@ -219,8 +219,29 @@ export function UniversalLauncherDialog({
     }
   }, [advertiserId, bodyText, budget, campaignPrefix, cta, isBulk, items, linkUrl, market.countries, market.languages, validationError])
 
+  const guardianDraft = useMemo(() => {
+    if (isBulk || items.length !== 1 || validationError) return null
+    const item = items[0]
+    return {
+      adAccountId: advertiserId,
+      goal: 'conversions',
+      name: item.name || 'Campanha',
+      budgetAmount: Number(budget),
+      budgetType: 'daily',
+      budgetOptimization: 'campaign',
+      bidStrategy: 'lowest_cost',
+      countries: market.countries,
+      languages: market.languages,
+      videoUrl: item.videoUrl,
+      videoId: item.videoId,
+      linkUrl: linkUrl.trim(),
+      callToAction: cta === 'AUTO' ? undefined : cta,
+      dynamicCallToAction: cta === 'AUTO',
+    }
+  }, [advertiserId, budget, cta, isBulk, items, linkUrl, market.countries, market.languages, validationError])
+
   useEffect(() => {
-    if (!open || !singleDraft) {
+    if (!open || !guardianDraft) {
       setGuardian(null)
       setGuardianLoading(false)
       return
@@ -232,7 +253,7 @@ export function UniversalLauncherDialog({
       apiSend<{ guardian?: { ready: boolean; recommendations: number; checks: { id: string; label: string; status: 'ready' | 'recommended'; detail: string }[] } }>(
         '/api/ads/create/preflight',
         'POST',
-        singleDraft,
+        guardianDraft,
       ).then((result) => {
         if (!active) return
         setGuardian(result.guardian || null)
@@ -244,12 +265,12 @@ export function UniversalLauncherDialog({
       }).finally(() => {
         if (active) setGuardianLoading(false)
       })
-    }, 550)
+    }, 900)
     return () => {
       active = false
       window.clearTimeout(timer)
     }
-  }, [open, singleDraft])
+  }, [open, guardianDraft])
 
   // Reserva o lote inteiro antes do primeiro envio e mantém o arquivo em falha.
   async function uploadItems(batch: VideoItem[]) {
