@@ -226,8 +226,9 @@ export function ActivityView() {
             {events.map((event, idx) => (
               <li
                 key={event.id}
-                className="anim-row-in flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between sm:px-5"
-                style={{ animationDelay: `${Math.min(idx * 20, 400)}ms` }}
+                className="activity-event-row anim-row-in flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.025] sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                data-event-type={event.type}
+                style={{ animationDelay: `${Math.min(idx * 20, 240)}ms` }}
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <EventIcon type={event.type} />
