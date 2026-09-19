@@ -738,7 +738,7 @@ async function budgetProposal(accId, advertiserId, currency, days = 1, maxBudget
   const rowsWithLearning = rows.map((c) => ({ ...c, learning: campaignLearningState({
     createdAt: c.createdAt,
     metrics: { conversions: c.conversions },
-  }) }));
+  }, new Date(), { resultsReliable: windowDays >= 7 }) }));
   const eligible = rowsWithLearning.filter((c) => c.status === 'active' && c.dailyBudget > 0 && !c.learning.protected);
   const excluded = rowsWithLearning
     .filter((c) => !(c.status === 'active' && c.dailyBudget > 0 && !c.learning.protected))
