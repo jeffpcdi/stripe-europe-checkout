@@ -7,6 +7,7 @@ import { ArrowUpRight, CheckCircle2, CircleAlert, Route, SlidersHorizontal, Targ
 import {
   useAccountSettings,
   useAdsCampaignDecisions,
+  useAdsDestinationHealth,
   useAdsProfitability,
   useAdsRoas,
   useAdsStatus,
@@ -103,6 +104,7 @@ export function InsightsView() {
   const adsOverviewActive = adsConnected && tab === 'performance'
   const campaignsActive = adsConnected && tab === 'campaigns'
   const creativesActive = adsConnected && tab === 'creatives'
+  const diagnosisActive = adsConnected && tab === 'diagnosis'
   const { data: roas, error: roasError } = useAdsRoas(adsOverviewActive, adAccountId, adsRange)
   const { data: profitability, error: profitabilityError } = useAdsProfitability(adsOverviewActive, adAccountId, adsRange)
   const { data: adsTree, error: adsTreeError, isLoading: adsTreeLoading, mutate: mutateAdsTree } = useAdsTree(campaignsActive, {
@@ -127,6 +129,7 @@ export function InsightsView() {
     fromDate: previousCreativeRange.fromDate,
     toDate: previousCreativeRange.toDate,
   })
+  const { data: destinationHealth } = useAdsDestinationHealth(diagnosisActive, adAccountId)
 
   const computed = useMemo(() => {
     if (!analytics?.current) return null
@@ -355,6 +358,7 @@ export function InsightsView() {
           current={current}
           previous={previous ?? null}
           health={health}
+          destinationHealth={destinationHealth}
           currentRevenue={computed.currentRevenue}
           previousRevenue={computed.previousRevenue}
           bottleneck={computed.bottleneck}
