@@ -598,15 +598,6 @@ export function TikTokAdsView() {
         <div className="text-xs text-muted-foreground">Período · {periodLabel}</div>
       ) : null}
 
-      {effectiveAdvertiser && tab === 'campaigns' ? (
-        <section className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-border/60 pb-4 lg:grid-cols-4" aria-label="Resumo das campanhas">
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : adsOperationalSummary.active.toLocaleString('pt-BR')}</p><p className="mt-1 text-xs text-muted-foreground">Campanhas ativas</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : formatAdsMoney(adsOperationalSummary.spend)}</p><p className="mt-1 text-xs text-muted-foreground">Gasto TikTok</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-success">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p><p className="mt-1 text-xs text-muted-foreground">Vendas reais</p></div>
-          <div><p className={cn('text-xl font-semibold tabular-nums', adsOperationalSummary.roas !== null && adsOperationalSummary.roas >= 2 ? 'text-success' : 'text-foreground')}>{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p><p className="mt-1 text-xs text-muted-foreground">ROAS real</p></div>
-        </section>
-      ) : null}
-
       {hasAccountAlert ? (
         <section className="space-y-2 border-b border-border/60 pb-4" aria-label="Alertas da conta">
           {killSwitchActive ? (
@@ -773,46 +764,6 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <Tabs.Content value="campaigns" data-tour="ads-campaigns" className="space-y-4 outline-none">
-              {(adsOperationalSummary.noSalesWithSpend > 0 || (rejections?.open ?? 0) > 0) ? (
-                <section className="border-b border-border/60 pb-4">
-                  <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
-                  <div className="mt-2 divide-y divide-border/50">
-                    {adsOperationalSummary.noSalesWithSpend > 0 ? (
-                      <button type="button" onClick={() => applyCampaignShortcut('sem venda')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-warning hover:text-foreground">
-                        <span>{adsOperationalSummary.noSalesWithSpend} campanha{adsOperationalSummary.noSalesWithSpend === 1 ? '' : 's'} {adsOperationalSummary.noSalesWithSpend === 1 ? 'gastou' : 'gastaram'} sem vender</span>
-                        <span className="shrink-0 font-medium">Ver campanhas</span>
-                      </button>
-                    ) : null}
-                    {(rejections?.open ?? 0) > 0 ? (
-                      <button type="button" onClick={() => changeTab('automation')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs text-error hover:text-foreground">
-                        <span>{rejections?.open} reprovação{(rejections?.open ?? 0) === 1 ? '' : 'ões'} em aberto</span>
-                        <span className="shrink-0 font-medium">Revisar</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </section>
-              ) : null}
-
-              {adsOperationalSummary.highRoas > 0 ? (
-                <section className="border-b border-border/60 pb-4">
-                  <h2 className="text-sm font-semibold text-foreground">Oportunidades</h2>
-                  <button type="button" onClick={() => applyCampaignShortcut('roas acima de 2')} className="mt-2 flex w-full items-center justify-between gap-3 py-2 text-left text-xs text-success hover:text-foreground">
-                    <span>{adsOperationalSummary.highRoas} campanha{adsOperationalSummary.highRoas === 1 ? '' : 's'} com ROAS acima de 2×</span>
-                    <span className="shrink-0 font-medium">Ver campanhas</span>
-                  </button>
-                </section>
-              ) : null}
-              <NeedsYouInbox
-                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                currency={currency}
-                onOpenOps={() => openOps()}
-                onOpenHealth={() => setHealthOpen(true)}
-                onOpenAlerts={openPerformanceAlerts}
-                appearance="embedded"
-                showHealthAlarm={false}
-              />
               <CampaignWorkspace
               key={`${concreteAdvertiser}:${fromDate}:${toDate}`}
               tree={tree}
@@ -837,6 +788,17 @@ export function TikTokAdsView() {
               onDuplicate={setDuplicateCampaign}
               decisions={campaignDecisions}
               onOpenAutomations={() => changeTab('automation')}
+              />
+              <NeedsYouInbox
+                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                currency={currency}
+                onOpenOps={() => openOps()}
+                onOpenHealth={() => setHealthOpen(true)}
+                onOpenAlerts={openPerformanceAlerts}
+                appearance="embedded"
+                showHealthAlarm={false}
               />
             </Tabs.Content>
           )}
