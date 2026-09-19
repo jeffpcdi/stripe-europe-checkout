@@ -13,8 +13,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSWRConfig } from 'swr'
 import {
-  Bell,
-  ClipboardList,
   Loader2,
   Plus,
   Sparkles,
