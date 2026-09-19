@@ -126,6 +126,20 @@ const baseSpec = {
     assert.strictEqual(dynamicAd.call_to_action, undefined, 'CTA dinâmica nunca é enviada junto com CTA fixa');
   }
 
+  // ── CTA dinâmico concorrente: um portfolio para todo o lote ───────────────
+  {
+    resetCalls();
+    durableConfigWrites = 0;
+    testConfig.delete('tenant-cta-race');
+    const portfolios = await Promise.all(Array.from({ length: 8 }, () =>
+      provider.getOrCreateTikTokCtaPortfolio('tenant-cta-race', 'adv1', ['SHOP_NOW', 'LEARN_MORE'])
+    ));
+    assert.ok(portfolios.every((portfolio) => portfolio.id === 'cta_auto_1'));
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'concorrência cria um único portfolio remoto');
+    assert.strictEqual(callsTo('get_tiktok_cta_portfolio').length, 1, 'portfolio remoto é verificado uma única vez');
+    assert.strictEqual(durableConfigWrites, 1, 'portfolio concorrente é persistido uma única vez');
+  }
+
   // ── status active: liga o anúncio só no FIM da composição ─────────────────
   {
     resetCalls();
