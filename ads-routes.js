@@ -2250,52 +2250,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return id;
   }
 
-  // Comandos globais do Cmd+K. A linguagem natural é mapeada para uma
-  // whitelist pequena; nenhuma frase livre vira chamada arbitrária. O comando
-  // destrutivo usa a definição visível ao operador: gasto >= valor e zero
-  // vendas atribuídas hoje, com guardrails e auditoria por campanha.
-  app.post('/api/ads/commands', dashboardAuth, async (req, res) => {
-    try {
-      const command = String((req.body || {}).command || '').trim().toLowerCase();
-      if (command !== 'pause_bad_campaigns') return res.status(400).json({ error: 'Comando não reconhecido', code: 'COMMAND_NOT_ALLOWED' });
-      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
-      const safety = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(req.account.id));
-      if (safety.killSwitch) return res.status(423).json(KILL_SWITCH_BODY);
-      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
-      const today = adsDay(new Date(), timeZone);
-      const minimumSpend = Math.max(1, Math.min(100000, Number((req.body || {}).minimumSpend) || 100));
-      const [tree, attribution] = await Promise.all([
-        adsCache.readTree(req.account.id, advertiserId, { fromDate: today, toDate: today, status: 'active', timeZone }),
-        Promise.resolve(automation.computeAttribution(req.account.id, today, today, timeZone)),
-      ]);
-      const targets = ((tree && tree.campaigns) || []).filter((campaign) => {
-        const spend = Number(campaign.metrics && campaign.metrics.spend) || 0;
-        const sales = Number(attribution.byCampaign && attribution.byCampaign[campaign.platformCampaignId] && attribution.byCampaign[campaign.platformCampaignId].sales) || 0;
-        return spend >= minimumSpend && sales === 0;
-      }).slice(0, 50);
-      if (safety.dryRun) return res.json({ ok: true, dryRun: true, matched: targets.length, campaigns: targets.map((item) => ({ id: item.platformCampaignId, name: item.campaignName })) });
-      const results = [];
-      for (const campaign of targets) {
-        const entity = await adsCache.classifyEntity(req.account.id, advertiserId, campaign.platformCampaignId);
-        if (!entity) continue;
-        try {
-          await setEntityStatus(entity, 'paused');
-          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: true });
-          await adsOps.appendAuditEvent(req.account.id, {
-            actorType: 'user', actorId: req.account.id, action: 'command.pause_bad_campaigns',
-            targetType: 'campaign', targetId: campaign.platformCampaignId, advertiserId,
-            beforeState: { kind: 'status', id: campaign.platformCampaignId, value: 'active', campaignKind: entity.campaignKind },
-            afterState: { kind: 'status', id: campaign.platformCampaignId, value: 'paused', campaignKind: entity.campaignKind },
-            reason: 'Cmd+K: gasto de hoje acima de ' + minimumSpend + ' sem venda atribuída',
-          });
-        } catch (error) {
-          results.push({ id: campaign.platformCampaignId, name: campaign.campaignName, ok: false, error: String(error.message || error) });
-        }
-      }
-      if (results.some((item) => item.ok)) await adsSync.syncAfterWrite(req.account.id, advertiserId);
-      res.json({ ok: true, matched: targets.length, paused: results.filter((item) => item.ok).length, failed: results.filter((item) => !item.ok).length, results });
-    } catch (err) { fail(res, err); }
-  });
+  // O Cmd+K permanece deliberadamente não destrutivo: navegação e filtros.
+  // Ações que alteram campanhas passam pelos mesmos fluxos visíveis da área
+  // TikTok Ads, preservando regras, confirmações, limites e contexto operacional.
 
   // Chat do copiloto — resposta em SSE (text/event-stream).
   app.post('/api/ads/copilot', dashboardAuth, async (req, res) => {
