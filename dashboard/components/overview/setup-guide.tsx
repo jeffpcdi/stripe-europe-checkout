@@ -7,7 +7,7 @@ export interface OverviewHealthData {
   setup?: {
     links?: { total?: number; active?: number }
     pixels?: { total?: number; active?: number; ready?: number; incomplete?: number }
-    gateways?: { total?: number; lastEventAt?: string | null }
+    gateways?: { total?: number; lastEventAt?: string | null; lastEventStatus?: string | null }
   }
   guide?: {
     completed?: number
@@ -22,6 +22,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
   const hasLink = (health.setup.links?.total ?? 0) > 0
   const hasPixel = (health.setup.pixels?.ready ?? 0) > 0
   const hasGateway = (health.setup.gateways?.total ?? 0) > 0
+  const gatewayValidated = Boolean(health.setup.gateways?.lastEventAt && /^ok\b/i.test(String(health.setup.gateways?.lastEventStatus || '')))
 
   const steps = [
     {
@@ -45,6 +46,13 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
       done: hasGateway,
       href: '/conversions?tab=gateways',
     },
+    {
+      id: 'validate',
+      label: 'Valide a primeira venda',
+      desc: 'Confirma que um webhook real chegou e foi processado corretamente.',
+      done: gatewayValidated,
+      href: '/conversions?tab=gateways',
+    },
   ]
 
   const completed = steps.filter((s) => s.done).length
@@ -59,7 +67,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
       <div className="setup-guide-main flex items-center justify-between gap-4">
         <div className="setup-guide-title min-w-0">
           <span className="text-[11px] font-medium tracking-wide uppercase text-muted-foreground">
-            Configuração · {completed}/3
+            Configuração · {completed}/{steps.length}
           </span>
           <h2 className="mt-0.5 text-sm sm:text-base font-semibold text-foreground truncate">
             {nextStep.label}
@@ -83,7 +91,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
           <p className="text-[11px] text-muted-foreground">
             Cadastros não confirmam a entrega de eventos até o primeiro teste real de disparo.
           </p>
-          <ul className="setup-guide-steps grid gap-2 sm:grid-cols-3">
+          <ul className="setup-guide-steps grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {steps.map((step) => (
               <li
                 key={step.id}
