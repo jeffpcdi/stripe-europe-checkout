@@ -101,7 +101,8 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
 
     const recordInCenter = shouldRecord(event);
     note.badge = recordInCenter;
-    note.skipIOSWebPush = ((accountConfig(accountId).companion || {}).devices || []).length > 0;
+    const companion = accountConfig(accountId).companion || {};
+    note.skipIOSWebPush = companion.preferNativeIOS === true && (companion.devices || []).length > 0;
     if (recordInCenter) {
       try { await require('./redis').pushNotifLog(accountId, note); } catch (_) {}
     }
