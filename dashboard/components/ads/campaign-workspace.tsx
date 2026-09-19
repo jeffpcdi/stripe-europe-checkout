@@ -35,6 +35,7 @@ import type {
 import { cn } from '@/lib/utils'
 import { CampaignTree } from './campaign-tree'
 import { AdEditDialog } from './ad-edit-dialog'
+import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 
 type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
@@ -205,6 +206,98 @@ function EntityStatusToggle({
     >
       {busy ? <Loader2 className="size-3 animate-spin" /> : active ? <Pause className="size-3" /> : <Play className="size-3" />}
       {active ? 'Ativo' : 'Pausado'}
+    </button>
+  )
+}
+
+function AdGroupBudgetControl({
+  campaign,
+  group,
+  currency,
+  onMutate,
+}: {
+  campaign: AdsTreeCampaign
+  group: AdsTreeAdSet
+  currency: string
+  onMutate: () => void
+}) {
+  const amount = Number(group.budget?.amount)
+  const budgetType = group.budget?.type === 'lifetime' ? 'lifetime' : 'daily'
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(Number.isFinite(amount) ? String(amount) : '')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!editing) setValue(Number.isFinite(amount) ? String(amount) : '')
+  }, [amount, editing])
+
+  if (campaign.budgetOwner === 'campaign') {
+    return <span className="text-[11px] font-medium text-muted-foreground">CBO · na campanha</span>
+  }
+  if (!group.platformAdSetId || !Number.isFinite(amount)) {
+    return <span className="text-[11px] text-muted-foreground">—</span>
+  }
+
+  async function save() {
+    const next = Number(value.replace(',', '.'))
+    if (!Number.isFinite(next) || next < TIKTOK_MIN_BUDGET) {
+      toast.error(tiktokMinimumBudgetMessage(currency))
+      return
+    }
+    if (Math.abs(next - amount) < 0.000001) {
+      setEditing(false)
+      return
+    }
+
+    setBusy(true)
+    try {
+      const result = await apiSend<{ dryRun?: boolean; simulated?: boolean }>(
+        `/api/ads/${encodeURIComponent(group.platformAdSetId || '')}`,
+        'PUT',
+        {
+          budget: { amount: next, type: budgetType },
+          adAccountId: campaign.platformAdAccountId,
+        },
+      )
+      if (result.dryRun || result.simulated) toast.info('Simulação concluída', { hint: 'O orçamento não foi alterado no TikTok.' })
+      else toast.success('Orçamento do conjunto atualizado', { hint: 'A lista será reconciliada com o TikTok.' })
+      setEditing(false)
+      onMutate()
+    } catch (error) {
+      toast.error('Não foi possível alterar o orçamento', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min={TIKTOK_MIN_BUDGET}
+          step="0.01"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          disabled={busy}
+          className="h-8 w-24 rounded-lg border border-border/70 bg-background px-2 text-xs tabular-nums text-foreground outline-none focus:border-brand-cyan/60"
+          aria-label="Novo orçamento do conjunto"
+        />
+        <button type="button" onClick={() => void save()} disabled={busy} className="inline-flex size-8 items-center justify-center rounded-lg bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/15 disabled:opacity-50" aria-label="Salvar orçamento">
+          {busy ? <Loader2 className="size-3 animate-spin" /> : <span className="text-xs font-bold">✓</span>}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} disabled={busy} className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Cancelar edição de orçamento">×</button>
+      </div>
+    )
+  }
+
+  return (
+    <button type="button" onClick={() => setEditing(true)} className="group text-left" title="Editar orçamento do conjunto">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Orçamento</p>
+      <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-foreground group-hover:text-brand-cyan">
+        {money(amount, currency)}
+        <Pencil className="size-3 opacity-60" />
+      </p>
     </button>
   )
 }
@@ -633,7 +726,7 @@ export function CampaignWorkspace(props: Props) {
               {orderedGroups.map(({ campaign, group }, index) => {
                 const id = group.platformAdSetId || `${campaign.platformCampaignId}:${index}`
                 return (
-                  <div key={id} className="grid gap-3 px-4 py-3 lg:grid-cols-[28px_minmax(240px,1.4fr)_110px_110px_90px_150px] lg:items-center">
+                  <div key={id} className="grid gap-3 px-4 py-3 lg:grid-cols-[28px_minmax(220px,1.35fr)_105px_105px_120px_80px_145px] lg:items-center">
                     <label className="flex items-center">
                       <input type="checkbox" checked={selectedGroups.has(String(group.platformAdSetId || ''))} disabled={!group.platformAdSetId} onChange={() => group.platformAdSetId && toggleSelection(setSelectedGroups, group.platformAdSetId)} className="size-4 accent-[color:var(--brand-cyan)]" aria-label={`Selecionar conjunto ${group.adSetName || group.name || ''}`} />
                     </label>
@@ -646,6 +739,7 @@ export function CampaignWorkspace(props: Props) {
                     {metricCells(group.metrics, campaign.currency || props.currency, metricPreset).slice(0, 2).map((cell) => (
                       <div key={cell.label}><p className="text-[10px] uppercase tracking-wide text-muted-foreground">{cell.label}</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{cell.value}</p></div>
                     ))}
+                    <AdGroupBudgetControl campaign={campaign} group={group} currency={campaign.currency || props.currency} onMutate={props.onMutate} />
                     <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Anúncios</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{group.ads?.length ?? 0}</p></div>
                     <div className="flex justify-start lg:justify-end">
                       <EntityStatusToggle id={group.platformAdSetId} status={group.status} advertiserId={campaign.platformAdAccountId} label="conjunto" onMutate={props.onMutate} />
