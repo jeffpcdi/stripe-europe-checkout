@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, CircleDollarSign, Loader2, Send, ShieldAlert, Smartphone, Volume2 } from 'lucide-react'
+import { Bot, CircleDollarSign, FileText, Loader2, Send, ShieldAlert, Smartphone, Volume2 } from 'lucide-react'
 import useSWR from 'swr'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
@@ -16,7 +16,7 @@ import {
 import { getSoundMasterEnabled, setSoundMasterEnabled } from '@/lib/notify-prefs'
 import { playSaleSound } from '@/lib/sale-alerts'
 
-type PreferenceGroup = 'sales' | 'risks' | 'automation'
+type PreferenceGroup = 'sales' | 'risks' | 'automation' | 'reports'
 type Status = {
   ok: boolean
   devices: number
@@ -47,6 +47,12 @@ const PREFERENCES: {
     label: 'Automações do TikTok Ads',
     hint: 'Somente propostas, bloqueios, reprovações e falhas',
     icon: Bot,
+  },
+  {
+    key: 'reports',
+    label: 'Relatórios executivos',
+    hint: 'Resumo diário com receita, vendas, ROAS, lucro e exceções',
+    icon: FileText,
   },
 ]
 
