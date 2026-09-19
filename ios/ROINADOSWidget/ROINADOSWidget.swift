@@ -39,6 +39,10 @@ struct ROIWidgetView: View {
                     small(snapshot)
                 } else if family == .accessoryRectangular {
                     lockScreen(snapshot)
+                } else if family == .accessoryInline {
+                    inline(snapshot)
+                } else if family == .accessoryCircular {
+                    circular(snapshot)
                 } else {
                     medium(snapshot)
                 }
@@ -55,9 +59,16 @@ struct ROIWidgetView: View {
             Text("HOJE")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
-                .font(.title3.weight(.bold))
-                .minimumScaleFactor(0.75)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
+                    .font(.title3.weight(.bold))
+                    .minimumScaleFactor(0.75)
+                if let delta = snapshot.trend.revenueDeltaPct {
+                    Text(deltaLabel(delta))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(delta >= 0 ? .green : .red)
+                }
+            }
             Spacer()
             HStack {
                 metric("Vendas", "\(snapshot.today.sales)")
@@ -79,8 +90,15 @@ struct ROIWidgetView: View {
                     Text("ROI-NADOS · HOJE")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
-                        .font(.title2.weight(.bold))
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
+                            .font(.title2.weight(.bold))
+                        if let delta = snapshot.trend.revenueDeltaPct {
+                            Text(deltaLabel(delta))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(delta >= 0 ? .green : .red)
+                        }
+                    }
                 }
                 Spacer()
                 if !snapshot.attention.isEmpty {
@@ -122,6 +140,25 @@ struct ROIWidgetView: View {
         }
     }
 
+    private func inline(_ snapshot: WidgetSnapshot) -> some View {
+        Text("ROI · \(money(snapshot.today.revenueCents, currency: snapshot.currency)) · \(snapshot.today.sales) vendas")
+    }
+
+    private func circular(_ snapshot: WidgetSnapshot) -> some View {
+        Gauge(value: min(Double(snapshot.today.sales), 20), in: 0...20) {
+            Text("ROI")
+        } currentValueLabel: {
+            Text("\(snapshot.today.sales)")
+                .font(.headline.weight(.bold))
+        }
+        .gaugeStyle(.accessoryCircular)
+    }
+
+    private func deltaLabel(_ value: Double) -> String {
+        let sign = value > 0 ? "+" : ""
+        return sign + String(format: "%.0f%%", value)
+    }
+
     private var unavailable: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("ROI-NADOS")
@@ -161,8 +198,8 @@ struct ROINADOSWidget: Widget {
             ROIWidgetView(entry: entry)
         }
         .configurationDisplayName("ROI-NADOS")
-        .description("Receita, vendas, ROAS e lucro do dia.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
+        .description("Receita, vendas, ROAS, lucro e tendência do dia.")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
     }
 }
 
