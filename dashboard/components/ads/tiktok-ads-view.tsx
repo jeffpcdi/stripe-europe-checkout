@@ -707,6 +707,7 @@ export function TikTokAdsView() {
               loading={treeLoading && !tree}
               error={treeError ? String((treeError as Error).message || 'erro') : null}
               currency={currency}
+              adAccountId={concreteAdvertiser}
               statusFilter={statusFilter}
               onStatusFilter={(s) => {
                 setStatusFilter(s)
