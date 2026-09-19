@@ -174,6 +174,16 @@ test('notify-copy: automações abrem diretamente a área de automação', () =>
   }
 });
 
+test('notify-copy: alertas acionáveis usam deep links específicos', () => {
+  const login = notifyCopy.build({ name: 'Login', payload: { title: 'Login', text: 'b' }, meta: { event: 'login' }, funMode: false, accountId: 'acc1' });
+  const rejected = notifyCopy.build({ name: 'Ads', payload: { title: 'Reprovação', text: 'b' }, meta: { event: 'ads_rejected' }, funMode: false, accountId: 'acc1' });
+  const breaker = notifyCopy.build({ name: 'Ads', payload: { title: 'Freio', text: 'b' }, meta: { event: 'ads_breaker' }, funMode: false, accountId: 'acc1' });
+  const testNote = notifyCopy.build({ name: 'Teste', payload: { title: 'Teste', text: 'b' }, meta: { event: 'test' }, funMode: false, accountId: 'acc1' });
+  assert.strictEqual(login.url, '/dashboard/config?tab=security');
+  assert.strictEqual(rejected.url, '/dashboard/ads/tiktok?tab=automation');
+  assert.strictEqual(breaker.url, '/dashboard/ads/tiktok?tab=automation');
+  assert.strictEqual(testNote.url, '/dashboard/config?tab=notifications');
+});
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {
   const webPushNotify = require('../web-push-notify');
   assert.deepStrictEqual(webPushNotify.subsFor('conta-inexistente-xyz'), []);
