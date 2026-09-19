@@ -1342,6 +1342,42 @@ export interface AdsLibraryResponse {
   items: AdsLibraryItem[]
 }
 
+export interface AdsCloudVideoProvider {
+  configured: boolean
+  connected: boolean
+  enabled: boolean
+  advertiserId: string
+  folderId: string
+  folderPath: string
+  connectedAt: string | null
+}
+
+export interface AdsCloudVideoActivity {
+  provider: 'googleDrive' | 'dropbox' | string
+  file_id: string
+  advertiser_id: string
+  name: string
+  status: string
+  tiktok_video_id: string | null
+  error: string | null
+  processed_at: string | null
+  updated_at: string
+}
+
+export interface AdsCloudVideoResponse {
+  ok: boolean
+  providers: {
+    googleDrive: AdsCloudVideoProvider
+    dropbox: AdsCloudVideoProvider
+  }
+  activity: AdsCloudVideoActivity[]
+  safety: {
+    enabled: boolean
+    dryRun: boolean
+    killSwitch: boolean
+  }
+}
+
 // ── GET/PUT /api/ads/alerts — regras de alerta de performance ──
 export interface AdsAlertsConfig {
   enabled: boolean
