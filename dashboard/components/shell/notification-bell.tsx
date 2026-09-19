@@ -134,8 +134,12 @@ export function NotificationBell({ variant = 'icon' }: { variant?: 'icon' | 'tab
   function onOpenChange(open: boolean) {
     if (open) {
       const now = markSeen()
-      // badge some ao abrir; a lista continua mostrando tudo
+      // Badge interno e badge do ícone PWA somem quando o usuário realmente
+      // abre a central; a lista continua preservando o histórico.
       setSeenAt(now)
+      if ('clearAppBadge' in navigator) {
+        navigator.clearAppBadge().catch(() => {})
+      }
     }
   }
 
