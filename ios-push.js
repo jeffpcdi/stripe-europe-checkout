@@ -110,16 +110,20 @@ function sendOne(deviceToken, note) {
       return finish({ ok: false, status: 0, reason: 'provider_token: ' + error.message });
     }
 
-    const req = client.request({
+    const event = String(note.event || '');
+    const ttlSeconds = note.priority === 'critical' ? 24 * 3600 : (event === 'daily' ? 6 * 3600 : 3600);
+    const headers = {
       ':method': 'POST',
       ':path': '/3/device/' + token,
       authorization: 'bearer ' + jwt,
       'apns-topic': process.env.APNS_BUNDLE_ID,
       'apns-push-type': 'alert',
-      'apns-priority': '10',
-      'apns-expiration': '0',
+      'apns-priority': event === 'daily' ? '5' : '10',
+      'apns-expiration': String(Math.floor(Date.now() / 1000) + ttlSeconds),
       'content-type': 'application/json',
-    });
+    };
+    if (note.tag) headers['apns-collapse-id'] = String(note.tag).slice(0, 64);
+    const req = client.request(headers);
 
     let status = 0;
     let body = '';
