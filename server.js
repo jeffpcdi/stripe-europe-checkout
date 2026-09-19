@@ -2216,6 +2216,9 @@ async function checkDailyReportFor(accId) {
     const exception = sameCurrency && spend > 0 && sales.length === 0
       ? 'Gasto no TikTok sem venda registrada.'
       : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
+    const nextAction = sameCurrency && spend > 0 && sales.length === 0
+      ? 'Confira tracking, checkout e campanhas antes de aumentar orçamento.'
+      : (profit.netProfitCents < 0 ? 'Revise custos e campanhas antes de escalar.' : null);
 
     // Push: cabe no Lock Screen e entrega o essencial em poucos segundos.
     const pushText = sales.length + (sales.length === 1 ? ' venda' : ' vendas')
@@ -2223,7 +2226,8 @@ async function checkDailyReportFor(accId) {
       + ' · Lucro ' + profitText
       + '\nTikTok ' + spendText + ' · Ticket ' + aovText
       + (deltaText ? '\nReceita ' + deltaText : '')
-      + (exception ? '\nAtenção: ' + exception : '');
+      + (exception ? '\nAtenção: ' + exception : '')
+      + (nextAction ? '\nPróximo passo: ' + nextAction : '');
 
     // Canais longos preservam contexto operacional adicional.
     const reportText = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
@@ -2232,6 +2236,7 @@ async function checkDailyReportFor(accId) {
       + '\nTikTok ' + spendText + ' · ROAS ' + roasText
       + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
       + (exception ? '\nAtenção: ' + exception : '')
+      + (nextAction ? '\nPróximo passo: ' + nextAction : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
 
     const title = 'Resumo de ontem · ' + revenueText;
