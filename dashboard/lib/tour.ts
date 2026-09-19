@@ -57,7 +57,7 @@ const OVERVIEW_TOUR: Tour = {
     {
       target: 'live-badge',
       title: 'Ao vivo',
-      body: 'Este ponto verde pulsa quando o rastreamento está saudável. Toque para ver visitantes em tempo real.',
+      body: 'Este indicador mostra quantos visitantes estão ativos agora. O botão ao lado atualiza presença e indicadores da Visão Geral.',
     },
   ],
 }
