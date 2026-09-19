@@ -2037,10 +2037,14 @@ async function checkDailyReportFor(accId) {
     const profitText = (profit.netProfitCents / 100).toFixed(2) + ' ' + cur;
     const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% receita vs. dia anterior' : null;
     // Push curto e escaneável: negócio → mídia → eficiência. Detalhes ficam na dashboard.
+    const exception = sameCurrency && spend > 0 && sales.length === 0
+      ? 'Atenção: houve gasto no TikTok sem venda registrada.'
+      : (profit.netProfitCents < 0 ? 'Atenção: o lucro líquido do dia ficou negativo.' : null);
     const text = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
       + (deltaText ? '\n' + deltaText : '')
       + '\nROAS ' + roasText + ' · TikTok ' + spendText
       + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
+      + (exception ? '\n' + exception : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
     const title = 'Resumo diário · ' + yKey.split('-').reverse().slice(0, 2).join('/');
     const deliveries = [];
