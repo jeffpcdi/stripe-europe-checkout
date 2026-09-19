@@ -3315,7 +3315,6 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         if (status !== 'active') continue;
         const campaignId = String(campaign.platformCampaignId || '');
         const campaignName = String(campaign.campaignName || campaignId || 'Campanha');
-        const spend = Math.max(0, Number(campaign.metrics && campaign.metrics.spend) || 0);
         for (const group of campaign.adSets || []) {
           for (const ad of group.ads || []) {
             const raw = String(ad && ad.creative && ad.creative.linkUrl || '').trim();
@@ -3329,7 +3328,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
               spend: 0,
               campaigns: new Map(),
             };
-            if (!current.campaigns.has(campaignId)) current.spend += spend;
+            // O Sentinel usa gasto no nível do anúncio quando disponível para
+            // não atribuir o orçamento inteiro da campanha a cada destino.
+            current.spend += Math.max(0, Number(ad.metrics && ad.metrics.spend) || 0);
             current.campaigns.set(campaignId, campaignName);
             grouped.set(canonical, current);
           }
@@ -3399,6 +3400,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         destinations,
       };
       destinationHealthCache.set(cacheKey, { at: Date.now(), data });
+      if (destinationHealthCache.size > 500) {
+        const oldestKey = destinationHealthCache.keys().next().value;
+        if (oldestKey) destinationHealthCache.delete(oldestKey);
+      }
       res.json(data);
     } catch (err) { fail(res, err); }
   });
