@@ -39,7 +39,7 @@ import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contract
 
 type WorkspaceLevel = 'overview' | 'campaigns' | 'adgroups' | 'ads' | 'creatives' | 'insights' | 'approvals' | 'playbooks'
 type NodeFilter = 'all' | 'active' | 'paused' | 'attention'
-type MetricPreset = 'performance' | 'delivery' | 'cost'
+type MetricPreset = 'performance' | 'delivery' | 'cost' | 'video'
 type ChildSort = 'spend_desc' | 'ctr_desc' | 'conversions_desc' | 'name'
 
 type Props = {
@@ -103,6 +103,27 @@ function pct(value: number | undefined) {
   return `${(Number(value) || 0).toFixed(2).replace('.', ',')}%`
 }
 
+function optionalCompact(value: number | undefined) {
+  return value == null ? '—' : compact(value)
+}
+
+function optionalPct(value: number | null | undefined) {
+  return value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(1).replace('.', ',')}%`
+}
+
+function videoMetricSummary(metrics?: AdsMetrics) {
+  const watched2s = metrics?.videoWatched2s
+  const watched6s = metrics?.videoWatched6s
+  const plays = metrics?.videoPlayActions ?? metrics?.videoViews
+  const completed = metrics?.videoViewsP100
+  return {
+    watched2s: optionalCompact(watched2s),
+    hold6s: optionalPct(watched2s && watched6s != null ? watched6s / watched2s * 100 : null),
+    completion: optionalPct(plays && completed != null ? completed / plays * 100 : null),
+    average: metrics?.averageVideoPlay == null ? '—' : `${Number(metrics.averageVideoPlay).toFixed(1).replace('.', ',')}s`,
+  }
+}
+
 function metricCells(metrics: AdsMetrics | undefined, currency: string, preset: MetricPreset) {
   if (preset === 'delivery') {
     return [
@@ -116,6 +137,14 @@ function metricCells(metrics: AdsMetrics | undefined, currency: string, preset: 
       { label: 'CPM', value: money(metrics?.cpm, currency) },
       { label: 'CPC', value: money(metrics?.cpc, currency) },
       { label: 'Gasto', value: money(metrics?.spend, currency) },
+    ]
+  }
+  if (preset === 'video') {
+    const video = videoMetricSummary(metrics)
+    return [
+      { label: 'Views 2s', value: video.watched2s },
+      { label: 'Retenção 6s', value: video.hold6s },
+      { label: 'Conclusão', value: video.completion },
     ]
   }
   return [
@@ -421,6 +450,12 @@ export function CampaignWorkspace(props: Props) {
   const activeGroups = groups.filter(({ group }) => group.status === 'active').length
   const activeAds = ads.filter(({ ad }) => ad.status === 'active').length
   const videoAds = ads.filter(({ ad }) => /^https:\/\//i.test(ad.creative?.videoUrl || '')).length
+  const groupsWithFewCreatives = groups
+    .filter(({ group }) => group.status === 'active' && (group.ads?.filter((ad) => ad.status !== 'rejected').length ?? 0) < 3)
+    .sort((a, b) => (a.group.ads?.length ?? 0) - (b.group.ads?.length ?? 0))
+  const activeGroupsWithoutActiveAds = groups.filter(({ group }) =>
+    group.status === 'active' && !(group.ads ?? []).some((ad) => ad.status === 'active'),
+  )
 
   const insightRows = useMemo(() => campaigns.map((campaign) => {
     const spend = Number(campaign.metrics?.spend) || 0
@@ -596,6 +631,7 @@ export function CampaignWorkspace(props: Props) {
                   <option value="performance">Performance</option>
                   <option value="delivery">Entrega</option>
                   <option value="cost">Custos</option>
+                  {(level === 'ads' || level === 'creatives') && <option value="video">Vídeo</option>}
                 </select>
               </label>
               <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border/65 bg-background/35 p-1" role="group" aria-label="Filtrar por status">
@@ -852,10 +888,15 @@ export function CampaignWorkspace(props: Props) {
                         <EntityStatusToggle id={ad.platformAdId || ad._id} status={ad.status} advertiserId={campaign.platformAdAccountId} label="anúncio" onMutate={props.onMutate} />
                       </div>
                       <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border/45 pt-3">
-                        <div><p className="text-[10px] text-muted-foreground">Gasto</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{money(ad.metrics?.spend, campaign.currency || props.currency)}</p></div>
-                        <div><p className="text-[10px] text-muted-foreground">CTR</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{pct(ad.metrics?.ctr)}</p></div>
-                        <div><p className="text-[10px] text-muted-foreground">Conv.</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{compact(ad.metrics?.conversions)}</p></div>
+                        {metricCells(ad.metrics, campaign.currency || props.currency, metricPreset).map((cell) => (
+                          <div key={cell.label}><p className="text-[10px] text-muted-foreground">{cell.label}</p><p className="mt-0.5 text-xs font-semibold tabular-nums text-foreground">{cell.value}</p></div>
+                        ))}
                       </div>
+                      {metricPreset === 'video' ? (
+                        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+                          Tempo médio · {videoMetricSummary(ad.metrics).average}. Métricas aparecem somente quando o reporting do TikTok as disponibiliza.
+                        </p>
+                      ) : null}
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <button type="button" onClick={() => setEditAd({ ad, advertiserId: campaign.platformAdAccountId || props.adAccountId })} className="inline-flex min-h-9 items-center gap-1 text-xs font-medium text-foreground hover:text-brand-cyan"><Pencil className="size-3" /> Editar anúncio</button>
                         <button type="button" onClick={() => props.onOpenDetail?.(campaign)} className="inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-cyan hover:underline">Campanha <ChevronRight className="size-3" /></button>
@@ -941,7 +982,7 @@ export function CampaignWorkspace(props: Props) {
       ) : null}
 
       {level === 'insights' ? (
-        <section className="grid gap-4 xl:grid-cols-3">
+        <section className="grid gap-4 xl:grid-cols-2">
           <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
             <div className="flex items-start justify-between gap-3">
               <div><h3 className="text-sm font-semibold text-foreground">Gasto sem venda real</h3><p className="mt-1 text-xs text-muted-foreground">Prioridade para revisão de criativo, página ou segmentação.</p></div>
@@ -962,6 +1003,35 @@ export function CampaignWorkspace(props: Props) {
               {winners.slice(0, 5).map((row) => <button key={row.campaign.platformCampaignId} type="button" onClick={() => props.onOpenDetail?.(row.campaign)} className="flex w-full items-center justify-between gap-3 py-2.5 text-left"><span className="min-w-0 truncate text-xs text-foreground">{row.campaign.campaignName || row.campaign.platformCampaignId}</span><span className="shrink-0 text-xs font-semibold tabular-nums text-success">{row.roas?.toFixed(2)}×</span></button>)}
               {winners.length === 0 ? <p className="py-4 text-xs text-muted-foreground">Nenhuma vencedora identificada neste período.</p> : null}
             </div>
+          </article>
+
+          <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div><h3 className="text-sm font-semibold text-foreground">Saúde dos conjuntos</h3><p className="mt-1 text-xs text-muted-foreground">Estrutura que pode limitar teste criativo ou entrega.</p></div>
+              <Film className="size-4 text-brand-cyan" />
+            </div>
+            <div className="mt-4 divide-y divide-border/45">
+              {groupsWithFewCreatives.slice(0, 4).map(({ campaign, group }) => (
+                <button
+                  key={group.platformAdSetId || group.adSetName || group.name}
+                  type="button"
+                  onClick={() => { setLevel('adgroups'); setQuery(group.adSetName || group.name || campaign.campaignName || '') }}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs text-foreground">{group.adSetName || group.name || 'Conjunto sem nome'}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{campaign.campaignName || campaign.platformCampaignId}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold tabular-nums text-warning">{group.ads?.length ?? 0} criativo{(group.ads?.length ?? 0) === 1 ? '' : 's'}</span>
+                </button>
+              ))}
+              {groupsWithFewCreatives.length === 0 ? <p className="py-4 text-xs text-muted-foreground">Nenhum conjunto ativo com poucos criativos detectado.</p> : null}
+            </div>
+            {activeGroupsWithoutActiveAds.length > 0 ? (
+              <button type="button" onClick={() => { setLevel('adgroups'); setNodeFilter('active') }} className="mt-3 w-full rounded-xl border border-warning/20 bg-warning/[0.04] px-3 py-2.5 text-left text-xs text-warning">
+                {activeGroupsWithoutActiveAds.length} conjunto{activeGroupsWithoutActiveAds.length === 1 ? '' : 's'} ativo{activeGroupsWithoutActiveAds.length === 1 ? '' : 's'} sem anúncio ativo
+              </button>
+            ) : null}
           </article>
 
           <article className="rounded-2xl border border-border/65 bg-card/40 p-4">
