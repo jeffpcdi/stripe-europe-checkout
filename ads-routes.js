@@ -2671,6 +2671,71 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // (as regras roas_min/roas_scale usam a mesma atribuição).
   const computeAttribution = automation.computeAttribution;
 
+  function csvCell(value) {
+    const text = value == null ? '' : String(value);
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  app.get('/api/ads/reports/export', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const q = req.query || {};
+      const advertiserId = q.adAccountId
+        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+        : await resolveAdv(req, '');
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? String(q.fromDate) : '';
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? String(q.toDate) : '';
+      if (!fromDate || !toDate) return res.status(400).json({ error: 'Informe o período do relatório.' });
+
+      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
+      const [report, campaigns, advertiserInfo] = await Promise.all([
+        pipeboard.getIntegratedReport(advertiserId, {
+          level: 'AUCTION_CAMPAIGN',
+          startDate: fromDate,
+          endDate: toDate,
+        }),
+        pipeboard.getCampaigns(advertiserId),
+        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+      ]);
+      const attribution = computeAttribution(req.account.id, fromDate, toDate, timeZone, true);
+      const campaignById = new Map((campaigns || []).map((campaign) => [String(campaign.id || ''), campaign]));
+      const spendCurrency = String((advertiserInfo && advertiserInfo.currency) || 'BRL').toUpperCase();
+
+      const headers = ['Campanha ID', 'Campanha', 'Status', 'Gasto', 'Moeda gasto', 'Receita', 'Moeda receita', 'Compras', 'CPA', 'ROAS'];
+      const lines = [headers.map(csvCell).join(',')];
+      for (const row of report.rows || []) {
+        const campaign = campaignById.get(String(row.id || '')) || {};
+        const attributed = attribution.byCampaign && attribution.byCampaign[String(row.id || '')] || {};
+        const revenueCents = Number(attributed.revenueCents) || 0;
+        const sales = Number(attributed.sales) || 0;
+        const revenueCurrency = String(attributed.currency || '').toUpperCase();
+        const comparable = Boolean(revenueCurrency && revenueCurrency === spendCurrency);
+        const cpa = sales > 0 ? Number(row.spend || 0) / sales : null;
+        const roas = comparable && Number(row.spend || 0) > 0
+          ? (revenueCents / 100) / Number(row.spend || 0)
+          : null;
+        lines.push([
+          row.id,
+          campaign.name || row.id,
+          campaign.status || '',
+          Number(row.spend || 0).toFixed(2),
+          spendCurrency,
+          (revenueCents / 100).toFixed(2),
+          revenueCurrency,
+          sales,
+          cpa == null ? '' : cpa.toFixed(2),
+          roas == null ? '' : roas.toFixed(4),
+        ].map(csvCell).join(','));
+      }
+
+      const filename = 'roi-nados-tiktok-campanhas-' + fromDate + '-' + toDate + '.csv';
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+      res.send('\uFEFF' + lines.join('\n'));
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/attribution', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
