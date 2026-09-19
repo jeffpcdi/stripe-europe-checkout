@@ -33,8 +33,9 @@ export function playSaleSound() {
 
     // Confirmação curta e limpa: duas notas, sem ruído mecânico ou cauda longa.
     // A intenção é sinalizar uma venda sem competir com o trabalho na tela.
-    playTone(ctx, { freq: 880, duration: 0.14, volume: 0.10, type: 'sine' })
-    playTone(ctx, { freq: 1320, startOffset: 0.10, duration: 0.22, volume: 0.08, type: 'sine' })
+    playTone(ctx, { freq: 880, duration: 0.16, volume: 0.09, type: 'triangle' })
+    playTone(ctx, { freq: 1320, startOffset: 0.07, duration: 0.22, volume: 0.07, type: 'sine' })
+    playTone(ctx, { freq: 1760, startOffset: 0.12, duration: 0.24, volume: 0.045, type: 'sine' })
   } catch {
     // autoplay bloqueado ou WebAudio indisponível: falha em silêncio
   }
