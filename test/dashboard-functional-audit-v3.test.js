@@ -34,8 +34,12 @@ assert.match(server, /domain_not_found[\s\S]{0,180}Adicione o domínio nesta con
   'verificação não pode reivindicar host arbitrário');
 assert.match(server, /const checkoutRefs = linkStore\.list\(req\.account\.id\)/,
   'remoção de domínio deve checar links de checkout');
-assert.match(server, /const cloakRefs = \(config\.get\(req\.account\.id\)\.cloakLinks \|\| \[\]\)/,
-  'remoção de domínio deve checar links do cloak');
+assert.match(server, /const cloakRefsLegacy = \(config\.get\(req\.account\.id\)\.cloakLinks \|\| \[\]\)/,
+  'remoção de domínio deve checar referências legadas do Cloaker');
+assert.match(server, /const cloakRefsV2 = cloakCampaignStore\.isReady\(\)/,
+  'remoção de domínio deve checar campanhas V2 do Cloaker');
+assert.match(server, /const cloakRefs = \[\.\.\.cloakRefsV2, \.\.\.cloakRefsLegacy\]/,
+  'remoção de domínio deve considerar V1 e V2 simultaneamente durante a migração');
 assert.match(server, /'domain_in_use'/,
   'domínio em uso deve ser bloqueado em vez de gerar referência órfã');
 assert.match(server, /status, lastCheckedAt: now/,
