@@ -714,8 +714,7 @@ export function ConversionsView() {
                 <GatewayCard
                   key={gw.id}
                   gateway={gw}
-                  pixels={pixels}
-                  copiedId={copiedId}
+                            copiedId={copiedId}
                   testingGwId={testingGwId}
                   onCopyText={copyText}
                   onTestGateway={handleTestGateway}
@@ -792,7 +791,7 @@ export function ConversionsView() {
                   : 'Não há registros correspondentes no momento.'}
               </p>
               {logSummary.total === 0 ? (
-                <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar integração” em um checkout para validar o fluxo.</p>
+                <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar recebimento” em um checkout para validar o processamento do webhook.</p>
               ) : logFilter !== 'all' ? (
                 <button type="button" onClick={() => setLogFilter('all')} className="mt-3 text-xs font-semibold text-brand-cyan hover:underline">Limpar filtro</button>
               ) : null}
@@ -1402,18 +1401,16 @@ function PixelEditorWithGatewaySync({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MODAL DE CONEXÃO DE CHECKOUT COM SELEÇÃO DIRETA DE PIXELS
+// MODAL DE CONEXÃO DE CHECKOUT
 // ─────────────────────────────────────────────────────────────────────────────
 function DirectGatewayModal({
   gateway,
   providers,
-  pixels,
   onClose,
   onSaved,
 }: {
   gateway: Gateway | null
   providers: GatewayProvider[]
-  pixels: Pixel[]
   onClose: () => void
   onSaved: () => void
 }) {
