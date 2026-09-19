@@ -278,7 +278,7 @@ export function InsightsCampaignsPanel({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <p className="text-xs font-semibold text-foreground">Profit Allocator · 7 dias</p>
-                  <span className="text-[11px] text-muted-foreground">{allocator.changes.length} ajuste(s) · total preservado</span>
+                  <span className="text-[11px] text-muted-foreground">{allocator.changes.length} ajuste(s) · sem aumentar o total</span>
                 </div>
                 {allocator.rationale ? <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">{allocator.rationale}</p> : null}
                 <div className="mt-2 flex flex-wrap gap-2">
