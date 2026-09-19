@@ -97,5 +97,27 @@ async function call(method, body = {}) {
   assert.equal((await call('put', { adAccountId: 'foreign', pixelId: '87654321' })).statusCode, 500);
   remote = [];
   assert.equal((await call('get')).body.ready, false, 'revogação remove o vínculo');
-  console.log('ads-remote-pixel: provisionamento, prontidão, dry-run, escolha, revogação e isolamento OK');
+
+  // Adapter Pipeboard: criação pode devolver ID antes do pixel_code.
+  const mcp = require('../pipeboard-mcp');
+  let pixelCalls = 0;
+  mcp.callTool = async (name, args) => {
+    pixelCalls += 1;
+    if (name === 'list_tiktok_pixels') {
+      if (pixelCalls === 1) return { pixels: [] };
+      return { pixels: [{ pixel_id: '99999999', pixel_code: 'PX999', pixel_name: 'Delayed Pixel', status: 'ACTIVE' }] };
+    }
+    if (name === 'create_tiktok_pixel') {
+      assert.equal(args.pixel_name, 'Delayed Pixel');
+      return { pixel_id: '99999999' };
+    }
+    throw new Error('tool inesperada: ' + name);
+  };
+  const provider = require('../ads-provider');
+  provider.cacheBust('pixels:');
+  const delayed = await provider.createTikTokPixel('allowed', { name: 'Delayed Pixel' });
+  assert.equal(delayed.pixel.id, '99999999');
+  assert.equal(delayed.pixel.code, 'PX999', 'releitura reconcilia pixel_code antes de concluir onboarding');
+
+  console.log('ads-remote-pixel: provisionamento, prontidão, propagação, dry-run, escolha, revogação e isolamento OK');
 })().catch(error => { console.error(error); process.exitCode = 1; });
