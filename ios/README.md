@@ -62,4 +62,13 @@ Configure:
 - APNS_PRIVATE_KEY or APNS_PRIVATE_KEY_B64
 - APNS_SANDBOX=true only for development builds
 
-After pairing, enable “Preferir Companion no iPhone” in Conta → Alertas. Only then ROI-NADOS suppresses Web Push to iPhone/iPad subscriptions and routes those alerts through APNs; desktop/Android Web Push remains active. This explicit switch avoids silently changing an existing notification channel.
+After pairing, enable “Preferir Companion no iPhone” in Conta → Alertas. The dashboard only allows this handoff when at least one native device is paired and APNs is configured.
+
+Delivery semantics:
+- approved sale: APNs active alert + `roi-sale.wav` + badge;
+- critical operational failures: Time Sensitive + system sound;
+- daily executive brief: passive, no sound;
+- desktop/Android: Web Push remains active;
+- if native APNs delivery fails, ROI-NADOS retries only the eligible iPhone/iPad Web Push subscriptions so a transient APNs failure does not become a silent alert loss.
+
+The native switch is explicit and reversible; disabling it immediately restores normal Web Push routing.
