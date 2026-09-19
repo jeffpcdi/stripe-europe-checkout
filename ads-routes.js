@@ -1428,6 +1428,117 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Pausar/ativar entidades em lote (campanha, conjunto ou anúncio) ───────
+  app.post('/api/ads/entities/bulk-status', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const body = req.body || {};
+      const status = body.status === 'paused' ? 'paused' : body.status === 'active' ? 'active' : '';
+      if (!status) return res.status(400).json({ error: 'status deve ser active ou paused' });
+
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : [])
+        .map((id) => String(id || '').trim().slice(0, 80))
+        .filter(Boolean))].slice(0, 50);
+      if (!ids.length) return res.status(400).json({ error: 'Nenhuma entidade informada' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const advertiserHint = String(body.adAccountId || '').trim();
+      const advertiserId = advertiserHint
+        ? (await requireAdvertiser(req.account.id, null, advertiserHint, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'entity_status_bulk',
+          targetType: 'bulk_job',
+          advertiserId,
+          metadata: { status, count: ids.length, entityIds: ids },
+          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + ids.length + ' entidade(s) TikTok'
+        });
+        return res.json({
+          ok: true,
+          dryRun: true,
+          simulated: ids.length,
+          totals: { updated: 0, skipped: ids.length, failed: 0 },
+          skippedIds: ids,
+          failures: [],
+        });
+      }
+
+      const classifiedMap = await adsCache.classifyEntities(req.account.id, advertiserId, ids);
+      const groups = new Map();
+      const skippedIds = [];
+      for (const id of ids) {
+        const entity = classifiedMap.get(id);
+        if (!entity || !['campaign', 'adgroup', 'ad'].includes(entity.type)) {
+          skippedIds.push(id);
+          continue;
+        }
+        const kind = entity.campaignKind === 'smart_plus' ? 'smart' : 'auction';
+        const key = entity.type + ':' + kind;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(id);
+      }
+
+      const updatedIds = [];
+      const failures = [];
+      const runGroup = async (key, groupIds) => {
+        const [type, kind] = key.split(':');
+        try {
+          if (type === 'campaign') {
+            if (kind === 'smart') await pipeboard.setSmartPlusCampaignStatus(advertiserId, groupIds, status);
+            else await pipeboard.setCampaignStatus(advertiserId, groupIds, status);
+          } else if (type === 'adgroup') {
+            if (kind === 'smart') await pipeboard.setSmartPlusAdGroupStatus(advertiserId, groupIds, status);
+            else await pipeboard.setAdGroupStatus(advertiserId, groupIds, status);
+          } else {
+            if (kind === 'smart') await pipeboard.setSmartPlusAdStatus(advertiserId, groupIds, status);
+            else await pipeboard.setAdStatus(advertiserId, groupIds, status);
+          }
+          updatedIds.push(...groupIds);
+        } catch (error) {
+          const message = String(error && error.message || error || 'Falha ao atualizar').slice(0, 220);
+          failures.push(...groupIds.map((id) => ({ id, error: message })));
+        }
+      };
+
+      for (const [key, groupIds] of groups) await runGroup(key, groupIds);
+      if (updatedIds.length) adsSync.syncAfterWrite(req.account.id, advertiserId);
+
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user',
+        actorId: req.account.id,
+        action: 'entity_status.bulk_updated',
+        targetType: 'bulk_job',
+        targetId: 'entity-status:' + Date.now(),
+        advertiserId,
+        reason: (status === 'paused' ? 'Pausar' : 'Ativar') + ' entidades em lote',
+        metadata: {
+          status,
+          requested: ids.length,
+          updated: updatedIds.length,
+          skipped: skippedIds.length,
+          failed: failures.length,
+          entityIds: ids,
+        },
+      }).catch(() => {});
+
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: 'Entidades TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + updatedIds.length,
+      });
+
+      res.json({
+        ok: failures.length === 0,
+        totals: { updated: updatedIds.length, skipped: skippedIds.length, failed: failures.length },
+        updatedIds,
+        skippedIds,
+        failures,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Atualizar orçamento de campanhas em lote ──────────────────────────────
   // O front calcula o novo valor (percentual/fixo), mas a validação real fica
   // no servidor: escopo do advertiser, tipo da entidade, dono do orçamento,
