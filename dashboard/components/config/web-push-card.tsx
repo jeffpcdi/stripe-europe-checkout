@@ -84,6 +84,7 @@ export function WebPushCard() {
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Não foi possível ativar' })
     } finally {
+      setSupport(checkSupport())
       setBusy(false)
     }
   }
