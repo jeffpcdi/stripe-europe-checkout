@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import UserNotifications
+import WidgetKit
 
 enum CompanionPushRegistrar {
     static func register(deviceToken: Data) async {
@@ -52,6 +53,7 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        WidgetCenter.shared.reloadAllTimelines()
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -61,6 +63,7 @@ final class CompanionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotific
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         defer { completionHandler() }
+        WidgetCenter.shared.reloadAllTimelines()
         let rawPath = response.notification.request.content.userInfo["url"] as? String ?? "/dashboard"
         guard let url = CompanionConfig.dashboardURL(path: rawPath) else { return }
         Task { @MainActor in
