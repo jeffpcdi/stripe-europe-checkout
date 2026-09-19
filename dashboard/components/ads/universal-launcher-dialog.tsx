@@ -48,6 +48,8 @@ export function UniversalLauncherDialog({
   onSmartPlus,
   onSpark,
   onConfigurePixel,
+  initialBody,
+  initialPrefix,
 }: {
   open: boolean
   onClose: () => void
@@ -58,6 +60,8 @@ export function UniversalLauncherDialog({
   onSmartPlus?: () => void
   onSpark?: () => void
   onConfigurePixel?: () => void
+  initialBody?: string
+  initialPrefix?: string
 }) {
   const handleDone = () => {
     onSuccess?.()
@@ -108,7 +112,9 @@ export function UniversalLauncherDialog({
 
   useEffect(() => {
     if (open) {
-      setShowAdvanced(false)
+      setShowAdvanced(Boolean(initialBody || initialPrefix))
+      if (initialBody != null) setBodyText(String(initialBody).slice(0, 100))
+      if (initialPrefix != null) setCampaignPrefix(String(initialPrefix).slice(0, 120))
       setItems([])
       setJobId(null)
       setJobDryRun(false)
@@ -123,7 +129,7 @@ export function UniversalLauncherDialog({
       uploadController.current?.abort()
       uploadLock.current = false
     }
-  }, [open, advertiserId])
+  }, [open, advertiserId, initialBody, initialPrefix])
 
   // Notificação de conclusão de lote
   useEffect(() => {
