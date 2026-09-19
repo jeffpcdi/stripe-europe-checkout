@@ -121,7 +121,7 @@ function buildOverviewHealth(input) {
     );
   }
   if (gateways.length === 0) {
-    addAction('gateway', 'critical', 'Conecte um gateway', 'Vendas só são confirmadas por webhook do gateway.', '/conversions?tab=gateways');
+    addAction('gateway', 'critical', 'Conecte um checkout', 'Vendas só são confirmadas por webhook do checkout.', '/conversions?tab=gateways');
   } else {
     const gatewayEvents = gateways
       .filter((gateway) => gateway && gateway.lastEventAt)
