@@ -42,7 +42,10 @@ function nativeGroup(event) {
 
 function nativePreferenceEnabled(accountId, event) {
   if (event === 'test') return true;
-  if (event === 'daily') return accountConfig(accountId).settings?.dailyReportEnabled === true;
+  if (event === 'daily') {
+    const cfg = accountConfig(accountId);
+    return cfg.settings?.dailyReportEnabled === true || cfg.pushcut?.events?.daily === true;
+  }
   const group = nativeGroup(event);
   return group ? nativePreferencesFor(accountId)[group] !== false : false;
 }
@@ -63,6 +66,7 @@ function pushcutEventEnabled(accountId, event) {
     pix_pending: 'sale', sale: 'sale', failed: 'failed', refund: 'refund', dispute: 'dispute',
     checkout: 'checkout', daily: 'daily', login: 'login', watchdog: 'watchdog',
   }[event];
+  if (event === 'daily' && accountConfig(accountId).settings?.dailyReportEnabled === true) return true;
   if (!key) return true; // integrações antigas de Ads não tinham toggles próprios
   const defaults = {
     sale: true, failed: true, refund: true, dispute: true,
