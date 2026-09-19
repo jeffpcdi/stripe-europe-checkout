@@ -1,0 +1,37 @@
+'use strict'
+
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+
+function read(path) {
+  return fs.readFileSync(path, 'utf8')
+}
+
+const nav = read('dashboard/lib/navigation.ts')
+const view = read('dashboard/components/insights/insights-view.tsx')
+const subnav = read('dashboard/components/shell/subnav.tsx')
+const header = read('dashboard/components/shell/header.tsx')
+const page = read('dashboard/app/(dashboard)/insights/page.tsx')
+const layout = read('dashboard/app/(dashboard)/layout.tsx')
+
+assert.match(nav, /id: 'insights'/)
+assert.match(nav, /label: 'Inteligência'/)
+assert.match(nav, /\/insights\?tab=funnel/)
+assert.match(nav, /\/insights\?tab=sources/)
+assert.match(nav, /\/insights\?tab=quality/)
+
+assert.match(view, /useOverviewAnalytics/)
+assert.match(view, /useOverviewHealth/)
+assert.match(view, /type InsightTab = 'performance' \| 'funnel' \| 'sources' \| 'quality'/)
+assert.match(view, /Maior perda:/)
+assert.match(view, /Campanhas identificadas/)
+assert.match(view, /Compras rastreadas/)
+assert.match(view, /Próximas ações/)
+
+assert.match(subnav, /useSearchParams/)
+assert.match(subnav, /group\.id === 'insights'/)
+assert.match(header, /pathname\.startsWith\('\/insights'\)/)
+assert.match(page, /<InsightsView \/>/)
+assert.match(layout, /<Suspense fallback=\{null\}><SubNav \/><\/Suspense>/)
+
+console.log('dashboard intelligence v16.24: ok')
