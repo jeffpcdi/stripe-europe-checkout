@@ -45,7 +45,6 @@ import { UniversalLauncherDialog } from './universal-launcher-dialog'
 import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 import { useOverviewPeriod } from '@/lib/overview-period'
 import { PERIODS } from '@/components/overview/period-picker'
-import { cn } from '@/lib/utils'
 
 type CatalogLocalWorkState = { uploading: boolean; pending: number }
 
@@ -407,14 +406,6 @@ export function TikTokAdsView() {
     }
   }, [tree, campaignDecisions, currency])
 
-  function formatAdsMoney(value: number) {
-    try {
-      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
-    } catch {
-      return `${currency} ${value.toFixed(0)}`
-    }
-  }
-
   function applyCampaignShortcut(query: string) {
     changeTab('campaigns')
     window.setTimeout(() => {
@@ -585,15 +576,6 @@ export function TikTokAdsView() {
 
       {effectiveAdvertiser ? (
         <div className="text-xs text-muted-foreground">Período · {periodLabel}</div>
-      ) : null}
-
-      {effectiveAdvertiser && tab === 'campaigns' ? (
-        <section className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-border/60 pb-4 lg:grid-cols-4" aria-label="Resumo das campanhas">
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : adsOperationalSummary.active.toLocaleString('pt-BR')}</p><p className="mt-1 text-xs text-muted-foreground">Campanhas ativas</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-foreground">{treeLoading && !tree ? '—' : formatAdsMoney(adsOperationalSummary.spend)}</p><p className="mt-1 text-xs text-muted-foreground">Gasto TikTok</p></div>
-          <div><p className="text-xl font-semibold tabular-nums text-success">{campaignDecisions ? adsOperationalSummary.sales.toLocaleString('pt-BR') : '—'}</p><p className="mt-1 text-xs text-muted-foreground">Vendas reais</p></div>
-          <div><p className={cn('text-xl font-semibold tabular-nums', adsOperationalSummary.roas !== null && adsOperationalSummary.roas >= 2 ? 'text-success' : 'text-foreground')}>{adsOperationalSummary.roas === null ? '—' : `${adsOperationalSummary.roas.toFixed(2)}×`}</p><p className="mt-1 text-xs text-muted-foreground">ROAS real</p></div>
-        </section>
       ) : null}
 
       {hasAccountAlert ? (
