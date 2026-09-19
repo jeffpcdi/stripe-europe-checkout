@@ -192,7 +192,7 @@ export interface OverviewHealthResponse {
   setup: {
     links: { total: number; active: number }
     pixels: { total: number; active: number; ready: number; incomplete: number }
-    gateways: { total: number; lastEventAt: string | null }
+    gateways: { total: number; lastEventAt: string | null; lastEventStatus?: string | null }
   }
   coverage: {
     purchases: { total: number; tracked: number; orphan: number; rate: number | null }
