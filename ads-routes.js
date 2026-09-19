@@ -3311,7 +3311,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const tree = await adsCache.readTree(req.account.id, advertiserId, {});
       const grouped = new Map();
       for (const campaign of (tree && tree.campaigns) || []) {
-        const status = String(campaign.childStatus || campaign.status || '').toLowerCase();
+        const status = String(campaign.status || '').toLowerCase();
         if (status !== 'active') continue;
         const campaignId = String(campaign.platformCampaignId || '');
         const campaignName = String(campaign.campaignName || campaignId || 'Campanha');
@@ -3329,7 +3329,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
               spend: 0,
               campaigns: new Map(),
             };
-            current.spend += spend;
+            if (!current.campaigns.has(campaignId)) current.spend += spend;
             current.campaigns.set(campaignId, campaignName);
             grouped.set(canonical, current);
           }
