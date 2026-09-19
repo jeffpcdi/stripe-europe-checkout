@@ -2561,13 +2561,19 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, le
     const detail = (action === 'pause' ? 'fora' : 'dentro') + ' da janela '
       + r.startTime + '–' + r.endTime + ' (' + timeZone + ')';
     const activationMarkKeys = activations.map((decision) => decision.markKey);
+    const learning = campaignLearningState(c);
+    const learningGuardedPause = action === 'pause' && learning.protected && r.mode === 'execute';
 
     // Agendamento honra o modo global e preserva a autoria para a aprovação.
-    if (!dryRun && r.mode !== 'execute') {
+    // Learning Guardian só intercepta PAUSAS novas. Reativar uma campanha que
+    // o próprio scheduler pausou anteriormente reduz a interrupção de entrega
+    // e, por isso, continua permitido no modo automático.
+    if (!dryRun && (r.mode !== 'execute' || learningGuardedPause)) {
       const states = computeActionStates(action, c, null);
       const created = await adsOps.createRuleProposal(accId, {
         ruleId: r.id, metric: 'schedule', action, advertiserId,
-        campaignId: cid, campaignName: name, detail,
+        campaignId: cid, campaignName: name,
+        detail: learningGuardedPause ? detail + ' · ' + learning.reason : detail,
         plan: {
           ...states,
           campaignKind: c.campaignKind || 'auction',
@@ -2579,7 +2585,9 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, le
       executed.push({
         at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action,
         campaignId: cid, campaignName: name, detail, ok: true, proposed: true,
-        result: created ? 'proposta criada — aguardando aprovação' : 'proposta já pendente para esta campanha',
+        result: created
+          ? (learningGuardedPause ? 'Learning Guardian: pausa convertida em proposta' : 'proposta criada — aguardando aprovação')
+          : 'proposta já pendente para esta campanha',
         ...(created ? { proposalId: created.id } : {}),
       });
       if (created) {
@@ -2593,7 +2601,14 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, le
         await auditReal(accId, {
           action: 'rule_proposal.created', targetType: 'campaign', targetId: cid, advertiserId,
           reason: 'Agendamento: ' + detail,
-          metadata: { proposalId: created.id, ruleId: r.id, metric: 'schedule', action },
+          metadata: {
+            proposalId: created.id,
+            ruleId: r.id,
+            metric: 'schedule',
+            action,
+            learningGuardian: learningGuardedPause,
+            learning: learningGuardedPause ? learning : undefined,
+          },
         });
       }
       continue;
