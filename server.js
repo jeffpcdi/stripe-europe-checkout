@@ -5062,7 +5062,7 @@ app.post('/api/webpush/preferences', dashboardAuth, async (req, res) => {
 });
 
 // Compatibilidade temporária para clientes antigos da dashboard. O backend já
-// opera com os três grupos simples acima.
+// opera com os quatro grupos simples acima.
 app.get('/api/webpush/events', dashboardAuth, (req, res) => {
   const p = nativePreferencesFor(req.account.id);
   res.set('Cache-Control', 'no-store');
