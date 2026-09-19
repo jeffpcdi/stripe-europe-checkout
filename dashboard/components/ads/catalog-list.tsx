@@ -5,7 +5,6 @@
 // concentra produtos, importação e histórico.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   X,
   Loader2,
@@ -28,22 +27,12 @@ import {
   MoreHorizontal,
   SlidersHorizontal,
 } from 'lucide-react'
-import {
-  useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
-  adsCatalogApiUrl, apiSend, ApiError,
-} from '@/lib/api'
+import { adsCatalogApiUrl, apiSend } from '@/lib/api'
 import { catalogProductCount } from '@/lib/catalog-display'
 import { toast } from '@/lib/toast'
-import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
-import { useModalA11y } from '@/lib/use-modal-a11y'
+import type { AdsCatalog, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { ErrorState } from '@/components/error-state'
-import { CatalogReadinessCard } from './catalog-readiness-card'
-import { CatalogConnectionCard } from './catalog-connection-card'
-import { CatalogCampaignWizard } from './catalog-campaign-wizard'
 import { CatalogBatchDialog } from './catalog-batch-dialog'
-import { CatalogSyncStatus } from './catalog-sync-status'
 import { CatalogProductImport } from './catalog-product-import'
 
 
