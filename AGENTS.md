@@ -1,4 +1,14 @@
 ## Domínios gerenciados — V16.17 (2026-09-17)
+
+## Cloaker UX alinhado às campanhas — V16.23 (2026-09-19)
+- A aba Cloaker é campaign-first: ordem `Campanhas → Resultados → Proteção`, com cabeçalho próprio e preferência de aba persistida. Conta sem campanhas abre diretamente em Campanhas.
+- Frontend usa `campaignId` como identidade estável para seleção, optimistic update, teste, ordenação por tráfego, histórico e keys React. Slug/path fica somente como endereço público e fallback legado.
+- Resultados da aba Cloaker filtram apenas `tipo='cloak'`; checkout `/go` não entra no agregado nem no reset global da tela. Campanhas V2 zeram stats via `campaign:<id>`.
+- O editor usa linguagem de campanha, exige domínio dedicado para novas associações, mantém domínio legado atual editável e recolhe proteção/segmentação avançada na criação.
+- Ao criar uma campanha, o frontend abre o `CloakLinkKitDialog` com URL e parâmetros separados para publicação no anúncio. Edições comuns não forçam esse passo novamente.
+- `Proteção da conta` diferencia controles realmente compartilhados (shadow, destino seguro, velocity/auto-block) de compatibilidade global/legada; não afirmar que o master global desativa campanhas V2.
+- Teste de regressão: `test/cloak-ux-alignment-v16-23.test.js`.
+
 - Escopo exclusivo de Domínios; Links, Cloaker, `/go`, `/c`, Pixel/CAPI e Ads permanecem inalterados.
 - Railway continua provider interno quando Cloudflare for SaaS não está habilitado, mas a UI não expõe infraestrutura. O cliente cadastra o domínio no ROI-NADOS e o backend registra/acompanha provider + SSL.
 - Railway Public API exige dois registros: CNAME em `status.dnsRecords` e TXT em `status.verificationDnsHost` + `status.verificationToken`; ambos são normalizados em `domain-provider.js` e persistidos no domínio.
