@@ -1414,6 +1414,58 @@ async function createTikTokPixel(advertiserId, input = {}) {
   throw err;
 }
 
+
+const DYNAMIC_CTA_DEFAULTS = ['SHOP_NOW', 'LEARN_MORE'];
+
+async function getOrCreateTikTokCtaPortfolio(accountId, advertiserId, callToActions) {
+  const acc = String(accountId || '').trim();
+  const adv = String(advertiserId || '').trim();
+  if (!acc || !adv) throw badRequest('Conta e advertiser são obrigatórios para CTA automático');
+
+  const actions = [...new Set((Array.isArray(callToActions) && callToActions.length ? callToActions : DYNAMIC_CTA_DEFAULTS)
+    .map((value) => String(value || '').trim().toUpperCase())
+    .filter((value) => /^[A-Z_]{3,30}$/.test(value)))]
+    .slice(0, 5);
+  if (actions.length < 2) throw badRequest('CTA automático exige pelo menos duas opções válidas');
+
+  const state = getState(acc);
+  const stored = state.ctaPortfolios && typeof state.ctaPortfolios === 'object' ? state.ctaPortfolios : {};
+  const key = adv + '|' + actions.join(',');
+  const existing = stored[key];
+  if (existing && String(existing.id || '').trim()) {
+    return { id: String(existing.id), actions, reused: true };
+  }
+
+  const raw = await pipeboard.callTool('create_tiktok_cta_portfolio', {
+    advertiser_id: adv,
+    call_to_actions: actions,
+  });
+  const id = textField(
+    deepPluck(raw, 'creative_portfolio_id'),
+    deepPluck(raw, 'call_to_action_id'),
+    deepPluck(raw, 'portfolio_id'),
+    deepPluck(raw, 'id'),
+  );
+  if (!id) {
+    const err = badRequest('O TikTok não confirmou o identificador do CTA automático.', 502);
+    err.code = 'DYNAMIC_CTA_CREATE_NOT_CONFIRMED';
+    throw err;
+  }
+
+  // Confirma o objeto remoto antes de persistir e antes de criar campanha.
+  // Se a leitura falhar, nenhuma campanha é criada com um ID não verificado.
+  await pipeboard.callTool('get_tiktok_cta_portfolio', {
+    advertiser_id: adv,
+    creative_portfolio_id: id,
+  });
+
+  const nextStored = { ...stored, [key]: { id, actions, createdAt: new Date().toISOString() } };
+  const entries = Object.entries(nextStored);
+  const bounded = entries.length > 20 ? Object.fromEntries(entries.slice(-20)) : nextStored;
+  setState(acc, { ctaPortfolios: bounded });
+  return { id, actions, reused: false };
+}
+
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
 // de get_tiktok_identities. Para criação automática regular/Smart+/catálogo,
 // só BC_AUTH_TT é elegível: o schema atual do conector marca CUSTOMIZED_USER
@@ -2129,7 +2181,8 @@ async function createFullAd(advertiserId, spec, opts) {
     if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
     if (identity.darkPost) adArgs.dark_post_status = 'ON';
     if (s.linkUrl) adArgs.landing_page_url = String(s.linkUrl).slice(0, 500);
-    if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
+    if (s.callToActionId) adArgs.call_to_action_id = String(s.callToActionId);
+    else if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
     const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
     const adId = String(deepPluck(adOut, 'ad_id') || '');
     if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
@@ -4870,6 +4923,7 @@ module.exports = {
   listInterestCategories,
   listTikTokPixels,
   createTikTokPixel,
+  getOrCreateTikTokCtaPortfolio,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAdGroups,
