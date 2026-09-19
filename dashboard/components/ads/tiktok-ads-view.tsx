@@ -725,18 +725,21 @@ export function TikTokAdsView() {
               onOpenDetail={setDetailCampaign}
               onDuplicate={setDuplicateCampaign}
               decisions={campaignDecisions}
+              approvalsCount={bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)}
+              approvals={(
+                <NeedsYouInbox
+                  key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
+                  active={treeActive}
+                  adAccountId={concreteAdvertiser}
+                  currency={currency}
+                  onOpenOps={() => openOps()}
+                  onOpenHealth={() => setHealthOpen(true)}
+                  onOpenAlerts={openPerformanceAlerts}
+                  appearance="embedded"
+                  showHealthAlarm={false}
+                />
+              )}
               onOpenAutomations={() => changeTab('automation')}
-              />
-              <NeedsYouInbox
-                key={`NeedsYouInbox:campaigns:${concreteAdvertiser}`}
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                currency={currency}
-                onOpenOps={() => openOps()}
-                onOpenHealth={() => setHealthOpen(true)}
-                onOpenAlerts={openPerformanceAlerts}
-                appearance="embedded"
-                showHealthAlarm={false}
               />
             </Tabs.Content>
           )}
