@@ -26,6 +26,8 @@ const responses = {
   create_tiktok_adgroup: () => ({ adgroup_id: '222' }),
   upload_tiktok_video: () => ({ video_id: 'v_1', displayable: true }),
   create_tiktok_ad: () => ({ ad_id: '333' }),
+  create_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1' }),
+  get_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1', call_to_actions: ['SHOP_NOW', 'LEARN_MORE'] }),
   update_tiktok_ad_status: () => ({ ok: true }),
   update_tiktok_campaign_status: () => ({ ok: true }),
 };
@@ -84,6 +86,26 @@ const baseSpec = {
 
     assert.strictEqual(callsTo('update_tiktok_ad_status').length, 0, 'default paused: sem ENABLE no fim');
     assert.ok(out.warnings.some((w) => /PAUSED/.test(w)), 'warning avisa que ficou pausado');
+  }
+
+  // ── CTA dinâmico: portfolio verificado + call_to_action_id exclusivo ──────
+  {
+    resetCalls();
+    const portfolio = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
+    assert.strictEqual(portfolio.id, 'cta_auto_1');
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'portfolio é criado uma vez');
+    assert.strictEqual(callsTo('get_tiktok_cta_portfolio').length, 1, 'portfolio é verificado antes do uso');
+
+    const reused = await provider.getOrCreateTikTokCtaPortfolio('tenant-cta-test', 'adv1', ['SHOP_NOW', 'LEARN_MORE']);
+    assert.strictEqual(reused.id, 'cta_auto_1');
+    assert.strictEqual(reused.reused, true);
+    assert.strictEqual(callsTo('create_tiktok_cta_portfolio').length, 1, 'segunda criação reutiliza o ID persistido');
+
+    resetCalls();
+    await provider.createFullAd('adv1', { ...baseSpec, callToAction: 'SHOP_NOW', callToActionId: 'cta_auto_1' });
+    const dynamicAd = callsTo('create_tiktok_ad')[0].args;
+    assert.strictEqual(dynamicAd.call_to_action_id, 'cta_auto_1');
+    assert.strictEqual(dynamicAd.call_to_action, undefined, 'CTA dinâmica nunca é enviada junto com CTA fixa');
   }
 
   // ── status active: liga o anúncio só no FIM da composição ─────────────────
@@ -180,6 +202,8 @@ const baseSpec = {
     assert.match(createRoute, /killSwitchActive/, 'kill switch continua na rota');
     assert.match(createRoute, /isDryRun/, 'dry-run continua na rota');
     assert.match(createRoute, /status: 'paused'/, 'rota cria SEMPRE em paused');
+    assert.match(routes, /getOrCreateTikTokCtaPortfolio/, 'rota resolve portfolio de CTA dinâmico fora do browser');
+    assert.match(routes, /dynamicCallToAction/, 'contrato aceita CTA automática sem expor call_to_action_id ao cliente');
   }
 
   console.log('ads-create (F1): todos os testes passaram');
