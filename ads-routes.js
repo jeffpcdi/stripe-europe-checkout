@@ -52,6 +52,81 @@ const catalogGateway = require('./catalog/catalog-tiktok-gateway');
 const catalogBatchDomain = require('./catalog/catalog-batch-domain');
 const catalogBatchExecutor = require('./catalog/catalog-batch-executor');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
+const { hostSeguro } = require('./security-helpers');
+
+const DESTINATION_CHECK_TTL_MS = 5 * 60 * 1000;
+const DESTINATION_CHECK_TIMEOUT_MS = 6000;
+const destinationHealthCache = new Map();
+
+async function inspectAdsDestination(rawUrl) {
+  let current;
+  try { current = new URL(String(rawUrl || '').trim()); }
+  catch (_) { return { ok: false, status: 0, error: 'URL inválida' }; }
+
+  const startedAt = Date.now();
+  for (let hop = 0; hop <= 1; hop += 1) {
+    if (current.protocol !== 'https:') {
+      return { ok: false, status: 0, host: current.hostname, error: 'Destino sem HTTPS' };
+    }
+    if (!(await hostSeguro(current.hostname))) {
+      return { ok: false, status: 0, host: current.hostname, error: 'Host bloqueado ou não resolvido' };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DESTINATION_CHECK_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(current.href, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; ROI-NADOS-DestinationSentinel/1.0)',
+          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
+        },
+      });
+    } catch (_) {
+      clearTimeout(timer);
+      return {
+        ok: false,
+        status: 0,
+        host: current.hostname,
+        latencyMs: Date.now() - startedAt,
+        error: 'Página indisponível ou bloqueou a verificação',
+      };
+    }
+    clearTimeout(timer);
+    try { if (response.body && response.body.cancel) await response.body.cancel(); } catch (_) {}
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location || hop === 1) {
+        return {
+          ok: false,
+          status: response.status,
+          host: current.hostname,
+          latencyMs: Date.now() - startedAt,
+          error: 'Redirecionamento não concluído',
+        };
+      }
+      try { current = new URL(location, current); continue; }
+      catch (_) {
+        return { ok: false, status: response.status, host: current.hostname, error: 'Redirecionamento inválido' };
+      }
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      host: current.hostname,
+      finalUrl: current.href,
+      latencyMs: Date.now() - startedAt,
+      error: response.ok ? null : 'HTTP ' + response.status,
+    };
+  }
+
+  return { ok: false, status: 0, host: current.hostname, error: 'Verificação inconclusiva' };
+}
 
 const DEFAULT_ADS_TIME_ZONE = 'America/Sao_Paulo';
 const ADS_DAY_FORMATS = new Map();
@@ -3221,6 +3296,113 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // adsSweepHook.fn, com throttle de 30min por conta — a rota nunca a aguarda.
   // Antes, o sweep inline segurava a conexão por segundos a cada poll de 12s,
   // estourando o limite de 6 conexões do navegador e enfileirando o /tree.
+  // Destination Sentinel — verifica somente destinos já associados a
+  // campanhas ativas no espelho. Nunca aceita URL arbitrária do navegador.
+  app.get('/api/ads/destinations/health', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const cacheKey = req.account.id + '|' + advertiserId;
+      const cached = destinationHealthCache.get(cacheKey);
+      if (cached && Date.now() - cached.at < DESTINATION_CHECK_TTL_MS && String((req.query || {}).force || '') !== '1') {
+        return res.json({ ...cached.data, cached: true });
+      }
+
+      const tree = await adsCache.readTree(req.account.id, advertiserId, {});
+      const grouped = new Map();
+      for (const campaign of (tree && tree.campaigns) || []) {
+        const status = String(campaign.childStatus || campaign.status || '').toLowerCase();
+        if (status !== 'active') continue;
+        const campaignId = String(campaign.platformCampaignId || '');
+        const campaignName = String(campaign.campaignName || campaignId || 'Campanha');
+        const spend = Math.max(0, Number(campaign.metrics && campaign.metrics.spend) || 0);
+        for (const group of campaign.adSets || []) {
+          for (const ad of group.ads || []) {
+            const raw = String(ad && ad.creative && ad.creative.linkUrl || '').trim();
+            if (!/^https?:\/\//i.test(raw)) continue;
+            let parsed;
+            try { parsed = new URL(raw); } catch (_) { continue; }
+            const canonical = parsed.protocol + '//' + parsed.host + (parsed.pathname || '/');
+            const current = grouped.get(canonical) || {
+              url: canonical,
+              host: parsed.hostname.toLowerCase().replace(/^www\./, ''),
+              spend: 0,
+              campaigns: new Map(),
+            };
+            current.spend += spend;
+            current.campaigns.set(campaignId, campaignName);
+            grouped.set(canonical, current);
+          }
+        }
+      }
+
+      const targets = [...grouped.values()]
+        .sort((a, b) => b.spend - a.spend)
+        .slice(0, 5);
+
+      const binding = await adsOps.getPixelBinding(req.account.id, advertiserId).catch(() => null);
+      const localPixels = pixelStore.list(req.account.id);
+      const localPixel = binding
+        ? localPixels.find((pixel) => String(pixel.pixelCode || '').trim().toUpperCase() === String(binding.pixelCode || '').trim().toUpperCase())
+        : null;
+      const capiReady = Boolean(localPixel && localPixel.accessToken);
+
+      let runtimeKnown = false;
+      const runtimeByHost = new Map();
+      if (localPixel && localPixel.slug && db && typeof db.readPixelRuntimeCoverage === 'function') {
+        const runtime = await db.readPixelRuntimeCoverage(req.account.id, { windowDays: 1, pixelSlug: localPixel.slug });
+        if (runtime && runtime.ok) {
+          runtimeKnown = true;
+          for (const row of runtime.data || []) {
+            runtimeByHost.set(String(row.host || '').toLowerCase().replace(/^www\./, ''), row);
+          }
+        }
+      }
+
+      const destinations = await Promise.all(targets.map(async (target) => {
+        const page = await inspectAdsDestination(target.url);
+        const runtime = runtimeByHost.get(target.host) || null;
+        const runtimeSeen = runtimeKnown ? Boolean(runtime && Number(runtime.visits) > 0) : null;
+        const severity = !page.ok
+          ? 'critical'
+          : runtimeKnown && target.spend > 0 && runtimeSeen === false
+            ? 'warning'
+            : 'healthy';
+        return {
+          url: target.url,
+          host: target.host,
+          spend: +target.spend.toFixed(2),
+          campaigns: [...target.campaigns.entries()].slice(0, 5).map(([id, name]) => ({ id, name })),
+          page,
+          runtimeSeen,
+          runtimeVisits: runtime ? Number(runtime.visits) || 0 : null,
+          lastSeenAt: runtime ? runtime.lastSeenAt || null : null,
+          severity,
+        };
+      }));
+
+      const data = {
+        advertiserId,
+        checkedAt: new Date().toISOString(),
+        pixel: {
+          bound: Boolean(binding),
+          name: binding && (binding.pixelName || binding.pixelId) || null,
+          capiReady,
+          runtimeKnown,
+        },
+        summary: {
+          total: destinations.length,
+          healthy: destinations.filter((item) => item.severity === 'healthy').length,
+          warning: destinations.filter((item) => item.severity === 'warning').length,
+          critical: destinations.filter((item) => item.severity === 'critical').length,
+        },
+        destinations,
+      };
+      destinationHealthCache.set(cacheKey, { at: Date.now(), data });
+      res.json(data);
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/health', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
