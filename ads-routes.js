@@ -2531,6 +2531,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     getRules: automation.getRules,
     getRulesLog: automation.getRulesLog,
     resolveAdvertiserTimeZone: automation.resolveAdvertiserTimeZone,
+    campaignLearningState: automation.campaignLearningState,
     sendPushcut: require('./pushcut').sendPushcut,
   });
 
