@@ -167,18 +167,27 @@ async function compactCampaigns(accId, advertiserId, { fromDate, toDate, status,
     status,
     timeZone,
   });
-  return ((tree && tree.campaigns) || []).map((c) => ({
-    id: String(c.platformCampaignId),
-    name: String(c.name || '').slice(0, 80),
-    status: c.status,
-    dailyBudget: c.budget || null,
-    budgetMode: c.budgetMode || null,
-    spend: +((c.metrics && c.metrics.spend) || 0).toFixed(2),
-    impressions: (c.metrics && c.metrics.impressions) || 0,
-    clicks: (c.metrics && c.metrics.clicks) || 0,
-    conversions: (c.metrics && c.metrics.conversions) || 0,
-    createdAt: c.createdAt || c.createTime || c.created_at || null,
-  }));
+  return ((tree && tree.campaigns) || []).map((c) => {
+    const budget = c && c.budget && typeof c.budget === 'object' ? c.budget : null;
+    const dailyBudget = c.budgetOwner === 'campaign'
+      && budget
+      && String(budget.type || '').toLowerCase() === 'daily'
+      && Number(budget.amount) > 0
+      ? Number(budget.amount)
+      : 0;
+    return {
+      id: String(c.platformCampaignId),
+      name: String(c.campaignName || c.name || '').slice(0, 80),
+      status: c.status,
+      dailyBudget,
+      budgetMode: budget ? budget.type || null : c.budgetMode || null,
+      spend: +((c.metrics && c.metrics.spend) || 0).toFixed(2),
+      impressions: (c.metrics && c.metrics.impressions) || 0,
+      clicks: (c.metrics && c.metrics.clicks) || 0,
+      conversions: (c.metrics && c.metrics.conversions) || 0,
+      createdAt: c.createdAt || c.createTime || c.created_at || null,
+    };
+  });
 }
 
 // ROAS real por campanha: gasto (Neon) × vendas atribuídas (gateways locais).
