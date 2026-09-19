@@ -927,6 +927,58 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+
+  app.post('/api/ads/audiences/share', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      const targetId = String(body.sharedAdvertiserId || '').trim();
+      if (!targetId || targetId === selected.advertiserId) {
+        return res.status(400).json({ error: 'Escolha outra conta de anúncio como destino.' });
+      }
+      const authorized = await pipeboard.listAdvertiserIds();
+      if (!authorized.map(String).includes(targetId)) {
+        return res.status(403).json({ error: 'A conta de destino não está autorizada nesta integração.' });
+      }
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'audience.share',
+          targetType: 'audience',
+          targetId: String(body.audienceId || ''),
+          advertiserId: selected.advertiserId,
+          metadata: { sharedAdvertiserId: targetId },
+          title: 'Compartilhar público TikTok',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
+
+      const result = await pipeboard.shareCustomAudiences(
+        selected.advertiserId,
+        [String(body.audienceId || '').trim()],
+        [targetId],
+        body.sharedBcId,
+      );
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: 'audience.shared',
+          targetType: 'audience',
+          targetId: String(body.audienceId || ''),
+          advertiserId: selected.advertiserId,
+          reason: 'Público compartilhado com outra conta de anúncio',
+          metadata: { sharedAdvertiserId: targetId },
+        });
+      } catch (_) {}
+      res.json({ ok: true, result });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
   app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
