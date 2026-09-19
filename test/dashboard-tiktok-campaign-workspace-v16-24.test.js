@@ -15,6 +15,7 @@ assert(tree.includes('selectedEntities') && tree.includes('applyEntityBulkStatus
 assert(tree.includes("'Buscar anúncio, copy, conjunto ou campanha…'"), 'busca de anúncios deve procurar também por contexto e copy')
 assert(tree.includes('function EntityToolbar') && tree.includes("'Maior gasto'") && tree.includes("'Maior CTR'") && tree.includes("'Mais conversões'"), 'conjuntos e anúncios devem ter ordenação operacional própria')
 assert(tree.includes('const commandCenter = useMemo') && tree.includes('Propostas ROI NADOS') && tree.includes('Precisa de atenção'), 'workspace deve expor command center contextual')
+assert(tree.includes('spentNoSales') && tree.includes('Com gasto e sem venda real'), 'KPI de atenção em campanhas deve corresponder ao filtro acionado')
 assert(tree.includes('function sourceWeightedCtr'), 'CTR agregado de conjuntos/anúncios deve ser ponderado por impressões')
 assert(tree.includes("'issues', 'Atenção'") && tree.includes('entityStatusMatches'), 'workspace deve filtrar entidades por estado operacional')
 assert(tree.includes("entityLevel === 'campaign' && selected.size > 0"), 'barra em lote de campanha não deve vazar para outras visões')
