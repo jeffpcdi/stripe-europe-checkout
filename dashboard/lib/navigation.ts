@@ -40,12 +40,15 @@ export interface NavItem {
   href: string
 }
 
+/* Grupos de topo — identidade do dashboard legado: 4 pills centralizadas */
 export interface NavGroup {
   id: string
   label: string
   icon: LucideIcon
   href: string
+  /** rotas cobertas por este grupo (prefixos) */
   routes: string[]
+  /** sub-abas exibidas abaixo do header quando o grupo está ativo */
   tabs?: { label: string; href: string }[]
 }
 
@@ -57,6 +60,10 @@ export const NAV_GROUPS: NavGroup[] = [
     href: '/',
     routes: ['/', '/activity', '/funnel', '/geo', '/live'],
   },
+  // Fase 3: grupo "Análises" (Funil + Atividade) removido da navegação — o
+  // funil compacto e o ranking de campanhas agora vivem na Visão Geral. As
+  // rotas /funnel e /activity CONTINUAM acessíveis por link direto (drill-down
+  // dos KPIs/feed apontam para elas); apenas saíram das pills/menu.
   {
     id: 'insights',
     label: 'Insights',
@@ -88,6 +95,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'TikTok Ads',
     icon: Megaphone,
     href: '/ads/tiktok',
+    // /catalog segue nas rotas só p/ o redirect legado manter o grupo ativo
     routes: ['/ads', '/catalog'],
   },
   {
