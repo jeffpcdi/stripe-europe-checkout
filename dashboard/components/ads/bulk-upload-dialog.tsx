@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AdDestinationField } from './ad-destination-field'
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 // Criação em massa com vídeos TikTok — até 20 vídeos de uma vez.
@@ -441,17 +442,14 @@ export function BulkUploadDialog({
                       placeholder="BR"
                     />
                   </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-xs font-medium text-foreground">Página de destino</span>
-                    <input
-                      type="url"
-                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                      value={linkUrl}
-                      onChange={(e) => setLinkUrl(e.target.value)}
-                      placeholder="https://sualoja.com/oferta"
-                      required
-                    />
-                  </label>
+                  <AdDestinationField
+                    id="bulk-destination"
+                    value={linkUrl}
+                    onChange={setLinkUrl}
+                    disabled={submitting}
+                    label="Página de destino"
+                    compact
+                  />
                 </div>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Texto do anúncio (opcional, até 100 caracteres)</span>
