@@ -41,6 +41,7 @@ type Props = {
   loading: boolean
   error: string | null
   currency: string
+  adAccountId: string
   statusFilter: string
   onStatusFilter: (value: string) => void
   sort: string
@@ -250,7 +251,7 @@ export function CampaignWorkspace(props: Props) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [playbookBusy, setPlaybookBusy] = useState<string | null>(null)
   const campaigns = props.tree?.campaigns ?? []
-  const advertiserId = campaigns[0]?.platformAdAccountId || ''
+  const advertiserId = props.adAccountId || campaigns[0]?.platformAdAccountId || ''
   const rulesQuery = useAdsRules(level === 'playbooks', advertiserId)
   const presetsQuery = useAdsRulePresets(level === 'playbooks')
   const creativeInsights = useAdsCreativeInsights(level === 'creatives', advertiserId)
