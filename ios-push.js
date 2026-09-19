@@ -72,7 +72,7 @@ function payloadFor(note) {
     'interruption-level': interruptionLevel,
   };
   if (category) aps.category = category;
-  if (!isDailyReport) aps.sound = saleSound ? 'roi-sale.wav' : 'default';
+  if (!isDailyReport) aps.sound = saleSound ? 'roi-sale-v2.wav' : 'default';
   if (event === 'sale') aps['content-available'] = 1;
   if (note.badge === true) aps.badge = 1;
   return JSON.stringify({
