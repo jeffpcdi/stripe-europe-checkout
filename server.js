@@ -1901,7 +1901,7 @@ app.get('/api/v1/widget', async (req, res) => {
 
     res.json({
       ok: true,
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
       timeZone,
       currency,
