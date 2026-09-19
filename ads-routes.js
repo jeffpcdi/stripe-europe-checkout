@@ -679,7 +679,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function pixelContext(accountId, advertiserId) {
     const localPixels = pixelStore.list(accountId)
       .filter((pixel) => pixel.active && pixel.pixelCode)
-      .map((pixel) => ({ slug: pixel.slug, name: pixel.name, code: String(pixel.pixelCode).trim() }));
+      .map((pixel) => ({
+        slug: pixel.slug,
+        name: pixel.name,
+        code: String(pixel.pixelCode).trim(),
+        hasToken: Boolean(pixel.accessToken),
+      }));
     const remotePixels = await pipeboard.listTikTokPixels(advertiserId);
     const matchFor = (local) => remotePixels.find((remote) => remote.code.toUpperCase() === local.code.toUpperCase());
     const matches = localPixels.map((local) => ({ local, remote: matchFor(local) })).filter((item) => item.remote);
@@ -725,6 +730,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         }),
         binding: context.binding,
         ready: Boolean(context.binding),
+        capiReady: Boolean(context.binding && context.matches.some((item) => (
+          item.remote.id === context.binding.pixelId && item.local.hasToken
+        ))),
+        localPixelSlug: context.binding
+          ? (context.matches.find((item) => item.remote.id === context.binding.pixelId)?.local.slug || null)
+          : null,
         needsChoice: !context.binding && context.remotePixels.length > 1,
       });
     } catch (err) { fail(res, err); }
@@ -749,6 +760,96 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         pixelName: remote.name, remoteStatus: remote.status,
       });
       res.json({ ok: true, binding });
+    } catch (err) { fail(res, err); }
+  });
+
+
+  app.post('/api/ads/pixels', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const selected = await requireAdvertiser(req.account.id, null, body.adAccountId || body.advertiserId, null);
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      if (!policy.enabled || (policy.blockedAdvertiserIds || []).map(String).includes(selected.advertiserId)) {
+        return res.status(403).json({ error: 'A política de segurança bloqueia ações nesta conta.' });
+      }
+
+      const pixelName = String(body.pixelName || body.name || 'ROI-NADOS — Vendas').trim().slice(0, 128);
+      if (!pixelName) return res.status(400).json({ error: 'Informe um nome para o Pixel.' });
+
+      if (policy.dryRun) {
+        await auditSimulated(req.account.id, {
+          action: 'pixel.create',
+          targetType: 'pixel',
+          advertiserId: selected.advertiserId,
+          metadata: { pixelName },
+          title: 'Criar Pixel TikTok',
+        });
+        return res.json({ ok: true, dryRun: true, simulated: true });
+      }
+
+      const created = await pipeboard.createTikTokPixel(selected.advertiserId, { name: pixelName });
+      const remote = created.pixel;
+      const binding = await adsOps.savePixelBinding(req.account.id, selected.advertiserId, {
+        pixelSlug: '', pixelCode: remote.code || '', pixelId: remote.id,
+        pixelName: remote.name, remoteStatus: remote.status,
+      });
+
+      let localPixelCreated = false;
+      let localPixelSlug = null;
+      if (remote.code) {
+        const existingLocal = pixelStore.list(req.account.id).find(
+          (pixel) => String(pixel.pixelCode || '').trim().toUpperCase() === String(remote.code).trim().toUpperCase(),
+        );
+        if (existingLocal) {
+          localPixelSlug = existingLocal.slug;
+        } else {
+          try {
+            const savedLocal = await pixelStore.save(req.account.id, {
+              name: remote.name || pixelName,
+              pixelCode: remote.code,
+              accessToken: '',
+              active: true,
+              gatewayBindingMode: 'explicit',
+            }, { createOnly: true });
+            localPixelCreated = true;
+            localPixelSlug = savedLocal && savedLocal.slug ? savedLocal.slug : null;
+          } catch (localErr) {
+            // O Pixel remoto e o vínculo da campanha já foram criados. Falha
+            // local não pode induzir retry remoto e duplicar Pixel no TikTok.
+            console.warn('[ads/pixels] Pixel remoto criado, mas espelho local não foi criado:', localErr && localErr.message);
+          }
+        }
+      }
+
+      try {
+        await adsOps.appendAuditEvent(req.account.id, {
+          actorType: 'user',
+          actorId: req.account.id,
+          action: created.reused ? 'pixel.reused' : 'pixel.created',
+          targetType: 'pixel',
+          targetId: remote.id,
+          advertiserId: selected.advertiserId,
+          afterState: { pixelId: remote.id, pixelCode: remote.code || null, pixelName: remote.name },
+          reason: created.reused ? 'Pixel existente vinculado pelo onboarding' : 'Pixel criado e vinculado pelo onboarding',
+        });
+      } catch (_) {}
+
+      stats.logEvent('info', {
+        acc: req.account.id,
+        title: '[tiktok-ads] ' + (created.reused ? 'Pixel existente vinculado' : 'Pixel criado e vinculado') + ': ' + remote.name,
+      });
+
+      res.status(created.reused ? 200 : 201).json({
+        ok: true,
+        reused: Boolean(created.reused),
+        pixel: remote,
+        binding,
+        localPixelCreated,
+        localPixelSlug,
+        capiReady: false,
+        nextStep: 'Configure o Access Token em Conversões para ativar o envio server-side.',
+      });
     } catch (err) { fail(res, err); }
   });
 
