@@ -2207,10 +2207,10 @@ async function checkDailyReportFor(accId) {
 
     // Push: cabe no Lock Screen e entrega o essencial em poucos segundos.
     const pushText = sales.length + (sales.length === 1 ? ' venda' : ' vendas')
-      + ' · Ticket ' + aovText
-      + (deltaText ? ' · ' + deltaText : '')
-      + '\nTikTok ' + spendText + ' · ROAS ' + roasText
-      + '\nLucro ' + profitText
+      + ' · ROAS ' + roasText
+      + ' · Lucro ' + profitText
+      + '\nTikTok ' + spendText + ' · Ticket ' + aovText
+      + (deltaText ? '\nReceita ' + deltaText : '')
       + (exception ? '\nAtenção: ' + exception : '');
 
     // Canais longos preservam contexto operacional adicional.
@@ -2222,7 +2222,7 @@ async function checkDailyReportFor(accId) {
       + (exception ? '\nAtenção: ' + exception : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
 
-    const title = 'Ontem · ' + revenueText + ' em receita';
+    const title = 'Resumo de ontem · ' + revenueText;
     const deliveries = [];
     // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
     // Uma única chamada evita duplicar a mesma notificação no iPhone.
