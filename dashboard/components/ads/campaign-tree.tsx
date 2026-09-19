@@ -10,7 +10,6 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ChevronRight,
-  ChevronDown,
   Play,
   Pause,
   Copy,
