@@ -69,12 +69,12 @@ function defaults() {
     api: { token: '', scope: 'stats' },
     // Notificações Web Push nativas (canal principal no iPhone/PWA).
     // subs: aparelhos inscritos [{id, endpoint, keys:{p256dh,auth}, ua, createdAt}]
-    // preferences: três escolhas claras em vez de uma matriz por evento.
+    // preferences: grupos claros em vez de uma matriz por evento.
     // funMode é opt-in; o padrão direto reduz ruído nas mensagens.
     webPush: {
       subs: [],
       funMode: false,
-      preferences: { sales: true, risks: true, automation: true }
+      preferences: { sales: true, risks: true, automation: true, reports: true }
     },
     // Companion iOS nativo: token separado do token público/BI e dispositivos
     // APNs registrados. O token pode ser rotacionado sem afetar planilhas.
@@ -332,11 +332,12 @@ function prepareSet(accountId, patch) {
       createdAt: (s && s.createdAt) || new Date().toISOString()
     })).filter((s) => /^https:\/\//i.test(s.endpoint) && s.keys.p256dh && s.keys.auth);
     wp.funMode = wp.funMode === true;
-    const pref = Object.assign({ sales: true, risks: true, automation: true }, wp.preferences || {});
+    const pref = Object.assign({ sales: true, risks: true, automation: true, reports: true }, wp.preferences || {});
     wp.preferences = {
       sales: pref.sales !== false,
       risks: pref.risks !== false,
-      automation: pref.automation !== false
+      automation: pref.automation !== false,
+      reports: pref.reports !== false
     };
     next.webPush = wp;
   }
