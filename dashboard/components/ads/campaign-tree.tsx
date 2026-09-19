@@ -1779,13 +1779,7 @@ export function CampaignTree({
         <button type="button" onClick={onOpenAutomations} disabled={!onOpenAutomations} className="rounded-lg border border-border/60 bg-background px-3 py-2.5 text-left transition-colors hover:bg-secondary/20 disabled:cursor-default"><p className="text-[11px] font-medium text-muted-foreground">Autonomia</p><p className="mt-1 truncate text-sm font-semibold text-foreground">{!decisions ? 'Indisponível' : decisions.automation.actionsPaused ? 'Pausada' : decisions.automation.executionMode === 'automatic' ? 'Autopilot' : decisions.automation.executionMode === 'proposal' ? 'Assistida' : decisions.automation.executionMode === 'notify' ? 'Monitorar' : decisions.automation.executionMode === 'simulation' ? 'Simulação' : 'Personalizada'}</p><p className="text-[11px] text-muted-foreground">{decisions ? `${decisions.automation.rulesEnabled} regra${decisions.automation.rulesEnabled === 1 ? '' : 's'} ativa${decisions.automation.rulesEnabled === 1 ? '' : 's'}` : 'Sem estado do motor'}</p></button>
       </div> : null}
 
-      {decisions ? <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 bg-secondary/10 px-3 py-2.5 text-xs">
-        <div className="flex items-center gap-2"><span className={cn('size-2 rounded-full', decisions.automation.actionsPaused ? 'bg-warning' : decisions.automation.state === 'running' ? 'bg-success' : 'bg-primary')} /><span className="font-semibold text-foreground">ROI NADOS Control</span></div>
-        <span className="text-muted-foreground">Modo <strong className="font-medium text-foreground">{decisions.automation.actionsPaused ? 'Pausado' : decisions.automation.executionMode === 'proposal' ? 'Assistido' : decisions.automation.executionMode === 'automatic' ? 'Autopilot' : decisions.automation.executionMode === 'notify' ? 'Monitorar' : decisions.automation.executionMode === 'simulation' ? 'Simulação' : 'Personalizado'}</strong></span>
-        <span className="text-muted-foreground">{decisions.automation.rulesEnabled} regra{decisions.automation.rulesEnabled === 1 ? '' : 's'} ativa{decisions.automation.rulesEnabled === 1 ? '' : 's'}</span>
-        <span className="text-muted-foreground">{decisions.automation.alertsEnabled ? 'Alertas ativos' : 'Alertas desativados'}</span>
-        {onOpenAutomations ? <button type="button" onClick={onOpenAutomations} className="ml-auto inline-flex items-center gap-1 font-medium text-primary hover:underline"><Zap className="size-3" />Configurar autonomia</button> : null}
-      </div> : null}
+
 
       {entityLevel !== 'campaign' && !loading && !error ? <EntityWorkspace /> : null}
 
