@@ -1,6 +1,7 @@
 'use client'
 
 import { SavedVideos } from './saved-videos'
+import { AdDestinationField } from './ad-destination-field'
 import { MarketSelector, defaultMarket } from './market-selector'
 import { Modal } from '@/components/ui/modal'
 import { MoneyField } from '@/components/ui/money-field'
@@ -195,7 +196,14 @@ export function SmartPlusCreateDialog({
                   <div className="mt-2"><SavedVideos appearance="creation" selectedUrls={[videoUrl]} disabled={uploading || submitting} onPick={item => { setVideoUrl(item.url); if (!name.trim()) setName(item.name.replace(/\.[^.]+$/, '').slice(0, 120)) }} /></div>
                 </div>
 
-                <label className="block"><span className="mb-1.5 block text-xs font-medium text-foreground">Link de destino</span><input className={field} value={linkUrl} onChange={e => { setLinkUrl(e.target.value); setSubmitError(null) }} placeholder="https://seusite.com/oferta" />{destinationInvalid && <span className="mt-1.5 block text-xs text-error">Use uma URL HTTPS válida.</span>}</label>
+                <AdDestinationField
+                  id="smart-plus-destination"
+                  value={linkUrl}
+                  onChange={(value) => { setLinkUrl(value); setSubmitError(null) }}
+                  disabled={submitting || uploading || coverUploading}
+                  label="Link de destino"
+                />
+                {destinationInvalid && <span className="-mt-2 block text-xs text-error">Use uma URL HTTPS válida.</span>}
 
                 <details className="border-t border-border/60 pt-3">
                   <summary className="cursor-pointer text-xs font-medium text-foreground">Personalização <span className="font-normal text-muted-foreground">· opcional</span></summary>
