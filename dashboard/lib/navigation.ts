@@ -59,18 +59,15 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: 'insights',
-    label: 'Inteligência',
+    label: 'Insights',
     icon: BrainCircuit,
     href: '/insights',
     routes: ['/insights'],
     tabs: [
-      { label: 'Desempenho', href: '/insights' },
+      { label: 'Visão', href: '/insights' },
+      { label: 'Campanhas', href: '/insights?tab=campaigns' },
       { label: 'Funil', href: '/insights?tab=funnel' },
-      { label: 'Origens', href: '/insights?tab=sources' },
-      { label: 'Oportunidades', href: '/insights?tab=opportunities' },
-      { label: 'Simulador', href: '/insights?tab=simulator' },
-      { label: 'Anomalias', href: '/insights?tab=anomalies' },
-      { label: 'Qualidade', href: '/insights?tab=quality' },
+      { label: 'Diagnóstico', href: '/insights?tab=diagnosis' },
     ],
   },
   {
@@ -113,7 +110,7 @@ export function activeGroup(pathname: string): NavGroup {
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: 'Operação', items: [
     { id: 'overview', label: 'Visão geral', description: 'Resultados e visitantes online', icon: LayoutDashboard, href: '/' },
-    { id: 'insights', label: 'Inteligência', description: 'Diagnósticos de desempenho e qualidade', icon: BrainCircuit, href: '/insights' },
+    { id: 'insights', label: 'Insights', description: 'Performance, campanhas e diagnóstico', icon: BrainCircuit, href: '/insights' },
     { id: 'ads', label: 'TikTok Ads', description: 'Campanhas e automações', icon: Megaphone, href: '/ads/tiktok' },
   ] },
   { title: 'Rastreamento', items: [
