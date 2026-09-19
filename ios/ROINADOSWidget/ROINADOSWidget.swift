@@ -194,7 +194,7 @@ struct ROIWidgetView: View {
             }
 
             Spacer(minLength: 0)
-            Text("Atualizado " + entry.date.formatted(date: .omitted, time: .shortened))
+            Text(freshness(snapshot))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
@@ -232,6 +232,13 @@ struct ROIWidgetView: View {
                 .font(.headline.weight(.bold))
         }
         .gaugeStyle(.accessoryCircular)
+    }
+
+    private func freshness(_ snapshot: WidgetSnapshot) -> String {
+        let age = max(0, Date().timeIntervalSince(snapshot.generatedAt))
+        if age < 120 { return "Atualizado agora" }
+        if age < 3600 { return "Atualizado há \(Int(age / 60)) min" }
+        return "Dados de " + snapshot.generatedAt.formatted(date: .omitted, time: .shortened)
     }
 
     private func deltaLabel(_ value: Double) -> String {
