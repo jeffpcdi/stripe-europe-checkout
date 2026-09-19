@@ -32,6 +32,7 @@ import { ErrorState } from '@/components/error-state'
 import { Modal } from '@/components/ui/modal'
 import type { AccountSettings } from '@/lib/types'
 import { toast } from '@/lib/toast'
+import { apiCacheKeyMatches } from '@/lib/cache-consistency'
 
 export function ConfigView() {
   const { prefs, update } = usePrefs()
@@ -69,7 +70,7 @@ export function ConfigView() {
         </div>
       </div>
 
-      <SettingsOverview />
+      <SettingsOverview onSelect={selectTab} />
 
       <Tabs.Root value={activeTab} onValueChange={selectTab} className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
         <Tabs.List
@@ -205,7 +206,7 @@ function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title:
   )
 }
 
-function SettingsOverview() {
+function SettingsOverview({ onSelect }: { onSelect: (tab: string) => void }) {
   const { data: account } = useAccount()
   const { data: settings } = useAccountSettings()
   const { data: twofa } = useSWR<{ ok: boolean; enabled: boolean }>('/api/account/2fa', fetcher, { revalidateOnFocus: false })
@@ -218,6 +219,7 @@ function SettingsOverview() {
       hint: settings?.defaultCurrency ? `Moeda padrão · ${settings.defaultCurrency}` : 'Carregando preferências',
       icon: UserRound,
       tone: 'default',
+      tab: 'prefs',
     },
     {
       label: 'Fuso da operação',
@@ -225,6 +227,7 @@ function SettingsOverview() {
       hint: 'Usado nos cortes de dia e relatórios',
       icon: Globe2,
       tone: 'default',
+      tab: 'prefs',
     },
     {
       label: 'Segurança',
@@ -232,6 +235,7 @@ function SettingsOverview() {
       hint: !twofa ? 'Carregando estado de segurança' : twofa.enabled ? 'Camada adicional protegendo o login' : 'Ative 2FA para proteger o acesso',
       icon: ShieldCheck,
       tone: !twofa ? 'default' : twofa.enabled ? 'success' : 'warning',
+      tab: 'security',
     },
     {
       label: 'Alertas push',
@@ -239,14 +243,15 @@ function SettingsOverview() {
       hint: push?.devices ? 'Dispositivos prontos para receber alertas' : 'Nenhum dispositivo conectado',
       icon: Smartphone,
       tone: push?.devices ? 'success' : 'default',
+      tab: 'notifications',
     },
   ] as const
 
   return (
     <GlassCard className="p-3 sm:p-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(({ label, value, hint, icon: Icon, tone }) => (
-          <div key={label} className={`rounded-2xl border p-3.5 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
+        {cards.map(({ label, value, hint, icon: Icon, tone, tab }) => (
+          <button type="button" key={label} onClick={() => onSelect(tab)} className={`rounded-2xl border p-3.5 text-left transition-colors hover:border-border hover:bg-secondary/25 ${tone === 'success' ? 'border-emerald-500/15 bg-emerald-500/[0.06]' : tone === 'warning' ? 'border-warning/15 bg-warning/[0.05]' : 'border-border/55 bg-secondary/15'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
@@ -257,7 +262,7 @@ function SettingsOverview() {
                 <Icon className="size-3.5" />
               </span>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </GlassCard>
@@ -446,9 +451,15 @@ function DangerCard() {
       // e indicadores de saúde. Revalida imediatamente para nenhuma tela
       // continuar mostrando o snapshot anterior até o próximo polling.
       await Promise.all([
-        mutateCache('/api/stats'),
-        mutateCache('/api/overview/health'),
-        mutateCache('/api/live'),
+        mutateCache((key) => apiCacheKeyMatches(key, [
+          '/api/stats',
+          '/api/live',
+          '/api/overview/health',
+          '/api/overview/analytics',
+          '/api/ads/roas',
+          '/api/ads/profitability',
+          '/api/ads/campaign-decisions',
+        ])),
       ])
       setDone(true)
       toast.success('Estatísticas zeradas com sucesso.')
