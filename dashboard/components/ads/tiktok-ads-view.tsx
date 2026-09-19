@@ -808,7 +808,10 @@ export function TikTokAdsView() {
               focusAlertsRequest={alertsFocusRequest}
             />
             <details className="rounded-xl border border-border p-4" onToggle={event => { const open = event.currentTarget.open; setToolsExpanded(open); if (open) setToolsMounted(true) }}>
-              <summary className="cursor-pointer text-sm font-medium">Mais ferramentas</summary>
+              <summary className="cursor-pointer list-none">
+                <span className="block text-sm font-medium text-foreground">Custos, análise, vídeos e proteção</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Abra apenas quando precisar ajustar custos, fontes de criativo ou controles operacionais.</span>
+              </summary>
               {toolsMounted ? <div className="mt-4"><MagicOpsPanel key={`MagicOpsPanel:${concreteAdvertiser}`} active={automationActive && toolsExpanded} advertiserId={concreteAdvertiser} currency={currency} fromDate={fromDate} toDate={toDate} advertiserTimeZone={advertiserContextTimeZone} onDirtyChange={setMagicOpsDirty} externalDirty={automationDirty} /></div> : null}
             </details>
           </Tabs.Content>
