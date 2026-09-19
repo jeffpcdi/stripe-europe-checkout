@@ -101,6 +101,7 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
 
     const recordInCenter = shouldRecord(event);
     note.badge = recordInCenter;
+    note.skipIOSWebPush = ((accountConfig(accountId).companion || {}).devices || []).length > 0;
     if (recordInCenter) {
       try { await require('./redis').pushNotifLog(accountId, note); } catch (_) {}
     }
@@ -111,6 +112,46 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     return await webPushNotify.sendWebPush(accountId, note);
   } catch (err) {
     console.error('[webpush] Erro no envio:', err.message);
+    return false;
+  }
+}
+
+async function sendViaIOS(notificationName, payload, accountId, meta) {
+  try {
+    const cfg = accountConfig(accountId);
+    const companion = cfg.companion || {};
+    const devices = Array.isArray(companion.devices) ? companion.devices : [];
+    if (!devices.length) return false;
+
+    const note = require('./notify-copy').build({
+      name: notificationName,
+      payload,
+      meta,
+      funMode: (cfg.webPush || {}).funMode === true,
+      accountId,
+    });
+    const event = note.event || '';
+    if (!nativePreferenceEnabled(accountId, event)) return false;
+    note.priority = (meta && meta.priority) || (['dispute', 'ads_failure', 'ads_breaker'].includes(event) ? 'critical' : 'normal');
+    note.badge = shouldRecord(event);
+
+    const iosPush = require('./ios-push');
+    const result = await iosPush.sendToDevices(devices, note);
+    if (result.invalidTokens && result.invalidTokens.length) {
+      const invalid = new Set(result.invalidTokens);
+      const config = require('./config');
+      await config.setDurable(accountId, (latest) => {
+        const current = latest.companion || {};
+        return {
+          companion: Object.assign({}, current, {
+            devices: (current.devices || []).filter((device) => !invalid.has(device.token)),
+          }),
+        };
+      }).catch(() => {});
+    }
+    return result.ok === true;
+  } catch (err) {
+    console.error('[ios-push] Erro no envio:', err.message);
     return false;
   }
 }
@@ -157,11 +198,12 @@ async function sendNotification(notificationName, payload, accountId, meta) {
     const compact = require('./notify-copy').compactSale(payload, meta);
     payload = Object.assign({}, payload, { title: compact.title, text: compact.body });
   }
-  const [nativeOk, legacyOk] = await Promise.all([
+  const [webOk, iosOk, legacyOk] = await Promise.all([
     sendViaWebPush(notificationName, payload || {}, accountId, meta || {}),
+    sendViaIOS(notificationName, payload || {}, accountId, meta || {}),
     sendViaPushcut(notificationName, payload || {}, accountId, meta || {}),
   ]);
-  return nativeOk || legacyOk;
+  return webOk || iosOk || legacyOk;
 }
 
 const sendPushcut = sendNotification;
