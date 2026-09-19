@@ -175,7 +175,7 @@ export function ConversionsView() {
     const logs = convLog?.log ?? []
     for (const row of logs) {
       const status = conversionStatus(row).kind
-      const rowAt = row.at ?? (row as any).createdAt
+      const rowAt = row.at ?? row.createdAt
       const d = rowAt ? new Date(String(rowAt)) : null
       if (status === 'error' && d && !isNaN(d.getTime()) && (!lastFailureDate || d > lastFailureDate)) {
         lastFailureDate = d
