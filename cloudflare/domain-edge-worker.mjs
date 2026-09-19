@@ -1,11 +1,40 @@
-const VERSION = 'v1';
+const VERSION = 'v2';
 
 function cleanHost(value) {
   return String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
-function canonicalPayload({ timestamp, method, host, path }) {
-  return [VERSION, String(timestamp), String(method || 'GET').toUpperCase(), cleanHost(host), String(path || '/')].join('\n');
+function cleanIp(value) {
+  return String(value || '').split(',')[0].trim().slice(0, 80);
+}
+
+function cleanCountry(value) {
+  const out = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(out) ? out : '';
+}
+
+function cleanAsn(value) {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n > 0 && n <= 4294967295 ? String(n) : '';
+}
+
+function cleanColo(value) {
+  const out = String(value || '').trim().toUpperCase();
+  return /^[A-Z0-9-]{2,12}$/.test(out) ? out : '';
+}
+
+function canonicalPayload({ timestamp, method, host, path, clientIp, country, asn, colo }) {
+  return [
+    VERSION,
+    String(timestamp),
+    String(method || 'GET').toUpperCase(),
+    cleanHost(host),
+    String(path || '/'),
+    cleanIp(clientIp),
+    cleanCountry(country),
+    cleanAsn(asn),
+    cleanColo(colo),
+  ].join('\n');
 }
 
 function bytesToHex(buffer) {
@@ -28,9 +57,21 @@ export async function buildOriginRequest(request, env, nowMs = Date.now()) {
   const originalHost = cleanHost(request.headers.get('host') || incoming.hostname);
   if (!originalHost || !originalHost.includes('.')) throw new Error('hostname original inválido');
 
+  // O Worker é a fronteira de confiança. Captura os metadados produzidos pela
+  // própria Cloudflare e os inclui no HMAC; o origin nunca precisa confiar em
+  // CF-Connecting-IP/CF-IPCountry isoladamente.
+  const cf = request.cf || {};
+  const clientIp = cleanIp(request.headers.get('cf-connecting-ip'));
+  const country = cleanCountry(cf.country || request.headers.get('cf-ipcountry'));
+  const asn = cleanAsn(cf.asn);
+  const colo = cleanColo(cf.colo);
+
   const timestamp = String(Math.floor(Number(nowMs) / 1000));
   const path = incoming.pathname + incoming.search;
-  const signature = await hmac(secret, canonicalPayload({ timestamp, method: request.method, host: originalHost, path }));
+  const signature = await hmac(secret, canonicalPayload({
+    timestamp, method: request.method, host: originalHost, path,
+    clientIp, country, asn, colo,
+  }));
 
   const target = new URL(request.url);
   target.protocol = 'https:';
@@ -38,11 +79,20 @@ export async function buildOriginRequest(request, env, nowMs = Date.now()) {
   target.port = '';
 
   const headers = new Headers(request.headers);
-  // Headers de contexto sempre são sobrescritos; valores enviados pelo cliente
-  // nunca atravessam como autoridade para o backend.
+  // Remove qualquer envelope ROI enviado pelo cliente e recria tudo no Edge.
+  for (const name of [
+    'X-ROI-Original-Host', 'X-ROI-Edge-Timestamp', 'X-ROI-Edge-Version',
+    'X-ROI-Edge-Signature', 'X-ROI-Edge-Client-IP', 'X-ROI-Edge-Country',
+    'X-ROI-Edge-ASN', 'X-ROI-Edge-Colo',
+  ]) headers.delete(name);
+
   headers.set('X-ROI-Original-Host', originalHost);
   headers.set('X-ROI-Edge-Timestamp', timestamp);
   headers.set('X-ROI-Edge-Version', VERSION);
+  headers.set('X-ROI-Edge-Client-IP', clientIp);
+  headers.set('X-ROI-Edge-Country', country);
+  headers.set('X-ROI-Edge-ASN', asn);
+  headers.set('X-ROI-Edge-Colo', colo);
   headers.set('X-ROI-Edge-Signature', signature);
 
   const init = {
@@ -51,7 +101,6 @@ export async function buildOriginRequest(request, env, nowMs = Date.now()) {
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
     redirect: 'manual',
   };
-  // Node exige duplex para ReadableStream em testes; Workers ignora esse campo.
   if (typeof process !== 'undefined' && init.body) init.duplex = 'half';
   return new Request(target.toString(), init);
 }
