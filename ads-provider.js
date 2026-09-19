@@ -798,8 +798,14 @@ async function getDashboardTree(accountId, opts = {}) {
         creative: {
           body: ad.adText || '',
           linkUrl: ad.landingPageUrl || '',
-          videoUrl: ad.videoId ? ('tiktok:video:' + ad.videoId) : '',
-          imageUrl: (ad.imageIds && ad.imageIds[0]) ? ('tiktok:image:' + ad.imageIds[0]) : '',
+          // Preserve os IDs reais do asset. O prefixo tiktok:* nunca foi uma URL
+          // reproduzível e fazia a UI esconder o criativo por não começar em https.
+          // A camada visual pode agora distinguir "asset conhecido, preview pendente"
+          // de "anúncio sem criativo" sem inventar uma URL.
+          videoId: ad.videoId || '',
+          imageIds: Array.isArray(ad.imageIds) ? ad.imageIds : [],
+          videoUrl: '',
+          imageUrl: '',
         },
         rejectionReason: tiktokStatusToNode(ad.status, ad.secondaryStatus) === 'rejected' ? ad.secondaryStatus : undefined,
         createdAt: ad.createTime || undefined,
@@ -3896,8 +3902,11 @@ async function getSmartPlusDashboardTree(advertiserId, currency) {
       creative: {
         body: String(firstText.ad_text || firstText.text || ''),
         linkUrl: String(firstUrl.landing_page_url || firstUrl.url || ''),
-        videoUrl: String(creativeInfo.video_id || creativeInfo.videoId || ''),
-        imageUrl: String(creativeInfo.image_id || creativeInfo.imageId || ''),
+        videoId: String(creativeInfo.video_id || creativeInfo.videoId || ''),
+        imageIds: [String(creativeInfo.image_id || creativeInfo.imageId || '')].filter(Boolean),
+        // Smart+ também devolve IDs, não URLs públicas. Não exponha IDs como src.
+        videoUrl: '',
+        imageUrl: '',
       },
       rejectionReason: ad.rejectionReason,
       createdAt: ad.createTime || undefined,
