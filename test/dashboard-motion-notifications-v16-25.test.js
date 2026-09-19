@@ -54,7 +54,8 @@ assert(!fs.existsSync(path.join(root, 'dashboard/public/cash.mp3')), 'asset lega
 
 assert(sw.includes('data.badge === true') && sw.includes('self.navigator.setAppBadge()'), 'push relevante deve atualizar badge do app instalado')
 assert(sw.includes('self.navigator.clearAppBadge()'), 'toque na notificação deve limpar badge do app')
-assert(sw.includes('omitimos \`silent\` para respeitar o padrão do aparelho/Foco') && sw.includes('options.silent = true'), 'service worker deve silenciar só com painel visível e respeitar o aparelho em background')
+assert(sw.includes('omitimos \`silent\` para respeitar o padrão do aparelho/Foco') && sw.includes('options.silent = true'), 'service worker deve respeitar o aparelho em background')
+assert(sw.includes('hasVisibleClient || data.event === "daily"'), 'brief diário deve permanecer silencioso também em background')
 assert(bell.includes('clearAppBadge') && bell.includes('abre a central'), 'central de notificações deve limpar o badge ao ser revisada')
 
 assert(copy.includes("login: '/dashboard/config?tab=security'"), 'login deve abrir Segurança')
