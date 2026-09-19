@@ -10,10 +10,8 @@ import { isSoundEnabled } from '@/lib/notify-prefs'
 export function PushSound() {
   useEffect(() => {
     // 1. Audio Unlocker (iOS Safari)
-    // O Safari bloqueia sons reproduzidos fora de um evento de clique.
-    // Para que as notificações toquem som em background quando o app estiver
-    // aberto, interceptamos o PRIMEIRO clique/toque na tela e inicializamos
-    // o AudioContext com um buffer mudo. A partir desse momento, ele fica destravado.
+    // O Safari exige ativação do usuário para WebAudio. Inicializamos no
+    // primeiro toque para permitir feedback local quando a dashboard estiver visível.
     const unlockAudio = () => {
       initAudio()
       window.removeEventListener('click', unlockAudio)
