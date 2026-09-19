@@ -63,7 +63,7 @@ export function buildInsightOpportunities(input: InsightOpportunityInput): Insig
       title: 'Aprovação saudável',
       detail: `A aprovação está em ${current.approval.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% com volume suficiente para leitura operacional.`,
       metric: `${current.approval.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`,
-      href: '/insights?tab=quality',
+      href: '/insights?tab=diagnosis',
       strength: current.approval - 80,
     })
   }
@@ -97,7 +97,7 @@ export function buildInsightOpportunities(input: InsightOpportunityInput): Insig
       metric: purchaseGrowth == null
         ? `${item.purchased.toLocaleString('pt-BR')} compras`
         : `+${purchaseGrowth.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% compras`,
-      href: '/insights?tab=sources',
+      href: '/insights?tab=campaigns',
       strength: purchaseGrowth ?? item.purchased * 10,
     })
   }
@@ -115,7 +115,7 @@ export function buildInsightOpportunities(input: InsightOpportunityInput): Insig
       title: 'Origem com eficiência acima da média',
       detail: `${efficientCampaign.name} converte ${efficientCampaign.conv.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% dos leads identificados.`,
       metric: `${efficientCampaign.conv.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% conversão`,
-      href: '/insights?tab=sources',
+      href: '/insights?tab=campaigns',
       strength: efficientCampaign.conv * 5,
     })
   }
@@ -131,7 +131,7 @@ export function buildInsightOpportunities(input: InsightOpportunityInput): Insig
       title: 'Base confiável para leitura',
       detail: 'Cobertura de compras e atribuição estão altas, reduzindo o risco de decisões baseadas em dados incompletos.',
       metric: `${input.purchaseCoverageRate.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% cobertura`,
-      href: '/insights?tab=quality',
+      href: '/insights?tab=diagnosis',
       strength: 15,
     })
   }
