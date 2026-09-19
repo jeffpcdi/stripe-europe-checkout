@@ -22,7 +22,7 @@ function normalizedPolicy(input) {
   const preset = sensitivity === 'strict' ? 30 : sensitivity === 'loose' ? 55 : 40;
   const threshold = sensitivity === 'custom'
     ? clamp(p.threshold, 10, 90, 40)
-    : clamp(p.threshold, 10, 90, preset);
+    : preset;
   return {
     threshold,
     mobileOnly: p.mobileOnly === true,
