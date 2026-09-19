@@ -676,6 +676,79 @@ async function getInsights(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate
   throw new Error('Limite de paginação de métricas atingido; sincronização incompleta');
 }
 
+
+function reportDateChunks(startDate, endDate, maxDays = 30) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(startDate || '')) ? new Date(String(startDate) + 'T00:00:00Z') : null;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(String(endDate || '')) ? new Date(String(endDate) + 'T00:00:00Z') : null;
+  if (!start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) {
+    throw badRequest('Período do relatório é inválido');
+  }
+  const chunks = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(
+      end.getTime(),
+      cursor.getTime() + (Math.max(1, maxDays) - 1) * 86400000,
+    ));
+    chunks.push({
+      startDate: cursor.toISOString().slice(0, 10),
+      endDate: chunkEnd.toISOString().slice(0, 10),
+    });
+    cursor = new Date(chunkEnd.getTime() + 86400000);
+    if (chunks.length > 24) throw badRequest('Período do relatório é amplo demais');
+  }
+  return chunks;
+}
+
+async function getIntegratedReport(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate, endDate } = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const dimension = (LEVEL_DEFAULT_DIMENSION[level] || [])[0];
+  if (!dimension || !['AUCTION_CAMPAIGN', 'AUCTION_AD'].includes(level)) {
+    throw badRequest('Nível de relatório não suportado');
+  }
+
+  const aggregate = new Map();
+  const chunks = reportDateChunks(startDate, endDate, 30);
+  for (const chunk of chunks) {
+    const rawRows = await listAllPages(
+      'get_tiktok_integrated_report',
+      {
+        advertiser_id: adv,
+        report_type: 'BASIC',
+        data_level: level,
+        dimensions: [dimension],
+        metrics: ['spend', 'impressions', 'clicks', 'ctr', 'cpc', 'cpm', 'conversion', 'cost_per_conversion'],
+        start_date: chunk.startDate,
+        end_date: chunk.endDate,
+      },
+      ['list', 'rows', 'metrics', 'data'],
+      { pageSize: 100 },
+    );
+    for (const raw of rawRows) {
+      const row = mapInsightRow(raw);
+      const id = String((row.dimensions || {})[dimension] || '').trim();
+      if (!id) continue;
+      const current = aggregate.get(id) || { id, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+      current.spend += row.spend;
+      current.impressions += row.impressions;
+      current.clicks += row.clicks;
+      current.conversions += row.conversions;
+      aggregate.set(id, current);
+    }
+  }
+
+  const rows = [...aggregate.values()].map((row) => ({
+    ...row,
+    ctr: row.impressions ? row.clicks / row.impressions : 0,
+    cpc: row.clicks ? row.spend / row.clicks : 0,
+    cpm: row.impressions ? (row.spend / row.impressions) * 1000 : 0,
+    cpa: row.conversions ? row.spend / row.conversions : 0,
+  })).sort((a, b) => b.spend - a.spend);
+
+  return { level, startDate, endDate, rows, chunks: chunks.length };
+}
+
 // ── Árvore no SHAPE do dashboard (contrato do frontend) ──────────────────────
 // O frontend (AdsTreeResponse em dashboard/lib/types.ts) espera:
 //   campaign: { platformCampaignId, campaignName, status(AdsNodeStatus),
@@ -4882,6 +4955,7 @@ module.exports = {
   getDashboardTree,
   // insights
   getInsights,
+  getIntegratedReport,
   // escrita (Gate 4)
   setCampaignStatus,
   setAdGroupStatus,
@@ -4943,5 +5017,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, reportDateChunks, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
 };
