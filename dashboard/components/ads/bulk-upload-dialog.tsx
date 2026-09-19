@@ -448,6 +448,7 @@ export function BulkUploadDialog({
                     onChange={setLinkUrl}
                     disabled={submitting}
                     label="Página de destino"
+                    cloakTrafficSource="tiktok_standard"
                     compact
                   />
                 </div>
