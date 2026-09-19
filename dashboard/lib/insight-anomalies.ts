@@ -57,7 +57,7 @@ export function buildInsightAnomalies(input: InsightAnomalyInput): InsightAnomal
       title: 'Tráfego sem compras',
       detail: `${current.visits.toLocaleString('pt-BR')} visitas chegaram no período, mas nenhuma compra rastreada foi confirmada.`,
       metric: `${current.visits.toLocaleString('pt-BR')} visitas · 0 compras`,
-      href: '/funnel',
+      href: '/insights?tab=funnel',
     })
   }
 
@@ -130,7 +130,7 @@ export function buildInsightAnomalies(input: InsightAnomalyInput): InsightAnomal
       title: 'Compras fora da jornada rastreada',
       detail: `${purchaseCoverage.orphan.toLocaleString('pt-BR')} compra${purchaseCoverage.orphan === 1 ? '' : 's'} não ${purchaseCoverage.orphan === 1 ? 'foi ligada' : 'foram ligadas'} a uma jornada identificada.`,
       metric: `${purchaseCoverage.rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% coberto`,
-      href: '/insights?tab=quality',
+      href: '/insights?tab=diagnosis',
     })
   }
 
@@ -142,7 +142,7 @@ export function buildInsightAnomalies(input: InsightAnomalyInput): InsightAnomal
       title: 'Atribuição incompleta',
       detail: `${(attribution.total - attribution.identified).toLocaleString('pt-BR')} visitas não têm origem identificada no período observado pela saúde do rastreamento.`,
       metric: `${attribution.rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% identificado`,
-      href: '/insights?tab=quality',
+      href: '/insights?tab=diagnosis',
     })
   }
 
@@ -153,7 +153,7 @@ export function buildInsightAnomalies(input: InsightAnomalyInput): InsightAnomal
       title: 'Dependência de uma única origem',
       detail: `A principal campanha concentra ${input.sourceConcentration.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% das compras entre as campanhas identificadas.`,
       metric: `${input.sourceConcentration.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% na #1`,
-      href: '/insights?tab=sources',
+      href: '/insights?tab=campaigns',
     })
   }
 
