@@ -3248,12 +3248,12 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
 .premium-navbar-popup__item[data-highlighted] > svg,
 .premium-navbar-popup__item[data-state='checked'] > svg { color: #67e8f9; }
 @keyframes navbar-popover-in {
-  from { opacity: 0; transform: translateY(-4px) scale(.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @keyframes navbar-popover-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-2px) scale(.99); }
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-2px); }
 }
 
 /* Header: redução progressiva de ruído sem quebrar acesso às ações. */
@@ -3339,6 +3339,11 @@ html[data-page-hidden='true'] .premium-navbar *::after { animation: none; }
   .refined-dashboard .section-tabs__item,
   .refined-dashboard .context-nav__item,
   .refined-dashboard .settings-tabs__item { transition: none !important; }
+}
+
+html[data-anim='off'] .premium-navbar-popup[data-state='open'],
+html[data-anim='off'] .premium-navbar-popup[data-state='closed'] {
+  animation: none !important;
 }
 
 /* Ajustes de composição para tablet/mobile após o rail contextual. */
