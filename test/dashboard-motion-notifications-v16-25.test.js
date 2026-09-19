@@ -44,6 +44,6 @@ assert(copy.includes("login: '/dashboard/config?tab=security'"), 'login deve abr
 assert(copy.includes("ads_rejected: '/dashboard/ads/tiktok?tab=automation'"), 'reprovação deve abrir Automações')
 assert(copy.includes("ads_breaker: '/dashboard/ads/tiktok?tab=automation'"), 'circuit breaker deve abrir Automações')
 assert(copy.includes("ads_cap: '/dashboard/ads/tiktok?tab=automation'"), 'limite de automação deve abrir Automações')
-assert(copy.includes("test: '/dashboard/config?tab=alerts'"), 'teste deve voltar à configuração de Alertas')
+assert(copy.includes("test: '/dashboard/config?tab=notifications'"), 'teste deve voltar à configuração de Alertas')
 
 console.log('[OK] V16.25 — micro motion, iPhone Web Push, badge e sons locais coerentes.')
