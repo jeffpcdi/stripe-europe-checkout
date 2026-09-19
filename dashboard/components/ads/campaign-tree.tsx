@@ -287,6 +287,13 @@ function StatusInline({ status }: { status?: AdsNodeStatus }) {
   )
 }
 
+function sourceWeightedCtr(items: Array<{ metrics?: AdsTreeAd['metrics'] }>) {
+  const impressions = items.reduce((sum, item) => sum + Number(item.metrics?.impressions || 0), 0)
+  if (!impressions) return 0
+  const clicks = items.reduce((sum, item) => sum + Number(item.metrics?.clicks || 0), 0)
+  return clicks > 0 ? (clicks / impressions) * 100 : items.reduce((sum, item) => sum + Number(item.metrics?.ctr || 0) * Number(item.metrics?.impressions || 0), 0) / impressions
+}
+
 function creativeSignal(ad: AdsTreeAd) {
   const impressions = Number(ad.metrics?.impressions || 0)
   const spend = Number(ad.metrics?.spend || 0)
@@ -979,6 +986,21 @@ export function CampaignTree({
 
   const campaigns = tree?.campaigns ?? []
   const pagination = tree?.pagination
+
+  const commandCenter = useMemo(() => {
+    const groups = campaigns.flatMap((campaign) => campaign.adSets || [])
+    const ads = groups.flatMap((group) => group.ads || [])
+    const source = entityLevel === 'campaign' ? campaigns : entityLevel === 'adgroup' ? groups : ads
+    const active = source.filter((item) => item.status === 'active').length
+    const issues = source.filter((item) => item.status === 'error' || item.status === 'rejected' || item.status === 'pending_review').length
+    const spend = source.reduce((sum, item) => sum + Number(item.metrics?.spend || 0), 0)
+    const conversions = source.reduce((sum, item) => sum + Number(item.metrics?.conversions || 0), 0)
+    const pendingProposals = decisions ? Object.values(decisions.byCampaign).filter((entry) => Boolean(entry.automation?.pendingProposal)).length : 0
+    const campaignSales = decisions ? Object.values(decisions.byCampaign).reduce((sum, entry) => sum + Number(entry.sales || 0), 0) : null
+    const campaignRevenueCents = decisions ? Object.values(decisions.byCampaign).reduce((sum, entry) => sum + Number(entry.revenueCents || 0), 0) : null
+    const roas = entityLevel === 'campaign' && campaignRevenueCents != null && spend > 0 ? (campaignRevenueCents / 100) / spend : null
+    return { total: source.length, active, issues, spend, conversions, pendingProposals, campaignSales, roas }
+  }, [campaigns, decisions, entityLevel])
 
   const statusCounts = useMemo(() => campaignStatusCounts(campaigns), [campaigns])
   const adGroupCount = useMemo(() => campaigns.reduce((total, campaign) => total + (campaign.adSets?.length || 0), 0), [campaigns])
@@ -1744,6 +1766,15 @@ export function CampaignTree({
           </div>
         ) : null}
       </div>
+
+      {!loading && !error && campaigns.length ? <div className="grid grid-cols-2 gap-2 border-b border-border/60 py-3 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5"><p className="text-[11px] font-medium text-muted-foreground">{entityLevel === 'campaign' ? 'Campanhas' : entityLevel === 'adgroup' ? 'Conjuntos' : 'Anúncios'}</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{commandCenter.total}</p><p className="text-[11px] text-muted-foreground">{commandCenter.active} ativos</p></div>
+        <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5"><p className="text-[11px] font-medium text-muted-foreground">Gasto no período</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{fmtMoney(commandCenter.spend, currency)}</p><p className="text-[11px] text-muted-foreground">{entityLevel === 'campaign' && commandCenter.campaignSales != null ? `${commandCenter.campaignSales} venda${commandCenter.campaignSales === 1 ? '' : 's'} real${commandCenter.campaignSales === 1 ? '' : 'is'}` : `${commandCenter.conversions} conversão${commandCenter.conversions === 1 ? '' : 'ões'} TikTok`}</p></div>
+        <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5"><p className="text-[11px] font-medium text-muted-foreground">{entityLevel === 'campaign' ? 'ROAS real' : 'CTR médio ponderado'}</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{entityLevel === 'campaign' ? (commandCenter.roas == null ? '—' : `${commandCenter.roas.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}×`) : (commandCenter.spend > 0 ? `${(sourceWeightedCtr(entityLevel === 'adgroup' ? campaigns.flatMap((c) => c.adSets || []) : campaigns.flatMap((c) => (c.adSets || []).flatMap((g) => g.ads || [])))).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` : '—')}</p><p className="text-[11px] text-muted-foreground">{entityLevel === 'campaign' ? 'Receita first-party ÷ gasto' : 'Sinal de entrega'}</p></div>
+        <button type="button" onClick={() => entityLevel === 'campaign' ? setQuickFilter('no_sales') : setEntityStatusFilter('issues')} className={cn('rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-secondary/20', commandCenter.issues ? 'border-warning/30 bg-warning/5' : 'border-border/60 bg-background')}><p className="text-[11px] font-medium text-muted-foreground">Precisa de atenção</p><p className={cn('mt-1 text-lg font-semibold tabular-nums', commandCenter.issues ? 'text-warning' : 'text-foreground')}>{commandCenter.issues}</p><p className="text-[11px] text-muted-foreground">Revisão, erro ou rejeição</p></button>
+        <button type="button" onClick={onOpenAutomations} disabled={!onOpenAutomations} className="rounded-lg border border-border/60 bg-background px-3 py-2.5 text-left transition-colors hover:bg-secondary/20 disabled:cursor-default"><p className="text-[11px] font-medium text-muted-foreground">Propostas ROI NADOS</p><p className={cn('mt-1 text-lg font-semibold tabular-nums', commandCenter.pendingProposals ? 'text-primary' : 'text-foreground')}>{commandCenter.pendingProposals}</p><p className="text-[11px] text-muted-foreground">Aguardando decisão</p></button>
+        <button type="button" onClick={onOpenAutomations} disabled={!onOpenAutomations} className="rounded-lg border border-border/60 bg-background px-3 py-2.5 text-left transition-colors hover:bg-secondary/20 disabled:cursor-default"><p className="text-[11px] font-medium text-muted-foreground">Autonomia</p><p className="mt-1 truncate text-sm font-semibold text-foreground">{!decisions ? 'Indisponível' : decisions.automation.actionsPaused ? 'Pausada' : decisions.automation.executionMode === 'automatic' ? 'Autopilot' : decisions.automation.executionMode === 'proposal' ? 'Assistida' : decisions.automation.executionMode === 'notify' ? 'Monitorar' : decisions.automation.executionMode === 'simulation' ? 'Simulação' : 'Personalizada'}</p><p className="text-[11px] text-muted-foreground">{decisions ? `${decisions.automation.rulesEnabled} regra${decisions.automation.rulesEnabled === 1 ? '' : 's'} ativa${decisions.automation.rulesEnabled === 1 ? '' : 's'}` : 'Sem estado do motor'}</p></button>
+      </div> : null}
 
       {decisions ? <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 bg-secondary/10 px-3 py-2.5 text-xs">
         <div className="flex items-center gap-2"><span className={cn('size-2 rounded-full', decisions.automation.actionsPaused ? 'bg-warning' : decisions.automation.state === 'running' ? 'bg-success' : 'bg-primary')} /><span className="font-semibold text-foreground">ROI NADOS Control</span></div>
