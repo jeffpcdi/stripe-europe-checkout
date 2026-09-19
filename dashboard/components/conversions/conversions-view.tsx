@@ -407,12 +407,11 @@ export function ConversionsView() {
   }, [activePixels, gateways.length, logSummary.success, syncValidation.hasFailure])
 
   const trackingNextAction = useMemo(() => {
-    if (syncValidation.hasFailure) return { label: 'Revise a falha mais recente', detail: syncValidation.failureDescription || 'Existe uma entrega que ainda precisa de diagnóstico.', action: 'logs' as const }
     if (activePixels === 0) return { label: 'Crie ou ative um Pixel', detail: 'Sem um Pixel ativo, o ROI-NADOS não consegue distribuir eventos para o TikTok.', action: 'pixel' as const }
     if (gateways.length === 0) return { label: 'Conecte um checkout', detail: 'O checkout envia as vendas que alimentam atribuição, ROAS real e automações.', action: 'gateway' as const }
     if (logSummary.success === 0) return { label: 'Valide a primeira entrega', detail: 'A estrutura está configurada, mas ainda não há uma conversão confirmada neste histórico.', action: 'logs' as const }
     return null
-  }, [activePixels, gateways.length, logSummary.success, syncValidation.failureDescription, syncValidation.hasFailure])
+  }, [activePixels, gateways.length, logSummary.success])
 
   if ((!pxData && pixelsError) || (!gwData && gatewaysError)) return <ErrorState title="Não foi possível carregar as conexões" onRetry={handleRefreshAll} />
 
@@ -794,6 +793,8 @@ export function ConversionsView() {
               </p>
               {logSummary.total === 0 ? (
                 <p className="mt-1 text-xs text-muted-foreground/80">Use “Testar integração” em um checkout para validar o fluxo.</p>
+              ) : logFilter !== 'all' ? (
+                <button type="button" onClick={() => setLogFilter('all')} className="mt-3 text-xs font-semibold text-brand-cyan hover:underline">Limpar filtro</button>
               ) : null}
             </div>
           ) : (
