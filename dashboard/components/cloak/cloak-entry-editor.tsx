@@ -109,7 +109,9 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
     savingRef.current = true
     setSaving(true)
     try {
-      const saved = await apiSend<{ ok: boolean; entry: CloakEntry }>('/api/cloak/campaigns', 'POST', {
+      const durableCampaign = !entry || Boolean(entry.id || entry.campaignId)
+      const endpoint = durableCampaign ? '/api/cloak/campaigns' : '/api/cloak/entries'
+      const saved = await apiSend<{ ok: boolean; entry: CloakEntry }>(endpoint, 'POST', {
         id: entry?.id ?? entry?.campaignId,
         campaignId: entry?.campaignId ?? entry?.id,
         slug,
