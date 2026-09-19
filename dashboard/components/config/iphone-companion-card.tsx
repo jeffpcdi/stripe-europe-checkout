@@ -200,9 +200,15 @@ export function IPhoneCompanionCard() {
             <Switch
               checked={data?.preferNativeIOS === true}
               onChange={setNativePreference}
+              disabled={!data?.apnsConfigured && data?.preferNativeIOS !== true}
               label="Preferir Companion no iPhone"
             />
           </div>
+          {!data?.apnsConfigured ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-warning">
+              O canal nativo só pode ser ativado quando o APNs estiver configurado. Até lá, o Web Push do iPhone continua sendo o fallback.
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={testNativeSaleSound}
