@@ -50,6 +50,10 @@ export function UniversalLauncherDialog({
   onConfigurePixel,
   initialBody,
   initialPrefix,
+  initialLinkUrl,
+  initialVideoId,
+  initialVideoUrl,
+  initialVideoName,
 }: {
   open: boolean
   onClose: () => void
@@ -62,6 +66,10 @@ export function UniversalLauncherDialog({
   onConfigurePixel?: () => void
   initialBody?: string
   initialPrefix?: string
+  initialLinkUrl?: string
+  initialVideoId?: string
+  initialVideoUrl?: string
+  initialVideoName?: string
 }) {
   const handleDone = () => {
     onSuccess?.()
@@ -115,7 +123,20 @@ export function UniversalLauncherDialog({
       setShowAdvanced(Boolean(initialBody || initialPrefix))
       if (initialBody != null) setBodyText(String(initialBody).slice(0, 100))
       if (initialPrefix != null) setCampaignPrefix(String(initialPrefix).slice(0, 120))
-      setItems([])
+      if (initialLinkUrl != null) setLinkUrl(String(initialLinkUrl).slice(0, 500))
+      if (initialVideoId || initialVideoUrl) {
+        const name = String(initialVideoName || 'Criativo sugerido').slice(0, 120)
+        setItems([{
+          key: 'draft:' + String(initialVideoId || initialVideoUrl),
+          name,
+          videoId: initialVideoId || undefined,
+          videoUrl: initialVideoId ? undefined : initialVideoUrl,
+          uploading: false,
+          fileName: name,
+        }])
+      } else {
+        setItems([])
+      }
       setJobId(null)
       setJobDryRun(false)
       setLaunchError(null)
@@ -129,7 +150,7 @@ export function UniversalLauncherDialog({
       uploadController.current?.abort()
       uploadLock.current = false
     }
-  }, [open, advertiserId, initialBody, initialPrefix])
+  }, [open, advertiserId, initialBody, initialPrefix, initialLinkUrl, initialVideoId, initialVideoUrl, initialVideoName])
 
   // Notificação de conclusão de lote
   useEffect(() => {
