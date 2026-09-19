@@ -32,6 +32,8 @@ const originalGetSafetyPolicy = adsOps.getSafetyPolicy;
   assert.match(source, /getSafetyPolicy\(accountId\)/);
   assert.ok(source.indexOf('getSafetyPolicy(accountId)') < source.indexOf('await ensureSchema();', source.indexOf('async function syncOne')),
     'policy é validada antes de iniciar a sincronização');
+  assert.doesNotMatch(source, /states\[0\].*advertiser_id/, 'worker nunca escolhe automaticamente a primeira conta de anúncios');
+  assert.match(source, /const advertiserId = String\(pref\.advertiserId \|\| ''\)\.trim\(\)/, 'worker exige advertiser persistido explicitamente');
 
   const panel = fs.readFileSync(require.resolve('../dashboard/components/ads/cloud-video-sync-panel.tsx'), 'utf8');
   const saved = fs.readFileSync(require.resolve('../dashboard/components/ads/saved-videos.tsx'), 'utf8');
@@ -46,6 +48,8 @@ const originalGetSafetyPolicy = adsOps.getSafetyPolicy;
   assert.match(saved, /appearance === 'default'/);
   assert.match(saved, /<CloudVideoSyncPanel advertiserId=\{advertiserId\}/);
   assert.match(routes, /\/dashboard\/ads\/tiktok\?cloudVideo=connected/);
+  assert.match(routes, /enabled: current\.enabled === true && Boolean\(String\(current\.advertiserId \|\| ''\)\.trim\(\)\)/,
+    'primeira conexão OAuth fica pausada até receber advertiser explícito');
   assert.match(view, /cloudVideo/);
   assert.match(view, /Nuvem conectada/);
 
