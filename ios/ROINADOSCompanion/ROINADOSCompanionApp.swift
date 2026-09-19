@@ -19,6 +19,8 @@ struct CompanionSetupView: View {
     @State private var status = ""
     @State private var saving = false
     @State private var notificationNeedsSettings = false
+    @State private var snapshot: WidgetSnapshot?
+    @State private var refreshingSnapshot = false
 
     var body: some View {
         NavigationStack {
@@ -44,10 +46,35 @@ struct CompanionSetupView: View {
                     }
                 }
 
+                if let snapshot {
+                    Section("Hoje") {
+                        LabeledContent("Receita", value: money(snapshot.today.revenueCents, currency: snapshot.currency))
+                        LabeledContent("Vendas", value: "\(snapshot.today.sales)")
+                        LabeledContent("ROAS", value: ratio(snapshot.media.roas))
+                        LabeledContent("Lucro", value: money(snapshot.profitability.netProfitCents, currency: snapshot.currency))
+
+                        HStack {
+                            Button(refreshingSnapshot ? "Atualizando…" : "Atualizar widgets") {
+                                Task { await refreshSnapshot() }
+                            }
+                            .disabled(refreshingSnapshot)
+
+                            Spacer()
+
+                            if let salesURL = CompanionConfig.dashboardURL(path: "/dashboard/activity") {
+                                Link("Ver vendas", destination: salesURL)
+                            }
+                        }
+                    }
+                }
+
                 Section("iPhone") {
-                    Label("Widgets: Receita, Vendas, ROAS e Lucro", systemImage: "rectangle.3.group")
+                    Label("Widgets: Executivo + Vendas", systemImage: "rectangle.3.group")
                     Label("Venda: som próprio ROI-NADOS", systemImage: "speaker.wave.2")
-                    Label("Alertas: APNs nativo", systemImage: "bell.badge")
+                    Label("Alertas: APNs nativo com ações rápidas", systemImage: "bell.badge")
+                    Text("Para adicionar um widget, mantenha pressionada a Tela de Início ou a Tela Bloqueada e procure por ROI-NADOS.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
                     if notificationNeedsSettings {
                         Button("Abrir Ajustes de notificações") {
@@ -55,9 +82,16 @@ struct CompanionSetupView: View {
                             UIApplication.shared.open(settingsURL)
                         }
                     }
+
+                    if let dashboardURL = CompanionConfig.dashboardURL() {
+                        Link("Abrir dashboard completa", destination: dashboardURL)
+                    }
                 }
             }
             .navigationTitle("ROI-NADOS")
+        }
+        .task {
+            await refreshSnapshot()
         }
         .onOpenURL { url in
             guard url.scheme == "roinados", url.host == "pair" else { return }
@@ -83,6 +117,32 @@ struct CompanionSetupView: View {
     }
 
     @MainActor
+    private func refreshSnapshot() async {
+        guard CompanionConfig.apiBaseURL != nil, CompanionCredentials.token() != nil else { return }
+        refreshingSnapshot = true
+        defer { refreshingSnapshot = false }
+        if let latest = try? await ROIAPIClient.widgetSnapshot() {
+            snapshot = latest
+            WidgetCenter.shared.reloadAllTimelines()
+        } else if snapshot == nil {
+            snapshot = WidgetSnapshotCache.load()
+        }
+    }
+
+    private func ratio(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.2f×", value)
+    }
+
+    private func money(_ cents: Int, currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? "\(currency) \(cents / 100)"
+    }
+
+    @MainActor
     private func save() async {
         saving = true
         defer { saving = false }
@@ -96,7 +156,8 @@ struct CompanionSetupView: View {
         do {
             CompanionConfig.setAPIBaseURL(url)
             try CompanionCredentials.save(token: token.trimmingCharacters(in: .whitespacesAndNewlines))
-            let snapshot = try await ROIAPIClient.widgetSnapshot()
+            let latest = try await ROIAPIClient.widgetSnapshot()
+            snapshot = latest
             SaleSoundInstaller.installIfNeeded()
             WidgetCenter.shared.reloadAllTimelines()
 
@@ -104,8 +165,8 @@ struct CompanionSetupView: View {
             let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
             notificationNeedsSettings = notificationSettings.authorizationStatus == .denied
             status = notificationsReady
-                ? "\(snapshot.today.sales) venda(s) hoje · widgets e alertas ativos."
-                : "\(snapshot.today.sales) venda(s) hoje · widgets ativos; alertas desativados."
+                ? "\(latest.today.sales) venda(s) hoje · widgets e alertas ativos."
+                : "\(latest.today.sales) venda(s) hoje · widgets ativos; alertas desativados."
         } catch {
             status = "Não foi possível validar o token/servidor."
         }
