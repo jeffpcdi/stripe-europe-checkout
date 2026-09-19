@@ -926,27 +926,44 @@ export function CampaignTree({
   async function applyEntityBulkStatus(status: 'active' | 'paused') {
     if (!selectedEntities.size || bulkBusy) return
     setBulkBusy(true)
-    let updated = 0
-    let simulated = 0
-    let failed = 0
-    for (const id of selectedEntities) {
-      try {
-        const result = await apiSend<{ dryRun?: boolean; simulated?: boolean }>(`/api/ads/${encodeURIComponent(id)}`, 'PUT', { status })
-        if (result.dryRun || result.simulated) simulated++
-        else updated++
-      } catch {
-        failed++
+    try {
+      const result = await apiSend<{
+        dryRun?: boolean
+        simulated?: number
+        totals?: { updated: number; skipped: number; failed: number }
+        failures?: { id: string; error?: string }[]
+      }>('/api/ads/entities/bulk-status', 'POST', {
+        ids: [...selectedEntities],
+        status,
+        adAccountId: campaigns[0]?.platformAdAccountId,
+      })
+
+      if (result.dryRun) {
+        toast.info(`${result.simulated || selectedEntities.size} alteração(ões) simulada(s)`, { hint: 'Modo teste: nada foi publicado.' })
+        return
       }
+
+      const updated = Number(result.totals?.updated) || 0
+      const skipped = Number(result.totals?.skipped) || 0
+      const failed = Number(result.totals?.failed) || 0
+      const entityLabel = entityLevel === 'ad' ? 'anúncio' : 'conjunto'
+
+      if (updated) {
+        toast.success(`${updated} ${entityLabel}${updated === 1 ? '' : 's'} atualizado${updated === 1 ? '' : 's'}`, { hint: 'Aguardando sincronização do TikTok.' })
+        actionFeedback()
+        onMutate()
+      }
+      if (skipped) toast.info(`${skipped} item${skipped === 1 ? '' : 's'} ignorado${skipped === 1 ? '' : 's'}`, { hint: 'Atualize a árvore se a seleção estiver desatualizada.' })
+      if (failed) {
+        const first = result.failures?.[0]?.error
+        toast.error(`${failed} alteração${failed === 1 ? '' : 'ões'} falharam`, { hint: first || undefined })
+      }
+      if (!failed && !skipped) setSelectedEntities(new Set())
+    } catch (e) {
+      toast.error('Falha na alteração em lote', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBulkBusy(false)
     }
-    setBulkBusy(false)
-    if (updated) {
-      toast.success(`${updated} ${entityLevel === 'ad' ? 'anúncio(s)' : 'conjunto(s)'} atualizado(s)`, { hint: 'Aguardando sincronização do TikTok.' })
-      actionFeedback()
-      onMutate()
-    }
-    if (simulated) toast.info(`${simulated} alteração(ões) simulada(s)`, { hint: 'Modo teste: nada foi publicado.' })
-    if (failed) toast.error(`${failed} alteração(ões) falharam`)
-    if (!failed) setSelectedEntities(new Set())
   }
 
   function toggleEntitySelection(id: string) {
