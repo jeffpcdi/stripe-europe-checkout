@@ -18,6 +18,7 @@
 'use strict';
 
 const automationWindow = require('./ads-automation-window');
+const { TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 let Anthropic = null;
 
 // Sem gateway intermediário: a chave fica vinculada apenas à Anthropic.
@@ -407,7 +408,7 @@ function validateProposedAction(action, knownCampaignIds) {
     const id = String(p.campaignId || '');
     const budget = Number(p.budget);
     if (!/^\d{5,30}$/.test(id)) return { ok: false, error: 'campaignId inválido' };
-    if (!(budget >= 5 && budget <= 10000)) return { ok: false, error: 'budget fora do intervalo 5–10000' };
+    if (!(budget >= TIKTOK_MIN_BUDGET && budget <= 10000)) return { ok: false, error: 'budget fora do intervalo ' + TIKTOK_MIN_BUDGET + '–10000' };
     if (knownCampaignIds && !knownCampaignIds.has(id)) return { ok: false, error: 'campanha não existe no espelho' };
     return { ok: true, params: { campaignId: id, budget: +budget.toFixed(2) } };
   }
@@ -731,7 +732,7 @@ async function creativeInsights(accId, advertiserId, { force } = {}) {
 // `days`: janela de atribuição configurável (1–30, default 1 — padrão diário).
 // Janelas < 3 dias são ruidosas para decisões de dinheiro; a UI exibe aviso
 // com base no `windowDays` devolvido. As invariantes NÃO mudam com a janela.
-async function budgetProposal(accId, advertiserId, currency, days = 1) {
+async function budgetProposal(accId, advertiserId, currency, days = 1, maxBudgetChangePct = 30) {
   const windowDays = Math.max(1, Math.min(30, parseInt(days, 10) || 1));
   const rows = await roasByCampaign(accId, advertiserId, windowDays);
   const rowsWithLearning = rows.map((c) => ({ ...c, learning: campaignLearningState({
@@ -753,16 +754,18 @@ async function budgetProposal(accId, advertiserId, currency, days = 1) {
   if (eligible.length < 2) return { insufficient: true, eligibleCount: eligible.length, excluded, windowDays };
 
   const totalBudget = eligible.reduce((a, c) => a + c.dailyBudget, 0);
+  const maxChangePct = Math.max(5, Math.min(30, Number(maxBudgetChangePct) || 30)) / 100;
 
   // Score marginal: ROAS real (vendas ≥ 2), senão 0 (não recebe, pode ceder).
   const scored = eligible.map((c) => ({ ...c, score: c.sales >= 2 && c.roas ? c.roas : 0 }));
   const totalScore = scored.reduce((a, c) => a + c.score, 0);
 
   const changes = scored.map((c) => {
-    // alvo proporcional ao score; clamp ±30% do atual; piso 5
+    // alvo proporcional ao score; clamp pela política da conta e pelo mínimo
+    // único do TikTok usado no restante do produto.
     const ideal = totalScore > 0 ? (c.score / totalScore) * totalBudget : c.dailyBudget;
-    const lo = Math.max(5, c.dailyBudget * 0.7);
-    const hi = c.dailyBudget * 1.3;
+    const lo = Math.max(TIKTOK_MIN_BUDGET, c.dailyBudget * (1 - maxChangePct));
+    const hi = c.dailyBudget * (1 + maxChangePct);
     let next = Math.min(hi, Math.max(lo, ideal));
     next = Math.round(next * 100) / 100;
     return {
@@ -781,7 +784,7 @@ async function budgetProposal(accId, advertiserId, currency, days = 1) {
   if (propTotal > totalBudget) {
     const f = totalBudget / propTotal;
     for (const ch of changes) {
-      ch.proposed = Math.max(5, Math.round(ch.proposed * f * 100) / 100);
+      ch.proposed = Math.max(TIKTOK_MIN_BUDGET, Math.round(ch.proposed * f * 100) / 100);
       ch.deltaPct = +(((ch.proposed - ch.current) / ch.current) * 100).toFixed(1);
     }
   }
