@@ -60,6 +60,9 @@ function payloadFor(note) {
   const interruptionLevel = note.priority === 'critical'
     ? 'time-sensitive'
     : (isDailyReport ? 'passive' : 'active');
+  const category = (event === 'sale' || event === 'test')
+    ? 'ROI_SALE'
+    : (isDailyReport ? 'ROI_DAILY' : (event.startsWith('ads_') ? 'ROI_AUTOMATION' : ''));
   const aps = {
     alert: {
       title: String(note.title || 'ROI-NADOS').slice(0, 120),
@@ -68,6 +71,7 @@ function payloadFor(note) {
     'thread-id': isDailyReport ? 'reports' : (event.startsWith('ads_') ? 'automation' : (event || 'general')),
     'interruption-level': interruptionLevel,
   };
+  if (category) aps.category = category;
   if (!isDailyReport) aps.sound = saleSound ? 'roi-sale.wav' : 'default';
   if (event === 'sale') aps['content-available'] = 1;
   if (note.badge === true) aps.badge = 1;
