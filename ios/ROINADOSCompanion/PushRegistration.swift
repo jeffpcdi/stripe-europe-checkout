@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import UserNotifications
 import WidgetKit
+import WidgetKit
 
 enum CompanionPushRegistrar {
     static func register(deviceToken: Data) async {
