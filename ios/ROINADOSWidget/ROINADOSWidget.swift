@@ -47,6 +47,7 @@ struct ROIWidgetView: View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
+        .widgetURL(CompanionConfig.dashboardURL())
     }
 
     private func small(_ snapshot: WidgetSnapshot) -> some View {
