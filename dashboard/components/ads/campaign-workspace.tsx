@@ -310,6 +310,12 @@ export function CampaignWorkspace(props: Props) {
   const winners = insightRows.filter((row) => row.roas != null && row.roas >= 2).sort((a, b) => (b.roas || 0) - (a.roas || 0))
   const attention = campaigns.filter((campaign) => ['rejected', 'error', 'pending_review'].includes(String(campaign.status)))
 
+  const totalSpend = insightRows.reduce((sum, row) => sum + row.spend, 0)
+  const totalSales = props.decisions ? insightRows.reduce((sum, row) => sum + row.sales, 0) : null
+  const comparableRevenue = insightRows.every((row) => row.revenue != null)
+  const totalRevenue = comparableRevenue ? insightRows.reduce((sum, row) => sum + Number(row.revenue || 0), 0) : null
+  const realRoas = totalRevenue != null && totalSpend > 0 ? totalRevenue / totalSpend : null
+
   const groupSelectionScope = visibleGroups.map(({ group }) => group.platformAdSetId).filter(Boolean).sort().join('|')
   const adSelectionScope = visibleAds.map(({ ad }) => ad.platformAdId || ad._id).filter(Boolean).sort().join('|')
 
@@ -482,11 +488,13 @@ export function CampaignWorkspace(props: Props) {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-border/45 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px bg-border/45 md:grid-cols-3 xl:grid-cols-6">
           <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{campaigns.filter((c) => c.status === 'active').length}</p><p className="text-[11px] text-muted-foreground">Campanhas ativas</p></div>
           <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{activeGroups}</p><p className="text-[11px] text-muted-foreground">Conjuntos ativos</p></div>
           <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{activeAds}</p><p className="text-[11px] text-muted-foreground">Anúncios ativos</p></div>
-          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{videoAds}</p><p className="text-[11px] text-muted-foreground">Vídeos carregados</p></div>
+          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-foreground">{money(totalSpend, props.currency)}</p><p className="text-[11px] text-muted-foreground">Gasto TikTok</p></div>
+          <div className="bg-background/45 px-4 py-3"><p className="text-lg font-semibold tabular-nums text-success">{totalSales == null ? '—' : totalSales.toLocaleString('pt-BR')}</p><p className="text-[11px] text-muted-foreground">Vendas reais</p></div>
+          <div className="bg-background/45 px-4 py-3"><p className={cn('text-lg font-semibold tabular-nums', realRoas != null && realRoas >= 2 ? 'text-success' : 'text-foreground')}>{realRoas == null ? '—' : `${realRoas.toFixed(2)}×`}</p><p className="text-[11px] text-muted-foreground">ROAS real</p></div>
         </div>
       </section>
 
