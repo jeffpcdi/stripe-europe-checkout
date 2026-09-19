@@ -20,7 +20,7 @@ import { usePixels, useGateways, useConversionLog, usePixelHealth, apiSend, ApiE
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
-import { timeAgo, fmtCurrency } from '@/lib/format'
+import { timeAgo } from '@/lib/format'
 import { conversionStatus, conversionAmount, conversionEvent } from '@/lib/conversion-status'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import type { Pixel, Gateway, GatewayProvider, ConversionLogRow } from '@/lib/types'
