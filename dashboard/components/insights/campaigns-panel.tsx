@@ -2,10 +2,49 @@
 
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
-import type { AdsCampaignDecisionsResponse, AdsTreeResponse } from '@/lib/types'
+import type { AdsCampaignDecisionsResponse, AdsTreeCampaign, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+
+
+function dailyBudget(campaign: AdsTreeCampaign): number | null {
+  if (campaign.budgetOwner === 'campaign') {
+    return campaign.budget?.type === 'daily' && Number(campaign.budget.amount) > 0 ? Number(campaign.budget.amount) : null
+  }
+  const budgets = (campaign.adSets ?? [])
+    .map(adSet => adSet.budget)
+    .filter(budget => budget?.type === 'daily' && Number(budget.amount) > 0)
+    .map(budget => Number(budget?.amount) || 0)
+  if (!budgets.length) return null
+  return budgets.reduce((sum, value) => sum + value, 0)
+}
+
+function dayProgress(timeZone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date())
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+    const minutes = Number(values.hour || 0) * 60 + Number(values.minute || 0)
+    return Math.max(0.05, Math.min(1, minutes / 1440))
+  } catch {
+    return 0.5
+  }
+}
+
+function pacingView(spend: number | null, budget: number | null, timeZone: string) {
+  if (spend == null || budget == null || budget <= 0) return null
+  const consumed = (spend / budget) * 100
+  const expected = dayProgress(timeZone) * 100
+  const gap = consumed - expected
+  if (gap >= 20) return { label: 'Acima do ritmo', tone: 'text-warning', consumed }
+  if (gap <= -20) return { label: 'Abaixo do ritmo', tone: 'text-muted-foreground', consumed }
+  return { label: 'No ritmo', tone: 'text-success', consumed }
+}
 
 function statusLabel(status?: string) {
   const value = String(status || '').toLowerCase()
@@ -29,13 +68,17 @@ export function InsightsCampaignsPanel({
   connected,
   tree,
   decisions,
+  pacingTree,
   currency,
+  timeZone,
   loading,
 }: {
   connected: boolean
   tree?: AdsTreeResponse
   decisions?: AdsCampaignDecisionsResponse
+  pacingTree?: AdsTreeResponse
   currency: string
+  timeZone: string
   loading: boolean
 }) {
   if (!connected) {
@@ -52,6 +95,8 @@ export function InsightsCampaignsPanel({
     return <Skeleton className="h-80 rounded-2xl" />
   }
 
+  const todayByCampaign = new Map((pacingTree?.campaigns ?? []).map(campaign => [String(campaign.platformCampaignId || ''), campaign]))
+
   const rows = (tree?.campaigns ?? []).map(campaign => {
     const id = String(campaign.platformCampaignId || '')
     const spend = typeof campaign.metrics?.spend === 'number' ? campaign.metrics.spend : null
@@ -63,6 +108,10 @@ export function InsightsCampaignsPanel({
     const comparable = decisionCurrency === spendCurrency
     const cpa = sales != null && sales > 0 && spend != null ? spend / sales : null
     const roas = revenueCents != null && spend != null && spend > 0 && comparable ? (revenueCents / 100) / spend : null
+    const todayCampaign = todayByCampaign.get(id)
+    const todaySpend = typeof todayCampaign?.metrics?.spend === 'number' ? todayCampaign.metrics.spend : null
+    const budget = dailyBudget(campaign)
+    const pacing = pacingView(todaySpend, budget, timeZone)
 
     return {
       id,
@@ -75,6 +124,7 @@ export function InsightsCampaignsPanel({
       decisionCurrency,
       cpa,
       roas,
+      pacing,
     }
   }).sort((a, b) => (b.revenueCents ?? -1) - (a.revenueCents ?? -1) || (b.spend ?? -1) - (a.spend ?? -1))
 
@@ -89,7 +139,7 @@ export function InsightsCampaignsPanel({
 
       {rows.length ? (
         <div className="overflow-x-auto border-t border-border/60">
-          <table className="w-full min-w-[760px] border-collapse text-left">
+          <table className="w-full min-w-[920px] border-collapse text-left">
             <thead>
               <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
                 <th className="px-5 py-3">Campanha</th>
@@ -98,7 +148,8 @@ export function InsightsCampaignsPanel({
                 <th className="px-4 py-3 text-right">Receita</th>
                 <th className="px-4 py-3 text-right">Compras</th>
                 <th className="px-4 py-3 text-right">CPA</th>
-                <th className="px-5 py-3 text-right">ROAS</th>
+                <th className="px-4 py-3 text-right">ROAS</th>
+                <th className="px-5 py-3">Ritmo hoje</th>
               </tr>
             </thead>
             <tbody>
@@ -112,7 +163,15 @@ export function InsightsCampaignsPanel({
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground" data-private="true">{row.revenueCents == null ? '—' : formatMoney(row.revenueCents, row.decisionCurrency)}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.sales == null ? '—' : row.sales.toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3.5 text-right text-xs tabular-nums text-foreground">{row.cpa == null ? '—' : formatMoney(Math.round(row.cpa * 100), row.spendCurrency)}</td>
-                  <td className="px-5 py-3.5 text-right text-xs font-semibold tabular-nums text-brand-cyan">{row.roas == null ? '—' : `${row.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`}</td>
+                  <td className="px-4 py-3.5 text-right text-xs font-semibold tabular-nums text-brand-cyan">{row.roas == null ? '—' : `${row.roas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`}</td>
+                  <td className="px-5 py-3.5">
+                    {row.pacing ? (
+                      <span>
+                        <span className={`block text-xs font-semibold ${row.pacing.tone}`}>{row.pacing.label}</span>
+                        <span className="mt-0.5 block text-[11px] tabular-nums text-muted-foreground">{row.pacing.consumed.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do orçamento diário</span>
+                      </span>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
