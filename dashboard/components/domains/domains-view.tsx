@@ -254,6 +254,11 @@ export function DomainsView() {
 
   return (
     <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Domínios</h1>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Conecte domínios próprios e defina claramente se cada endereço será usado em Links ou no Cloaker.</p>
+      </header>
+
       {domains.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-[13px]">
           <span><strong className="font-semibold tabular-nums text-foreground">{domains.length}</strong> domínio{domains.length === 1 ? '' : 's'}</span>
