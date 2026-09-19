@@ -55,7 +55,7 @@ assert(config.includes("companion: {") && config.includes("devices: devices.slic
 assert(config.includes("preferNativeIOS: source.preferNativeIOS === true"), 'preferência pelo canal nativo deve ser explícita e persistida')
 assert(webPush.includes('note && note.skipIOSWebPush'), 'Web Push deve ceder iPhone ao companion nativo para evitar duplicação')
 assert(fanout.includes('async function sendViaIOS') && fanout.includes('sendViaIOS(notificationName'), 'fan-out deve incluir APNs nativo')
-assert(fanout.includes("event === 'test' || event === 'daily'"), 'brief diário opt-in deve atravessar Web Push/APNs mesmo com grupos desligados')
+assert(fanout.includes("event === 'daily'") && fanout.includes('dailyReportEnabled === true'), 'brief diário deve atravessar canais nativos apenas quando opt-in estiver ativo')
 assert(fanout.includes('companion.preferNativeIOS === true') && fanout.includes('note.skipIOSWebPush'), 'Web Push do iPhone só deve ser suprimido por preferência explícita')
 
 assert(settings.includes('<IPhoneCompanionCard />'), 'Conta → Alertas deve expor pareamento do companion')
