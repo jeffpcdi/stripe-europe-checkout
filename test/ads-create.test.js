@@ -38,6 +38,7 @@ const responses = {
   create_tiktok_campaign: () => ({ campaign_id: '111' }),
   create_tiktok_adgroup: () => ({ adgroup_id: '222' }),
   upload_tiktok_video: () => ({ video_id: 'v_1', displayable: true }),
+  get_tiktok_video_info: (args) => ({ videos: [{ video_id: String(args.video_ids && args.video_ids[0] || 'v_1'), displayable: true }] }),
   create_tiktok_ad: () => ({ ad_id: '333' }),
   create_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1' }),
   get_tiktok_cta_portfolio: () => ({ creative_portfolio_id: 'cta_auto_1', call_to_actions: ['SHOP_NOW', 'LEARN_MORE'] }),
@@ -99,6 +100,19 @@ const baseSpec = {
 
     assert.strictEqual(callsTo('update_tiktok_ad_status').length, 0, 'default paused: sem ENABLE no fim');
     assert.ok(out.warnings.some((w) => /PAUSED/.test(w)), 'warning avisa que ficou pausado');
+  }
+
+  // ── vídeo já sincronizado: valida e reutiliza sem reupload ────────────────
+  {
+    resetCalls();
+    const out = await provider.createFullAd('adv1', { ...baseSpec, videoUrl: undefined, videoId: 'cloud_video_123' });
+    assert.strictEqual(out.videoId, 'cloud_video_123');
+    assert.strictEqual(callsTo('upload_tiktok_video').length, 0, 'asset sincronizado não é enviado novamente');
+    assert.strictEqual(callsTo('get_tiktok_video_info').length, 1, 'videoId é validado antes da criação');
+    const idxCheck = toolCalls.findIndex((call) => call.name === 'get_tiktok_video_info');
+    const idxCampaign = toolCalls.findIndex((call) => call.name === 'create_tiktok_campaign');
+    assert.ok(idxCheck >= 0 && idxCheck < idxCampaign, 'asset é validado antes de qualquer estrutura TikTok');
+    assert.strictEqual(callsTo('create_tiktok_ad')[0].args.video_id, 'cloud_video_123');
   }
 
   // ── CTA dinâmico: portfolio verificado + call_to_action_id exclusivo ──────
@@ -236,6 +250,9 @@ const baseSpec = {
     assert.match(createRoute, /status: 'paused'/, 'rota cria SEMPRE em paused');
     assert.match(routes, /getOrCreateTikTokCtaPortfolio/, 'rota resolve portfolio de CTA dinâmico fora do browser');
     assert.match(routes, /dynamicCallToAction/, 'contrato aceita CTA automática sem expor call_to_action_id ao cliente');
+    assert.match(routes, /videoId: payload\.videoId/, 'criação unitária preserva videoId sincronizado');
+    assert.match(routes, /videoId: p\.videoId/, 'worker de lote preserva videoId sincronizado');
+    assert.match(routes, /videoId: it\.videoId/, 'entrada do lote aceita videoId sincronizado');
   }
 
   console.log('ads-create (F1): todos os testes passaram');
