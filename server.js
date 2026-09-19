@@ -1149,10 +1149,7 @@ async function handleCheckoutPublic(req, res) {
     // Monta o objeto challengeData com todos os sinais do browser persistidos
     const challengeData = buildCloakChallengeData(lead0);
 
-    const filterReq = Object.assign(Object.create(req), {
-      geoCountry: observedCountry(),
-      roiNetworkContext: networkContext && networkContext.networkVerified ? networkContext : null,
-    });
+    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     judgment = await botFilter
       .judge(filterReq, filterVid, challengeToken, challengeData, cloakCfg)
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
@@ -1576,7 +1573,10 @@ async function handleCloakPublic(req, res) {
       challengeAgeMs: Number.isFinite(challengeAt) ? Math.max(0, Date.now() - challengeAt) : NaN,
     };
 
-    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+    const filterReq = Object.assign(Object.create(req), {
+      geoCountry: observedCountry(),
+      roiNetworkContext: networkContext && networkContext.networkVerified ? networkContext : null,
+    });
     let j;
     try {
       j = await botFilter.judge(filterReq, cloakVid, challengeToken, challengeData, entry);
