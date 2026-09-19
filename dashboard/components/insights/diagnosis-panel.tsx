@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, CircleAlert, Sparkles } from 'lucide-react'
-import type { OverviewHealthResponse, OverviewPeriodMetrics } from '@/lib/types'
+import type { AdsDestinationHealthResponse, OverviewHealthResponse, OverviewPeriodMetrics } from '@/lib/types'
 import { buildInsightAnomalies } from '@/lib/insight-anomalies'
 import { buildInsightOpportunities } from '@/lib/insight-opportunities'
 import { fmtPercent } from '@/lib/format'
@@ -15,6 +15,7 @@ export function InsightsDiagnosisPanel({
   current,
   previous,
   health,
+  destinationHealth,
   currentRevenue,
   previousRevenue,
   bottleneck,
@@ -22,6 +23,7 @@ export function InsightsDiagnosisPanel({
   current: OverviewPeriodMetrics
   previous: OverviewPeriodMetrics | null
   health?: OverviewHealthResponse | null
+  destinationHealth?: AdsDestinationHealthResponse | null
   currentRevenue: number
   previousRevenue: number | null
   bottleneck?: { from: string; to: string; drop: number; lost: number } | null
@@ -35,7 +37,7 @@ export function InsightsDiagnosisPanel({
     currentRevenue,
     previousRevenue,
     bottleneck,
-  }), [current, previous, health, currentRevenue, previousRevenue, bottleneck, sourceConcentration])
+  }), [current, previous, health, currentRevenue, previousRevenue, bottleneck])
 
   const opportunities = useMemo(() => buildInsightOpportunities({
     current,
@@ -46,13 +48,44 @@ export function InsightsDiagnosisPanel({
     attributionRate: health?.coverage.attribution.rate ?? null,
   }), [current, previous, currentRevenue, previousRevenue, health])
 
+  const destinationAlerts = useMemo(() => {
+    const destinations = destinationHealth?.destinations ?? []
+    return destinations.flatMap(destination => {
+      if (destination.severity === 'healthy') return []
+      const campaigns = destination.campaigns.length
+      if (destination.severity === 'critical') {
+        return [{
+          id: 'destination-critical:' + destination.host,
+          title: 'Destino do anúncio indisponível',
+          detail: `${destination.host} ${destination.page.error ? '· ' + destination.page.error : 'não respondeu corretamente'}. ${campaigns} campanha${campaigns === 1 ? '' : 's'} ativa${campaigns === 1 ? '' : 's'} usa${campaigns === 1 ? '' : 'm'} esta página.`,
+          metric: destination.page.status > 0 ? `HTTP ${destination.page.status}` : 'Offline',
+          href: '/ads/tiktok',
+          severity: 'critical' as const,
+          kind: 'attention' as const,
+          rank: 0,
+        }]
+      }
+      return [{
+        id: 'destination-runtime:' + destination.host,
+        title: 'Pixel sem sinal recente no destino',
+        detail: `${destination.host} está online, mas o Pixel vinculado não apareceu neste host nas últimas 24h. Revise a instalação antes de aumentar o investimento.`,
+        metric: '24h',
+        href: '/conversions?tab=pixels',
+        severity: 'warning' as const,
+        kind: 'attention' as const,
+        rank: 1,
+      }]
+    })
+  }, [destinationHealth])
+
   const items = [
+    ...destinationAlerts,
     ...anomalies.map(item => ({ ...item, kind: 'attention' as const, rank: item.severity === 'critical' ? 0 : item.severity === 'warning' ? 1 : 3 })),
     ...opportunities.map(item => ({ ...item, kind: 'opportunity' as const, severity: 'info' as const, rank: 2 })),
   ].sort((a, b) => a.rank - b.rank)
 
   const visible = filter === 'all' ? items : items.filter(item => item.kind === filter)
-  const attentionCount = anomalies.filter(item => item.severity !== 'info').length
+  const attentionCount = destinationAlerts.length + anomalies.filter(item => item.severity !== 'info').length
 
   const coverage = [
     { label: 'Compras', rate: health?.coverage.purchases.rate ?? null },
@@ -146,6 +179,21 @@ export function InsightsDiagnosisPanel({
             </div>
           ))}
         </div>
+        {destinationHealth && destinationHealth.summary.total > 0 ? (
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/50 pt-3">
+            <span className="text-xs text-muted-foreground">Destinos dos anúncios</span>
+            <Link
+              href="/ads/tiktok"
+              className={`text-xs font-semibold ${destinationHealth.summary.critical > 0 ? 'text-destructive' : destinationHealth.summary.warning > 0 ? 'text-warning' : 'text-success'}`}
+            >
+              {destinationHealth.summary.critical > 0
+                ? `${destinationHealth.summary.critical} indisponível${destinationHealth.summary.critical === 1 ? '' : 'is'}`
+                : destinationHealth.summary.warning > 0
+                  ? `${destinationHealth.summary.warning} sem sinal recente`
+                  : `${destinationHealth.summary.healthy}/${destinationHealth.summary.total} saudáveis`}
+            </Link>
+          </div>
+        ) : null}
       </GlassCard>
     </div>
   )
