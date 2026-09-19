@@ -333,7 +333,18 @@ async function status(accountId) {
     const env = providerEnv(providerName);
     const con = await connection(accountId, providerName).catch(() => null);
     const pref = (config.get(accountId).cloudVideo || {})[providerName] || {};
-    out[providerName] = { configured: !!(env.clientId && env.clientSecret), connected: !!con, enabled: pref.enabled === true, advertiserId: String(pref.advertiserId || ''), folderId: pref.folderId || '', folderPath: pref.folderPath || '', connectedAt: con && con.updatedAt || null };
+    const advertiserId = String(pref.advertiserId || '').trim();
+    out[providerName] = {
+      configured: !!(env.clientId && env.clientSecret),
+      connected: !!con,
+      // Configs legadas podiam ter enabled=true sem conta explícita. Isso é
+      // tratado como pausado para nunca comunicar "Ativa" sem worker elegível.
+      enabled: pref.enabled === true && Boolean(advertiserId),
+      advertiserId,
+      folderId: pref.folderId || '',
+      folderPath: pref.folderPath || '',
+      connectedAt: con && con.updatedAt || null,
+    };
   }
   return out;
 }
