@@ -1157,6 +1157,8 @@ export interface AdsTreeCampaign {
   childStatus?: AdsNodeStatus
   // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus'.
   campaignKind?: 'auction' | 'smart_plus'
+  /** Data de criação reportada pelo TikTok; usada por guardas de aprendizado. */
+  createdAt?: string
   budgetOwner?: 'campaign' | 'adgroup'
   budgetOptimizeOn?: boolean
   platformCampaignStatus?: string | null
