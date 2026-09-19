@@ -67,18 +67,28 @@ export function PixelBindingCard({ active, advertiserId }: { active: boolean; ad
   }
 
   if (data?.ready && !data.capiReady && !error) {
+    const localReady = Boolean(data.localPixelSlug)
     return (
       <section className="border-b border-border/60 pb-4" aria-label="Prontidão do Pixel">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-foreground">Pixel vinculado</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Campanhas prontas. Falta concluir o envio server-side para a configuração recomendada.
+              {localReady
+                ? 'Campanhas prontas. Falta concluir o envio server-side para a configuração recomendada.'
+                : 'Campanhas prontas. O TikTok ainda está confirmando os dados necessários para o server-side.'}
             </p>
           </div>
-          <Link href="/conversions?tab=pixels" className="btn-secondary h-10 shrink-0 text-sm">
-            Concluir server-side
-          </Link>
+          {localReady ? (
+            <Link href="/conversions?tab=pixels" className="btn-secondary h-10 shrink-0 text-sm">
+              Concluir server-side
+            </Link>
+          ) : (
+            <button type="button" className="btn-secondary h-10 shrink-0 text-sm" disabled={creating} onClick={() => void createPixel()}>
+              {creating && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              Sincronizar Pixel
+            </button>
+          )}
         </div>
       </section>
     )
