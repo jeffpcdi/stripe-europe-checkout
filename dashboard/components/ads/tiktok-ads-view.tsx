@@ -81,6 +81,20 @@ export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
 
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const cloudResult = url.searchParams.get('cloudVideo')
+    if (!cloudResult) return
+    if (cloudResult === 'connected') {
+      toast.success('Nuvem conectada', { hint: 'Abra a Biblioteca de criativos para configurar a pasta e ativar a sincronização.' })
+    } else {
+      toast.error('Não foi possível conectar a nuvem', { hint: url.searchParams.get('message') || undefined })
+    }
+    url.searchParams.delete('cloudVideo')
+    url.searchParams.delete('message')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
+
   // Pipeboard não tem Business Center — as contas vêm direto do token.
   const { data: accounts, mutate: mutateAccounts, error: accountsError, isLoading: accountsLoading } = useAdsAccounts(connected)
 
