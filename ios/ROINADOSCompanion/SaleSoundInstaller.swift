@@ -23,21 +23,24 @@ enum SaleSoundInstaller {
 
     private static func buildSaleChime() -> Data {
         let sampleRate = 44_100
-        let duration = 0.34
+        let duration = 0.40
         let frames = Int(Double(sampleRate) * duration)
         var pcm = Data(capacity: frames * 2)
 
-        func envelope(_ t: Double) -> Double {
-            let attack = min(1, t / 0.018)
-            let decay = exp(-7.0 * t)
-            return attack * decay
+        func tone(_ frequency: Double, start: Double, decay: Double, gain: Double, at time: Double) -> Double {
+            let local = time - start
+            guard local >= 0 else { return 0 }
+            let attack = min(1, local / 0.014)
+            let envelope = attack * exp(-decay * local)
+            return sin(2 * .pi * frequency * local) * envelope * gain
         }
 
         for frame in 0..<frames {
             let t = Double(frame) / Double(sampleRate)
-            let note1 = sin(2 * .pi * 880 * t)
-            let note2 = t >= 0.08 ? sin(2 * .pi * 1320 * (t - 0.08)) * 0.62 : 0
-            let mixed = max(-1, min(1, (note1 + note2) * envelope(t) * 0.30))
+            let first = tone(880, start: 0.00, decay: 12.0, gain: 0.27, at: t)
+            let second = tone(1320, start: 0.07, decay: 11.0, gain: 0.19, at: t)
+            let shimmer = tone(1760, start: 0.12, decay: 10.0, gain: 0.12, at: t)
+            let mixed = max(-1, min(1, first + second + shimmer))
             var sample = Int16(mixed * Double(Int16.max)).littleEndian
             withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
         }
