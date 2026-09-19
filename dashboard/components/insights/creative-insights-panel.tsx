@@ -3,12 +3,12 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowUpRight, ChevronDown, ChevronUp, Clapperboard, Sparkles } from 'lucide-react'
-import type { AdsMetrics, AdsTreeResponse } from '@/lib/types'
+import { ArrowUpRight, ChevronDown, ChevronUp, Clapperboard, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import type { AdsLibraryItem, AdsMetrics, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
-import { useAdsCreativeInsights } from '@/lib/api'
+import { useAdsCloudVideo, useAdsCreativeInsights, useAdsLibrary } from '@/lib/api'
 
 type CreativeSignal = 'attention' | 'efficient' | 'new' | 'stable' | 'low_volume'
 type CreativeFilter = 'all' | 'attention' | 'efficient'
@@ -18,6 +18,8 @@ interface CreativeRow {
   name: string
   campaign: string
   body: string
+  linkUrl: string
+  videoId: string
   currency: string
   metrics: AdsMetrics
   previous?: AdsMetrics
@@ -128,11 +130,14 @@ function flatten(tree?: AdsTreeResponse): Omit<CreativeRow, 'previous' | 'signal
       for (const ad of adSet.ads ?? []) {
         const id = String(ad.platformAdId || ad._id || '')
         if (!id) continue
+        const creativeVideo = String(ad.creative?.videoUrl || '')
         rows.push({
           id,
           name: ad.name || id,
           campaign: campaign.campaignName || campaign.platformCampaignId,
           body: ad.creative?.body || '',
+          linkUrl: ad.creative?.linkUrl || '',
+          videoId: creativeVideo.startsWith('tiktok:video:') ? creativeVideo.slice('tiktok:video:'.length) : '',
           currency: String(campaign.currency || 'BRL').toUpperCase(),
           metrics: ad.metrics || {},
         })
@@ -166,7 +171,10 @@ export function CreativeInsightsPanel({
   const router = useRouter()
   const [filter, setFilter] = useState<CreativeFilter>('all')
   const [dnaOpen, setDnaOpen] = useState(false)
+  const [refreshOpen, setRefreshOpen] = useState(false)
   const { data: dna, error: dnaError, isLoading: dnaLoading } = useAdsCreativeInsights(dnaOpen && connected, advertiserId)
+  const { data: library, error: libraryError, isLoading: libraryLoading } = useAdsLibrary(refreshOpen && connected)
+  const { data: cloud, error: cloudError, isLoading: cloudLoading } = useAdsCloudVideo(refreshOpen && connected && Boolean(advertiserId))
 
   const rows = useMemo(() => {
     const previousById = new Map(flatten(previous).map(item => [item.id, item.metrics]))
@@ -180,6 +188,49 @@ export function CreativeInsightsPanel({
         return rank(a.signal) - rank(b.signal) || number(b.metrics.spend) - number(a.metrics.spend)
       })
   }, [current, previous])
+
+  const attentionRows = useMemo(() => rows.filter(row => row.signal === 'attention'), [rows])
+  const refreshRecommendations = useMemo(() => {
+    const usedVideoIds = new Set(rows.map(row => row.videoId).filter(Boolean))
+    const candidates: (AdsLibraryItem & { uploadedAtMs: number })[] = []
+
+    for (const item of library?.items ?? []) {
+      if (!item.url) continue
+      candidates.push({ ...item, source: item.source || 'local', uploadedAtMs: item.uploadedAt ? Date.parse(item.uploadedAt) || 0 : 0 })
+    }
+    for (const item of cloud?.activity ?? []) {
+      const videoId = String(item.tiktok_video_id || '')
+      if (item.status !== 'uploaded' || !videoId || item.advertiser_id !== advertiserId || usedVideoIds.has(videoId)) continue
+      candidates.push({
+        url: '',
+        name: item.name,
+        size: 0,
+        uploadedAt: item.processed_at || item.updated_at || null,
+        videoId,
+        source: 'cloud',
+        uploadedAtMs: Date.parse(item.processed_at || item.updated_at || '') || 0,
+      })
+    }
+
+    candidates.sort((a, b) => b.uploadedAtMs - a.uploadedAtMs)
+    const available = [...candidates]
+    const tokenSet = (value: string) => new Set(value.toLowerCase().split(/[^a-z0-9á-ú]+/i).filter(token => token.length >= 4))
+
+    return attentionRows.slice(0, 3).flatMap(row => {
+      if (!available.length) return []
+      const wanted = tokenSet(row.name + ' ' + row.campaign)
+      let bestIndex = 0
+      let bestScore = -1
+      available.forEach((candidate, index) => {
+        const candidateTokens = tokenSet(candidate.name)
+        const overlap = [...candidateTokens].filter(token => wanted.has(token)).length
+        const score = overlap * 10 + Math.max(0, candidate.uploadedAtMs / 1e13)
+        if (score > bestScore) { bestScore = score; bestIndex = index }
+      })
+      const [candidate] = available.splice(bestIndex, 1)
+      return [{ row, candidate }]
+    })
+  }, [advertiserId, attentionRows, cloud, library, rows])
 
   if (!connected) {
     return (
@@ -196,6 +247,22 @@ export function CreativeInsightsPanel({
   const visible = filter === 'all'
     ? rows
     : rows.filter(row => filter === 'attention' ? row.signal === 'attention' : row.signal === 'efficient')
+
+  function prepareRefresh(row: CreativeRow, candidate: AdsLibraryItem) {
+    try {
+      sessionStorage.setItem('roi:ads:creative-draft', JSON.stringify({
+        body: row.body.slice(0, 100),
+        prefix: ('Refresh · ' + row.campaign).slice(0, 120),
+        linkUrl: row.linkUrl || undefined,
+        videoId: candidate.videoId || undefined,
+        videoUrl: candidate.videoId ? undefined : candidate.url,
+        videoName: candidate.name,
+        source: 'creative-autopilot',
+        createdAt: Date.now(),
+      }))
+    } catch {}
+    router.push('/ads/tiktok?create=1')
+  }
 
   function prepareVariation(copy: string, basedOn: string) {
     try {
@@ -217,6 +284,13 @@ export function CreativeInsightsPanel({
           <p className="mt-1 text-xs text-muted-foreground">Comparação com o período anterior usando métricas do TikTok.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {attentionRows.length ? (
+            <button type="button" className="btn-ghost h-9 px-2.5 text-xs" onClick={() => setRefreshOpen(value => !value)}>
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Refresh
+              {refreshOpen ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <ChevronDown className="size-3.5" aria-hidden="true" />}
+            </button>
+          ) : null}
           <button type="button" className="btn-ghost h-9 px-2.5 text-xs" onClick={() => setDnaOpen(value => !value)}>
             <Sparkles className="size-3.5" aria-hidden="true" />
             Padrões
@@ -242,6 +316,40 @@ export function CreativeInsightsPanel({
           </div>
         </div>
       </div>
+
+      {refreshOpen ? (
+        <div className="border-t border-border/60 bg-secondary/[0.04] px-5 py-4">
+          {libraryLoading || cloudLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Procurando assets novos…</div>
+          ) : libraryError && cloudError ? (
+            <p className="text-xs text-muted-foreground">A Biblioteca não pôde ser consultada agora.</p>
+          ) : refreshRecommendations.length ? (
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Refresh assistido</p>
+                <p className="mt-1 text-xs text-muted-foreground">Candidatos novos e ainda não usados neste advertiser. A campanha será preparada e continuará pausada para revisão.</p>
+              </div>
+              <div className="divide-y divide-border/40 rounded-xl border border-border/50 bg-background/30">
+                {refreshRecommendations.map(({ row, candidate }) => (
+                  <div key={row.id + ':' + (candidate.videoId || candidate.url)} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-foreground">{row.name}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {row.signalText} → {candidate.name} {candidate.videoId ? '· já no TikTok' : '· Biblioteca'}
+                      </p>
+                    </div>
+                    <button type="button" className="btn-ghost h-8 shrink-0 px-2 text-[11px]" onClick={() => prepareRefresh(row, candidate)}>
+                      Preparar refresh
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Há sinal de desgaste, mas ainda não existe um asset novo elegível na Biblioteca. Sincronize ou envie um novo vídeo antes do refresh.</p>
+          )}
+        </div>
+      ) : null}
 
       {dnaOpen ? (
         <div className="border-t border-border/60 bg-secondary/[0.04] px-5 py-4">
