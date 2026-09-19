@@ -47,11 +47,9 @@ export function MobileNav() {
                         ? group.id === 'ads'
                         : item.id === 'config'
                           ? group.id === 'config'
-                          : item.id === 'config-alerts' || item.id === 'config-security'
-                            ? false
-                            : item.href === '/conversions'
-                              ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
-                              : pathname.startsWith(item.href)
+                          : item.href === '/conversions'
+                            ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+                            : pathname.startsWith(item.href)
                     return (
                       <li key={item.id}>
                         <Link href={item.href} onClick={() => setOpen(false)} aria-current={active ? 'page' : undefined} className={cn('flex min-h-[44px] items-center gap-3 rounded-[12px] px-3 py-2.5 text-[15px] font-medium transition-colors duration-150', active ? 'bg-brand-cyan/10 text-white shadow-[inset_2px_0_0_#25f4ee]' : 'text-muted-foreground hover:bg-white/5 hover:text-white')}>
