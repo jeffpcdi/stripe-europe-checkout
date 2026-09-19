@@ -53,7 +53,7 @@ WidgetKit may defer refreshes even though the timeline requests a 15-minute cade
 
 ## Native sale sound
 
-On first launch, SaleSoundInstaller generates Library/Sounds/roi-sale.wav directly on the device. Sale pushes sent through APNs reference this file.
+On first launch, SaleSoundInstaller generates Library/Sounds/roi-sale-v2.wav directly on the device. Sale pushes sent through APNs reference this file.
 
 The chime is a short three-note ROI-NADOS motif shared conceptually with the foreground dashboard sound. Daily reports remain passive and silent; operational failures use the system sound. This keeps the sale cue recognizable without making every notification noisy.
 
@@ -76,7 +76,7 @@ Configure:
 After pairing, enable “Preferir Companion no iPhone” in Conta → Alertas. The dashboard only allows this handoff when at least one native device is paired and APNs is configured.
 
 Delivery semantics:
-- approved sale: APNs active alert + `roi-sale.wav` + badge;
+- approved sale: APNs active alert + `roi-sale-v2.wav` + badge;
 - critical operational failures: Time Sensitive + system sound;
 - daily executive brief: passive, no sound;
 - desktop/Android: Web Push remains active;
