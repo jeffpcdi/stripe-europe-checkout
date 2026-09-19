@@ -52,7 +52,7 @@ const catalogGateway = require('./catalog/catalog-tiktok-gateway');
 const catalogBatchDomain = require('./catalog/catalog-batch-domain');
 const catalogBatchExecutor = require('./catalog/catalog-batch-executor');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
-const { hostSeguro } = require('./security-helpers');
+const { resolvePublicHost, httpsProbe } = require('./domain-security');
 
 const DESTINATION_CHECK_TTL_MS = 5 * 60 * 1000;
 const DESTINATION_CHECK_TIMEOUT_MS = 6000;
@@ -68,25 +68,33 @@ async function inspectAdsDestination(rawUrl) {
     if (current.protocol !== 'https:') {
       return { ok: false, status: 0, host: current.hostname, error: 'Destino sem HTTPS' };
     }
-    if (!(await hostSeguro(current.hostname))) {
+    if (current.username || current.password || (current.port && current.port !== '443')) {
+      return { ok: false, status: 0, host: current.hostname, error: 'Destino não permitido para verificação' };
+    }
+
+    let addresses;
+    try {
+      // resolvePublicHost rejeita IP literal, respostas privadas/reservadas e
+      // respostas mistas. httpsProbe recebe exatamente esse conjunto e prende
+      // a conexão a um dos IPs já validados, fechando DNS rebinding/TOCTOU.
+      addresses = await resolvePublicHost(current.hostname);
+    } catch (_) {
       return { ok: false, status: 0, host: current.hostname, error: 'Host bloqueado ou não resolvido' };
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DESTINATION_CHECK_TIMEOUT_MS);
     let response;
     try {
-      response = await fetch(current.href, {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; ROI-NADOS-DestinationSentinel/1.0)',
-          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
+      response = await httpsProbe(
+        current.hostname,
+        (current.pathname || '/') + (current.search || ''),
+        {
+          addresses,
+          timeoutMs: DESTINATION_CHECK_TIMEOUT_MS,
+          method: 'HEAD',
+          maxBytes: 1024,
         },
-      });
+      );
     } catch (_) {
-      clearTimeout(timer);
       return {
         ok: false,
         status: 0,
@@ -95,169 +103,42 @@ async function inspectAdsDestination(rawUrl) {
         error: 'Página indisponível ou bloqueou a verificação',
       };
     }
-    clearTimeout(timer);
-    try { if (response.body && response.body.cancel) await response.body.cancel(); } catch (_) {}
 
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location || hop === 1) {
+    const status = Number(response.status) || 0;
+    if (status >= 300 && status < 400) {
+      const location = response.headers && response.headers.location;
+      const target = Array.isArray(location) ? location[0] : location;
+      if (!target || hop === 1) {
         return {
           ok: false,
-          status: response.status,
+          status,
           host: current.hostname,
           latencyMs: Date.now() - startedAt,
           error: 'Redirecionamento não concluído',
         };
       }
-      try { current = new URL(location, current); continue; }
+      try { current = new URL(String(target), current); continue; }
       catch (_) {
-        return { ok: false, status: response.status, host: current.hostname, error: 'Redirecionamento inválido' };
+        return { ok: false, status, host: current.hostname, error: 'Redirecionamento inválido' };
       }
     }
 
+    // 401/403/405 provam que o host e a rota responderam, mas o checker foi
+    // recusado ou HEAD não é permitido. Não classificamos isso como "offline".
+    const reachableRestricted = status === 401 || status === 403 || status === 405;
+    const ok = (status >= 200 && status < 300) || reachableRestricted;
     return {
-      ok: response.ok,
-      status: response.status,
+      ok,
+      status,
       host: current.hostname,
       finalUrl: current.href,
       latencyMs: Date.now() - startedAt,
-      error: response.ok ? null : 'HTTP ' + response.status,
+      error: ok ? null : 'HTTP ' + status,
+      restricted: reachableRestricted || undefined,
     };
   }
 
-  return { ok: false, status: 0, host: current.hostname, error: 'Verificação inconclusiva' };
-}
-
-const DEFAULT_ADS_TIME_ZONE = 'America/Sao_Paulo';
-const ADS_DAY_FORMATS = new Map();
-function safeAdsTimeZone(value) {
-  const timeZone = String(value || '').trim() || DEFAULT_ADS_TIME_ZONE;
-  try {
-    new Intl.DateTimeFormat('pt-BR', { timeZone }).format(new Date());
-    return timeZone;
-  } catch (_) {
-    return DEFAULT_ADS_TIME_ZONE;
-  }
-}
-function adsDay(value, timeZone) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  const zone = safeAdsTimeZone(timeZone);
-  let formatter = ADS_DAY_FORMATS.get(zone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'
-    });
-    ADS_DAY_FORMATS.set(zone, formatter);
-  }
-  return formatter.format(date);
-}
-
-// Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
-function fail(res, err) {
-  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
-  const out = { error: String(err.message || 'erro inesperado').slice(0, 500) };
-  if (err.step) out.step = err.step;
-  if (err.code) out.code = err.code;
-  if (err.userMessage) out.userMessage = err.userMessage;
-  if (err.retryable != null) out.retryable = Boolean(err.retryable);
-  if (err.suggestedAction) out.suggestedAction = err.suggestedAction;
-  if (err.providerRequestId) out.providerRequestId = err.providerRequestId;
-  if (err.createdIds) out.createdIds = err.createdIds;
-  if (err.currentRevision != null) out.currentRevision = err.currentRevision;
-  res.status(status).json(out);
-}
-
-async function setEntityStatus(entity, status) {
-  const smart = entity.campaignKind === 'smart_plus';
-  if (entity.type === 'campaign') {
-    return smart
-      ? pipeboard.setSmartPlusCampaignStatus(entity.advertiserId, [entity.campaignId], status)
-      : pipeboard.setCampaignStatus(entity.advertiserId, [entity.campaignId], status);
-  }
-  if (entity.type === 'adgroup') {
-    return smart
-      ? pipeboard.setSmartPlusAdGroupStatus(entity.advertiserId, [entity.adGroupId], status)
-      : pipeboard.setAdGroupStatus(entity.advertiserId, [entity.adGroupId], status);
-  }
-  return smart
-    ? pipeboard.setSmartPlusAdStatus(entity.advertiserId, [entity.adId], status)
-    : pipeboard.setAdStatus(entity.advertiserId, [entity.adId], status);
-}
-
-function budgetTargetForEntity(entity) {
-  if (entity.type === 'campaign' || entity.budgetOwner === 'campaign') {
-    return { kind: 'campaign', id: entity.campaignId };
-  }
-  return { kind: 'adgroup', id: entity.adGroupId };
-}
-
-async function updateEntityBudget(entity, target, budget) {
-  const smart = entity.campaignKind === 'smart_plus';
-  if (target.kind === 'campaign') {
-    return smart
-      ? pipeboard.updateSmartPlusCampaign(entity.advertiserId, target.id, { budget })
-      : pipeboard.updateCampaign(entity.advertiserId, target.id, { budget });
-  }
-  return smart
-    ? pipeboard.updateSmartPlusAdGroup(entity.advertiserId, target.id, { budget })
-    : pipeboard.updateAdGroup(entity.advertiserId, target.id, { budget });
-}
-
-// A unicidade durável dos runs legados é account_id + idempotency_key. Cada
-// rota já valida o advertiser, mas a mesma chave enviada em dois advertisers
-// da mesma conta ainda poderia reutilizar o run errado. Derivamos uma chave
-// opaca e estável que inclui o advertiser antes de gravá-la; o limite da
-// coluna (200) continua folgadamente atendido.
-function scopedCatalogRunIdempotencyKey(advertiserId, value) {
-  const advertiser = String(advertiserId || '').trim();
-  const key = String(value || '').trim();
-  if (!advertiser || !key) return key.slice(0, 200);
-  return crypto.createHash('sha256')
-    .update('catalog-run-v1\u0000' + advertiser + '\u0000' + key)
-    .digest('hex');
-}
-
-function catalogBatchMinimumErrors(plan) {
-  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
-  const errors = [];
-  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
-    const catalog = catalogs[catalogIndex] || {};
-    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
-    const products = Array.isArray(catalog.products) ? catalog.products : [];
-    const deliverable = products.filter((product) => String(product && product.data && product.data.availability || '').trim().toLowerCase() === 'in stock');
-    if (!campaigns.length || deliverable.length >= catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS) continue;
-    errors.push({
-      code: 'CATALOG_CAMPAIGN_MIN_PRODUCTS_REQUIRED',
-      message: 'Inclua pelo menos ' + catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS
-        + ' produtos válidos; o TikTok exige quatro produtos aprovados, ativos e em estoque para Catalog Ads.',
-      path: 'catalogs[' + catalogIndex + '].products',
-      catalogKey: String(catalog.key || ''),
-    });
-  }
-  return errors;
-}
-
-function catalogBatchCampaignSpecErrors(plan) {
-  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
-  const errors = catalogBatchMinimumErrors(plan);
-  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
-    const catalog = catalogs[catalogIndex] || {};
-    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
-    for (let campaignIndex = 0; campaignIndex < campaigns.length; campaignIndex += 1) {
-      try {
-        catalogDomain.normalizeCampaignSpec(campaigns[campaignIndex], catalog);
-      } catch (err) {
-        errors.push({
-          code: String(err && err.code || 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID'),
-          message: String(err && (err.userMessage || err.message) || 'A campanha do lote é inválida.'),
-          path: 'catalogs[' + catalogIndex + '].campaigns[' + campaignIndex + ']',
-          catalogKey: String(catalog.key || ''),
-        });
-      }
-    }
-  }
-  return errors;
+  return { ok: false, status: 0, host: current.hostname, error: 'Verificação incompleta' };
 }
 
 module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
