@@ -1,11 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowUpRight } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowUpRight, Download, Loader2 } from 'lucide-react'
 import type { AdsCampaignDecisionsResponse, AdsTreeCampaign, AdsTreeResponse } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { toast } from '@/lib/toast'
 
 
 function dailyBudget(campaign: AdsTreeCampaign): number | null {
@@ -71,6 +73,9 @@ export function InsightsCampaignsPanel({
   pacingTree,
   currency,
   timeZone,
+  advertiserId,
+  fromDate,
+  toDate,
   loading,
 }: {
   connected: boolean
@@ -79,8 +84,12 @@ export function InsightsCampaignsPanel({
   pacingTree?: AdsTreeResponse
   currency: string
   timeZone: string
+  advertiserId: string
+  fromDate: string
+  toDate: string
   loading: boolean
 }) {
+  const [exporting, setExporting] = useState(false)
   if (!connected) {
     return (
       <GlassCard className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
@@ -96,6 +105,40 @@ export function InsightsCampaignsPanel({
   }
 
   const todayByCampaign = new Map((pacingTree?.campaigns ?? []).map(campaign => [String(campaign.platformCampaignId || ''), campaign]))
+
+
+  async function exportCsv() {
+    if (!advertiserId || exporting) return
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({
+        adAccountId: advertiserId,
+        fromDate,
+        toDate,
+      })
+      const response = await fetch('/api/ads/reports/export?' + params.toString(), { credentials: 'include' })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string; message?: string }
+        throw new Error(body.error || body.message || 'Não foi possível gerar o relatório')
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get('content-disposition') || ''
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'roi-nados-tiktok-campanhas.csv'
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Relatório exportado')
+    } catch (error) {
+      toast.error('Não foi possível exportar', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const rows = (tree?.campaigns ?? []).map(campaign => {
     const id = String(campaign.platformCampaignId || '')
@@ -132,9 +175,15 @@ export function InsightsCampaignsPanel({
     <GlassCard className="overflow-hidden">
       <div className="flex items-center justify-between gap-4 px-5 py-4">
         <h2 className="text-[15px] font-semibold text-foreground">Campanhas</h2>
-        <Link href="/ads/tiktok" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
-          TikTok Ads <ArrowUpRight className="size-3.5" />
-        </Link>
+        <div className="flex items-center gap-1">
+          <button type="button" className="btn-ghost h-9 px-2.5 text-xs" disabled={exporting || !rows.length} onClick={() => void exportCsv()}>
+            {exporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Download className="size-3.5" aria-hidden="true" />}
+            Exportar
+          </button>
+          <Link href="/ads/tiktok" className="inline-flex h-9 items-center gap-1 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+            TikTok Ads <ArrowUpRight className="size-3.5" />
+          </Link>
+        </div>
       </div>
 
       {rows.length ? (
