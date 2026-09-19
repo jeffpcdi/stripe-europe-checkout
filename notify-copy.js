@@ -15,9 +15,14 @@ function compactSale(payload, meta) {
   const data = meta || {};
   const valor = compactText(data.valor, 32);
   const title = compactText(p.title, 60) || ('Venda aprovada' + (valor ? ' · ' + valor : ''));
-  const produto = compactText(data.produto, 48);
-  const gateway = compactText(data.gateway, 24);
-  const body = [produto, gateway].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
+  const produto = compactText(data.produto, 42);
+  const gateway = compactText(data.gateway, 22);
+  const dailySales = Math.max(0, Number(data.dailySales) || 0);
+  const dailyRevenue = compactText(data.dailyRevenue, 32);
+  const dayContext = dailySales > 0
+    ? dailySales + (dailySales === 1 ? ' venda hoje' : ' vendas hoje') + (dailyRevenue ? ' · ' + dailyRevenue + ' no dia' : '')
+    : '';
+  const body = [produto, gateway, dayContext].filter(Boolean).join(' · ') || 'Pagamento confirmado.';
   return { title, body };
 }
 
