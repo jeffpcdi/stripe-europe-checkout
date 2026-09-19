@@ -4914,6 +4914,35 @@ app.post('/api/companion/preferences', dashboardAuth, async (req, res) => {
   } catch (error) { return configMutationError(res, error); }
 });
 
+app.post('/api/companion/test', dashboardAuth, async (req, res) => {
+  const companion = config.get(req.account.id).companion || {};
+  const devices = Array.isArray(companion.devices) ? companion.devices : [];
+  if (!devices.length) return res.json({ ok: false, error: 'Nenhum iPhone Companion pareado.' });
+
+  const note = require('./notify-copy').build({
+    name: 'Teste',
+    payload: {
+      title: 'Venda de teste · ROI-NADOS',
+      text: 'Som nativo e APNs funcionando neste iPhone.',
+    },
+    meta: { event: 'test' },
+    funMode: false,
+    accountId: req.account.id,
+  });
+  note.badge = false;
+  note.priority = 'normal';
+
+  try {
+    const result = await require('./ios-push').sendToDevices(devices, note);
+    if (!result.ok) {
+      return res.json({ ok: false, error: result.reason || 'Nenhum iPhone recebeu o teste.' });
+    }
+    res.json({ ok: true, delivered: result.delivered || 0 });
+  } catch (error) {
+    res.status(503).json({ ok: false, error: 'Falha ao testar APNs: ' + String(error && error.message || error).slice(0, 120) });
+  }
+});
+
 app.get('/api/companion/token', dashboardAuth, async (req, res) => {
   let companion = config.get(req.account.id).companion || {};
   let token = companion.token;
