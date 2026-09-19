@@ -152,7 +152,8 @@ const goodHeaders = {
   assert.ok(out.reasons.includes('network:country-unverified'));
 }
 
-// Velocity no V6 é risco ponderado, não bloqueio binário isolado.
+// Velocity no V6 é risco ponderado: nunca vira SAFE isoladamente, mas também
+// não pode ser apagado por créditos positivos — sobe para CHALLENGE.
 {
   const out = engine.decide({
     policy: { sensitivity: 'balanced' },
@@ -161,8 +162,22 @@ const goodHeaders = {
     browser: { challenge: 'ok', challengeAgeMs: 1000 },
     state: { velocityCount: 30, velocityLimit: 12 },
   });
-  assert.notEqual(out.decision, 'PRIMARY');
+  assert.equal(out.decision, 'CHALLENGE');
   assert.ok(out.reasons.some((r) => r.startsWith('velocity:')));
+}
+
+// Datacenter assinado também é no mínimo CHALLENGE quando os demais sinais
+// parecem humanos; só evidência adicional forte deve promovê-lo a SAFE.
+{
+  const out = engine.decide({
+    policy: { sensitivity: 'balanced', blockDatacenter: true },
+    network: { networkVerified: true, country: 'BR', asn: 16509 },
+    request: { headers: goodHeaders, ua: goodHeaders['user-agent'], isMobile: true, language: 'pt' },
+    browser: { challenge: 'ok', challengeAgeMs: 1000, beh: 70, ent: 60, nt: 0 },
+    state: {},
+  });
+  assert.equal(out.decision, 'CHALLENGE');
+  assert.ok(out.reasons.includes('asn:datacenter'));
 }
 
 // Telemetria shadow é agregada, sem armazenar IP/UA.
@@ -192,6 +207,7 @@ const goodHeaders = {
   const worker = read('cloudflare/domain-edge-worker.mjs');
   const netCtx = read('cloak-network-context.js');
   const v6 = read('cloak-decision-engine.js');
+  const bot = read('bot-filter.js');
 
   assert.match(server, /versao:\s*2/);
   assert.match(server, /validKeys\.add\('campaign:' \+ campaign\.id\)/);
@@ -213,6 +229,9 @@ const goodHeaders = {
   assert.doesNotMatch(netCtx, /require\(['"]dns['"]\)/);
   assert.doesNotMatch(v6, /require\(['"]dns['"]\)/);
   assert.doesNotMatch(v6, /require\(['"]\.\/redis['"]\)/);
+  assert.match(bot, /roiNetworkContext/);
+  assert.match(bot, /asn:edge-signed/);
+  assert.match(server, /roiNetworkContext: networkContext && networkContext\.networkVerified/);
 }
 
 console.log('cloak-fast-decision-v16-22: trusted edge, pure V6 shadow e closeout V16.21.1 OK');
