@@ -2,7 +2,8 @@
 
 const crypto = require('crypto');
 
-const VERSION = 'v1';
+const VERSION = 'v2';
+const LEGACY_VERSION = 'v1';
 const MAX_SKEW_SECONDS = 5 * 60;
 
 function cleanHost(value) {
@@ -15,18 +16,47 @@ function cleanHost(value) {
     .replace(/\.$/, '');
 }
 
+function cleanEdgeIp(value) {
+  return String(value || '').split(',')[0].trim().slice(0, 80);
+}
+
+function cleanEdgeCountry(value) {
+  const out = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(out) ? out : '';
+}
+
+function cleanEdgeAsn(value) {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n > 0 && n <= 4294967295 ? String(n) : '';
+}
+
+function cleanEdgeColo(value) {
+  const out = String(value || '').trim().toUpperCase();
+  return /^[A-Z0-9-]{2,12}$/.test(out) ? out : '';
+}
+
 function rawRequestHost(req) {
   return cleanHost((req && req.headers && (req.headers.host || req.headers['x-forwarded-host'])) || '');
 }
 
-function canonicalPayload({ version = VERSION, timestamp, method, host, path }) {
-  return [
-    String(version || VERSION),
-    String(timestamp || ''),
-    String(method || 'GET').toUpperCase(),
-    cleanHost(host),
-    String(path || '/'),
-  ].join('\n');
+function canonicalPayload(input = {}) {
+  const version = String(input.version || VERSION);
+  const base = [
+    version,
+    String(input.timestamp || ''),
+    String(input.method || 'GET').toUpperCase(),
+    cleanHost(input.host),
+    String(input.path || '/'),
+  ];
+  if (version === VERSION) {
+    base.push(
+      cleanEdgeIp(input.clientIp),
+      cleanEdgeCountry(input.country),
+      cleanEdgeAsn(input.asn),
+      cleanEdgeColo(input.colo),
+    );
+  }
+  return base.join('\n');
 }
 
 function sign(secret, input) {
@@ -54,7 +84,7 @@ function verifyEdgeRequest(req, options = {}) {
   const nowSeconds = Math.floor((options.nowMs == null ? Date.now() : Number(options.nowMs)) / 1000);
   const maxSkew = Math.max(30, Number(options.maxSkewSeconds) || MAX_SKEW_SECONDS);
 
-  if (!version || version !== VERSION) return { ok: false, reason: 'version' };
+  if (![VERSION, LEGACY_VERSION].includes(version)) return { ok: false, reason: 'version' };
   if (!/^\d{10,13}$/.test(timestamp)) return { ok: false, reason: 'timestamp' };
   const tsSeconds = timestamp.length > 10 ? Math.floor(Number(timestamp) / 1000) : Number(timestamp);
   if (!Number.isFinite(tsSeconds) || Math.abs(nowSeconds - tsSeconds) > maxSkew) return { ok: false, reason: 'replay' };
@@ -68,6 +98,13 @@ function verifyEdgeRequest(req, options = {}) {
     host: originalHost,
     path: requestPath(req),
   };
+  if (version === VERSION) {
+    input.clientIp = cleanEdgeIp(h['x-roi-edge-client-ip']);
+    input.country = cleanEdgeCountry(h['x-roi-edge-country']);
+    input.asn = cleanEdgeAsn(h['x-roi-edge-asn']);
+    input.colo = cleanEdgeColo(h['x-roi-edge-colo']);
+  }
+
   const secrets = [
     options.secret != null ? options.secret : process.env.EDGE_DOMAIN_SECRET,
     options.previousSecret != null ? options.previousSecret : process.env.EDGE_DOMAIN_SECRET_PREVIOUS,
@@ -76,7 +113,18 @@ function verifyEdgeRequest(req, options = {}) {
 
   for (const secret of secrets) {
     if (safeEqualHex(signature, sign(secret, input))) {
-      return { ok: true, host: originalHost, version, timestamp, viaEdge: true };
+      return {
+        ok: true,
+        host: originalHost,
+        version,
+        timestamp,
+        viaEdge: true,
+        networkVerified: version === VERSION,
+        clientIp: version === VERSION ? input.clientIp : '',
+        country: version === VERSION ? input.country : '',
+        asn: version === VERSION ? (Number(input.asn) || 0) : 0,
+        colo: version === VERSION ? input.colo : '',
+      };
     }
   }
   return { ok: false, reason: 'signature' };
@@ -90,7 +138,8 @@ function resolveTrustedRequestHost(req, options = {}) {
 
 function resolveTrustedClientIp(req, options = {}) {
   const edge = verifyEdgeRequest(req, options);
-  if (edge.ok) {
+  if (edge.ok && edge.networkVerified && edge.clientIp) return edge.clientIp;
+  if (edge.ok && edge.version === LEGACY_VERSION) {
     const cfIp = String((req.headers && req.headers['cf-connecting-ip']) || '').split(',')[0].trim();
     if (cfIp) return cfIp;
   }
@@ -100,8 +149,13 @@ function resolveTrustedClientIp(req, options = {}) {
 
 module.exports = {
   VERSION,
+  LEGACY_VERSION,
   MAX_SKEW_SECONDS,
   cleanHost,
+  cleanEdgeIp,
+  cleanEdgeCountry,
+  cleanEdgeAsn,
+  cleanEdgeColo,
   canonicalPayload,
   sign,
   safeEqualHex,

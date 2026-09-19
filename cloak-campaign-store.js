@@ -237,6 +237,7 @@ function cleanSettings(input) {
   ];
   for (const key of bools) if (typeof src[key] === 'boolean') out[key] = src[key];
   if (['strict', 'balanced', 'loose', 'custom'].includes(src.sensitivity)) out.sensitivity = src.sensitivity;
+  if (['v5', 'v6-shadow'].includes(src.decisionEngineVersion)) out.decisionEngineVersion = src.decisionEngineVersion;
   if (Number.isFinite(Number(src.threshold))) out.threshold = Number(src.threshold);
   if (Number.isFinite(Number(src.deadlineMs))) out.deadlineMs = Number(src.deadlineMs);
   out.paisPreset = String(src.paisPreset || '').slice(0, 80);
@@ -462,6 +463,7 @@ function legacySettings(entry) {
     mobileOnly: entry.mobileOnly === true,
     requireAdClick: false,
     sensitivity: entry.sensitivity || 'balanced',
+    decisionEngineVersion: entry.decisionEngineVersion || 'v6-shadow',
     threshold: entry.threshold,
     deadlineMs: entry.deadlineMs,
     paisPreset: entry.paisPreset,
