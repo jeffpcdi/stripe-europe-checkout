@@ -13,7 +13,7 @@ assert.match(view, /<CampaignWorkspace/);
 assert.doesNotMatch(view, /import \{ CampaignTree \} from '\.\/campaign-tree'/);
 
 const workspace = read('dashboard/components/ads/campaign-workspace.tsx');
-for (const label of ['Campanhas', 'Conjuntos', 'Anúncios', 'Criativos', 'Insights']) {
+for (const label of ['Campanhas', 'Conjuntos', 'Anúncios', 'Criativos', 'Insights', 'Playbooks']) {
   assert.match(workspace, new RegExp(`label: '${label}'`));
 }
 assert.match(workspace, /ads:campaign-workspace-level/);
@@ -28,6 +28,14 @@ assert.match(workspace, /Entrega/);
 assert.match(workspace, /Custos/);
 assert.match(workspace, /Gasto sem venda real/);
 assert.match(workspace, /Operação autônoma/);
+assert.match(workspace, /useAdsCreativeInsights/);
+assert.match(workspace, /useAdsRulePresets/);
+assert.match(workspace, /useAdsRules/);
+assert.match(workspace, /Creative Intelligence/);
+assert.match(workspace, /Playbooks de operação/);
+assert.match(workspace, /modo proposta/);
+assert.match(workspace, /setSelectedGroups\(new Set\(\)\)/);
+assert.match(workspace, /setSelectedAds\(new Set\(\)\)/);
 
 const tree = read('dashboard/components/ads/campaign-tree.tsx');
 assert.match(tree, /async function setChildStatus/);
