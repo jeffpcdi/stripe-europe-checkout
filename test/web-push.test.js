@@ -277,6 +277,26 @@ test('venda compacta: limita texto e não expõe cliente, e-mail ou pedido', () 
   assert.strictEqual(Array.from(long.title).length, 60);
 });
 
+test('venda compacta: adiciona contexto do dia sem dados pessoais', () => {
+  const note = notifyCopy.build({
+    payload: { title: 'Venda aprovada · R$ 197,00', text: 'Cliente: Ana' },
+    meta: {
+      event: 'sale',
+      valor: 'R$ 197,00',
+      produto: 'Oferta Principal',
+      gateway: 'Kiwify',
+      dailySales: 7,
+      dailyRevenue: 'R$ 2.431,00',
+      cliente: 'Ana',
+    },
+    funMode: false,
+  });
+  assert.strictEqual(note.title, 'Venda aprovada · R$ 197,00');
+  assert.ok(note.body.includes('7 vendas hoje'));
+  assert.ok(note.body.includes('R$ 2.431,00 no dia'));
+  assert.ok(!note.body.includes('Ana'));
+});
+
 test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload original', async () => {
   const notifications = require('../pushcut');
   const config = require('../config');
