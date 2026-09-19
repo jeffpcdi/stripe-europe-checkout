@@ -42,14 +42,15 @@ self.addEventListener("push", (event) => {
       tag: data.tag || undefined,
       data: { url: data.url || "/dashboard" },
       // Dashboard visível: o feedback sonoro é local e curto. Em background,
-      // pedimos alerta não silencioso e deixamos som/Foco nas mãos do SO.
-      silent: hasVisibleClient,
+      // omitimos `silent` para respeitar o padrão do aparelho/Foco.
       // "critical" é prioridade interna do ROI-NADOS e NÃO equivale ao
       // entitlement Apple Critical Alerts.
       renotify: !hasVisibleClient && data.priority === "critical" && Boolean(data.tag),
       actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
     }
-    if (!hasVisibleClient) {
+    if (hasVisibleClient) {
+      options.silent = true
+    } else {
       options.vibrate = data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [70])
     }
 
