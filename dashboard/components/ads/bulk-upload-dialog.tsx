@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { DialogPortal } from '@/components/ui/dialog-portal'
 
 // Criação em massa com vídeos TikTok — até 20 vídeos de uma vez.
@@ -347,9 +348,9 @@ export function BulkUploadDialog({
                     <span className="min-w-0 flex-1">
                       Vincule o Pixel uma única vez na aba Pixel antes de enviar os vídeos.
                     </span>
-                    <a className="shrink-0 font-semibold underline underline-offset-2" href="/dashboard/pixels">
+                    <Link className="shrink-0 font-semibold underline underline-offset-2" href="/conversions?tab=pixels">
                       Abrir Pixel
-                    </a>
+                    </Link>
                   </>
                 )}
               </div>
