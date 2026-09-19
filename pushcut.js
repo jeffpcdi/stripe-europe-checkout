@@ -126,7 +126,7 @@ async function sendViaIOS(notificationName, payload, accountId, meta) {
     const cfg = accountConfig(accountId);
     const companion = cfg.companion || {};
     const devices = Array.isArray(companion.devices) ? companion.devices : [];
-    if (!devices.length) return false;
+    if (!devices.length || companion.preferNativeIOS !== true) return false;
 
     const note = require('./notify-copy').build({
       name: notificationName,
