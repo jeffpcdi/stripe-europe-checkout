@@ -76,7 +76,7 @@ type AdRow = {
 }
 
 const LEVELS: { value: WorkspaceLevel; label: string; icon: typeof Megaphone }[] = [
-  { value: 'overview', label: 'Visão', icon: BarChart3 },
+  { value: 'overview', label: 'Operação', icon: BarChart3 },
   { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
   { value: 'adgroups', label: 'Conjuntos', icon: Layers3 },
   { value: 'ads', label: 'Anúncios', icon: Play },
@@ -982,6 +982,7 @@ export function CampaignWorkspace(props: Props) {
                       </button>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/45 pt-3 text-[10px] text-muted-foreground">
+                      <span className="rounded-md bg-secondary/50 px-1.5 py-0.5">escopo campanhas</span>
                       <span className="rounded-md bg-secondary/50 px-1.5 py-0.5">modo {current?.mode === 'execute' ? 'automático' : 'proposta'}</span>
                       <span>{preset.lookbackDays || 1}d de janela</span>
                     </div>
