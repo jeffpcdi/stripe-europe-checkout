@@ -13,7 +13,9 @@ export type WebPushSupport =
 
 /** Detecta suporte. No iOS, Web Push só funciona com o site instalado na Tela de Início. */
 export function checkSupport(): WebPushSupport {
-  if (typeof window === "undefined") return { supported: false, reason: "SSR" }
+  if (typeof window === "undefined") {
+    return { supported: false, reason: "SSR", platform: 'other', standalone: false }
+  }
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
