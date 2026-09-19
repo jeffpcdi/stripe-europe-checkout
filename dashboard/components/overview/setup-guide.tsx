@@ -40,7 +40,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
     },
     {
       id: 'gateway',
-      label: 'Conecte um gateway',
+      label: 'Conecte um checkout',
       desc: 'Recebe confirmações de compra por webhook do checkout.',
       done: hasGateway,
       href: '/conversions?tab=gateways',
