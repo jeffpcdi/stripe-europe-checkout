@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { Copy, ExternalLink, Loader2, Smartphone, Volume2, LayoutGrid, RotateCcw } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/toast'
+import QRCode from 'qrcode'
 
 type CompanionStatus = {
   ok: boolean
@@ -35,6 +36,7 @@ export function IPhoneCompanionCard() {
   const [testingNative, setTestingNative] = useState(false)
   const [rotatingToken, setRotatingToken] = useState(false)
   const [confirmRotate, setConfirmRotate] = useState(false)
+  const [pairingQR, setPairingQR] = useState('')
 
   async function revealToken() {
     setLoadingToken(true)
@@ -118,6 +120,18 @@ export function IPhoneCompanionCard() {
     ? `roinados://pair?server=${encodeURIComponent(window.location.origin + '/')}&token=${encodeURIComponent(token)}`
     : ''
 
+  useEffect(() => {
+    let cancelled = false
+    if (!pairingHref) {
+      setPairingQR('')
+      return
+    }
+    QRCode.toDataURL(pairingHref, { width: 176, margin: 1, errorCorrectionLevel: 'M' })
+      .then((dataUrl) => { if (!cancelled) setPairingQR(dataUrl) })
+      .catch(() => { if (!cancelled) setPairingQR('') })
+    return () => { cancelled = true }
+  }, [pairingHref])
+
   return (
     <GlassCard className="overflow-hidden p-0 border-border/60">
       <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -185,6 +199,18 @@ export function IPhoneCompanionCard() {
             </button>
           </div>
         )}
+        {pairingQR ? (
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-secondary/10 p-3 sm:flex-row sm:items-center">
+            <img src={pairingQR} alt="QR para parear o Companion iPhone" width={112} height={112} className="size-28 rounded-lg bg-white p-1" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Parear pelo iPhone</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Escaneie este QR com a câmera do iPhone para abrir o Companion já com servidor e token preenchidos.
+              </p>
+              <p className="mt-1 text-[10px] leading-relaxed text-faint">O QR contém o token dedicado do Companion. Não compartilhe a imagem.</p>
+            </div>
+          </div>
+        ) : null}
         <p className="mt-2 text-[11px] leading-relaxed text-faint">
           Use este token somente no app Companion. Renovar o código desconecta os iPhones nativos atuais sem afetar planilhas, BI ou Web Push.
         </p>
