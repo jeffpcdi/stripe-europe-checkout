@@ -108,7 +108,8 @@ async function sendWebPush(accountId, note) {
     // evento original (sale, failed, checkout…) — usado pelas preferências
     // de som por evento no painel (notify-prefs)
     event: String(note.event || '').slice(0, 30),
-    priority: note.priority === 'critical' ? 'critical' : 'normal'
+    priority: note.priority === 'critical' ? 'critical' : 'normal',
+    badge: note.badge === true
   });
   let delivered = 0;
   await Promise.all(subs.map(async (sub) => {
