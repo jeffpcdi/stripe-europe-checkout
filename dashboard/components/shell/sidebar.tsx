@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { NAV_SECTIONS } from '@/lib/navigation'
+import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 export function Sidebar() {
   const pathname = usePathname()
+  const group = activeGroup(pathname)
   const [enterAnim, setEnterAnim] = useState(true)
 
   useEffect(() => {
@@ -37,7 +38,15 @@ export function Sidebar() {
             <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{section.title}</p>
             <ul className="flex flex-col gap-0.5">
               {section.items.map((item) => {
-                const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+                const active = item.id === 'overview'
+                  ? group.id === 'overview'
+                  : item.id === 'ads'
+                    ? group.id === 'ads'
+                    : item.id === 'config'
+                      ? group.id === 'config'
+                      : item.href === '/conversions'
+                        ? pathname.startsWith('/conversions') || pathname.startsWith('/pixels') || pathname.startsWith('/gateways')
+                        : pathname.startsWith(item.href)
                 const delay = itemIndex++ * 35
                 return (
                   <li key={item.id}>
