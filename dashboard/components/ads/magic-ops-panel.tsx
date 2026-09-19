@@ -40,7 +40,6 @@ type CloudStatus = {
   activity: { provider: string; name: string; status: string; tiktok_video_id?: string; error?: string }[]
 }
 type QueueStatus = { paused: boolean; pausedUntil?: string | null; reason?: string; queued?: number; processing?: number }
-type BotBlocks = { blocks: { ipHash: string; adKey?: string; count: number; expiresAt: number; active: boolean }[] }
 type WidgetId = 'profit' | 'anomalies' | 'cloud' | 'protection'
 type CloudProvider = 'googleDrive' | 'dropbox'
 
@@ -105,11 +104,8 @@ export function MagicOpsPanel({
   const { data: anomalyData, error: anomalyDataError, mutate: mutateAnomalies } = useSWR<{ anomalies: Anomaly[] }>(active && advertiserId ? `/api/ads/anomalies?adAccountId=${encodeURIComponent(advertiserId)}` : null, fetcher, { refreshInterval: 60_000 })
   const { data: cloud, error: cloudError, mutate: mutateCloud } = useSWR<CloudStatus>(active ? '/api/ads/cloud-video' : null, fetcher, { refreshInterval: 30_000 })
   const { data: queue, error: queueError, mutate: mutateQueue } = useSWR<QueueStatus>(active ? '/api/ads/bulk/status' : null, fetcher, { refreshInterval: 10_000 })
-  const { data: blocks, error: blocksError, mutate: mutateBlocks } = useSWR<BotBlocks>(active ? '/api/cloak/blocks' : null, fetcher, { refreshInterval: 30_000 })
 
   const [savingProfit, setSavingProfit] = useState(false)
-  const [unblocking, setUnblocking] = useState<string | null>(null)
-  const [confirmUnblock, setConfirmUnblock] = useState<string | null>(null)
   const [confirmCloudConnect, setConfirmCloudConnect] = useState<CloudProvider | null>(null)
   const [runningAnomaly, setRunningAnomaly] = useState(false)
   const [profitDraft, setProfitDraft] = useState<ProfitConfig>(EMPTY_PROFIT)
@@ -260,24 +256,8 @@ export function MagicOpsPanel({
     }
   }
 
-  async function unblock(ipHash: string) {
-    if (unblocking) return
-    setUnblocking(ipHash)
-    try {
-      await apiSend(`/api/cloak/blocks/${encodeURIComponent(ipHash)}`, 'DELETE')
-      await mutateBlocks()
-      toast.success('Bloqueio removido')
-    } catch (e) {
-      toast.error('Não foi possível remover o bloqueio', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setUnblocking(null)
-      setConfirmUnblock(null)
-    }
-  }
-
-  const loadFailed = profitError || profitConfigDataError || anomalyDataError || cloudError || blocksError || queueError
+  const loadFailed = profitError || profitConfigDataError || anomalyDataError || cloudError || queueError
   const latestAnomaly = anomalyData?.anomalies?.[0]
-  const activeBlocks = (blocks?.blocks || []).filter((b) => b.active)
   const queueResumeTime = timeOnly(queue?.pausedUntil)
   const fixedCurrencies = COST_CURRENCIES.includes(profitDraft.fixedCostCurrency)
     ? COST_CURRENCIES
@@ -320,14 +300,13 @@ export function MagicOpsPanel({
     ),
     anomalies: <div className="py-4"><h3 className="text-sm font-semibold text-foreground">Análise de desempenho</h3><p className="mt-1 text-xs text-muted-foreground">Analisa os dados e destaca mudanças relevantes. Não altera campanhas.</p><p className="mt-3 text-xs leading-relaxed text-muted-foreground">{latestAnomaly?.content || 'As próximas leituras serão comparadas para identificar mudanças no desempenho.'}</p><button type="button" className="btn-ghost mt-3 min-h-10 text-xs" onClick={runAnomaly} disabled={runningAnomaly}>{runningAnomaly ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}Analisar agora</button></div>,
     cloud: <div className="py-4"><h3 className="text-sm font-semibold text-foreground">Vídeos da nuvem</h3><p className="mt-1 text-xs text-muted-foreground">Salve a origem separadamente e sincronize apenas quando quiser importar novos vídeos.</p><div className="mt-3 divide-y divide-border/60 border-y border-border/60">{(['googleDrive','dropbox'] as const).map((provider) => { const item = cloud?.providers?.[provider]; const label = provider === 'googleDrive' ? 'Google Drive' : 'Dropbox'; const value = provider === 'googleDrive' ? driveFolder : dropboxFolder; return <div key={provider} className="py-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-medium text-foreground">{label} <span className="ml-2 text-xs text-muted-foreground">{item?.connected ? '● Conectado' : item?.configured ? '● Configuração pronta' : '● Configuração pendente'}</span></p>{item?.connected ? <button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => void syncCloud(provider)} disabled={syncingCloud !== null}>{syncingCloud === provider ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}Sincronizar agora</button> : <button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => connectCloud(provider)} disabled={!item?.configured}>Conectar</button>}</div>{!item?.configured ? <p className="mt-2 text-xs text-muted-foreground">Conexão ainda não configurada no servidor.</p> : null}<label className="mt-3 block text-xs text-muted-foreground">{provider === 'googleDrive' ? 'Pasta de origem' : 'Caminho da pasta'}<input className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-brand-cyan/60" value={value} onChange={(e) => provider === 'googleDrive' ? setDriveFolder(e.target.value) : setDropboxFolder(e.target.value)} placeholder={provider === 'googleDrive' ? 'Vazio = todos os vídeos disponíveis' : '/Criativos'} /></label>{cloudDirty[provider] ? <p className="mt-2 text-xs text-warning">Alterações não salvas</p> : null}<button type="button" className="btn-secondary mt-2 min-h-10 text-xs" onClick={() => void saveCloud(provider)} disabled={savingCloud !== null || !cloudDirty[provider]}>{savingCloud === provider ? <Loader2 className="size-3.5 animate-spin" /> : null}Salvar origem</button></div>})}</div></div>,
-    protection: <div className="py-4"><h3 className="text-sm font-semibold text-foreground">Fila e bloqueios</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs text-muted-foreground">Fila de alterações TikTok</p><p className={`mt-1 text-sm font-medium ${queue?.paused ? 'text-warning' : 'text-success'}`}>{!queue || queueError ? 'Estado não disponível' : queue.paused ? '● Pausada temporariamente' : '● Operando'}</p>{queue?.paused ? <p className="mt-1 text-xs text-warning">{queueResumeTime ? `Retomada automática às ${queueResumeTime}.` : 'Aguardando retomada automática.'}</p> : null}</div><div><p className="text-xs text-muted-foreground">Bloqueios de tráfego</p><p className="mt-1 text-sm font-medium text-foreground">{activeBlocks.length} IPs ativos</p><p className="mt-1 text-xs text-muted-foreground">Bloqueios do sistema de proteção, não do TikTok Ads.</p></div></div>{activeBlocks.slice(0, 3).map((block) => <div key={block.ipHash} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3"><span className="text-xs text-muted-foreground">{block.ipHash.slice(0, 12)}… · {block.count} sinais</span><button type="button" className="btn-ghost min-h-10 text-xs text-error" disabled={unblocking !== null} onClick={() => setConfirmUnblock(block.ipHash)}>Remover bloqueio</button></div>)}</div>,
+    protection: <div className="py-4"><h3 className="text-sm font-semibold text-foreground">Fila operacional</h3><p className="mt-1 text-xs text-muted-foreground">Estado das alterações enviadas pelo ROI-NADOS para o TikTok.</p><div className="mt-3"><p className="text-xs text-muted-foreground">Fila de alterações TikTok</p><p className={`mt-1 text-sm font-medium ${queue?.paused ? 'text-warning' : 'text-success'}`}>{!queue || queueError ? 'Estado não disponível' : queue.paused ? '● Pausada temporariamente' : '● Operando'}</p>{queue?.paused ? <p className="mt-1 text-xs text-warning">{queueResumeTime ? `Retomada automática às ${queueResumeTime}.` : 'Aguardando retomada automática.'}</p> : null}</div></div>,
   }
 
   return <section className="space-y-2" aria-label="Ferramentas da conta">
-    {loadFailed ? <button type="button" className="btn-ghost min-h-10 self-start text-xs text-warning" onClick={() => void Promise.all([mutateProfit(), mutateProfitConfig(), mutateAnomalies(), mutateCloud(), mutateBlocks(), mutateQueue()])}>Alguns dados não foram atualizados · tentar novamente</button> : null}
+    {loadFailed ? <button type="button" className="btn-ghost min-h-10 self-start text-xs text-warning" onClick={() => void Promise.all([mutateProfit(), mutateProfitConfig(), mutateAnomalies(), mutateCloud(), mutateQueue()])}>Alguns dados não foram atualizados · tentar novamente</button> : null}
     <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold text-foreground">Ferramentas da conta</h2><p className="mt-1 text-xs text-muted-foreground">Custos, análise, vídeos e proteção.</p></div><button type="button" className="btn-ghost min-h-10 text-xs" onClick={() => setOrganizing((v) => !v)}>{organizing ? 'Concluir' : 'Organizar'}</button></div>
     <div className="divide-y divide-border/60 border-y border-border/60">{order.map((id) => <div key={id} draggable={organizing} onDragStart={() => organizing && setDragging(id)} onDragOver={(e) => organizing && e.preventDefault()} onDrop={() => moveWidget(id)} onDragEnd={() => setDragging(null)} className={dragging === id ? 'opacity-50' : ''}>{organizing ? <div className="flex justify-end pt-2"><GripVertical className="size-4 cursor-grab text-muted-foreground" aria-label="Arraste para reorganizar" /></div> : null}{sections[id]}</div>)}</div>
-    <ConfirmDialog open={Boolean(confirmUnblock)} title="Remover este bloqueio?" description="Esse acesso deixará de ser bloqueado pelo sistema de proteção." confirmLabel="Remover bloqueio" appearance="quiet" tone="danger" busy={Boolean(unblocking)} onConfirm={() => { if (confirmUnblock) void unblock(confirmUnblock) }} onClose={() => !unblocking && setConfirmUnblock(null)} />
     <ConfirmDialog open={Boolean(confirmCloudConnect)} title={confirmCloudConnect === 'googleDrive' ? 'Sair para conectar Google Drive?' : 'Sair para conectar Dropbox?'} description="Existem alterações não salvas nesta área. Continuar descartará esses rascunhos locais." confirmLabel="Abrir conexão" appearance="quiet" tone="danger" onConfirm={() => { const provider = confirmCloudConnect; if (provider) void performCloudConnect(provider) }} onClose={() => setConfirmCloudConnect(null)} />
   </section>
 }
