@@ -426,9 +426,9 @@ function DangerCard() {
             <Trash2 className="size-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Apagar estatísticas</h2>
-            <p className="text-xs text-muted-foreground">
-              Limpa o histórico de cliques e visitas. Links, checkouts e pixels cadastrados são mantidos.
+            <h2 className="text-sm font-semibold text-foreground">Apagar histórico de desempenho</h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Remove leads e eventos usados por Visão Geral, Funil e Atividade — incluindo visitas, checkouts, vendas, falhas, reembolsos e contestações. As configurações de Links, Pixels, Checkouts e Domínios são mantidas.
             </p>
           </div>
         </div>
@@ -457,7 +457,7 @@ function DangerCard() {
             ) : done ? (
               <ShieldCheck className="size-3.5" />
             ) : null}
-            {done ? 'Zerado' : confirming ? 'Confirmar e Zerar Agora' : 'Zerar Histórico'}
+            {done ? 'Apagado' : confirming ? 'Confirmar exclusão do histórico' : 'Apagar histórico'}
           </button>
         </div>
       </div>
