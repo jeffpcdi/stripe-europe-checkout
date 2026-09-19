@@ -1149,7 +1149,10 @@ async function handleCheckoutPublic(req, res) {
     // Monta o objeto challengeData com todos os sinais do browser persistidos
     const challengeData = buildCloakChallengeData(lead0);
 
-    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+    const filterReq = Object.assign(Object.create(req), {
+      geoCountry: observedCountry(),
+      roiNetworkContext: networkContext && networkContext.networkVerified ? networkContext : null,
+    });
     judgment = await botFilter
       .judge(filterReq, filterVid, challengeToken, challengeData, cloakCfg)
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
@@ -1541,7 +1544,7 @@ async function handleCloakPublic(req, res) {
   }
 
   if (enforceCloak && Array.isArray(entry.paises) && entry.paises.length) {
-    const cc = String(geoFromReq(req).country || '').toUpperCase();
+    const cc = String(observedCountry() || '').toUpperCase();
     if (!cc || entry.paises.indexOf(cc) < 0) {
       recordV6Shadow('SAFE', 'pais');
       stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: gatewayRef, ref: observedIp() });
