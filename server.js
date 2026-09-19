@@ -1847,12 +1847,11 @@ app.get('/api/v1/summary', (req, res) => {
   res.json(out);
 });
 
-// Snapshot compacto para WidgetKit/companion mobile. Usa o mesmo token
-// read-only da API pública; prefira Authorization: Bearer para não pôr o token
-// em URLs, histórico ou logs.
+// Snapshot compacto para WidgetKit/companion mobile. Usa EXCLUSIVAMENTE o
+// token dedicado do Companion para não ampliar o escopo do token público de BI.
 app.get('/api/v1/widget', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const tokenAcc = companionApiAccount(req) || publicApiAccount(req);
+  const tokenAcc = companionApiAccount(req);
   if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
   if (rateLimited(clientIp(req), 'pubwidget', 60)) return res.status(429).json({ error: 'rate limit' });
 
@@ -4942,6 +4941,23 @@ app.get('/api/companion/status', dashboardAuth, (req, res) => {
       widgetSnapshotVersion: 2,
     },
   });
+});
+
+app.delete('/api/companion/device/:id', dashboardAuth, async (req, res) => {
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  if (!id) return res.status(400).json({ ok: false, error: 'aparelho inválido' });
+  try {
+    const saved = await config.setDurable(req.account.id, (latest) => {
+      const companion = latest.companion || {};
+      return {
+        companion: Object.assign({}, companion, {
+          devices: (companion.devices || []).filter((device) => device.id !== id),
+        }),
+      };
+    });
+    audit(req, req.account.id, 'companion_device_removido', 'iPhone Companion removido: ' + id);
+    res.json({ ok: true, devices: ((saved.companion || {}).devices || []).length });
+  } catch (err) { return configMutationError(res, err); }
 });
 
 app.post('/api/companion/preferences', dashboardAuth, async (req, res) => {
