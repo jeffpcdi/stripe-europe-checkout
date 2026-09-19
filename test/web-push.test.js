@@ -228,6 +228,7 @@ test('venda: Web Push e Pushcut recebem o mesmo resumo sem alterar o payload ori
       event: 'sale', produto: 'Curso X', gateway: 'Kiwify', valor: 'R$ 197,00',
     }), true);
     assert.strictEqual(webNote.title, legacyNote.title);
+    assert.strictEqual(webNote.badge, true, 'venda entra na central e deve marcar o app instalado');
     assert.strictEqual(webNote.body, 'Curso X · Kiwify');
     assert.strictEqual(legacyNote.text, webNote.body);
     assert.strictEqual(legacyNote.sound, 'system');
