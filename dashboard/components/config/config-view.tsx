@@ -19,6 +19,7 @@ import {
   PlugZap,
 } from 'lucide-react'
 import * as Tabs from '@radix-ui/react-tabs'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
 import { fetcher, apiSend, useAccount, useAccountSettings } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
@@ -34,6 +35,30 @@ import { toast } from '@/lib/toast'
 
 export function ConfigView() {
   const { prefs, update } = usePrefs()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const validTabs = ['prefs', 'integrations', 'notifications', 'security', 'data'] as const
+  type SettingsTabKey = (typeof validTabs)[number]
+  const normalizedTab: SettingsTabKey = validTabs.includes(requestedTab as SettingsTabKey)
+    ? requestedTab as SettingsTabKey
+    : 'prefs'
+  const [activeTab, setActiveTab] = useState<SettingsTabKey>(normalizedTab)
+
+  useEffect(() => {
+    setActiveTab((current) => current === normalizedTab ? current : normalizedTab)
+  }, [normalizedTab])
+
+  function selectTab(next: string) {
+    const tab = validTabs.includes(next as SettingsTabKey) ? next as SettingsTabKey : 'prefs'
+    setActiveTab(tab)
+    const params = new URLSearchParams(searchParams.toString())
+    if (tab === 'prefs') params.delete('tab')
+    else params.set('tab', tab)
+    const query = params.toString()
+    router.replace(pathname + (query ? `?${query}` : ''), { scroll: false })
+  }
 
   return (
     <div className="operation-settings flex flex-col gap-6">
@@ -45,7 +70,7 @@ export function ConfigView() {
 
       <SettingsOverview />
 
-      <Tabs.Root defaultValue="prefs" className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
+      <Tabs.Root value={activeTab} onValueChange={selectTab} className="grid min-w-0 gap-5 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
         <Tabs.List
           aria-label="Configurações da conta"
           className="settings-tabs hide-scrollbar"
