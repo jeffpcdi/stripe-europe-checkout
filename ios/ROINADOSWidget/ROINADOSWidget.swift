@@ -13,14 +13,14 @@ struct ROIWidgetProvider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (ROIWidgetEntry) -> Void) {
         Task {
-            let snapshot = try? await ROIAPIClient.widgetSnapshot()
+            let snapshot = (try? await ROIAPIClient.widgetSnapshot()) ?? WidgetSnapshotCache.load()
             completion(ROIWidgetEntry(date: .now, snapshot: snapshot))
         }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<ROIWidgetEntry>) -> Void) {
         Task {
-            let snapshot = try? await ROIAPIClient.widgetSnapshot()
+            let snapshot = (try? await ROIAPIClient.widgetSnapshot()) ?? WidgetSnapshotCache.load()
             let entry = ROIWidgetEntry(date: .now, snapshot: snapshot)
             let refresh = Calendar.current.date(byAdding: .minute, value: 15, to: .now) ?? .now.addingTimeInterval(900)
             completion(Timeline(entries: [entry], policy: .after(refresh)))
