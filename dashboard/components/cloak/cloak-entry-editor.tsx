@@ -319,7 +319,19 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             </div>
           </section>
 
-          <section aria-labelledby="cloak-entry-protection" className="border-t border-border/60 pt-6">
+          <details className="group border-t border-border/60 pt-5" defaultOpen={Boolean(entry)}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/20">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Proteção e segmentação</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  {enabled ? (sensitivity === 'custom' ? 'Personalizada' : selectedSensitivity?.label || 'Equilibrada') : 'Proteção desativada'} · {segmentBits.length > 0 ? segmentBits.join(' · ') : 'sem restrições de público'}
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+
+            <div className="mt-5 space-y-6">
+          <section aria-labelledby="cloak-entry-protection">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h3 id="cloak-entry-protection" className="text-sm font-semibold text-foreground">Proteção da campanha</h3>
@@ -333,7 +345,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             </div>
 
             <fieldset className="mt-5">
-              <legend className="text-sm font-medium text-foreground">Quando este link detectar um acesso suspeito</legend>
+              <legend className="text-sm font-medium text-foreground">Quando a campanha detectar um acesso suspeito</legend>
               {!enabled && <p className="mt-1 text-xs text-muted-foreground">Esta escolha será usada quando a proteção estiver ativa.</p>}
               <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
                 <label className="flex cursor-pointer items-start gap-3 py-3.5">
@@ -367,7 +379,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
 
             {globalShadowMode && !shadowMode && (
               <p className="mt-3 text-xs leading-relaxed text-warning">
-                O modo observação global está ativo. Enquanto ele permanecer ligado, este link também apenas observará, mesmo com “Enviar para o destino seguro” selecionado aqui.
+                O modo observação da conta está ativo. Enquanto ele permanecer ligado, esta campanha também apenas observará, mesmo com “Enviar para o destino seguro” selecionado aqui.
               </p>
             )}
 
@@ -499,6 +511,8 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
               </div>
             </div>
           </details>
+            </div>
+          </details>
 
           {error && <p className="text-sm leading-relaxed text-destructive">{error}</p>}
         </div>
@@ -518,7 +532,7 @@ export function CloakEntryEditor({ entry, initialDomain = '', onClose, onSaved }
             className="inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/30 disabled:opacity-50"
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
-            {entry ? 'Salvar' : 'Criar link'}
+            {entry ? 'Salvar alterações' : 'Criar campanha'}
           </button>
         </div>
       </div>
