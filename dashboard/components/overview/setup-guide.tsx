@@ -89,7 +89,7 @@ export function SetupGuide({ health }: { health?: OverviewHealthData | null }) {
         </summary>
         <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
           <p className="text-[11px] text-muted-foreground">
-            Cadastros não confirmam a entrega de eventos até o primeiro teste real de disparo.
+            Cadastros não confirmam a operação até o primeiro webhook real processado com sucesso.
           </p>
           <ul className="setup-guide-steps grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {steps.map((step) => (
