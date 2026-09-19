@@ -1194,7 +1194,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       imageUrl: videoUrl,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
       linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
-      callToAction: CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined,
+      callToAction: b.dynamicCallToAction === true ? undefined : (CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined),
+      dynamicCallToAction: b.dynamicCallToAction === true,
       countries: Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
         : undefined,
@@ -1329,6 +1330,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         idempotencyJobId = reservation.job && reservation.job.id;
       }
 
+      // CTA automático é um recurso remoto separado do anúncio. Resolve uma vez,
+      // verifica via get_tiktok_cta_portfolio e persiste o ID antes de criar a
+      // hierarquia. Em dry-run essa etapa nunca roda.
+      const dynamicCta = payload.dynamicCallToAction
+        ? await pipeboard.getOrCreateTikTokCtaPortfolio(req.account.id, payload.adAccountId, ['SHOP_NOW', 'LEARN_MORE'])
+        : null;
+
       // F1: criação composta via Pipeboard (campaign → adgroup → upload → ad).
       // O provider SEMPRE cria em PAUSED; sem "status: active" aqui — a rota de
       // criação entrega material p/ revisão humana, nunca delivery imediato.
@@ -1346,6 +1354,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         body: payload.body,
         linkUrl: payload.linkUrl,
         callToAction: payload.callToAction,
+        callToActionId: dynamicCta ? dynamicCta.id : undefined,
         countries: payload.countries,
         languages: payload.languages,
         ageMin: payload.ageMin,
@@ -3141,11 +3150,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // reiniciar NÃO pode duplicar campanha.
       const p = task.payload || {};
       const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const dynamicCta = p.dynamicCallToAction
+        ? await pipeboard.getOrCreateTikTokCtaPortfolio(env.accountId, p.adAccountId, ['SHOP_NOW', 'LEARN_MORE'])
+        : null;
       const result = await pipeboard.createFullAd(p.adAccountId, {
         name: p.name, goal: p.goal, videoUrl: p.imageUrl,
         budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
         budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
+        callToActionId: dynamicCta ? dynamicCta.id : undefined,
         countries: p.countries, languages: p.languages,
         ageMin: p.ageMin, ageMax: p.ageMax,
         gender: p.gender, interestIds: p.interestIds, placements: p.placements,
