@@ -63,7 +63,7 @@ struct ROIWidgetView: View {
                 Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
                     .font(.title3.weight(.bold))
                     .minimumScaleFactor(0.75)
-                if let delta = snapshot.trend.revenueDeltaPct {
+                if let delta = snapshot.trend?.revenueDeltaPct {
                     Text(deltaLabel(delta))
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(delta >= 0 ? .green : .red)
@@ -93,7 +93,7 @@ struct ROIWidgetView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(money(snapshot.today.revenueCents, currency: snapshot.currency))
                             .font(.title2.weight(.bold))
-                        if let delta = snapshot.trend.revenueDeltaPct {
+                        if let delta = snapshot.trend?.revenueDeltaPct {
                             Text(deltaLabel(delta))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(delta >= 0 ? .green : .red)
