@@ -1990,10 +1990,10 @@ app.post('/api/public-token/scope', dashboardAuth, async (req, res) => {
   res.json({ ok: true, scope });
 });
 
-// ── Relatório diário via Pushcut ──────────────�������─────────────────────
-// Sem cron confiável em serverless: verificação barata "pegando carona"
-// no tráfego (track/conversão). Na primeira request após a virada do dia
-// (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
+// ── Briefing diário ───────────────────────────────────────────────────────
+// Em produção Railway o processo é persistente: um sweep periódico garante o
+// horário mesmo sem tráfego. Chamadas em track/conversão permanecem como
+// fallback; lastDailyReport torna ambos idempotentes por conta/dia.
 let dailyCheckBusy = false;
 async function checkDailyReport() {
   if (dailyCheckBusy) return;
@@ -2003,6 +2003,19 @@ async function checkDailyReport() {
     await Promise.all(config.accountIds().map((accId) => checkDailyReportFor(accId)));
   } finally { dailyCheckBusy = false; }
 }
+
+const DAILY_REPORT_SWEEP_MS = 5 * 60 * 1000;
+const dailyReportSweep = setInterval(() => {
+  checkDailyReport().catch((error) => {
+    console.warn('[relatório-diário] sweep falhou:', String(error && error.message || error).slice(0, 180));
+  });
+}, DAILY_REPORT_SWEEP_MS);
+if (dailyReportSweep.unref) dailyReportSweep.unref();
+
+const dailyReportBootCheck = setTimeout(() => {
+  checkDailyReport().catch(() => {});
+}, 30 * 1000);
+if (dailyReportBootCheck.unref) dailyReportBootCheck.unref();
 
 // Item 464: watchdog de anomalia — "zero vendas em X horas" quando o histórico
 // diz que deveria haver. Detecta gateway quebrado/webhook caído ANTES do dono
