@@ -81,13 +81,6 @@ const POOLS = {
     { t: 'Login detectado', b: 'Acesso novo ao painel. Só confirmando que é você mesmo.' },
     { t: 'Toc toc — foi você?', b: 'Novo acesso ao painel. Se não foi, a senha nova te espera nas Configurações.' }
   ],
-  daily: [
-    { t: 'O resumão do dia chegou', b: '' },
-    { t: 'Fechamento de caixa (spoiler abaixo)', b: '' },
-    { t: 'Relatório diário: sem enrolação', b: '' },
-    { t: 'Plantão ROI-NADOS: como foi o dia', b: '' },
-    { t: 'Números do dia na área', b: '' }
-  ],
   watchdog: [
     { t: 'Silêncio suspeito no caixa', b: '' },
     { t: 'Cadê as vendas?', b: '' },
