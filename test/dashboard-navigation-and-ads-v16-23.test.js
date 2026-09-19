@@ -48,6 +48,9 @@ assert.match(destination, /Links de venda/);
 assert.match(destination, /Campanhas Cloaker/);
 assert.match(destination, /utm|atribuição/i);
 
+assert.match(destination, /combinedUrl/);
+assert.match(destination, /cloakTrafficSource/);
+
 for (const file of [
   'dashboard/components/ads/universal-launcher-dialog.tsx',
   'dashboard/components/ads/smart-plus-create-dialog.tsx',
@@ -55,6 +58,14 @@ for (const file of [
 ]) {
   assert.match(read(file), /AdDestinationField/);
 }
+
+assert.match(read('dashboard/components/ads/universal-launcher-dialog.tsx'), /cloakTrafficSource="tiktok_standard"/);
+assert.match(read('dashboard/components/ads/smart-plus-create-dialog.tsx'), /cloakTrafficSource="tiktok_smart_plus"/);
+assert.match(read('dashboard/components/ads/bulk-upload-dialog.tsx'), /cloakTrafficSource="tiktok_standard"/);
+
+const header = read('dashboard/components/shell/header.tsx');
+assert.match(header, /pathname\.startsWith\('\/ads'\)/);
+assert.doesNotMatch(header, /<OverviewCalendar \/>[\s\S]*<NotificationBell/);
 
 const bulk = read('dashboard/components/ads/bulk-upload-dialog.tsx');
 assert.match(bulk, /href="\/conversions\?tab=pixels"/);
