@@ -2113,30 +2113,42 @@ async function checkDailyReportFor(accId) {
     const spendText = sameCurrency ? spend.toFixed(2) + ' ' + cur : 'moeda divergente';
     const roasText = sameCurrency && spend > 0 ? roas.toFixed(2) + '×' : '—';
     const profitText = (profit.netProfitCents / 100).toFixed(2) + ' ' + cur;
-    const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% receita vs. dia anterior' : null;
-    // Push curto e escaneável: negócio → mídia → eficiência. Detalhes ficam na dashboard.
+    const aovText = sales.length ? (rev / 100 / sales.length).toFixed(2) + ' ' + cur : '—';
+    const deltaText = delta != null ? (delta >= 0 ? '+' : '') + delta + '% vs. dia anterior' : null;
     const exception = sameCurrency && spend > 0 && sales.length === 0
-      ? 'Atenção: houve gasto no TikTok sem venda registrada.'
-      : (profit.netProfitCents < 0 ? 'Atenção: o lucro líquido do dia ficou negativo.' : null);
-    const text = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
-      + (deltaText ? '\n' + deltaText : '')
-      + '\nROAS ' + roasText + ' · TikTok ' + spendText
+      ? 'Gasto no TikTok sem venda registrada.'
+      : (profit.netProfitCents < 0 ? 'Lucro líquido do dia ficou negativo.' : null);
+
+    // Push: cabe no Lock Screen e entrega o essencial em poucos segundos.
+    const pushText = sales.length + (sales.length === 1 ? ' venda' : ' vendas')
+      + ' · Ticket ' + aovText
+      + (deltaText ? ' · ' + deltaText : '')
+      + '\nTikTok ' + spendText + ' · ROAS ' + roasText
+      + '\nLucro ' + profitText
+      + (exception ? '\nAtenção: ' + exception : '');
+
+    // Canais longos preservam contexto operacional adicional.
+    const reportText = 'Receita ' + revenueText + ' · ' + sales.length + (sales.length === 1 ? ' venda' : ' vendas')
+      + ' · Ticket ' + aovText
+      + (deltaText ? '\nReceita ' + deltaText : '')
+      + '\nTikTok ' + spendText + ' · ROAS ' + roasText
       + '\nLucro ' + profitText + ' · Conversão ' + conv + '%'
-      + (exception ? '\n' + exception : '')
+      + (exception ? '\nAtenção: ' + exception : '')
       + (profit.quality === 'exact' ? '' : '\nLucro inclui custos estimados.');
-    const title = 'Resumo diário · ' + yKey.split('-').reverse().slice(0, 2).join('/');
+
+    const title = 'Ontem · ' + revenueText + ' em receita';
     const deliveries = [];
     // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
     // Uma única chamada evita duplicar a mesma notificação no iPhone.
     if (pushcutEnabled || webPushEnabled) deliveries.push(sendPushcut('Resumo diário', {
       title,
-      text,
+      text: pushText,
       sound: 'system'
     }, accId, {
       event: 'daily',
       dedupeKey: 'daily-report:' + yKey,
     }).catch(() => false));
-    if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + text, [
+    if (whatsappEnabled) deliveries.push(whatsapp.sendDailyReport(settings.whatsappTo, title + '\n' + reportText, [
       yKey.split('-').reverse().join('/'), (rev / 100).toFixed(2) + ' ' + cur,
       String(sales.length), sameCurrency ? spend.toFixed(2) + ' ' + cur : '—',
       sameCurrency ? roas.toFixed(2) : '—', (profit.netProfitCents / 100).toFixed(2) + ' ' + cur,
@@ -5139,7 +5151,7 @@ async function notifyPushcut(event, n) {
   const tpl = settings.notificationTemplate || settings.pushcutTemplate;
   const eventKey = isPendingPix ? 'pix_pending' : map.key;
   const titles = {
-    sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
+    sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada · ${valor}`) : `Venda aprovada · ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
     refund: `Reembolso — ${valor}`,
     dispute: `Disputa aberta — ${valor}`,
