@@ -206,7 +206,7 @@ export function WebPushCard() {
       )}
       {isIOS && support?.supported && !permissionDenied && (
         <p className="mx-5 mb-5 text-[11px] leading-relaxed text-muted-foreground">
-          No iPhone, o ROI-NADOS usa Web Push da Tela de Início. O iOS controla som, Foco e estilo do alerta; o painel não força som customizado em segundo plano.
+          No iPhone, o ROI-NADOS usa Web Push da Tela de Início. O iOS controla som, Foco e estilo do alerta. Para o som próprio de venda com a tela bloqueada, use o Companion iPhone abaixo.
         </p>
       )}
 
