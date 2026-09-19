@@ -2156,8 +2156,13 @@ async function checkDailyReportFor(accId) {
   const reportEnabled = settings.dailyReportEnabled === true || (pc.events || {}).daily === true;
   const pushcutEnabled = reportEnabled && !!pc.url;
   const whatsappEnabled = reportEnabled && !!settings.whatsappTo;
-  const webPushEnabled = reportEnabled && ((cfg.webPush || {}).subs || []).length > 0;
-  if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled) return;
+  const nativeReportEnabled = reportEnabled && nativePreferenceEnabled(accId, 'daily');
+  const webPushEnabled = nativeReportEnabled && ((cfg.webPush || {}).subs || []).length > 0;
+  const companion = cfg.companion || {};
+  const iosPushEnabled = nativeReportEnabled
+    && companion.preferNativeIOS === true
+    && (companion.devices || []).length > 0;
+  if (!pushcutEnabled && !whatsappEnabled && !webPushEnabled && !iosPushEnabled) return;
   const today = accDay(accId, new Date());
   if (cfg.lastDailyReport === today) return;
   // Default de produto: 08h no fuso da conta.
@@ -2233,7 +2238,7 @@ async function checkDailyReportFor(accId) {
     const deliveries = [];
     // sendPushcut é o fan-out unificado (Web Push nativo + adaptador Pushcut).
     // Uma única chamada evita duplicar a mesma notificação no iPhone.
-    if (pushcutEnabled || webPushEnabled) deliveries.push(sendPushcut('Resumo diário', {
+    if (pushcutEnabled || webPushEnabled || iosPushEnabled) deliveries.push(sendPushcut('Resumo diário', {
       title,
       text: pushText,
       sound: 'system'
